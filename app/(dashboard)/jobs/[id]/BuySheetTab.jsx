@@ -13,6 +13,89 @@ const T = {
 const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
 const mono = `'IBM Plex Mono','Courier New',monospace`;
 
+const StylePicker = ({catalog,onAdd,onUpdateCatalog,requireQty=true,onCollapse}) => {
+  const [sB,setSB]=useState(null),[sS,setSS]=useState(null),[sC,setSC]=useState(null);
+  const [sizes,setSizes]=useState({}),[name,setName]=useState("");
+  const [aB,setAB]=useState(false),[aS,setAS]=useState(false),[aC,setAC]=useState(false);
+  const [nv,setNv]=useState(""),[ns,setNs]=useState("");
+  const brands=Object.keys(catalog),styles=sB?Object.keys(catalog[sB]):[],colors=sS?Object.keys(catalog[sB][sS]):[],szList=sC?catalog[sB][sS][sC]:[];
+  const canAdd=sB&&sS&&sC&&Object.keys(sizes).length>0&&name.trim();
+  const toggleSz=(sz)=>setSizes(p=>{const n={...p};if(n[sz]!==undefined)delete n[sz];else n[sz]=1;return n;});
+  const doAdd=()=>{
+    const selectedSizes=Object.keys(sizes);
+    onAdd({id:Date.now(),brand:sB,style:sS,color:sC,name,variants:selectedSizes.map(sz=>({size:sz,qty:0})),totalQty:0,category:CATEGORY(sB),blank:0,decoration:0,freight:0,duty:0,wh:0,fulfillment:0,margin:45});
+    setSizes({});setName("");setSC(null);setSS(null);setSB(null);
+    if(onCollapse) onCollapse();
+  };
+  const addBrand=()=>{if(!nv.trim())return;onUpdateCatalog({...catalog,[nv.trim()]:{}}); setSB(nv.trim());setSS(null);setSC(null);setAB(false);setNv("");};
+  const addStyle=()=>{if(!nv.trim()||!sB)return;onUpdateCatalog({...catalog,[sB]:{...catalog[sB],[nv.trim()]:{}}}); setSS(nv.trim());setSC(null);setAS(false);setNv("");};
+  const addColor=()=>{if(!nv.trim()||!sB||!sS)return;const sz=ns.split(",").map(s=>s.trim()).filter(Boolean);onUpdateCatalog({...catalog,[sB]:{...catalog[sB],[sS]:{...catalog[sB][sS],[nv.trim()]:sz.length?sz:["OSFA"]}}}); setSC(nv.trim());setAC(false);setNv("");setNs("");};
+  const col=(active)=>({padding:"8px 11px",cursor:"pointer",fontSize:11,fontFamily:font,display:"flex",justifyContent:"space-between",alignItems:"center",background:active?T.accent:"transparent",color:active?"#fff":T.text,borderBottom:`1px solid ${T.border}`,transition:"background 0.1s"});
+  const AR=({onSave,ph,extra,onCancel})=>(
+    <div style={{padding:"7px 9px",borderTop:`1px solid ${T.border}`,display:"flex",flexDirection:"column",gap:5}}>
+      <input autoFocus value={nv} onChange={e=>setNv(e.target.value)} onKeyDown={e=>e.key==="Enter"&&onSave()} placeholder={ph}
+        style={{fontFamily:font,fontSize:11,color:T.text,background:T.card,border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 7px",outline:"none"}}/>
+      {extra&&<input value={ns} onChange={e=>setNs(e.target.value)} placeholder="Sizes: S,M,L,XL…"
+        style={{fontFamily:font,fontSize:11,color:T.text,background:T.card,border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 7px",outline:"none"}}/>}
+      <div style={{display:"flex",gap:4}}><Btn onClick={onSave} variant="primary" small>Add</Btn><Btn onClick={onCancel} variant="outline" small>Cancel</Btn></div>
+    </div>
+  );
+  const ColHead=({title})=><div style={{padding:"5px 11px",background:T.surface,borderBottom:`1px solid ${T.border}`,fontSize:9,fontWeight:700,color:T.muted,letterSpacing:"0.1em",textTransform:"uppercase",fontFamily:font}}>{title}</div>;
+  const AddBtn=({onClick})=><div onClick={onClick} style={{padding:"5px 11px",fontSize:10,color:T.accent,cursor:"pointer",borderTop:`1px solid ${T.border}`,fontFamily:font,fontWeight:600}}>+ Add</div>;
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+        <div style={{flex:1}}>
+          <DInput label="Item display name" value={name} onChange={e=>setName(e.target.value)}
+            placeholder={sB&&sS&&sC?`e.g. ${sB} ${sS} – ${sC}`:"Select brand, style & color first"} small/>
+        </div>
+        <Btn onClick={doAdd} variant="primary" disabled={!canAdd}>Add to project →</Btn>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden",background:T.card,minHeight:200}}>
+        <div style={{borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column"}}>
+          <ColHead title="Brand"/>
+          <div style={{flex:1,overflowY:"auto"}}>{brands.map(b=><div key={b} onClick={()=>{setSB(b);setSS(null);setSC(null);setSizes({});}} style={col(sB===b)} onMouseEnter={e=>{if(sB!==b)e.currentTarget.style.background=T.surface;}} onMouseLeave={e=>{if(sB!==b)e.currentTarget.style.background="transparent";}}><span>{b}</span><span style={{fontSize:8,color:sB===b?"rgba(255,255,255,0.6)":CAT_COLOR[CATEGORY(b)]}}>{CATEGORY(b)}</span></div>)}</div>
+          {aB?<AR onSave={addBrand} ph="Brand name…" onCancel={()=>{setAB(false);setNv("");}}/> :<AddBtn onClick={()=>setAB(true)}/>}
+        </div>
+        <div style={{borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column"}}>
+          <ColHead title="Style"/>
+          <div style={{flex:1,overflowY:"auto"}}>{!sB?<div style={{padding:"14px 11px",fontSize:10,color:T.faint,fontFamily:font}}>← Brand</div>:styles.map(s=><div key={s} onClick={()=>{setSS(s);setSC(null);setSizes({});}} style={col(sS===s)} onMouseEnter={e=>{if(sS!==s)e.currentTarget.style.background=T.surface;}} onMouseLeave={e=>{if(sS!==s)e.currentTarget.style.background="transparent";}}><span>{s}</span></div>)}</div>
+          {sB&&(aS?<AR onSave={addStyle} ph="Style name & number…" onCancel={()=>{setAS(false);setNv("");}}/> :<AddBtn onClick={()=>setAS(true)}/>)}
+        </div>
+        <div style={{borderRight:`1px solid ${T.border}`,display:"flex",flexDirection:"column"}}>
+          <ColHead title="Color"/>
+          <div style={{flex:1,overflowY:"auto"}}>{!sS?<div style={{padding:"14px 11px",fontSize:10,color:T.faint,fontFamily:font}}>← Style</div>:colors.map(c=><div key={c} onClick={()=>{setSC(c);setSizes({});}} style={col(sC===c)} onMouseEnter={e=>{if(sC!==c)e.currentTarget.style.background=T.surface;}} onMouseLeave={e=>{if(sC!==c)e.currentTarget.style.background="transparent";}}><span>{c}</span></div>)}</div>
+          {sS&&(aC?<AR onSave={addColor} ph="Color name…" extra onCancel={()=>{setAC(false);setNv("");setNs("");}}/> :<AddBtn onClick={()=>setAC(true)}/>)}
+        </div>
+        <div style={{display:"flex",flexDirection:"column"}}>
+          <ColHead title="Sizes"/>
+          <div style={{flex:1,overflowY:"auto",padding:"8px"}}>
+            {!sC?<div style={{padding:"6px 2px",fontSize:10,color:T.faint,fontFamily:font}}>← Color</div>
+              :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {szList.map(sz=>{
+                  const on=sizes[sz]!==undefined;
+                  return(
+                    <div key={sz} onClick={()=>toggleSz(sz)}
+                      style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 12px",borderRadius:7,cursor:"pointer",border:`1px solid ${on?T.accent:T.border}`,background:on?T.accent:T.surface,transition:"all 0.12s",userSelect:"none"}}>
+                      <span style={{fontSize:13,fontWeight:700,color:on?"#fff":T.muted,fontFamily:mono}}>{sz}</span>
+                      {on&&<span style={{fontSize:11,color:"rgba(255,255,255,0.8)"}}>✓</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            }
+          </div>
+          {sC&&Object.keys(sizes).length>0&&(
+            <div style={{padding:"6px 10px",borderTop:`1px solid ${T.border}`,fontSize:10,fontFamily:font,color:T.muted}}>
+              {Object.keys(sizes).length} size{Object.keys(sizes).length!==1?"s":""} selected
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- BUY SHEET ENGINE ---
 const SIZE_ORDER=["OSFA","XS","S","M","L","XL","2XL","3XL","4XL","5XL","YXS","YS","YM","YL","YXL"];
 const sortSizes=(sizes)=>[...sizes].sort((a,b)=>{const ai=SIZE_ORDER.indexOf(a),bi=SIZE_ORDER.indexOf(b);if(ai===-1&&bi===-1)return a.localeCompare(b);if(ai===-1)return 1;if(bi===-1)return -1;return ai-bi;});
