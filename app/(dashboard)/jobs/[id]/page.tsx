@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CostingTabWrapper } from "./CostingTab";
+import { BuySheetTab } from "./BuySheetTab";
 
 const PIPELINE_STAGES = [
   { id:"blanks_ordered", label:"Blanks Ordered", pct:10 },
@@ -316,47 +317,19 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
 
       {/* BUYSHEET */}
-      {tab==="buysheet"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:13,color:"var(--color-text-secondary)"}}>{items.length} items · {totalUnits.toLocaleString()} total units</span>
-            <a href={`/jobs/${params.id}/items/new`} style={{fontSize:12,color:"var(--color-text-info)",textDecoration:"none"}}>+ Add item</a>
-          </div>
-          {items.length===0&&<div style={{...card,textAlign:"center",color:"var(--color-text-secondary)",padding:"2rem",fontSize:13}}>No items yet. <a href={`/jobs/${params.id}/items/new`} style={{color:"var(--color-text-info)"}}>Add the first item</a></div>}
-          {items.map(item=>{
-            const qty=tQty(item.qtys||{});
-            return (
-              <div key={item.id} style={{...card,padding:0,overflow:"hidden"}}>
-                <div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderBottom:"0.5px solid var(--color-border-tertiary)"}}>
-                  <div style={{flex:1}}>
-                    <span style={{fontSize:13,fontWeight:500}}>{item.name}</span>
-                    <span style={{marginLeft:8,padding:"1px 7px",borderRadius:"var(--border-radius-md)",fontSize:11,fontWeight:500,background:item.status==="confirmed"?"#EAF3DE":"#FAEEDA",color:item.status==="confirmed"?"#27500A":"#633806"}}>{item.status}</span>
-                    <div style={{fontSize:11,color:"var(--color-text-secondary)",marginTop:2}}>{item.blank_vendor} {item.blank_sku}</div>
-                  </div>
-                  <span style={{fontSize:13,fontWeight:500,color:"var(--color-text-secondary)"}}>{qty.toLocaleString()} units</span>
-                </div>
-                <div style={{overflowX:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                    <thead><tr style={{background:"var(--color-background-secondary)"}}>
-                      {[...(item.sizes||[]),"Total"].map(sz=><th key={sz} style={{padding:"6px 12px",textAlign:"center",color:"var(--color-text-secondary)",fontWeight:500,borderRight:"0.5px solid var(--color-border-tertiary)"}}>{sz}</th>)}
-                    </tr></thead>
-                    <tbody><tr>
-                      {(item.sizes||[]).map(sz=>(
-                        <td key={sz} style={{padding:"6px 4px",textAlign:"center",borderRight:"0.5px solid var(--color-border-tertiary)"}}>
-                          <input type="number" min="0" value={(item.qtys||{})[sz]||0}
-                            onChange={e=>updItem(item.id,{qtys:{...(item.qtys||{}),[sz]:parseInt(e.target.value)||0}})}
-                            style={{width:56,textAlign:"center",padding:"4px",border:"0.5px solid var(--color-border-tertiary)",borderRadius:"var(--border-radius-md)",background:"var(--color-background-primary)",color:"var(--color-text-primary)",fontSize:12,fontFamily:"var(--font-mono)"}}/>
-                        </td>
-                      ))}
-                      <td style={{padding:"6px 12px",textAlign:"center",fontWeight:500,fontFamily:"var(--font-mono)"}}>{qty.toLocaleString()}</td>
-                    </tr></tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+     {tab==="buysheet"&&(
+  <BuySheetTab
+    items={items}
+    onUpdateItems={setItems}
+    catalog={{}}
+    onUpdateCatalog={()=>{}}
+  />
+)}
+```
+
+Save then:
+```
+cd ~/opshub && git add . && git commit -m "Add V1 BuySheetTab" && git push
 
       {/* COSTING */}
       {tab==="costing"&&(
