@@ -1,6 +1,85 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 
+const T = {
+  bg:"#0f1117", surface:"#181c27", card:"#1e2333", border:"#2a3050",
+  accent:"#4f8ef7", accentDim:"#1e3a6e",
+  green:"#34c97a", greenDim:"#0e3d24",
+  amber:"#f5a623", amberDim:"#3d2a08",
+  red:"#f05353", redDim:"#3d1212",
+  purple:"#a78bfa", purpleDim:"#2d1f5e",
+  text:"#e8eaf2", muted:"#7a82a0", faint:"#3a4060",
+};
+const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
+const mono = `'IBM Plex Mono','Courier New',monospace`;
+
+
+const BLANK_COSTS = {
+  "NL6210_White":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Black":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Apple Green":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Banana Cream":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Bondi Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Cardinal":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Charcoal":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Cream":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Dark Heather Grey":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Espresso":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Columbia Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Cool Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Forest Green":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Heavy Metal":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Light Pink":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Maroon":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Mauve":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Redwood":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Seafoam":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Shiitake":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Slate Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Tan":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Ice Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Indigo":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72},
+  "NL6210_Kelly Green":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72},
+  "NL6210_Light Olive":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Midnight Navy":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Military Green":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72},
+  "NL6210_Mint":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Neon Heather Green":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Neon Yellow":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Orange":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72},
+  "NL6210_Purple Rush":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72},
+  "NL6210_Red":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Royal":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Sand":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Silk":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Stone Grey":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Storm":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Tahiti Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Teal":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"6XL":9.17},
+  "NL6210_Turquoise":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"6XL":9.17},
+  "NL6210_Warm Grey":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"6XL":9.17},
+};
+
+// Look up blank cost by style key + color + size
+function lookupBlankCost(styleKey, color, size) {
+  const key = styleKey + "_" + color;
+  return BLANK_COSTS[key]?.[size] ?? 0;
+}
+// Seed blank costs for a product given its style key, color, and sizes
+function seedBlankCosts(styleKey, color, sizes) {
+  // styleKey might be "6210" but BLANK_COSTS keys are "NL6210_{color}"
+  // Find the matching key by checking if any BLANK_COSTS key contains the style code and color
+  const exactKey = styleKey + "_" + color;
+  const fuzzyKey = Object.keys(BLANK_COSTS).find(k => k.endsWith("_" + color) && k.includes(styleKey));
+  const resolvedKey = BLANK_COSTS[exactKey] ? exactKey : (fuzzyKey || null);
+  const costs = {};
+  (sizes||[]).forEach(sz => { costs[sz] = resolvedKey ? (BLANK_COSTS[resolvedKey]?.[sz] ?? 0) : 0; });
+  return costs;
+}
+
+
+const EMPTY_COST_PRODUCT=()=>({id:Date.now()+Math.random(),name:"",style:"",color:"",sizes:[],qtys:{},blankCosts:{},totalQty:0,unitPrice:0,sellOverride:null,isFleece:false,printVendor:"",printCount:4,printLocations:{},tagPrint:false,tagRepeat:false,tagPrintPrinter:"",specialtyQtys:{},finishingQtys:{},customCosts:[],finishingType:"",finishingPrinter:"",finishingCostOverride:0,specialties:[],setupFees:{printer:"",screens:0,tagSizes:0,seps:0,inkChanges:0,manualCost:0}});
+
 // Theme constants (V1 dark theme)
 const T = {
   bg:"#0f1117", surface:"#181c27", card:"#1e2333", border:"#2a3050",
@@ -1204,60 +1283,3 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
 
 export { CostingTab };
-export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) {
-  const initItems = (buyItems || []).map(it => ({
-    ...EMPTY_COST_PRODUCT(),
-    id: it.id,
-    name: it.name || "",
-    style: it.blank_vendor || "",
-    color: it.blank_sku || "",
-    sizes: it.sizes || [],
-    qtys: it.qtys || {},
-    blankCosts: seedBlankCosts(it.blank_vendor || "", it.blank_sku || "", it.sizes || []),
-    totalQty: Object.values(it.qtys || {}).reduce((a, v) => a + v, 0),
-  }));
-
-  const [costProds, setCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
-  const [savedCostProds, setSavedCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
-  const [costMargin, setCostMargin] = useState("30%");
-  const [inclShip, setInclShip] = useState(true);
-  const [inclCC, setInclCC] = useState(true);
-  const [orderInfo, setOrderInfo] = useState({
-    clientName: project?.clients?.name || "",
-    clientEmail: "",
-    invoiceNum: project?.job_number || "",
-    validUntil: "",
-    shipDate: project?.target_ship_date || "",
-    vendorId: "",
-    shipMethod: "",
-    notes: project?.notes || "",
-    productionNotes: "",
-    finishingNotes: "",
-  });
-  const [savedOrderInfo, setSavedOrderInfo] = useState({ ...orderInfo });
-  const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) || JSON.stringify(orderInfo) !== JSON.stringify(savedOrderInfo);
-  const onSave = () => {
-    setSavedCostProds(JSON.parse(JSON.stringify(costProds)));
-    setSavedOrderInfo(JSON.parse(JSON.stringify(orderInfo)));
-  };
-
-  return (
-    <CostingTab
-      project={project}
-      buyItems={buyItems}
-      onUpdateBuyItems={onUpdateBuyItems}
-      costProds={costProds}
-      setCostProds={setCostProds}
-      costMargin={costMargin}
-      setCostMargin={setCostMargin}
-      inclShip={inclShip}
-      setInclShip={setInclShip}
-      inclCC={inclCC}
-      setInclCC={setInclCC}
-      orderInfo={orderInfo}
-      setOrderInfo={setOrderInfo}
-      costingDirty={costingDirty}
-      onSave={onSave}
-    />
-  );
-}
