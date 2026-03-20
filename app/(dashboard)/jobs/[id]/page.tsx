@@ -317,12 +317,37 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
 
       {/* BUYSHEET */}
+
 {tab==="buysheet"&&(
   <BuySheetTab
     items={items}
-    onUpdateItems={setItems}
-    catalog={{}}
-    onUpdateCatalog={()=>{}}
+    onUpdateItems={async (newItems) => {
+      const deleted = items.filter(i => !newItems.find(ni => ni.id === i.id));
+      for (const item of deleted) {
+        await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
+        await supabase.from("items").delete().eq("id", item.id);
+      }
+      const added = newItems.filter(ni => !items.find(i => i.id === ni.id));
+      for (const item of added) {
+        const { data } = await supabase.from("items").insert({
+          job_id: params.id, name: item.name,
+          blank_vendor: item.blank_vendor || null,
+          blank_sku: item.blank_sku || null,
+          cost_per_unit: item.cost_per_unit || null,
+          status: "tbd", artwork_status: "not_started", sort_order: 0,
+        }).select("id").single();
+        if (data && item.sizes?.length > 0) {
+          await supabase.from("buy_sheet_lines").insert(
+            item.sizes.map(sz => ({ item_id: data.id, size: sz, qty_ordered: item.qtys?.[sz] || 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }))
+          );
+        }
+      }
+      const updated = newItems.filter(ni => items.find(i => i.id === ni.id));
+      for (const item of updated) {
+        await saveItem(item.id, { qtys: item.qtys, cost_per_unit: item.cost_per_unit });
+      }
+      await loadData();
+    }}
   />
 )}
 
