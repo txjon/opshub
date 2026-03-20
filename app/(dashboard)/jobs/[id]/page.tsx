@@ -366,37 +366,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     onUpdateBuyItems={setItems}
   />
 )}
-          </div>
-          <div style={{...card,padding:0,overflow:"hidden"}}>
-            <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
-              <thead><tr style={{background:"var(--color-background-secondary)",borderBottom:"0.5px solid var(--color-border-tertiary)"}}>
-                {["Item","Status","Units","Cost/unit","Sell/unit","Margin","Revenue",""].map(h=>(
-                  <th key={h} style={{padding:"8px 12px",textAlign:["Units","Margin","Revenue"].includes(h)?"center":"left",color:"var(--color-text-secondary)",fontWeight:500}}>{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>{items.map((item,i)=>{
-                const qty=tQty(item.qtys||{});
-                const rev=qty*(item.sell_per_unit||0);
-                const cost=qty*(item.cost_per_unit||0);
-                const m=rev>0?((rev-cost)/rev*100):0;
-                return (
-                  <tr key={item.id} style={{borderBottom:i<items.length-1?"0.5px solid var(--color-border-tertiary)":"none"}}>
-                    <td style={{padding:"10px 12px"}}><div style={{fontWeight:500}}>{item.name}</div><div style={{fontSize:11,color:"var(--color-text-secondary)"}}>{item.blank_vendor}</div></td>
-                    <td style={{padding:"10px 12px"}}><span style={{padding:"2px 7px",borderRadius:"var(--border-radius-md)",fontSize:11,fontWeight:500,background:item.status==="confirmed"?"#EAF3DE":"#FAEEDA",color:item.status==="confirmed"?"#27500A":"#633806"}}>{item.status}</span></td>
-                    <td style={{padding:"10px 12px",textAlign:"center",fontFamily:"var(--font-mono)"}}>{qty.toLocaleString()}</td>
-                    <td style={{padding:"10px 12px"}}><input type="number" step="0.01" value={item.cost_per_unit||""} onChange={e=>updItem(item.id,{cost_per_unit:parseFloat(e.target.value)||0})} style={{width:70,padding:"4px 6px",border:"0.5px solid var(--color-border-tertiary)",borderRadius:"var(--border-radius-md)",background:"var(--color-background-primary)",color:"var(--color-text-primary)",fontSize:12,fontFamily:"var(--font-mono)",textAlign:"right"}}/></td>
-                    <td style={{padding:"10px 12px"}}><input type="number" step="0.01" value={item.sell_per_unit||""} onChange={e=>updItem(item.id,{sell_per_unit:parseFloat(e.target.value)||0})} style={{width:70,padding:"4px 6px",border:"0.5px solid var(--color-border-tertiary)",borderRadius:"var(--border-radius-md)",background:"var(--color-background-primary)",color:"var(--color-text-primary)",fontSize:12,fontFamily:"var(--font-mono)",textAlign:"right"}}/></td>
-                    <td style={{padding:"10px 12px",textAlign:"center",fontWeight:500,color:m>=30?"#3B6D11":m>=20?"#854F0B":"#A32D2D"}}>{rev>0?m.toFixed(1)+"%":"—"}</td>
-                    <td style={{padding:"10px 12px",textAlign:"center",fontFamily:"var(--font-mono)",fontWeight:500}}>{rev>0?"$"+rev.toFixed(2):"—"}</td>
-                    <td style={{padding:"10px 12px"}}><span style={{padding:"2px 8px",borderRadius:"var(--border-radius-md)",fontSize:11,background:"var(--color-background-info)",color:"var(--color-text-info)",cursor:"pointer"}} onClick={()=>updItem(item.id,{status:item.status==="confirmed"?"tbd":"confirmed"})}>{item.status==="confirmed"?"Set TBD":"Confirm"}</span></td>
-                  </tr>
-                );
-              })}</tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {/* PRODUCTION */}
       {tab==="production"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
