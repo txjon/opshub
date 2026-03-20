@@ -13,7 +13,6 @@ export async function GET(request: NextRequest) {
   const endpoint = searchParams.get("endpoint");
   const query = searchParams.get("q") || "";
   const styleId = searchParams.get("styleId") || "";
-  const brand = searchParams.get("brand") || "";
 
   if (!endpoint) return NextResponse.json({ error: "Missing endpoint" }, { status: 400 });
 
@@ -26,19 +25,9 @@ export async function GET(request: NextRequest) {
     let url = "";
 
     if (endpoint === "search") {
-      // S&S API: filter by brand name directly in URL path, style number as query
-      if (styleId) {
-        // Search by specific style number
-        url = `${SS_BASE}/styles/${styleId}`;
-      } else if (brand && !query) {
-        // Browse by brand only
-        url = `${SS_BASE}/styles?Brand=${encodeURIComponent(brand)}`;
-      } else if (query && brand) {
-        // Search by keyword within brand
-        url = `${SS_BASE}/styles?Brand=${encodeURIComponent(brand)}&StyleNum=${encodeURIComponent(query)}`;
-      } else if (query) {
-        // Try as style number first, fallback to title search
-        url = `${SS_BASE}/styles?StyleNum=${encodeURIComponent(query)}`;
+      if (query) {
+        // Use the search endpoint with the query string
+        url = `${SS_BASE}/styles?search=${encodeURIComponent(query)}`;
       } else {
         url = `${SS_BASE}/styles`;
       }
@@ -58,6 +47,6 @@ export async function GET(request: NextRequest) {
     const data = await res.json();
     return NextResponse.json(data);
   } catch (err) {
-    return NextResponse.json({ error: "Failed to fetch from S&S", detail: String(err) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch", detail: String(err) }, { status: 500 });
   }
 }
