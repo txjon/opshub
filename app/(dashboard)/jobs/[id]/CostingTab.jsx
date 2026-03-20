@@ -67,32 +67,6 @@ function lookupBlankCost(styleKey, color, size) {
 }
 // Seed blank costs for a product given its style key, color, and sizes
 function seedBlankCosts(styleKey, color, sizes) {
-  // styleKey might be "6210" but BLANK_COSTS keys are "NL6210_{color}"
-  // Find the matching key by checking if any BLANK_COSTS key contains the style code and color
-  const exactKey = styleKey + "_" + color;
-  const fuzzyKey = Object.keys(BLANK_COSTS).find(k => k.endsWith("_" + color) && k.includes(styleKey));
-  const resolvedKey = BLANK_COSTS[exactKey] ? exactKey : (fuzzyKey || null);
-  const costs = {};
-  (sizes||[]).forEach(sz => { costs[sz] = resolvedKey ? (BLANK_COSTS[resolvedKey]?.[sz] ?? 0) : 0; });
-  return costs;
-}
-
-
-const EMPTY_COST_PRODUCT=()=>({id:Date.now()+Math.random(),name:"",style:"",color:"",sizes:[],qtys:{},blankCosts:{},totalQty:0,unitPrice:0,sellOverride:null,isFleece:false,printVendor:"",printCount:4,printLocations:{},tagPrint:false,tagRepeat:false,tagPrintPrinter:"",specialtyQtys:{},finishingQtys:{},customCosts:[],finishingType:"",finishingPrinter:"",finishingCostOverride:0,specialties:[],setupFees:{printer:"",screens:0,tagSizes:0,seps:0,inkChanges:0,manualCost:0}});
-
-// Theme constants (V1 dark theme)
-const T = {
-  bg:"#0f1117", surface:"#181c27", card:"#1e2333", border:"#2a3050",
-  accent:"#4f8ef7", accentDim:"#1e3a6e",
-  green:"#34c97a", greenDim:"#0e3d24",
-  amber:"#f5a623", amberDim:"#3d2a08",
-  red:"#f05353", redDim:"#3d1212",
-  purple:"#a78bfa", purpleDim:"#2d1f5e",
-  text:"#e8eaf2", muted:"#7a82a0", faint:"#3a4060",
-};
-const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
-const mono = `'IBM Plex Mono','Courier New',monospace`;
-
 
 // --- PRICING ENGINE ---
 const MARGIN_TIERS = {"15%":1.26,"20%":1.33,"25%":1.43,"30%":1.53};
@@ -370,6 +344,7 @@ const BuySheetTab = ({items,onUpdateItems,catalog,onUpdateCatalog}) => {
 };
 
 // --- COSTING COMPONENTS ---
+
 // --- COSTING COMPONENTS ---
 const EMPTY_COST_PRODUCT=()=>({id:Date.now()+Math.random(),name:"",style:"",color:"",sizes:[],qtys:{},blankCosts:{},totalQty:0,unitPrice:0,sellOverride:null,isFleece:false,printVendor:"",printCount:4,printLocations:{},tagPrint:false,tagRepeat:false,tagPrintPrinter:"",specialtyQtys:{},finishingQtys:{},customCosts:[],finishingType:"",finishingPrinter:"",finishingCostOverride:0,specialties:[],setupFees:{printer:"",screens:0,tagSizes:0,seps:0,inkChanges:0,manualCost:0}});
 
@@ -1282,4 +1257,51 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 };
 
 
+
 export { CostingTab };
+
+export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) {
+  const initItems = (buyItems || []).map(it => ({
+    ...EMPTY_COST_PRODUCT(),
+    id: it.id,
+    name: it.name || "",
+    style: it.blank_vendor || "",
+    color: it.blank_sku || "",
+    sizes: it.sizes || [],
+    qtys: it.qtys || {},
+    blankCosts: seedBlankCosts(it.blank_vendor || "", it.blank_sku || "", it.sizes || []),
+    totalQty: Object.values(it.qtys || {}).reduce((a, v) => a + v, 0),
+  }));
+  const [costProds, setCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
+  const [savedCostProds, setSavedCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
+  const [costMargin, setCostMargin] = useState("30%");
+  const [inclShip, setInclShip] = useState(true);
+  const [inclCC, setInclCC] = useState(true);
+  const [orderInfo, setOrderInfo] = useState({
+    clientName: project?.clients?.name || "",
+    clientEmail: "",
+    invoiceNum: project?.job_number || "",
+    validUntil: "",
+    shipDate: project?.target_ship_date || "",
+    vendorId: "", shipMethod: "",
+    notes: project?.notes || "",
+    productionNotes: "", finishingNotes: "",
+  });
+  const [savedOrderInfo, setSavedOrderInfo] = useState({ ...orderInfo });
+  const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) || JSON.stringify(orderInfo) !== JSON.stringify(savedOrderInfo);
+  const onSave = () => {
+    setSavedCostProds(JSON.parse(JSON.stringify(costProds)));
+    setSavedOrderInfo(JSON.parse(JSON.stringify(orderInfo)));
+  };
+  return (
+    <CostingTab
+      project={project} buyItems={buyItems} onUpdateBuyItems={onUpdateBuyItems}
+      costProds={costProds} setCostProds={setCostProds}
+      costMargin={costMargin} setCostMargin={setCostMargin}
+      inclShip={inclShip} setInclShip={setInclShip}
+      inclCC={inclCC} setInclCC={setInclCC}
+      orderInfo={orderInfo} setOrderInfo={setOrderInfo}
+      costingDirty={costingDirty} onSave={onSave}
+    />
+  );
+}
