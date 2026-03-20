@@ -24,11 +24,24 @@ export async function GET(request: NextRequest) {
 
   try {
     let url = "";
+
     if (endpoint === "search") {
-      const params = new URLSearchParams();
-      if (query) params.set("term", query);
-      if (brand) params.set("brand", brand);
-      url = `${SS_BASE}/styles?${params.toString()}`;
+      // S&S API: filter by brand name directly in URL path, style number as query
+      if (styleId) {
+        // Search by specific style number
+        url = `${SS_BASE}/styles/${styleId}`;
+      } else if (brand && !query) {
+        // Browse by brand only
+        url = `${SS_BASE}/styles?Brand=${encodeURIComponent(brand)}`;
+      } else if (query && brand) {
+        // Search by keyword within brand
+        url = `${SS_BASE}/styles?Brand=${encodeURIComponent(brand)}&StyleNum=${encodeURIComponent(query)}`;
+      } else if (query) {
+        // Try as style number first, fallback to title search
+        url = `${SS_BASE}/styles?StyleNum=${encodeURIComponent(query)}`;
+      } else {
+        url = `${SS_BASE}/styles`;
+      }
     } else if (endpoint === "products") {
       url = `${SS_BASE}/products?styleId=${styleId}`;
     } else if (endpoint === "brands") {
@@ -37,7 +50,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unknown endpoint" }, { status: 400 });
     }
 
-    const res = await fetch(url, { headers, next: { revalidate: 300 } });
+    const res = await fetch(url, { headers, cache: "no-store" });
     if (!res.ok) {
       const text = await res.text();
       return NextResponse.json({ error: `S&S API error: ${res.status}`, detail: text }, { status: res.status });
