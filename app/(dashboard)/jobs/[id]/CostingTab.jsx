@@ -13,7 +13,6 @@ const T = {
 const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
 const mono = `'IBM Plex Mono','Courier New',monospace`;
 
-
 const BLANK_COSTS = {
   "NL6210_White":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
   "NL6210_Black":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
@@ -67,6 +66,17 @@ function lookupBlankCost(styleKey, color, size) {
 }
 // Seed blank costs for a product given its style key, color, and sizes
 function seedBlankCosts(styleKey, color, sizes) {
+  // styleKey might be "6210" but BLANK_COSTS keys are "NL6210_{color}"
+  // Find the matching key by checking if any BLANK_COSTS key contains the style code and color
+  const exactKey = styleKey + "_" + color;
+  const fuzzyKey = Object.keys(BLANK_COSTS).find(k => k.endsWith("_" + color) && k.includes(styleKey));
+  const resolvedKey = BLANK_COSTS[exactKey] ? exactKey : (fuzzyKey || null);
+  const costs = {};
+  (sizes||[]).forEach(sz => { costs[sz] = resolvedKey ? (BLANK_COSTS[resolvedKey]?.[sz] ?? 0) : 0; });
+  return costs;
+}
+
+const INIT_CATALOG = {
 
 // --- PRICING ENGINE ---
 const MARGIN_TIERS = {"15%":1.26,"20%":1.33,"25%":1.43,"30%":1.53};
@@ -343,9 +353,7 @@ const BuySheetTab = ({items,onUpdateItems,catalog,onUpdateCatalog}) => {
   );
 };
 
-// --- COSTING COMPONENTS ---
 
-// --- COSTING COMPONENTS ---
 const EMPTY_COST_PRODUCT=()=>({id:Date.now()+Math.random(),name:"",style:"",color:"",sizes:[],qtys:{},blankCosts:{},totalQty:0,unitPrice:0,sellOverride:null,isFleece:false,printVendor:"",printCount:4,printLocations:{},tagPrint:false,tagRepeat:false,tagPrintPrinter:"",specialtyQtys:{},finishingQtys:{},customCosts:[],finishingType:"",finishingPrinter:"",finishingCostOverride:0,specialties:[],setupFees:{printer:"",screens:0,tagSizes:0,seps:0,inkChanges:0,manualCost:0}});
 
 const CInput=({label,value,onChange,type="text",prefix,suffix,options,placeholder,small})=>{
@@ -1255,7 +1263,6 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
     </div>
   );
 };
-
 
 
 export { CostingTab };
