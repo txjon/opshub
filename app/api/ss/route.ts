@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const endpoint = searchParams.get("endpoint");
   const query = searchParams.get("q") || "";
+  const brand = searchParams.get("brand") || "";
   const styleId = searchParams.get("styleId") || "";
 
   if (!endpoint) return NextResponse.json({ error: "Missing endpoint" }, { status: 400 });
@@ -25,8 +26,14 @@ export async function GET(request: NextRequest) {
     let url = "";
 
     if (endpoint === "search") {
-      if (query) {
-        // Use the search endpoint with the query string
+      if (query && brand) {
+        // Search term within a brand: search for "BrandName query"
+        url = `${SS_BASE}/styles?search=${encodeURIComponent(brand + " " + query)}`;
+      } else if (brand) {
+        // Browse by brand only -- use path filter format
+        url = `${SS_BASE}/styles/${encodeURIComponent(brand)}`;
+      } else if (query) {
+        // Search by keyword or style number
         url = `${SS_BASE}/styles?search=${encodeURIComponent(query)}`;
       } else {
         url = `${SS_BASE}/styles`;
