@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import StylePicker from "@/components/jobs/StylePicker";
+import StylePicker from "@/app/components/jobs/StylePicker";
 
 type SelectedStyle = {
   styleID: number;
