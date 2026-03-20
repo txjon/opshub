@@ -13,6 +13,97 @@ const T = {
 const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
 const mono = `'IBM Plex Mono','Courier New',monospace`;
 
+const BLANK_COSTS = {
+  "NL6210_White":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Black":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Apple Green":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Banana Cream":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Bondi Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Cardinal":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Charcoal":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Cream":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Dark Heather Grey":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Espresso":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Columbia Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Cool Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Forest Green":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Heavy Metal":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Light Pink":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Maroon":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Mauve":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Redwood":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Seafoam":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Shiitake":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Slate Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Heather Tan":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Ice Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Indigo":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72},
+  "NL6210_Kelly Green":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72},
+  "NL6210_Light Olive":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Midnight Navy":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Military Green":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72},
+  "NL6210_Mint":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Neon Heather Green":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Neon Yellow":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Orange":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72},
+  "NL6210_Purple Rush":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72},
+  "NL6210_Red":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Royal":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
+  "NL6210_Sand":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Silk":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Stone Grey":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Storm":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Tahiti Blue":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39},
+  "NL6210_Teal":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"6XL":9.17},
+  "NL6210_Turquoise":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"6XL":9.17},
+  "NL6210_Warm Grey":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"6XL":9.17},
+};
+
+// Look up blank cost by style key + color + size
+function lookupBlankCost(styleKey, color, size) {
+  const key = styleKey + "_" + color;
+  return BLANK_COSTS[key]?.[size] ?? 0;
+}
+// Seed blank costs for a product given its style key, color, and sizes
+function seedBlankCosts(styleKey, color, sizes) {
+  // styleKey might be "6210" but BLANK_COSTS keys are "NL6210_{color}"
+  // Find the matching key by checking if any BLANK_COSTS key contains the style code and color
+  const exactKey = styleKey + "_" + color;
+  const fuzzyKey = Object.keys(BLANK_COSTS).find(k => k.endsWith("_" + color) && k.includes(styleKey));
+  const resolvedKey = BLANK_COSTS[exactKey] ? exactKey : (fuzzyKey || null);
+  const costs = {};
+  (sizes||[]).forEach(sz => { costs[sz] = resolvedKey ? (BLANK_COSTS[resolvedKey]?.[sz] ?? 0) : 0; });
+  return costs;
+}
+
+
+const calcItem = (it) => {
+  const cost=(it.blank||0)+(it.decoration||0)+(it.freight||0)+(it.duty||0)+(it.wh||0)+(it.fulfillment||0);
+  const sell=it.margin>0?cost/(1-it.margin/100):cost;
+  return {cost,sell,profit:sell-cost};
+};
+const projectFinancials = (p) => {
+  let rev=0,cost=0,units=0;
+  (p.items||[]).forEach(it=>{const{cost:c,sell:s}=calcItem(it);rev+=s*it.totalQty;cost+=c*it.totalQty;units+=it.totalQty;});
+  return{rev,cost,profit:rev-cost,margin:rev>0?(rev-cost)/rev*100:0,units};
+};
+const fmtK = (n) => n>=1000?"$"+(n/1000).toFixed(1)+"k":"$"+Math.round(n);
+const fmt2 = (n) => "$"+n.toFixed(2);
+const CATEGORY = (b) => "Apparel";
+const CAT_COLOR = {Apparel:T.accent};
+const fileIcon = (n) => {const e=n.split(".").pop().toLowerCase();if(["jpg","jpeg","png","gif","webp"].includes(e))return"🖼";if(e==="pdf")return"📄";if(["ai","eps","svg"].includes(e))return"✏️";if(e==="psd")return"🎨";return"📎";};
+const fmtSz = (b) => b<1048576?(b/1024).toFixed(0)+"KB":(b/1048576).toFixed(1)+"MB";
+
+// --- Primitives ---
+const Badge = ({label,small}) => {
+  const s=STATUS_COLORS[label]||{bg:T.faint,text:T.muted};
+  return <span style={{background:s.bg,color:s.text,padding:small?"2px 8px":"3px 10px",borderRadius:20,fontSize:small?10:11,fontWeight:600,letterSpacing:"0.04em",whiteSpace:"nowrap",fontFamily:font}}>{label}</span>;
+};
+const Pill = ({label,color=T.accent}) => (
+  <span style={{background:color+"22",color,border:`1px solid ${color}44`,borderRadius:20,padding:"2px 10px",fontSize:10,fontWeight:600,fontFamily:font}}>{label}</span>
+);
+const Lbl = ({children}) => <div style={{fontSize:10,fontWeight:700,color:T.muted,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:5,fontFamily:font}}>{children}</div>;
+
 const DInput = ({label,value,onChange,type="text",readOnly,small,placeholder}) => (
   <div style={{display:"flex",flexDirection:"column",gap:4}}>
     {label&&<Lbl>{label}</Lbl>}
@@ -41,7 +132,6 @@ const Btn = ({children,onClick,variant="ghost",small,disabled}) => {
 };
 
 // --- Style Picker ---
-
 const StylePicker = ({catalog,onAdd,onUpdateCatalog,requireQty=true,onCollapse}) => {
   const [sB,setSB]=useState(null),[sS,setSS]=useState(null),[sC,setSC]=useState(null);
   const [sizes,setSizes]=useState({}),[name,setName]=useState("");
@@ -124,6 +214,10 @@ const StylePicker = ({catalog,onAdd,onUpdateCatalog,requireQty=true,onCollapse})
     </div>
   );
 };
+
+
+const fmtD=(n)=>"$"+Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtP=(n)=>((Number(n||0)*100).toFixed(1)+"%");
 
 // --- BUY SHEET ENGINE ---
 const SIZE_ORDER=["OSFA","XS","S","M","L","XL","2XL","3XL","4XL","5XL","YXS","YS","YM","YL","YXL"];
