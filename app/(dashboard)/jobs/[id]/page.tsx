@@ -3,6 +3,7 @@ import React from "react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { CostingTab } from "./CostingTab";
 
 const PIPELINE_STAGES = [
   { id:"blanks_ordered", label:"Blanks Ordered", pct:10 },
@@ -359,19 +360,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {/* COSTING */}
       {tab==="costing"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{display:"flex",gap:24,background:"var(--color-background-secondary)",borderRadius:"var(--border-radius-lg)",padding:"14px 18px",alignItems:"center",flexWrap:"wrap"}}>
-            {[
-              {label:"Gross Revenue",value:totalRev>0?"$"+totalRev.toFixed(2):"—",color:"#0C447C"},
-              {label:"Total Cost",value:totalCost>0?"$"+totalCost.toFixed(2):"—",color:"var(--color-text-primary)"},
-              {label:"Net Profit",value:totalRev>0?"$"+(totalRev-totalCost).toFixed(2):"—",color:margin>=30?"#3B6D11":margin>=20?"#854F0B":"#A32D2D"},
-              {label:"Net Margin",value:totalRev>0?margin.toFixed(1)+"%":"—",color:margin>=30?"#3B6D11":margin>=20?"#854F0B":"#A32D2D"},
-            ].map(s=>(
-              <div key={s.label}>
-                <div style={{fontSize:11,color:"var(--color-text-secondary)",marginBottom:2}}>{s.label}</div>
-                <div style={{fontSize:18,fontWeight:500,color:s.color,fontFamily:"var(--font-mono)"}}>{s.value}</div>
-              </div>
-            ))}
+  <CostingTab
+    project={job}
+    buyItems={items}
+    onUpdateBuyItems={setItems}
+  />
+)}
           </div>
           <div style={{...card,padding:0,overflow:"hidden"}}>
             <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
