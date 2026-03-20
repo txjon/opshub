@@ -360,7 +360,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {/* COSTING */}
       {tab==="costing"&&(
-  <CostingTab
+  <CostingTabWrapper
     project={job}
     buyItems={items}
     onUpdateBuyItems={setItems}

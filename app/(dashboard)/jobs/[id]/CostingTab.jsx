@@ -1204,3 +1204,60 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
 
 export { CostingTab };
+export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) {
+  const initItems = (buyItems || []).map(it => ({
+    ...EMPTY_COST_PRODUCT(),
+    id: it.id,
+    name: it.name || "",
+    style: it.blank_vendor || "",
+    color: it.blank_sku || "",
+    sizes: it.sizes || [],
+    qtys: it.qtys || {},
+    blankCosts: seedBlankCosts(it.blank_vendor || "", it.blank_sku || "", it.sizes || []),
+    totalQty: Object.values(it.qtys || {}).reduce((a, v) => a + v, 0),
+  }));
+
+  const [costProds, setCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
+  const [savedCostProds, setSavedCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
+  const [costMargin, setCostMargin] = useState("30%");
+  const [inclShip, setInclShip] = useState(true);
+  const [inclCC, setInclCC] = useState(true);
+  const [orderInfo, setOrderInfo] = useState({
+    clientName: project?.clients?.name || "",
+    clientEmail: "",
+    invoiceNum: project?.job_number || "",
+    validUntil: "",
+    shipDate: project?.target_ship_date || "",
+    vendorId: "",
+    shipMethod: "",
+    notes: project?.notes || "",
+    productionNotes: "",
+    finishingNotes: "",
+  });
+  const [savedOrderInfo, setSavedOrderInfo] = useState({ ...orderInfo });
+  const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) || JSON.stringify(orderInfo) !== JSON.stringify(savedOrderInfo);
+  const onSave = () => {
+    setSavedCostProds(JSON.parse(JSON.stringify(costProds)));
+    setSavedOrderInfo(JSON.parse(JSON.stringify(orderInfo)));
+  };
+
+  return (
+    <CostingTab
+      project={project}
+      buyItems={buyItems}
+      onUpdateBuyItems={onUpdateBuyItems}
+      costProds={costProds}
+      setCostProds={setCostProds}
+      costMargin={costMargin}
+      setCostMargin={setCostMargin}
+      inclShip={inclShip}
+      setInclShip={setInclShip}
+      inclCC={inclCC}
+      setInclCC={setInclCC}
+      orderInfo={orderInfo}
+      setOrderInfo={setOrderInfo}
+      costingDirty={costingDirty}
+      onSave={onSave}
+    />
+  );
+}
