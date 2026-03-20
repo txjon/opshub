@@ -13,6 +13,35 @@ const T = {
 const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
 const mono = `'IBM Plex Mono','Courier New',monospace`;
 
+const DInput = ({label,value,onChange,type="text",readOnly,small,placeholder}) => (
+  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+    {label&&<Lbl>{label}</Lbl>}
+    <input type={type} value={value||""} onChange={onChange} readOnly={readOnly} placeholder={placeholder}
+      style={{fontFamily:font,fontSize:small?12:13,color:readOnly?T.muted:T.text,background:T.surface,
+        border:`1px solid ${T.border}`,borderRadius:6,padding:small?"4px 8px":"7px 10px",
+        outline:"none",width:"100%",boxSizing:"border-box",cursor:readOnly?"default":"text"}}/>
+  </div>
+);
+const DSelect = ({label,value,onChange,options}) => (
+  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+    {label&&<Lbl>{label}</Lbl>}
+    <select value={value} onChange={onChange} style={{fontFamily:font,fontSize:13,background:T.surface,
+      border:`1px solid ${T.border}`,color:T.text,padding:"7px 10px",borderRadius:6,outline:"none",cursor:"pointer"}}>
+      {options.map(o=><option key={o} value={o}>{o}</option>)}
+    </select>
+  </div>
+);
+const Btn = ({children,onClick,variant="ghost",small,disabled}) => {
+  const [h,sh]=useState(false);
+  const v={primary:{bg:T.accent,color:"#fff",border:"none"},ghost:{bg:h?T.accentDim:"transparent",color:T.accent,border:`1px solid ${T.accentDim}`},outline:{bg:"transparent",color:T.muted,border:`1px solid ${T.faint}`},danger:{bg:h?T.redDim:"transparent",color:T.red,border:`1px solid ${T.redDim}`},success:{bg:T.green,color:"#fff",border:"none"}}[variant]||{};
+  return <button onClick={onClick} disabled={disabled} onMouseEnter={()=>sh(true)} onMouseLeave={()=>sh(false)}
+    style={{fontFamily:font,fontWeight:600,fontSize:small?11:12,cursor:disabled?"not-allowed":"pointer",
+      padding:small?"4px 10px":"7px 16px",borderRadius:6,background:v.bg,color:disabled?T.muted:v.color,
+      border:v.border,transition:"all 0.12s",whiteSpace:"nowrap",opacity:disabled?0.5:1}}>{children}</button>;
+};
+
+// --- Style Picker ---
+
 const StylePicker = ({catalog,onAdd,onUpdateCatalog,requireQty=true,onCollapse}) => {
   const [sB,setSB]=useState(null),[sS,setSS]=useState(null),[sC,setSC]=useState(null);
   const [sizes,setSizes]=useState({}),[name,setName]=useState("");
