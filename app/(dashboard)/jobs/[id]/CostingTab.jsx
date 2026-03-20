@@ -76,7 +76,6 @@ function seedBlankCosts(styleKey, color, sizes) {
   return costs;
 }
 
-const INIT_CATALOG = {
 
 // --- PRICING ENGINE ---
 const MARGIN_TIERS = {"15%":1.26,"20%":1.33,"25%":1.43,"30%":1.53};
@@ -354,6 +353,7 @@ const BuySheetTab = ({items,onUpdateItems,catalog,onUpdateCatalog}) => {
 };
 
 
+// --- COSTING COMPONENTS ---
 const EMPTY_COST_PRODUCT=()=>({id:Date.now()+Math.random(),name:"",style:"",color:"",sizes:[],qtys:{},blankCosts:{},totalQty:0,unitPrice:0,sellOverride:null,isFleece:false,printVendor:"",printCount:4,printLocations:{},tagPrint:false,tagRepeat:false,tagPrintPrinter:"",specialtyQtys:{},finishingQtys:{},customCosts:[],finishingType:"",finishingPrinter:"",finishingCostOverride:0,specialties:[],setupFees:{printer:"",screens:0,tagSizes:0,seps:0,inkChanges:0,manualCost:0}});
 
 const CInput=({label,value,onChange,type="text",prefix,suffix,options,placeholder,small})=>{
