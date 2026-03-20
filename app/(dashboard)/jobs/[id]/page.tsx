@@ -317,7 +317,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
 
       {/* BUYSHEET */}
-     {tab==="buysheet"&&(
+{tab==="buysheet"&&(
   <BuySheetTab
     items={items}
     onUpdateItems={setItems}
@@ -325,11 +325,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     onUpdateCatalog={()=>{}}
   />
 )}
-```
-
-Save then:
-```
-cd ~/opshub && git add . && git commit -m "Add V1 BuySheetTab" && git push
 
       {/* COSTING */}
       {tab==="costing"&&(
