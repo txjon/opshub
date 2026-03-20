@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const SS_BASE = "https://api.ssactivewear.com/v2";
-const SS_KEY = process.env.SS_API_KEY!;
+
+function getAuthHeader() {
+  const username = process.env.SS_USERNAME!;
+  const password = process.env.SS_PASSWORD!;
+  return "Basic " + Buffer.from(`${username}:${password}`).toString("base64");
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -14,7 +19,7 @@ export async function GET(request: NextRequest) {
   if (!endpoint) return NextResponse.json({ error: "Missing endpoint" }, { status: 400 });
 
   const headers = {
-    "Authorization": `Basic ${Buffer.from(SS_KEY + ":").toString("base64")}`,
+    "Authorization": getAuthHeader(),
     "Content-Type": "application/json",
   };
 
@@ -49,6 +54,6 @@ export async function GET(request: NextRequest) {
     const data = await res.json();
     return NextResponse.json(data);
   } catch (err) {
-    return NextResponse.json({ error: "Failed to fetch from S&S" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch from S&S", detail: String(err) }, { status: 500 });
   }
 }
