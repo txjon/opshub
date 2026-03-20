@@ -41,7 +41,7 @@ function StylePicker({ onSelect, onClose }: { onSelect: (s: SelectedStyle) => vo
   useEffect(() => {
     fetch("/api/ss?endpoint=brands")
       .then(r => r.json())
-      .then(data => setBrands(Array.isArray(data) ? data.map((b: {brandName: string}) => b.brandName).slice(0, 50) : []))
+      .then(data => setBrands(Array.isArray(data) ? data.map((b: {name: string}) => b.name).slice(0, 50) : []))
       .catch(() => {});
   }, []);
 
@@ -97,7 +97,8 @@ function StylePicker({ onSelect, onClose }: { onSelect: (s: SelectedStyle) => vo
           <div className="w-1/2 border-r border-border flex flex-col overflow-hidden">
             <div className="p-4 space-y-3 shrink-0">
               <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && search()}
-                placeholder="Style number or keyword..." className="w-full px-3 py-2 bg-secondary border border-border rounded-md text-sm outline-none focus:border-primary" />
+                placeholder="Style number or keyword..."
+                className="w-full px-3 py-2 bg-secondary border border-border rounded-md text-sm outline-none focus:border-primary" />
               <select value={selectedBrand} onChange={e => setSelectedBrand(e.target.value)}
                 className="w-full px-3 py-2 bg-secondary border border-border rounded-md text-sm outline-none">
                 <option value="">All brands</option>
@@ -252,8 +253,10 @@ export default function NewItemPage({ params }: { params: { id: string } }) {
             </div>
             <div><label className={lc}>Artwork Status</label>
               <select value={form.artwork_status} onChange={e => set("artwork_status",e.target.value)} className={ic}>
-                <option value="not_started">Not Started</option><option value="in_progress">In Progress</option>
-                <option value="approved">Approved</option><option value="n_a">N/A</option>
+                <option value="not_started">Not Started</option>
+                <option value="in_progress">In Progress</option>
+                <option value="approved">Approved</option>
+                <option value="n_a">N/A</option>
               </select>
             </div>
           </div>

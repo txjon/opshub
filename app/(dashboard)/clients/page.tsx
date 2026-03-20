@@ -1,24 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
-
-type JobRow = { id: string; client_id: string | null };
+import Link from "next/link";
 
 export default async function ClientsPage() {
   const supabase = await createClient();
   const { data: clients } = await supabase
     .from("clients")
-    .select("*")
+    .select("*, contacts(id), jobs(id)")
     .order("name");
-
-  const { data: jobsRaw } = await supabase
-    .from("jobs")
-    .select("id, client_id");
-
-  const jobs = (jobsRaw ?? []) as JobRow[];
-
-  const jobCountByClient = jobs.reduce((acc: Record<string, number>, job) => {
-    if (job.client_id) acc[job.client_id] = (acc[job.client_id] ?? 0) + 1;
-    return acc;
-  }, {});
 
   return (
     <div className="space-y-6">
@@ -43,7 +31,7 @@ export default async function ClientsPage() {
               <tr key={client.id} className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors">
                 <td className="px-4 py-3 font-semibold">{client.name}</td>
                 <td className="px-4 py-3 text-muted-foreground capitalize">{client.client_type ?? "-"}</td>
-                <td className="px-4 py-3 text-muted-foreground">{jobCountByClient[client.id] ?? 0}</td>
+                <td className="px-4 py-3 text-muted-foreground">{(client.jobs as unknown[]).length}</td>
                 <td className="px-4 py-3 text-muted-foreground capitalize">{client.default_terms?.replace(/_/g, " ") ?? "-"}</td>
               </tr>
             ))}

@@ -14,7 +14,6 @@ export async function GET(request: NextRequest) {
   const query = searchParams.get("q") || "";
   const styleId = searchParams.get("styleId") || "";
   const brand = searchParams.get("brand") || "";
-  const category = searchParams.get("category") || "";
 
   if (!endpoint) return NextResponse.json({ error: "Missing endpoint" }, { status: 400 });
 
@@ -25,32 +24,24 @@ export async function GET(request: NextRequest) {
 
   try {
     let url = "";
-
     if (endpoint === "search") {
       const params = new URLSearchParams();
       if (query) params.set("term", query);
       if (brand) params.set("brand", brand);
-      if (category) params.set("category", category);
       url = `${SS_BASE}/styles?${params.toString()}`;
-    } else if (endpoint === "style") {
-      url = `${SS_BASE}/styles/${styleId}`;
     } else if (endpoint === "products") {
       url = `${SS_BASE}/products?styleId=${styleId}`;
     } else if (endpoint === "brands") {
       url = `${SS_BASE}/brands`;
-    } else if (endpoint === "categories") {
-      url = `${SS_BASE}/categories`;
     } else {
       return NextResponse.json({ error: "Unknown endpoint" }, { status: 400 });
     }
 
     const res = await fetch(url, { headers, next: { revalidate: 300 } });
-
     if (!res.ok) {
       const text = await res.text();
       return NextResponse.json({ error: `S&S API error: ${res.status}`, detail: text }, { status: res.status });
     }
-
     const data = await res.json();
     return NextResponse.json(data);
   } catch (err) {
