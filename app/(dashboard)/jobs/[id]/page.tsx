@@ -1,6 +1,6 @@
 "use client";
+import React from "react";
 import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
 const PIPELINE_STAGES = [
