@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 
+type JobRow = { id: string; client_id: string | null };
+
 export default async function ClientsPage() {
   const supabase = await createClient();
   const { data: clients } = await supabase
@@ -7,11 +9,13 @@ export default async function ClientsPage() {
     .select("*")
     .order("name");
 
-  const { data: jobs } = await supabase
+  const { data: jobsRaw } = await supabase
     .from("jobs")
     .select("id, client_id");
 
-  const jobCountByClient = (jobs ?? []).reduce((acc: Record<string, number>, job) => {
+  const jobs = (jobsRaw ?? []) as JobRow[];
+
+  const jobCountByClient = jobs.reduce((acc: Record<string, number>, job) => {
     if (job.client_id) acc[job.client_id] = (acc[job.client_id] ?? 0) + 1;
     return acc;
   }, {});
