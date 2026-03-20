@@ -3,7 +3,7 @@ import React from "react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { CostingTab } from "./CostingTab";
+import { CostingTabWrapper } from "./CostingTab";
 
 const PIPELINE_STAGES = [
   { id:"blanks_ordered", label:"Blanks Ordered", pct:10 },
