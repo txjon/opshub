@@ -1,9 +1,9 @@
 {
   "pages": {
-    "/(dashboard)/production/page": [
+    "/(dashboard)/jobs/[id]/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/(dashboard)/production/page.js"
+      "static/chunks/app/(dashboard)/jobs/[id]/page.js"
     ],
     "/(dashboard)/layout": [
       "static/chunks/webpack.js",
@@ -21,25 +21,40 @@
       "static/chunks/main-app.js",
       "static/chunks/app/(dashboard)/jobs/page.js"
     ],
-    "/(dashboard)/jobs/[id]/page": [
+    "/(dashboard)/dashboard/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/(dashboard)/jobs/[id]/page.js"
+      "static/chunks/app/(dashboard)/dashboard/page.js"
+    ],
+    "/(dashboard)/production/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/(dashboard)/production/page.js"
     ],
     "/(dashboard)/receiving/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
       "static/chunks/app/(dashboard)/receiving/page.js"
     ],
-    "/(dashboard)/dashboard/page": [
+    "/(dashboard)/shipping/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/(dashboard)/dashboard/page.js"
+      "static/chunks/app/(dashboard)/shipping/page.js"
     ],
-    "/(dashboard)/jobs/new/page": [
+    "/(dashboard)/clients/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/(dashboard)/jobs/new/page.js"
+      "static/chunks/app/(dashboard)/clients/page.js"
+    ],
+    "/(dashboard)/decorators/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/(dashboard)/decorators/page.js"
+    ],
+    "/(dashboard)/templates/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/(dashboard)/templates/page.js"
     ]
   }
 }

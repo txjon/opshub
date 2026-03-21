@@ -1,7 +1,11 @@
 {
+  "/(dashboard)/jobs/page": "app/(dashboard)/jobs/page.js",
   "/(dashboard)/jobs/[id]/page": "app/(dashboard)/jobs/[id]/page.js",
   "/(dashboard)/production/page": "app/(dashboard)/production/page.js",
-  "/(dashboard)/jobs/page": "app/(dashboard)/jobs/page.js",
   "/(dashboard)/dashboard/page": "app/(dashboard)/dashboard/page.js",
-  "/(dashboard)/jobs/new/page": "app/(dashboard)/jobs/new/page.js"
+  "/(dashboard)/receiving/page": "app/(dashboard)/receiving/page.js",
+  "/(dashboard)/shipping/page": "app/(dashboard)/shipping/page.js",
+  "/(dashboard)/clients/page": "app/(dashboard)/clients/page.js",
+  "/(dashboard)/decorators/page": "app/(dashboard)/decorators/page.js",
+  "/(dashboard)/templates/page": "app/(dashboard)/templates/page.js"
 }

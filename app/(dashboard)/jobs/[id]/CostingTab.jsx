@@ -1095,6 +1095,8 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 export { CostingTab };
 
 export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) {
+  // Load saved costing state from project.costing_data if available
+  const savedData = project?.costing_data || null;
   const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
   const sortSizesW = (sizes) => [...(sizes||[])].sort((a,b) => {
     const ai=SIZE_ORDER.indexOf(a), bi=SIZE_ORDER.indexOf(b);
@@ -1102,7 +1104,10 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) 
     if(ai===-1) return 1; if(bi===-1) return -1;
     return ai-bi;
   });
+  // If we have saved costing data, merge it with current buy items
   const initItems = (buyItems || []).map(it => {
+    const saved = savedData?.costProds?.find((p) => p.id === it.id);
+    if (saved) return { ...saved, sizes: sortSizesW(it.sizes), qtys: it.qtys || saved.qtys || {} };
     let blankCosts = {};
     if (it.blankCosts && Object.keys(it.blankCosts).length > 0) {
       blankCosts = it.blankCosts;
@@ -1128,10 +1133,10 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) 
   });
   const [costProds, setCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
   const [savedCostProds, setSavedCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
-  const [costMargin, setCostMargin] = useState("30%");
-  const [inclShip, setInclShip] = useState(true);
-  const [inclCC, setInclCC] = useState(true);
-  const [orderInfo, setOrderInfo] = useState({
+  const [costMargin, setCostMargin] = useState(savedData?.costMargin || "30%");
+  const [inclShip, setInclShip] = useState(savedData?.inclShip !== undefined ? savedData.inclShip : true);
+  const [inclCC, setInclCC] = useState(savedData?.inclCC !== undefined ? savedData.inclCC : true);
+  const [orderInfo, setOrderInfo] = useState(savedData?.orderInfo || {
     clientName: project?.clients?.name || "",
     clientEmail: "",
     invoiceNum: project?.job_number || "",
@@ -1143,9 +1148,19 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) 
   });
   const [savedOrderInfo, setSavedOrderInfo] = useState({ ...orderInfo });
   const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) || JSON.stringify(orderInfo) !== JSON.stringify(savedOrderInfo);
-  const onSave = () => {
+  const onSave = async () => {
     setSavedCostProds(JSON.parse(JSON.stringify(costProds)));
     setSavedOrderInfo(JSON.parse(JSON.stringify(orderInfo)));
+    // Save full costing state to jobs.costing_data
+    if (project?.id) {
+      try {
+        const { createClient } = await import("@/lib/supabase/client");
+        const supabase = createClient();
+        await supabase.from("jobs").update({
+          costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }
+        }).eq("id", project.id);
+      } catch(e) { console.error("Failed to save costing data", e); }
+    }
   };
   return (
     <CostingTab
