@@ -455,20 +455,29 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                           </table>
                       </div>}
                       {r&&(
-                        <div style={{borderRadius:8,border:`2px solid ${mc2}44`,padding:"10px 14px",marginTop:4,background:T.surface}}>
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
-                            {[["Gross Revenue",r.grossRev>0?fmtD(r.grossRev):"$0.00",T.accent],["Total Cost",fmtD(r.totalCost),T.text],["PO Total",fmtD(r.poTotal),T.text]].map(([l,v,c])=>(
-                              <div key={l} style={{textAlign:"center"}}>
-                                <div style={{fontSize:9,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{l}</div>
-                                <div style={{fontSize:13,fontWeight:700,color:c,fontFamily:mono}}>{v}</div>
+                        <div style={{borderRadius:8,border:"1px solid "+T.border,padding:"8px",marginTop:4,background:T.surface}}>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:6}}>
+                            {[
+                              ["Gross Revenue", r.grossRev>0?fmtD(r.grossRev):"$0.00", T.accent],
+                              ["Blank Cost",    fmtD(r.blankCost),                     T.text],
+                              ["PO Total",      fmtD(r.poTotal),                       T.text],
+                              ["Total Cost",    fmtD(r.totalCost),                     T.text],
+                            ].map(([l,v,c])=>(
+                              <div key={l} style={{background:"#181c27",border:"1px solid #2a3050",borderRadius:6,padding:"6px 8px"}}>
+                                <div style={{fontSize:8,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:2}}>{l}</div>
+                                <div style={{fontSize:12,fontWeight:700,color:c,fontFamily:mono}}>{v}</div>
                               </div>
                             ))}
                           </div>
-                          <div style={{borderTop:`1px solid ${mc2}33`,paddingTop:8,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-                            {[["Net Profit",fmtD(r.netProfit),mc2],["Margin",fmtP(r.margin_pct),mc2],["Per Piece","$"+r.profitPerPiece.toFixed(2),mc2]].map(([l,v,c])=>(
-                              <div key={l} style={{textAlign:"center"}}>
-                                <div style={{fontSize:9,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{l}</div>
-                                <div style={{fontSize:14,fontWeight:700,color:c,fontFamily:mono}}>{v}</div>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+                            {[
+                              ["Net Profit",       fmtD(r.netProfit),                     mc2],
+                              ["Profit Margin",    fmtP(r.margin_pct),                    mc2],
+                              ["Profit per piece", "$"+r.profitPerPiece.toFixed(2),       mc2],
+                            ].map(([l,v,c])=>(
+                              <div key={l} style={{background:mc2===T.green?"#0e3d24":mc2===T.amber?"#3d2a08":"#3d1212",border:"1px solid "+mc2+"44",borderRadius:6,padding:"6px 8px"}}>
+                                <div style={{fontSize:8,color:mc2+"99",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:2}}>{l}</div>
+                                <div style={{fontSize:12,fontWeight:700,color:mc2,fontFamily:mono}}>{v}</div>
                               </div>
                             ))}
                           </div>
