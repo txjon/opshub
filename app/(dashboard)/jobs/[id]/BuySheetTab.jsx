@@ -386,7 +386,27 @@ function ManualPicker({ onAdd, onClose }) {
 // ── Main BuySheetTab ─────────────────────────────────────────────────────────
 
 export function BuySheetTab({ items, onUpdateItems }) {
-  const safeItems = (items||[]).map(it => ({
+  // All edits are local until Save is clicked
+  const [localItems, setLocalItems] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  // Sync from parent only when not dirty (i.e. on initial load)
+  const workingItems = localItems !== null ? localItems : (items||[]);
+
+  const updateLocal = (newItems) => {
+    setLocalItems(newItems);
+    setDirty(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    await onUpdateItems(workingItems);
+    setDirty(false);
+    setLocalItems(null);
+    setSaving(false);
+  };
+  const safeItems = (workingItems||[]).map(it => ({
     ...it,
     sizes: it.sizes||[],
     qtys: it.qtys||{},
@@ -400,31 +420,49 @@ export function BuySheetTab({ items, onUpdateItems }) {
   const [showManual, setShowManual] = useState(false);
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [localQtys, setLocalQtys] = useState({});
+  const inputRefs = {};
+
+  // Initialize localQtys from items
+  const getLocalQty = (itemId, sz) => {
+    const key = itemId+"_"+sz;
+    return localQtys[key] !== undefined ? localQtys[key] : null;
+  };
+  const setLocalQty = (itemId, sz, val) => {
+    setLocalQtys(p => ({...p, [itemId+"_"+sz]: val}));
+  };
+  const commitQty = (rowIdx, itemId, sz) => {
+    const key = itemId+"_"+sz;
+    if (localQtys[key] === undefined) return;
+    const parsed = parseInt(localQtys[key]) || 0;
+    setLocalQtys(p => { const n={...p}; delete n[key]; return n; });
+    updateQty(rowIdx, sz, parsed);
+  };
 
   const isEmpty = safeItems.length === 0;
   const grandTotal = safeItems.reduce((a,it) => a+(it.totalQty||0), 0);
 
-  const removeItem = (id) => onUpdateItems((items||[]).filter(x => x.id !== id));
+  const removeItem = (id) => updateLocal((workingItems||[]).filter(x => x.id !== id));
 
   const updateQty = (rowIdx, sz, val) => {
     const parsed = parseInt(val)||0;
-    const newItems = (items||[]).map((it,i) => {
+    const newItems = (workingItems||[]).map((it,i) => {
       if (i !== rowIdx) return it;
       const newQtys = {...(it.qtys||{}), [sz]:parsed};
       return {...it, qtys:newQtys, totalQty:Object.values(newQtys).reduce((a,v)=>a+v,0)};
     });
-    onUpdateItems(newItems);
+    updateLocal(newItems);
   };
 
   const handleDist = (rowIdx) => {
     const total = parseInt(distTotal); if (!total||total<=0) return;
     const item = safeItems[rowIdx];
     const dist = distribute(total, item.sizes, item.curve||DEFAULT_CURVE);
-    onUpdateItems((items||[]).map((it,i) => i!==rowIdx ? it : {...it, qtys:dist, totalQty:Object.values(dist).reduce((a,v)=>a+v,0)}));
+    updateLocal((workingItems||[]).map((it,i) => i!==rowIdx ? it : {...it, qtys:dist, totalQty:Object.values(dist).reduce((a,v)=>a+v,0)}));
     setDistRow(null); setDistTotal("");
   };
 
-  const addItem = (item) => onUpdateItems([...(items||[]), item]);
+  const addItem = (item) => { updateLocal([...(workingItems||[]), item]); };
 
   const handleDragStart = (idx) => setDragIdx(idx);
   const handleDragOver = (e, idx) => { e.preventDefault(); setDragOverIdx(idx); };
@@ -466,6 +504,13 @@ export function BuySheetTab({ items, onUpdateItems }) {
             <button onClick={() => { setShowManual(!showManual); setShowPicker(false); }} style={{ background:T.surface, color:T.muted, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"pointer" }}>
               + Manual
             </button>
+            {dirty && (
+              <button onClick={handleSave} disabled={saving}
+                style={{ background:T.green, color:"#fff", border:"none", borderRadius:7, padding:"6px 16px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer", opacity:saving?0.6:1 }}>
+                {saving ? "Saving..." : "Save"}
+              </button>
+            )}
+            {!dirty && <span style={{ fontSize:11, color:T.faint, fontFamily:font }}>All saved</span>}
             {grandTotal > 0 && <span style={{ fontSize:12, color:T.green, fontFamily:mono, fontWeight:600 }}>{grandTotal.toLocaleString()} units total</span>}
             <div style={{ marginLeft:"auto", display:"flex", gap:12 }}>
               {[["↑↓←→","Nav"],["Enter","↓"],["Tab","→"]].map(([k,l]) => (
@@ -517,15 +562,21 @@ export function BuySheetTab({ items, onUpdateItems }) {
                             return (
                               <div key={sz} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2, padding:"4px 6px", borderRadius:6, border:`1px solid ${isFocused?T.accent:qty>0?T.accent+"66":T.border}`, background:isFocused?T.accentDim:qty>0?T.surface:T.card, minWidth:44, transition:"all 0.1s" }}>
                                 <span style={{ fontSize:9, fontWeight:700, color:qty>0?T.accent:T.muted, fontFamily:mono, letterSpacing:"0.04em" }}>{sz}</span>
-                                <input type="text" inputMode="numeric" pattern="[0-9]*" value={qty||""} placeholder="0"
-                                  onFocus={() => setFocused({row:rowIdx,col:szIdx})}
-                                  onChange={e => updateQty(rowIdx, sz, e.target.value)}
+                                <input type="text" inputMode="numeric" pattern="[0-9]*"
+                                  value={getLocalQty(item.id,sz) !== null ? getLocalQty(item.id,sz) : (qty||"")}
+                                  placeholder="0"
+                                  onFocus={() => { setFocused({row:rowIdx,col:szIdx}); setLocalQty(item.id,sz,qty||""); }}
+                                  onChange={e => setLocalQty(item.id, sz, e.target.value)}
+                                  onBlur={() => commitQty(rowIdx, item.id, sz)}
                                   onKeyDown={e => {
-                                    if (e.key==="ArrowRight"||(e.key==="Tab"&&!e.shiftKey)) { e.preventDefault(); const nc=szIdx+1; if(nc<item.sizes.length) setFocused({row:rowIdx,col:nc}); else if(rowIdx<safeItems.length-1) setFocused({row:rowIdx+1,col:0}); }
-                                    if (e.key==="ArrowLeft"||(e.key==="Tab"&&e.shiftKey)) { e.preventDefault(); const nc=szIdx-1; if(nc>=0) setFocused({row:rowIdx,col:nc}); else if(rowIdx>0) setFocused({row:rowIdx-1,col:safeItems[rowIdx-1].sizes.length-1}); }
-                                    if (e.key==="ArrowDown"||e.key==="Enter") { e.preventDefault(); if(rowIdx<safeItems.length-1) setFocused({row:rowIdx+1,col:szIdx<safeItems[rowIdx+1].sizes.length?szIdx:0}); }
-                                    if (e.key==="ArrowUp") { e.preventDefault(); if(rowIdx>0) setFocused({row:rowIdx-1,col:szIdx<safeItems[rowIdx-1].sizes.length?szIdx:0}); }
+                                    const moveTo = (r,c) => { setFocused({row:r,col:c}); setTimeout(()=>{ const el=inputRefs[r+"_"+c]; if(el) el.focus(); },0); };
+                                    if (e.key==="Enter") { e.preventDefault(); commitQty(rowIdx,item.id,sz); if(rowIdx<safeItems.length-1) moveTo(rowIdx+1, szIdx<safeItems[rowIdx+1].sizes.length?szIdx:0); }
+                                    if (e.key==="ArrowRight"||(e.key==="Tab"&&!e.shiftKey)) { e.preventDefault(); commitQty(rowIdx,item.id,sz); const nc=szIdx+1; if(nc<item.sizes.length) moveTo(rowIdx,nc); else if(rowIdx<safeItems.length-1) moveTo(rowIdx+1,0); }
+                                    if (e.key==="ArrowLeft"||(e.key==="Tab"&&e.shiftKey)) { e.preventDefault(); commitQty(rowIdx,item.id,sz); const nc=szIdx-1; if(nc>=0) moveTo(rowIdx,nc); else if(rowIdx>0) moveTo(rowIdx-1,safeItems[rowIdx-1].sizes.length-1); }
+                                    if (e.key==="ArrowDown") { e.preventDefault(); commitQty(rowIdx,item.id,sz); if(rowIdx<safeItems.length-1) moveTo(rowIdx+1,szIdx<safeItems[rowIdx+1].sizes.length?szIdx:0); }
+                                    if (e.key==="ArrowUp") { e.preventDefault(); commitQty(rowIdx,item.id,sz); if(rowIdx>0) moveTo(rowIdx-1,szIdx<safeItems[rowIdx-1].sizes.length?szIdx:0); }
                                   }}
+                                  ref={el => { if(el) inputRefs[rowIdx+"_"+szIdx] = el; }}
                                   style={{ width:36, textAlign:"center", background:"transparent", border:"none", outline:"none", color:qty>0?T.text:T.faint, fontSize:12, fontFamily:mono, padding:0 }}/>
                               </div>
                             );
