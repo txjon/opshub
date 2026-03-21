@@ -1,8 +1,7 @@
 "use client";
-import React from "react";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
 import { CostingTabWrapper } from "./CostingTab";
 import { BuySheetTab } from "./BuySheetTab";
 
@@ -42,6 +41,7 @@ type Item = {
   id: string; job_id: string; name: string; blank_vendor: string|null; blank_sku: string|null;
   garment_type: string|null; status: string; artwork_status: string; notes: string|null;
   cost_per_unit: number|null; sell_per_unit: number|null; sort_order: number;
+  blank_costs: Record<string,number>|null;
   decorator?: string; decoration_type?: string; pipeline_stage?: string;
   sizes?: string[]; qtys?: Record<string,number>;
 };
@@ -95,6 +95,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           decoration_type: assignment?.decoration_type || null,
           pipeline_stage: assignment?.pipeline_stage || "blanks_ordered",
           decorator_assignment_id: assignment?.id || null,
+          blankCosts: it.blank_costs || null,
         };
       });
       setItems(mapped);
@@ -121,6 +122,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     const { cost_per_unit, sell_per_unit, status, artwork_status, name, notes } = updates;
     const dbUpdates: any = {};
     if (cost_per_unit !== undefined) dbUpdates.cost_per_unit = cost_per_unit;
+    if ((updates as any).blankCosts !== undefined) dbUpdates.blank_costs = (updates as any).blankCosts || null;
     if (sell_per_unit !== undefined) dbUpdates.sell_per_unit = sell_per_unit;
     if (status !== undefined) dbUpdates.status = status;
     if (artwork_status !== undefined) dbUpdates.artwork_status = artwork_status;
@@ -317,48 +319,62 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
 
       {/* BUYSHEET */}
-
-{tab==="buysheet"&&(
-  <BuySheetTab
-    items={items}
-    onUpdateItems={async (newItems) => {
-      const deleted = items.filter(i => !newItems.find(ni => ni.id === i.id));
-      for (const item of deleted) {
-        await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
-        await supabase.from("items").delete().eq("id", item.id);
-      }
-      const added = newItems.filter(ni => !items.find(i => i.id === ni.id));
-      for (const item of added) {
-        const { data } = await supabase.from("items").insert({
-          job_id: params.id, name: item.name,
-          blank_vendor: item.blank_vendor || null,
-          blank_sku: item.blank_sku || null,
-          cost_per_unit: item.cost_per_unit || null,
-          status: "tbd", artwork_status: "not_started", sort_order: 0,
-        }).select("id").single();
-        if (data && item.sizes?.length > 0) {
-          await supabase.from("buy_sheet_lines").insert(
-            item.sizes.map(sz => ({ item_id: data.id, size: sz, qty_ordered: item.qtys?.[sz] || 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }))
-          );
-        }
-      }
-      const updated = newItems.filter(ni => items.find(i => i.id === ni.id));
-      for (const item of updated) {
-        await saveItem(item.id, { qtys: item.qtys, cost_per_unit: item.cost_per_unit });
-      }
-      await loadData();
-    }}
-  />
-)}
+            {tab==="buysheet"&&(
+        <BuySheetTab
+          items={items}
+          onUpdateItems={async (newItems:Item[]) => {
+            const deleted = items.filter(i => !newItems.find((ni:Item) => ni.id === i.id));
+            for (const item of deleted) {
+              await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
+              await supabase.from("items").delete().eq("id", item.id);
+            }
+            const added = newItems.filter((ni:Item) => !items.find(i => i.id === ni.id));
+            for (const item of added) {
+              const { data } = await supabase.from("items").insert({
+                job_id: params.id,
+                name: item.name,
+                blank_vendor: (item as any).blank_vendor || null,
+                blank_sku: (item as any).blank_sku || null,
+                cost_per_unit: (item as any).cost_per_unit || null,
+                blank_costs: (item as any).blankCosts && Object.keys((item as any).blankCosts).length > 0 ? (item as any).blankCosts : null,
+                status: "tbd",
+                artwork_status: "not_started",
+                sort_order: 0,
+              }).select("id").single();
+              if (data && (item as any).sizes?.length > 0) {
+                await supabase.from("buy_sheet_lines").insert(
+                  (item as any).sizes.map((sz:string) => ({
+                    item_id: data.id,
+                    size: sz,
+                    qty_ordered: (item as any).qtys?.[sz] || 0,
+                    qty_shipped_from_vendor: 0,
+                    qty_received_at_hpd: 0,
+                    qty_shipped_to_customer: 0,
+                  }))
+                );
+              }
+            }
+            const updated = newItems.filter((ni:Item) => items.find(i => i.id === ni.id));
+            for (const item of updated) {
+              await saveItem(item.id, {
+                qtys: (item as any).qtys,
+                cost_per_unit: (item as any).cost_per_unit,
+              });
+            }
+            await loadData();
+          }}
+        />
+      )}
 
       {/* COSTING */}
-      {tab==="costing"&&(
-  <CostingTabWrapper
-    project={job}
-    buyItems={items}
-    onUpdateBuyItems={setItems}
-  />
-)}
+            {tab==="costing"&&(
+        <CostingTabWrapper
+          project={job}
+          buyItems={items}
+          onUpdateBuyItems={setItems}
+        />
+      )}
+
       {/* PRODUCTION */}
       {tab==="production"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>

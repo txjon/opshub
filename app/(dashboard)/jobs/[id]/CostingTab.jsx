@@ -1276,7 +1276,14 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) 
     color: it.blank_sku || "",
     sizes: it.sizes || [],
     qtys: it.qtys || {},
-    blankCosts: seedBlankCosts(it.blank_vendor || "", it.blank_sku || "", it.sizes || []),
+    blankCosts: (() => {
+      if (it.blankCosts && Object.keys(it.blankCosts).length > 0) return it.blankCosts;
+      if (it.cost_per_unit > 0) {
+        const bc = {}; (it.sizes||[]).forEach(sz => { bc[sz] = it.cost_per_unit; }); return bc;
+      }
+      return seedBlankCosts(it.blank_vendor || "", it.blank_sku || "", it.sizes || []);
+    })(),
+    blankCostPerUnit: it.cost_per_unit || 0,
     totalQty: Object.values(it.qtys || {}).reduce((a, v) => a + v, 0),
   }));
   const [costProds, setCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);

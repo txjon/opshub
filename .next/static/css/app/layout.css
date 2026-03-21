@@ -591,6 +591,9 @@ video {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
 }
+.visible {
+  visibility: visible;
+}
 .collapse {
   visibility: collapse;
 }
