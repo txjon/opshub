@@ -45,6 +45,8 @@ function SSPicker({ onAdd, onClose }) {
   const [selectedStyle, setSelectedStyle] = useState(null);
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [pendingItem, setPendingItem] = useState(null);
+  const [itemName, setItemName] = useState("");
 
   useEffect(() => {
     fetch("/api/ss?endpoint=brands")
@@ -83,31 +85,38 @@ function SSPicker({ onAdd, onClose }) {
     return acc;
   }, {});
 
-  const handleAdd = (colorName) => {
+  const handleColorClick = (colorName) => {
     const colorProducts = colorGroups[colorName] || [];
     const sizes = sortSizes([...new Set(colorProducts.map(p => p.sizeName))]);
     const stock = colorProducts.reduce((a,p) => a+(p.warehouses||[]).reduce((b,w) => b+w.qty,0), 0);
     const qtys = {}; sizes.forEach(sz => { qtys[sz] = 0; });
-    // Build per-size cost map using customerPrice (our negotiated price)
     const blankCosts = {};
     colorProducts.forEach(p => {
       const cost = (p.customerPrice && p.customerPrice > 0) ? p.customerPrice : (p.casePrice || 0);
       blankCosts[p.sizeName] = cost;
     });
-    // Use the smallest size price as the base cost_per_unit display
-    const baseCost = blankCosts[sizes[0]] || 0;
-    onAdd({
+    const costValues = Object.values(blankCosts).filter(v => v > 0);
+    const avgCost = costValues.length > 0 ? costValues.reduce((a,v) => a+v, 0) / costValues.length : 0;
+    setPendingItem({
       id: Date.now() + Math.random(),
-      name: `${selectedStyle.brandName} ${selectedStyle.styleName} - ${colorName}`,
+      name: "",
       blank_vendor: `${selectedStyle.brandName} ${selectedStyle.styleName}`,
       blank_sku: colorName,
       style: `${selectedStyle.brandName} ${selectedStyle.styleName}`,
       color: colorName,
       sizes, qtys, curve: DEFAULT_CURVE, totalQty: 0,
       stockLevel: stock,
-      cost_per_unit: baseCost,
+      cost_per_unit: avgCost,
       blankCosts,
     });
+    setItemName("");
+  };
+
+  const confirmAdd = () => {
+    if (!pendingItem) return;
+    onAdd({ ...pendingItem, name: itemName.trim() || `${pendingItem.blank_vendor} - ${pendingItem.blank_sku}` });
+    setPendingItem(null);
+    setItemName("");
   };
 
   const inp = { background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, color:T.text, fontFamily:font, fontSize:12, padding:"7px 10px", outline:"none", width:"100%", boxSizing:"border-box" };
@@ -162,7 +171,7 @@ function SSPicker({ onAdd, onClose }) {
                   const first = colorProducts[0] || {};
                   const cost = (first.customerPrice && first.customerPrice > 0) ? first.customerPrice : (first.casePrice || 0);
                   return (
-                    <button key={colorName} onClick={() => handleAdd(colorName)}
+                    <button key={colorName} onClick={() => handleColorClick(colorName)}
                       style={{ width:"100%", textAlign:"left", padding:"8px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, cursor:"pointer", marginBottom:4 }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor=T.accent; e.currentTarget.style.background=T.accentDim; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor=T.border; e.currentTarget.style.background=T.surface; }}>
@@ -181,6 +190,34 @@ function SSPicker({ onAdd, onClose }) {
                 })}
               </div>
             </>
+          )}
+          {pendingItem && (
+            <div style={{ padding:"12px", borderTop:`1px solid ${T.border}`, background:T.surface }}>
+              <div style={{ fontSize:11, color:T.muted, fontFamily:font, marginBottom:6 }}>
+                Name this item — this will be used across all departments
+              </div>
+              <input
+                autoFocus
+                value={itemName}
+                onChange={e => setItemName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && confirmAdd()}
+                placeholder={`e.g. Tour Tee, Crew Neck, VIP Hoodie...`}
+                style={{ width:"100%", background:T.card, border:`1px solid ${T.accent}`, borderRadius:6, color:T.text, fontFamily:font, fontSize:13, padding:"8px 10px", outline:"none", boxSizing:"border-box", marginBottom:8 }}
+              />
+              <div style={{ display:"flex", gap:6 }}>
+                <button onClick={confirmAdd}
+                  style={{ flex:1, background:T.accent, color:"#fff", border:"none", borderRadius:6, padding:"8px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+                  Add to buy sheet →
+                </button>
+                <button onClick={() => { setPendingItem(null); setItemName(""); }}
+                  style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, cursor:"pointer", fontSize:12, padding:"8px 12px" }}>
+                  Cancel
+                </button>
+              </div>
+              <div style={{ fontSize:10, color:T.faint, fontFamily:font, marginTop:6 }}>
+                Blank: {pendingItem.blank_vendor} · {pendingItem.blank_sku} · {pendingItem.sizes.length} sizes
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -361,6 +398,8 @@ export function BuySheetTab({ items, onUpdateItems }) {
   const [distTotal, setDistTotal] = useState("");
   const [showPicker, setShowPicker] = useState(false);
   const [showManual, setShowManual] = useState(false);
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
 
   const isEmpty = safeItems.length === 0;
   const grandTotal = safeItems.reduce((a,it) => a+(it.totalQty||0), 0);
@@ -386,6 +425,18 @@ export function BuySheetTab({ items, onUpdateItems }) {
   };
 
   const addItem = (item) => onUpdateItems([...(items||[]), item]);
+
+  const handleDragStart = (idx) => setDragIdx(idx);
+  const handleDragOver = (e, idx) => { e.preventDefault(); setDragOverIdx(idx); };
+  const handleDrop = (idx) => {
+    if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setDragOverIdx(null); return; }
+    const newItems = [...(items||[])];
+    const [moved] = newItems.splice(dragIdx, 1);
+    newItems.splice(idx, 0, moved);
+    onUpdateItems(newItems);
+    setDragIdx(null); setDragOverIdx(null);
+  };
+  const handleDragEnd = () => { setDragIdx(null); setDragOverIdx(null); };
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
@@ -443,6 +494,7 @@ export function BuySheetTab({ items, onUpdateItems }) {
                     <tr key={item.id} style={{ borderBottom:isLast?"none":`1px solid ${T.border}`, background:T.card }}>
                       <td style={{ padding:"10px 14px", verticalAlign:"middle", borderRight:`1px solid ${T.border}` }}>
                         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          <div style={{color:"rgba(255,255,255,0.2)",fontSize:12,cursor:"grab",padding:"0 4px 0 0",flexShrink:0,userSelect:"none"}}>⠿</div>
                           <button onClick={() => removeItem(item.id)}
                             style={{ flexShrink:0, background:"none", border:"none", cursor:"pointer", color:"rgba(255,255,255,0.4)", fontSize:13, lineHeight:1, padding:"1px 2px", borderRadius:3 }}
                             onMouseEnter={e => e.currentTarget.style.color=T.red}
