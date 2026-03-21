@@ -69,6 +69,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [shipStage, setShipStage] = useState<string|null>(null);
   const [shipNotes, setShipNotes] = useState("");
 
+  const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
+  const sortSizes = (sizes: string[]) => [...sizes].sort((a,b) => {
+    const ai=SIZE_ORDER.indexOf(a), bi=SIZE_ORDER.indexOf(b);
+    if(ai===-1&&bi===-1) return a.localeCompare(b);
+    if(ai===-1) return 1; if(bi===-1) return -1;
+    return ai-bi;
+  });
+
   useEffect(() => {
     loadData();
   }, [params.id]);
@@ -85,7 +93,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (itemsRes.data) {
       const mapped = itemsRes.data.map((it: any) => {
         const lines = it.buy_sheet_lines || [];
-        const sizes = lines.map((l: any) => l.size);
+        const sizes = sortSizes(lines.map((l: any) => l.size));
         const qtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
         const assignment = it.decorator_assignments?.[0];
         return {
