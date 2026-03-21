@@ -51,7 +51,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), items(id, decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), items(id, sell_per_unit, cost_per_unit, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -100,6 +100,9 @@ export default function JobsPage() {
     } else if (sortKey === "client") {
       av = (a.clients?.name || "").toLowerCase();
       bv = (b.clients?.name || "").toLowerCase();
+    } else if (sortKey === "priority") {
+      const order: Record<string,number> = { urgent:0, high:1, normal:2 };
+      av = order[a.priority] ?? 3; bv = order[b.priority] ?? 3;
     } else if (sortKey === "phase") {
       const order: Record<string,number> = { intake:0, pre_production:1, production:2, receiving:3, shipping:4, complete:5 };
       av = order[a.phase] ?? 9; bv = order[b.phase] ?? 9;
@@ -155,10 +158,10 @@ export default function JobsPage() {
           ))}
         </div>
         <div style={{ marginLeft:"auto", display:"flex", gap:0, background:T.surface, borderRadius:8, padding:3 }}>
-          <SortBtn col="target_ship_date" label="Ship Date" />
-          <SortBtn col="phase" label="Phase" />
-          <SortBtn col="pct" label="% Done" />
           <SortBtn col="client" label="Client" />
+          <SortBtn col="priority" label="Priority" />
+          <SortBtn col="phase" label="Phase" />
+          <SortBtn col="target_ship_date" label="Ship Date" />
         </div>
       </div>
 
@@ -177,68 +180,81 @@ export default function JobsPage() {
           const daysLeft = job.target_ship_date ? Math.ceil((new Date(job.target_ship_date).getTime() - now.getTime()) / (1000*60*60*24)) : null;
           const itemCount = job.items?.length || 0;
 
+          const priorityStyle: Record<string,{bg:string,text:string,label:string}> = {
+            urgent: { bg:"#3d1212", text:"#f05353", label:"Urgent" },
+            high:   { bg:"#3d2a08", text:"#f5a623", label:"High priority" },
+            normal: { bg:"#2a3050", text:"#7a82a0", label:"Normal" },
+          };
+          const pri = priorityStyle[job.priority] || priorityStyle.normal;
+          const borderColor = job.priority==="urgent" ? T.red+"44" : job.priority==="high" ? T.amber+"44" : daysLeft!==null&&daysLeft<0 ? T.red+"44" : T.border;
+          const totalUnits = (job.items||[]).reduce((a:number,it:any) =>
+            a + (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0), 0);
+          const totalRevenue = (job.items||[]).reduce((a:number,it:any) => {
+            const qty = (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0);
+            return a + (it.sell_per_unit||0) * qty;
+          }, 0);
+
           return (
             <div key={job.id} onClick={() => router.push(`/jobs/${job.id}`)}
-              style={{ background:T.card, border:`1px solid ${flags.length?T.amber+"66":T.border}`, borderRadius:10, cursor:"pointer", overflow:"hidden", transition:"background 0.1s" }}
+              style={{ background:T.card, border:`1px solid ${borderColor}`, borderRadius:10, cursor:"pointer", transition:"background 0.1s", display:"flex", alignItems:"center", gap:12, padding:"11px 14px" }}
               onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = T.surface}
               onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = T.card}>
-              <div style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px" }}>
-                {/* Phase badge */}
-                <div style={{ flexShrink:0, background:phase.bg, borderRadius:6, padding:"4px 10px", minWidth:130, textAlign:"center" }}>
-                  <span style={{ fontSize:10, fontWeight:700, color:phase.text, fontFamily:font, whiteSpace:"nowrap" }}>{phase.label}</span>
-                </div>
 
-                {/* Name + client */}
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:13, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{job.title}</div>
-                  <div style={{ fontSize:10, color:T.muted, marginTop:1 }}>
-                    {job.clients?.name}
-                    <span style={{ color:T.faint, marginLeft:6 }}>{itemCount} item{itemCount !== 1 ? "s" : ""}</span>
-                    <span style={{ color:T.faint, marginLeft:6, fontFamily:mono }}>{job.job_number}</span>
-                  </div>
-                </div>
-
-                {/* Progress bar */}
-                {itemCount > 0 && (
-                  <div style={{ width:100, flexShrink:0 }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
-                      <span style={{ fontSize:9, color:T.faint, textTransform:"uppercase", letterSpacing:"0.06em" }}>Progress</span>
-                      <span style={{ fontSize:11, fontWeight:700, color:pctColor, fontFamily:mono }}>{pct}%</span>
-                    </div>
-                    <div style={{ height:4, background:T.surface, borderRadius:2, overflow:"hidden" }}>
-                      <div style={{ height:"100%", width:pct+"%", background:pctColor, borderRadius:2, transition:"width 0.4s" }} />
-                    </div>
-                  </div>
-                )}
-
-                {/* Days to ship */}
-                <div style={{ flexShrink:0, textAlign:"right", minWidth:60 }}>
-                  {daysLeft !== null ? (
-                    <>
-                      <div style={{ fontSize:12, fontWeight:700, color:daysLeft < 0 ? T.red : daysLeft <= 3 ? T.amber : T.muted, fontFamily:mono }}>
-                        {daysLeft < 0 ? Math.abs(daysLeft)+"d over" : daysLeft === 0 ? "Today" : daysLeft+"d"}
-                      </div>
-                      <div style={{ fontSize:9, color:T.faint }}>
-                        {new Date(job.target_ship_date!).toLocaleDateString("en-US", { month:"short", day:"numeric" })}
-                      </div>
-                    </>
-                  ) : (
-                    <span style={{ fontSize:10, color:T.faint }}>No date</span>
-                  )}
-                </div>
-
-                {/* Flags */}
-                {flags.length > 0 && (
-                  <div style={{ display:"flex", gap:4, flexShrink:0 }}>
-                    {flags.map(fl => (
-                      <div key={fl.label} style={{ background:fl.color+"22", border:`1px solid ${fl.color}44`, borderRadius:4, padding:"2px 7px", fontSize:9, color:fl.color, fontWeight:700, whiteSpace:"nowrap" }}>
-                        {fl.label}
-                      </div>
-                    ))}
-                  </div>
-                )}
+              {/* Client + project name */}
+              <div style={{ width:240, flexShrink:0 }}>
+                <div style={{ fontSize:14, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{job.clients?.name||"No client"}</div>
+                <div style={{ fontSize:11, color:T.muted, marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{job.title} · <span style={{ fontFamily:mono, fontSize:10 }}>{job.job_number}</span></div>
               </div>
-              <div style={{ height:2, background:phase.text+"44" }} />
+
+              {/* Units + Revenue stats */}
+              <div style={{ display:"flex", gap:20, width:160, flexShrink:0 }}>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:2 }}>Units</div>
+                  <div style={{ fontSize:13, fontWeight:600, color:T.text, fontFamily:mono }}>{totalUnits>0?totalUnits.toLocaleString():"—"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize:10, color:T.muted, marginBottom:2 }}>Revenue</div>
+                  <div style={{ fontSize:13, fontWeight:600, color:totalRevenue>0?T.accent:T.muted, fontFamily:mono }}>{totalRevenue>0?"$"+Math.round(totalRevenue).toLocaleString():"—"}</div>
+                </div>
+              </div>
+
+              <div style={{ flex:1 }}/>
+
+              {/* Priority - fixed width so columns align */}
+              <div style={{ width:110, flexShrink:0, display:"flex", justifyContent:"center" }}>
+                <span style={{ padding:"2px 9px", borderRadius:99, fontSize:11, fontWeight:600, background:pri.bg, color:pri.text, whiteSpace:"nowrap" }}>{pri.label}</span>
+              </div>
+
+              {/* Phase - fixed width */}
+              <div style={{ width:120, flexShrink:0, display:"flex", justifyContent:"center" }}>
+                <span style={{ padding:"2px 9px", borderRadius:99, fontSize:11, fontWeight:600, background:phase.bg, color:phase.text, whiteSpace:"nowrap" }}>{phase.label}</span>
+              </div>
+
+              {/* Progress */}
+              <div style={{ width:120, flexShrink:0 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                  <span style={{ fontSize:10, color:T.muted }}>Progress</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:pctColor, fontFamily:mono }}>{pct}%</span>
+                </div>
+                <div style={{ height:5, background:T.surface, borderRadius:3 }}>
+                  <div style={{ height:"100%", width:pct+"%", background:pctColor, borderRadius:3, transition:"width 0.4s" }}/>
+                </div>
+              </div>
+
+              {/* Days */}
+              <div style={{ textAlign:"right", minWidth:56, flexShrink:0 }}>
+                {daysLeft !== null ? (
+                  <>
+                    <div style={{ fontSize:14, fontWeight:700, color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.muted, fontFamily:mono }}>
+                      {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Today":daysLeft+"d"}
+                    </div>
+                    <div style={{ fontSize:10, color:T.faint }}>
+                      {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                    </div>
+                  </>
+                ) : <span style={{ fontSize:10, color:T.faint }}>No date</span>}
+              </div>
+
             </div>
           );
         })}
