@@ -218,6 +218,8 @@ const CToggle=({label,value,onChange})=>(
 
 const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave})=>{
   const [costTab,setCostTab]=useState("calc");
+  const [collapsed,setCollapsed]=useState(()=>{ const c={}; (costProds||[]).forEach(p=>{ c[p.id]=true; }); return c; });
+  const toggleCollapse=(id)=>setCollapsed(p=>({...p,[id]:!p[id]}));
 
   useEffect(()=>{
     if(!buyItems.length) return;
@@ -325,24 +327,30 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
             {costProds.map((p,i)=>{
               const r=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);
               const mc2=r?(r.margin_pct>=0.30?T.green:r.margin_pct>=0.20?T.amber:T.red):T.faint;
+              const isCollapsed=!!collapsed[p.id];
+              const headerBB=isCollapsed?"none":"1px solid "+T.border;
+              const bodyDisplay=isCollapsed?"none":"grid";
+              const chevron=isCollapsed?"v":"^";
               return(
                 <div key={p.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
-                  <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
+                  <div onClick={()=>toggleCollapse(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
                     <span style={{width:24,height:24,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
                     <div style={{flex:1}}>
-                      <input value={p.name||""} onChange={e=>updateProd(i,{...p,name:e.target.value})} placeholder={"Product "+(i+1)+" name"}
-                        style={{background:"transparent",border:"none",outline:"none",color:T.text,fontFamily:font,fontSize:13,fontWeight:600,width:"100%"}}/>
+                      <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||("Product "+(i+1))}</span>
                     </div>
-                    {r&&<div style={{display:"flex",gap:14,alignItems:"center"}}>
-                      {[["Rev",fmtD(r.grossRev),T.accent],["Profit",fmtD(r.netProfit),mc2],["Margin",fmtP(r.margin_pct),mc2],["$/unit","$"+(r.sellPerUnit||0).toFixed(2),T.green]].map(([l,v,c])=>(
-                        <div key={l} style={{textAlign:"center"}}>
-                          <div style={{fontSize:8,color:T.faint,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>{l}</div>
-                          <div style={{fontSize:12,fontWeight:700,color:c,fontFamily:mono}}>{v}</div>
-                        </div>
-                      ))}
-                    </div>}
+                    <div style={{display:"flex",gap:16,alignItems:"center"}}>
+                      <div style={{textAlign:"center"}}>
+                        <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
+                        <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
+                      </div>
+                      {r&&r.sellPerUnit>0&&<div style={{textAlign:"center"}}>
+                        <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>$/unit</div>
+                        <div style={{fontSize:12,fontWeight:700,color:T.green,fontFamily:mono}}>${(r.sellPerUnit||0).toFixed(2)}</div>
+                      </div>}
+                    </div>
+                    <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>
                   </div>
-                  <div style={{padding:14,display:"grid",gridTemplateColumns:"1fr 1fr",gap:0,alignItems:"start"}}>
+                  <div style={{padding:14,display:bodyDisplay,gridTemplateColumns:"1fr 1fr",gap:0,alignItems:"start"}}>
                     {/* BLANKS PANEL */}
                     <div style={{display:"flex",flexDirection:"column",gap:12,paddingRight:16,borderRight:`1px solid ${T.border}`}}>
                       <div style={{fontSize:10,fontWeight:700,color:T.accent,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.1em",paddingBottom:6,borderBottom:`1px solid ${T.border}`}}>Blanks</div>
@@ -915,10 +923,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                 </div>
               );
             })}
-            <button onClick={()=>setCostProds(p=>[...p,EMPTY_COST_PRODUCT()])}
-              style={{width:"100%",background:T.card,border:`2px dashed ${T.border}`,borderRadius:10,color:T.muted,cursor:"pointer",padding:14,fontSize:13,fontFamily:font,fontWeight:500}}>
-              + Add product
-            </button>
+
           </div>
           {/* Order info sidebar */}
           <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:14,alignSelf:"flex-start",position:"sticky",top:74}}>
