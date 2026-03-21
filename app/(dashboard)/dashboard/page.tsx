@@ -61,7 +61,7 @@ export default async function DashboardPage() {
 
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("*, clients(name), items(id, sell_per_unit, cost_per_unit, buy_sheet_lines(qty_ordered))")
+    .select("*, clients(name), costing_summary, items(id, sell_per_unit, cost_per_unit, buy_sheet_lines(qty_ordered))")
     .not("phase", "in", '("complete","cancelled")')
     .order("target_ship_date", { ascending: true, nullsFirst: false });
 
@@ -76,6 +76,7 @@ export default async function DashboardPage() {
 
   // Compute KPIs
   const totalRevenue = activeJobs.reduce((a, j) => {
+    if ((j as any).costing_summary?.grossRev) return a + (j as any).costing_summary.grossRev;
     return a + (j.items||[]).reduce((b: number, it: any) => {
       const qty = (it.buy_sheet_lines||[]).reduce((c: number, l: any) => c + (l.qty_ordered||0), 0);
       return b + (it.sell_per_unit||0) * qty;
@@ -83,6 +84,7 @@ export default async function DashboardPage() {
   }, 0);
 
   const totalCost = activeJobs.reduce((a, j) => {
+    if ((j as any).costing_summary?.totalCost) return a + (j as any).costing_summary.totalCost;
     return a + (j.items||[]).reduce((b: number, it: any) => {
       const qty = (it.buy_sheet_lines||[]).reduce((c: number, l: any) => c + (l.qty_ordered||0), 0);
       return b + (it.cost_per_unit||0) * qty;

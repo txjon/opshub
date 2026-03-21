@@ -1,7 +1,8 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { CostingTabWrapper } from "./CostingTab";
 import { BuySheetTab } from "./BuySheetTab";
 
@@ -43,6 +44,7 @@ type Item = {
   cost_per_unit: number|null; sell_per_unit: number|null; sort_order: number;
   blank_costs: Record<string,number>|null;
   costing_data: Record<string,any>|null;
+  costing_summary: {grossRev:number,totalCost:number,netProfit:number,margin:number,avgPerUnit:number,totalQty:number}|null;
   decorator?: string; decoration_type?: string; pipeline_stage?: string;
   sizes?: string[]; qtys?: Record<string,number>;
 };
@@ -59,6 +61,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const supabase = createClient();
   const [tab, setTab] = useState("overview");
+  const saveCostingRef = useRef<(() => Promise<void>) | null>(null);
   const [job, setJob] = useState<Job|null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -159,8 +162,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   if (loading) return React.createElement("div", {style:{padding:"2rem",color:"#7a82a0",fontSize:13}}, "Loading...");
   if (!job) return React.createElement("div", {style:{padding:"2rem",color:"#7a82a0",fontSize:13}}, "Job not found.");
 
-  const totalRev = items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.sell_per_unit)||0),0);
-  const totalCost = items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.cost_per_unit)||0),0);
+  // Use costing_summary if available (set when costing tab is saved), fallback to item calculations
+  const cs = job.costing_summary ? (typeof job.costing_summary === 'string' ? JSON.parse(job.costing_summary) : job.costing_summary) : null;
+  const totalRev = cs?.grossRev || items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.sell_per_unit)||0),0);
+  const totalCost = cs?.totalCost || items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.cost_per_unit)||0),0);
   const totalUnits = items.reduce((a,it)=>a+tQty(it.qtys||{}),0);
   const margin = totalRev>0?((totalRev-totalCost)/totalRev*100):0;
   const totalPaid = payments.filter(p=>p.status==="paid").reduce((a,p)=>a+p.amount,0);
@@ -234,7 +239,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:"1.5rem",padding:4,background:"#181c27",borderRadius:8,width:"fit-content"}}>
         {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)}
+          <button key={t.id} onClick={async ()=>{
+            if (tab==="costing" && t.id!=="costing" && saveCostingRef.current) {
+              await saveCostingRef.current();
+              router.refresh();
+            }
+            setTab(t.id);
+          }}
             style={{padding:"7px 16px",fontSize:13,fontWeight:tab===t.id?600:400,background:tab===t.id?"#4f8ef7":"transparent",color:tab===t.id?"#fff":"#7a82a0",border:"none",borderRadius:6,cursor:"pointer",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
             {t.label}
           </button>

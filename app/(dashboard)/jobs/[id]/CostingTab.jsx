@@ -269,14 +269,22 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
           ))}
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          {costingDirty&&<span style={{fontSize:11,color:T.amber,fontFamily:font,display:"flex",alignItems:"center",gap:4}}>
-            <span style={{width:6,height:6,borderRadius:"50%",background:T.amber,display:"inline-block"}}/>
-            Unsaved changes
-          </span>}
-          <button onClick={onSave}
-            style={{background:costingDirty?T.green:"transparent",color:costingDirty?"#fff":T.faint,border:`1px solid ${costingDirty?T.green:T.border}`,borderRadius:7,padding:"5px 16px",fontSize:12,fontFamily:font,fontWeight:700,cursor:costingDirty?"pointer":"default",transition:"all 0.15s"}}>
-            {costingDirty?"💾 Save":"✓ Saved"}
+          <button onClick={async ()=>{ if(costingDirty) await onSave(); }}
+            disabled={!costingDirty}
+            style={{background:costingDirty?T.green:T.surface,color:costingDirty?"#fff":T.faint,border:"1px solid "+(costingDirty?T.green:T.border),borderRadius:7,padding:"5px 16px",fontSize:12,fontFamily:font,fontWeight:700,cursor:costingDirty?"pointer":"default",opacity:costingDirty?1:0.5,transition:"all 0.15s"}}>
+            Save
           </button>
+          {costingDirty?(
+            <span style={{fontSize:11,color:T.amber,fontFamily:font,display:"flex",alignItems:"center",gap:4}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:T.amber,display:"inline-block"}}/>
+              Unsaved changes
+            </span>
+          ):(
+            <span style={{fontSize:11,color:T.green,fontFamily:font,display:"flex",alignItems:"center",gap:4}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:T.green,display:"inline-block"}}/>
+              Saved
+            </span>
+          )}
         </div>
       </div>
 
@@ -1103,7 +1111,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
 export { CostingTab };
 
-export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) {
+export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave }) {
   // Load saved costing state from project.costing_data if available
   const savedData = project?.costing_data || null;
   const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
@@ -1157,17 +1165,37 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) 
   });
   const [savedOrderInfo, setSavedOrderInfo] = useState({ ...orderInfo });
   const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) || JSON.stringify(orderInfo) !== JSON.stringify(savedOrderInfo);
+
+  // Register save function with parent so tab switching can auto-save
+  useEffect(() => {
+    if (typeof onRegisterSave === 'function') {
+      onRegisterSave(async () => { await onSave(); });
+    }
+  }, [costProds, costMargin, inclShip, inclCC, orderInfo]);
   const onSave = async () => {
     setSavedCostProds(JSON.parse(JSON.stringify(costProds)));
     setSavedOrderInfo(JSON.parse(JSON.stringify(orderInfo)));
-    // Save full costing state to jobs.costing_data
     if (project?.id) {
       try {
         const { createClient } = await import("@/lib/supabase/client");
         const supabase = createClient();
+        const results = costProds.map(p => calcCostProduct(p, costMargin, inclShip, inclCC, costProds)).filter(Boolean);
+        const grossRev = results.reduce((a,r) => a + r.grossRev, 0);
+        const totalCost = results.reduce((a,r) => a + r.totalCost, 0);
+        const netProfit = results.reduce((a,r) => a + r.netProfit, 0);
+        const totalQty = results.reduce((a,r) => a + r.qty, 0);
+        const margin = grossRev > 0 ? netProfit / grossRev * 100 : 0;
+        const avgPerUnit = totalQty > 0 ? grossRev / totalQty : 0;
         await supabase.from("jobs").update({
-          costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }
+          costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo },
+          costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty }
         }).eq("id", project.id);
+        for (const r of results) {
+          if (r.qty > 0 && r.sellPerUnit > 0) {
+            await supabase.from("items").update({ sell_per_unit: r.sellPerUnit })
+              .eq("id", costProds.find(p => calcCostProduct(p, costMargin, inclShip, inclCC, costProds)?.sellPerUnit === r.sellPerUnit)?.id || "");
+          }
+        }
       } catch(e) { console.error("Failed to save costing data", e); }
     }
   };

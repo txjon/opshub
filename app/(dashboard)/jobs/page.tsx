@@ -51,7 +51,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), items(id, sell_per_unit, cost_per_unit, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, items(id, sell_per_unit, cost_per_unit, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -189,10 +189,11 @@ export default function JobsPage() {
           const borderColor = job.priority==="urgent" ? T.red+"44" : job.priority==="high" ? T.amber+"44" : daysLeft!==null&&daysLeft<0 ? T.red+"44" : T.border;
           const totalUnits = (job.items||[]).reduce((a:number,it:any) =>
             a + (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0), 0);
-          const totalRevenue = (job.items||[]).reduce((a:number,it:any) => {
-            const qty = (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0);
-            return a + (it.sell_per_unit||0) * qty;
-          }, 0);
+          const totalRevenue = (job as any).costing_summary?.grossRev ||
+            (job.items||[]).reduce((a:number,it:any) => {
+              const qty = (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0);
+              return a + (it.sell_per_unit||0) * qty;
+            }, 0);
 
           return (
             <div key={job.id} onClick={() => router.push(`/jobs/${job.id}`)}
