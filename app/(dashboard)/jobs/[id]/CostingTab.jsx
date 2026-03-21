@@ -281,6 +281,15 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
         </div>
       </div>
 
+      {costingDirty&&(
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:T.amberDim,border:"1px solid "+T.amber+"66",borderRadius:8,padding:"8px 14px",marginTop:-8}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{width:7,height:7,borderRadius:"50%",background:T.amber,flexShrink:0,display:"inline-block"}}/>
+            <span style={{fontSize:12,color:T.amber,fontFamily:font,fontWeight:600}}>Unsaved changes — your cost and pricing data will be lost if you navigate away without saving.</span>
+          </div>
+          <button onClick={async()=>await onSave()} style={{background:T.amber,border:"none",borderRadius:6,color:"#fff",fontSize:12,fontFamily:font,fontWeight:700,padding:"5px 14px",cursor:"pointer",flexShrink:0}}>Save now</button>
+        </div>
+      )}
       {results.length>0&&(
         <div style={{display:"flex",gap:20,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 16px",flexWrap:"wrap",alignItems:"center"}}>
           {[[fmtD(totGross),"Revenue",T.accent],[fmtD(totProfit),"Net Profit",mc],[fmtP(netMarg),"Net Margin",mc]].map(([v,l,c])=>(
@@ -324,15 +333,6 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
       {costTab==="calc"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {costingDirty&&(
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:T.amberDim,border:"1px solid "+T.amber+"66",borderRadius:8,padding:"8px 14px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span style={{width:7,height:7,borderRadius:"50%",background:T.amber,flexShrink:0,display:"inline-block"}}/>
-                <span style={{fontSize:12,color:T.amber,fontFamily:font,fontWeight:600}}>Unsaved changes — your cost and pricing data will be lost if you navigate away without saving.</span>
-              </div>
-              <button onClick={async()=>await onSave()} style={{background:T.amber,border:"none",borderRadius:6,color:"#fff",fontSize:12,fontFamily:font,fontWeight:700,padding:"5px 14px",cursor:"pointer",flexShrink:0}}>Save now</button>
-            </div>
-          )}
           <div>
             {costProds.map((p,i)=>{
               const r=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);
@@ -348,13 +348,14 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                     <div style={{flex:1}}>
                       <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||("Product "+(i+1))}</span>
                     </div>
-                    <div style={{display:"flex",gap:16,alignItems:"center"}}>
-                      <div style={{textAlign:"center"}}>
+                    <div style={{display:"flex",gap:0,alignItems:"center"}}>
+                      <div style={{textAlign:"right",width:70,flexShrink:0}}>
                         <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
                         <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                       </div>
+                      <div style={{width:1,height:28,background:T.border,margin:"0 12px",flexShrink:0}}/>
                       <div style={{display:"flex",alignItems:"center",gap:6}} onClick={e=>e.stopPropagation()}>
-                        <div style={{textAlign:"center",marginRight:2}}>
+                        <div style={{textAlign:"right",width:90,marginRight:2}}>
                           <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Sell $/unit</div>
                           {p._sellOverride?(
                             <div style={{display:"flex",alignItems:"center",gap:4}}>
@@ -442,7 +443,11 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                       {/* Collapsible size grid */}
                       <div onClick={()=>updateProd(i,{...p,_blankOpen:!p._blankOpen})} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",padding:"6px 8px",borderRadius:6,background:p._blankOpen?T.accentDim:T.surface,border:"1px solid "+(p._blankOpen?T.accent+"44":T.border),marginBottom:p._blankOpen?8:0,transition:"all 0.15s"}}>
                         <div style={{fontSize:10,fontWeight:700,color:p._blankOpen?T.accent:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</div>
-                        <span style={{fontSize:11,color:p._blankOpen?T.accent:T.faint,display:"inline-block",transform:p._blankOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.15s"}}>v</span>
+                        <div style={{display:"flex",alignItems:"center",gap:12}}>
+                          {!p._blankOpen&&p.totalQty>0&&<span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()} units</span>}
+                          {!p._blankOpen&&Object.keys(p.blankCosts||{}).length>0&&<span style={{fontSize:11,color:T.accent,fontFamily:mono}}>{fmtD(Object.entries(p.blankCosts||{}).reduce((a,[sz,bc])=>a+bc*(p.qtys?.[sz]||0)*1.035,0))}</span>}
+                          <span style={{fontSize:11,color:p._blankOpen?T.accent:T.faint,display:"inline-block",transform:p._blankOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.15s"}}>v</span>
+                        </div>
                       </div>
                       {p._blankOpen&&<div style={{borderRadius:8,border:"1px solid "+T.border,overflow:"hidden"}}>
                           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
@@ -494,6 +499,11 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                             </tbody>
                           </table>
                       </div>}
+                      <div>
+                        <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Item notes</div>
+                        <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})} placeholder="Internal notes for this item..."
+                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:52,boxSizing:"border-box"}}/>
+                      </div>
                       {r&&(
                         <div style={{borderRadius:8,border:"1px solid "+T.border,padding:"8px",marginTop:4,background:T.surface}}>
                           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:6}}>
