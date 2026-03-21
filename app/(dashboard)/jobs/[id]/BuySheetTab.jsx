@@ -545,7 +545,16 @@ export function BuySheetTab({ items, onUpdateItems }) {
                             onMouseEnter={e => e.currentTarget.style.color=T.red}
                             onMouseLeave={e => e.currentTarget.style.color="rgba(255,255,255,0.4)"}>✕</button>
                           <div>
-                            <div style={{ fontSize:12, fontWeight:600, color:"#fff", fontFamily:font }}>{item.name}</div>
+                            <input
+                              value={item.name}
+                              onChange={e => {
+                                const newItems = (items||[]).map((it,idx) => idx===rowIdx ? {...it, name:e.target.value} : it);
+                                updateLocal(newItems);
+                              }}
+                              onClick={e => e.stopPropagation()}
+                              onMouseDown={e => e.stopPropagation()}
+                              style={{ fontSize:12, fontWeight:600, color:"#fff", fontFamily:font, background:"transparent", border:"none", outline:"none", width:"100%", cursor:"text" }}
+                            />
                             <div style={{ fontSize:10, color:"rgba(255,255,255,0.6)", fontFamily:font, marginTop:1 }}>
                               {item.blank_vendor||item.style}{(item.blank_sku||item.color)?` · ${item.blank_sku||item.color}`:""}
                               {item.stockLevel > 0 && <span style={{ marginLeft:6, color:item.stockLevel>100?T.green:T.amber }}>{item.stockLevel.toLocaleString()} in stock</span>}

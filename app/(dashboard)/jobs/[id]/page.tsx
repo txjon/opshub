@@ -489,7 +489,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             for (let idx = 0; idx < updated.length; idx++) {
               const item = updated[idx];
               const newSortOrder = newItems.findIndex((ni:any) => ni.id === item.id);
-              await saveItem(item.id, { qtys: item.qtys, cost_per_unit: item.cost_per_unit, sort_order: newSortOrder } as any);
+              await saveItem(item.id, { qtys: item.qtys, cost_per_unit: item.cost_per_unit, name: item.name, sort_order: newSortOrder } as any);
             }
             await loadData();
           }}

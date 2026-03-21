@@ -243,11 +243,12 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
       const updated=prev.map(cp=>{
         const bi=buyItems.find(b=>b.id===cp.id);
         if(!bi) return cp;
-        return{...cp,qtys:bi.qtys||cp.qtys,totalQty:bi.totalQty||cp.totalQty,sizes:bi.sizes||cp.sizes,name:cp.name||bi.name||""};
+        return{...cp,qtys:bi.qtys||cp.qtys,totalQty:bi.totalQty||cp.totalQty,sizes:bi.sizes||cp.sizes,name:bi.name||cp.name||""};
       });
       const buyIds=new Set(buyItems.map(b=>b.id));
       const filtered=updated.filter(cp=>buyIds.has(cp.id));
-      return newItems.length>0?[...filtered,...newItems]:filtered;
+      const result=newItems.length>0?[...filtered,...newItems]:filtered;
+      return result;
     });
   },[buyItems]);
 
@@ -277,24 +278,6 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
               {l}
             </button>
           ))}
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <button onClick={async ()=>{ if(costingDirty) await onSave(); }}
-            disabled={!costingDirty}
-            style={{background:costingDirty?T.green:T.surface,color:costingDirty?"#fff":T.faint,border:"1px solid "+(costingDirty?T.green:T.border),borderRadius:7,padding:"5px 16px",fontSize:12,fontFamily:font,fontWeight:700,cursor:costingDirty?"pointer":"default",opacity:costingDirty?1:0.5,transition:"all 0.15s"}}>
-            Save
-          </button>
-          {costingDirty?(
-            <span style={{fontSize:11,color:T.amber,fontFamily:font,display:"flex",alignItems:"center",gap:4}}>
-              <span style={{width:6,height:6,borderRadius:"50%",background:T.amber,display:"inline-block"}}/>
-              Unsaved changes
-            </span>
-          ):(
-            <span style={{fontSize:11,color:T.green,fontFamily:font,display:"flex",alignItems:"center",gap:4}}>
-              <span style={{width:6,height:6,borderRadius:"50%",background:T.green,display:"inline-block"}}/>
-              Saved
-            </span>
-          )}
         </div>
       </div>
 
@@ -341,6 +324,15 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
       {costTab==="calc"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {costingDirty&&(
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:T.amberDim,border:"1px solid "+T.amber+"66",borderRadius:8,padding:"8px 14px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{width:7,height:7,borderRadius:"50%",background:T.amber,flexShrink:0,display:"inline-block"}}/>
+                <span style={{fontSize:12,color:T.amber,fontFamily:font,fontWeight:600}}>Unsaved changes — your cost and pricing data will be lost if you navigate away without saving.</span>
+              </div>
+              <button onClick={async()=>await onSave()} style={{background:T.amber,border:"none",borderRadius:6,color:"#fff",fontSize:12,fontFamily:font,fontWeight:700,padding:"5px 14px",cursor:"pointer",flexShrink:0}}>Save now</button>
+            </div>
+          )}
           <div>
             {costProds.map((p,i)=>{
               const r=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);
@@ -1185,6 +1177,20 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [costingDirty]);
+
+  // When buyItems change (e.g. name edit), sync savedCostProds so dirty flag stays clean
+  useEffect(() => {
+    setSavedCostProds(prev => {
+      // Only sync if the change came from buyItems (not user edits)
+      // We detect this by checking if names differ but nothing else meaningful changed
+      const synced = prev.map(sp => {
+        const bi = (buyItems||[]).find(b => b.id === sp.id);
+        if (bi && bi.name && bi.name !== sp.name) return {...sp, name: bi.name};
+        return sp;
+      });
+      return synced;
+    });
+  }, [buyItems]);
 
   // Register save function with parent so tab switching can auto-save
   useEffect(() => {
