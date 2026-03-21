@@ -1267,6 +1267,14 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
 export { CostingTab };
 
+const SIZE_ORDER_WRAPPER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","YXS","YS","YM","YL","YXL"];
+const sortSizesWrapper = (sizes) => [...(sizes||[])].sort((a,b) => {
+  const ai=SIZE_ORDER_WRAPPER.indexOf(a), bi=SIZE_ORDER_WRAPPER.indexOf(b);
+  if(ai===-1&&bi===-1) return a.localeCompare(b);
+  if(ai===-1) return 1; if(bi===-1) return -1;
+  return ai-bi;
+});
+
 export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) {
   const initItems = (buyItems || []).map(it => ({
     ...EMPTY_COST_PRODUCT(),
@@ -1274,7 +1282,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems }) 
     name: it.name || "",
     style: it.blank_vendor || "",
     color: it.blank_sku || "",
-    sizes: it.sizes || [],
+    sizes: sortSizesWrapper(it.sizes),
     qtys: it.qtys || {},
     blankCosts: (() => {
       if (it.blankCosts && Object.keys(it.blankCosts).length > 0) return it.blankCosts;

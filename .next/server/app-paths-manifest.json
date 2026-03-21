@@ -1,6 +1,5 @@
 {
-  "/api/ss/route": "app/api/ss/route.js",
-  "/(dashboard)/jobs/page": "app/(dashboard)/jobs/page.js",
   "/(dashboard)/production/page": "app/(dashboard)/production/page.js",
-  "/(dashboard)/jobs/[id]/page": "app/(dashboard)/jobs/[id]/page.js"
+  "/(dashboard)/jobs/[id]/page": "app/(dashboard)/jobs/[id]/page.js",
+  "/(dashboard)/jobs/page": "app/(dashboard)/jobs/page.js"
 }
