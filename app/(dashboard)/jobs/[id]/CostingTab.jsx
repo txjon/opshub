@@ -282,7 +282,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
       {results.length>0&&(
         <div style={{display:"flex",gap:20,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 16px",flexWrap:"wrap",alignItems:"center"}}>
-          {[[fmtD(totGross),"Gross Revenue",T.accent],[fmtD(totProfit),"Net Profit",mc],[fmtP(netMarg),"Net Margin",mc]].map(([v,l,c])=>(
+          {[[fmtD(totGross),"Revenue",T.accent],[fmtD(totProfit),"Net Profit",mc],[fmtP(netMarg),"Net Margin",mc]].map(([v,l,c])=>(
             <div key={l}><div style={{fontSize:9,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>{l}</div><div style={{fontSize:15,fontWeight:700,color:c,fontFamily:mono}}>{v}</div></div>
           ))}
           {(()=>{
@@ -343,10 +343,36 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                         <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
                         <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                       </div>
-                      {r&&r.sellPerUnit>0&&<div style={{textAlign:"center"}}>
-                        <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>$/unit</div>
-                        <div style={{fontSize:12,fontWeight:700,color:T.green,fontFamily:mono}}>${(r.sellPerUnit||0).toFixed(2)}</div>
-                      </div>}
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <div style={{textAlign:"center",marginRight:2}}>
+                          <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Sell $/unit</div>
+                          {p._sellOverride?(
+                            <div style={{display:"flex",alignItems:"center",gap:4}}>
+                              <div style={{background:T.surface,border:"1px solid "+T.amber,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2}}>
+                                <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
+                                <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus
+                                  onChange={e=>updateProd(i,{...p,_sellOverrideVal:e.target.value})}
+                                  style={{width:50,background:"transparent",border:"none",outline:"none",color:T.amber,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
+                              </div>
+                              <button onClick={()=>updateProd(i,{...p,sellOverride:parseFloat(p._sellOverrideVal)||null,_sellOverride:false})}
+                                style={{background:T.green,border:"none",borderRadius:5,color:"#fff",cursor:"pointer",padding:"3px 8px",fontSize:10,fontFamily:font,fontWeight:700}}>✓</button>
+                              <button onClick={()=>updateProd(i,{...p,_sellOverride:false,sellOverride:null,_sellOverrideVal:null})}
+                                style={{background:"none",border:"1px solid "+T.border,borderRadius:5,color:T.muted,cursor:"pointer",padding:"3px 6px",fontSize:10}}>✕</button>
+                            </div>
+                          ):(
+                            <div style={{display:"flex",alignItems:"center",gap:5}}>
+                              <div style={{background:T.surface,border:"1px solid "+(p.sellOverride?T.amber:T.border),borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2}}>
+                                <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
+                                <span style={{fontSize:12,fontWeight:700,color:p.sellOverride?T.amber:r?.sellPerUnit>0?T.green:T.faint,fontFamily:mono}}>{p.sellOverride?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
+                              </div>
+                              <button onClick={()=>updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""})}
+                                style={{fontSize:9,color:T.amber,fontFamily:font,background:"none",border:"1px solid "+T.amber+"44",borderRadius:4,cursor:"pointer",padding:"2px 7px"}}>override</button>
+                              {p.sellOverride&&<button onClick={()=>updateProd(i,{...p,sellOverride:null})}
+                                style={{fontSize:9,color:T.faint,fontFamily:font,background:"none",border:"1px solid "+T.border,borderRadius:4,cursor:"pointer",padding:"2px 7px"}}>auto</button>}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                     <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>
                   </div>
@@ -357,6 +383,8 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                       <div style={{fontSize:10,fontWeight:700,color:T.accent,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.1em",paddingBottom:6,borderBottom:`1px solid ${T.border}`}}>Blanks</div>
 
                       {/* Line 1: Supplier + All button */}
+                      <div style={{marginBottom:0}}>
+                        <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Supplier</div>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <div style={{flex:1}}>
                           {p.supplier==="New"||p._newSupplier?(
@@ -379,6 +407,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                         </div>
                         <button onClick={()=>setCostProds(prev=>prev.map((cp,ci)=>ci>i?{...cp,supplier:p.supplier,_newSupplier:false,_newSupplierVal:""}:cp))}
                           style={{fontSize:10,color:T.accent,fontFamily:font,background:T.accentDim,border:`1px solid ${T.accent}44`,borderRadius:5,cursor:"pointer",padding:"4px 10px",fontWeight:600,whiteSpace:"nowrap",flexShrink:0}}>↓ All</button>
+                      </div>
                       </div>
 
                       {/* Line 2: Style / Color / Fleece on same line */}
@@ -458,7 +487,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                         <div style={{borderRadius:8,border:"1px solid "+T.border,padding:"8px",marginTop:4,background:T.surface}}>
                           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:6}}>
                             {[
-                              ["Gross Revenue", r.grossRev>0?fmtD(r.grossRev):"$0.00", T.accent],
+                              ["Revenue", r.grossRev>0?fmtD(r.grossRev):"$0.00", T.accent],
                               ["Blank Cost",    fmtD(r.blankCost),                     T.text],
                               ["PO Total",      fmtD(r.poTotal),                       T.text],
                               ["Total Cost",    fmtD(r.totalCost),                     T.text],
@@ -486,49 +515,16 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                     </div>{/* end blanks panel */}
                     {/* DECORATION PANEL */}
                     <div style={{display:"flex",flexDirection:"column",gap:12,paddingLeft:16}}>
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:6,borderBottom:`1px solid ${T.border}`}}>
-                        <div style={{display:"flex",alignItems:"center",gap:10}}>
-                          <div style={{fontSize:10,fontWeight:700,color:T.amber,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.1em"}}>Decoration</div>
-                          {i>0&&costProds[i-1]&&<button onClick={()=>{const prev=costProds[i-1];updateProd(i,{...p,printVendor:prev.printVendor,printLocations:JSON.parse(JSON.stringify(prev.printLocations||{})),printCount:prev.printCount||4,tagPrint:prev.tagPrint,tagRepeat:prev.tagRepeat,setupFees:{...prev.setupFees}});}}
-                            style={{fontSize:10,color:T.accent,fontFamily:font,background:T.accentDim,border:`1px solid ${T.accent}44`,borderRadius:5,cursor:"pointer",padding:"2px 10px",fontWeight:600}}>⎘ Copy from previous</button>}
-                        </div>
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <div style={{fontSize:10,color:T.muted,fontFamily:font}}>Sell $/unit</div>
-                          {p._sellOverride?(
-                            <div style={{display:"flex",alignItems:"center",gap:4}}>
-                              <div style={{background:T.surface,border:`1px solid ${T.amber}`,borderRadius:6,padding:"4px 8px",display:"flex",alignItems:"center",gap:2}}>
-                                <span style={{fontSize:11,color:T.faint,fontFamily:mono}}>$</span>
-                                <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus
-                                  onChange={e=>updateProd(i,{...p,_sellOverrideVal:e.target.value})}
-                                  style={{width:60,background:"transparent",border:"none",outline:"none",color:T.amber,fontSize:13,fontWeight:700,fontFamily:mono,textAlign:"center"}}/>
-                              </div>
-                              <button onClick={()=>updateProd(i,{...p,sellOverride:parseFloat(p._sellOverrideVal)||null,_sellOverride:false})}
-                                style={{background:T.green,border:"none",borderRadius:5,color:"#fff",cursor:"pointer",padding:"4px 10px",fontSize:11,fontFamily:font,fontWeight:700}}>✓ Set</button>
-                              <button onClick={()=>updateProd(i,{...p,_sellOverride:false,sellOverride:null,_sellOverrideVal:null})}
-                                style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,cursor:"pointer",padding:"4px 8px",fontSize:11}}>✕</button>
-                            </div>
-                          ):(
-                            <div style={{display:"flex",alignItems:"center",gap:6}}>
-                              <div style={{background:T.surface,border:`1px solid ${p.sellOverride?T.amber:T.border}`,borderRadius:6,padding:"4px 10px",display:"flex",alignItems:"center",gap:2}}>
-                                <span style={{fontSize:11,color:T.faint,fontFamily:mono}}>$</span>
-                                <span style={{fontSize:13,fontWeight:700,color:p.sellOverride?T.amber:r?.sellPerUnit>0?T.green:T.faint,fontFamily:mono}}>{p.sellOverride?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):""}</span>
-                              </div>
-                              <button onClick={()=>updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""  })}
-                                style={{fontSize:9,color:T.amber,fontFamily:font,background:"none",border:`1px solid ${T.amber}44`,borderRadius:4,cursor:"pointer",padding:"2px 7px"}}>override</button>
-                              {p.sellOverride&&<button onClick={()=>updateProd(i,{...p,sellOverride:null})}
-                                style={{fontSize:9,color:T.faint,fontFamily:font,background:"none",border:`1px solid ${T.border}`,borderRadius:4,cursor:"pointer",padding:"2px 7px"}}>auto</button>}
-                            </div>
-                          )}
-                        </div>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:6,borderBottom:"1px solid "+T.border}}>
+                        <div style={{fontSize:10,fontWeight:700,color:T.amber,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.1em"}}>Decoration</div>
+                        {i>0&&costProds[i-1]&&<button onClick={()=>{const prev=costProds[i-1];updateProd(i,{...p,printVendor:prev.printVendor,printLocations:JSON.parse(JSON.stringify(prev.printLocations||{})),printCount:prev.printCount||4,tagPrint:prev.tagPrint,tagRepeat:prev.tagRepeat,setupFees:{...prev.setupFees}});}}
+                          style={{fontSize:10,color:T.accent,fontFamily:font,background:T.accentDim,border:"1px solid "+T.accent+"44",borderRadius:5,cursor:"pointer",padding:"2px 10px",fontWeight:600}}>⎘ Copy from previous</button>}
                       </div>
                       {/* Print Locations */}
                       <div>
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                          <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Print Locations</div>
+                        <div style={{marginBottom:10}}>
+                          <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Vendor</div>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <span style={{fontSize:10,color:T.muted,fontFamily:font}}>Vendor:</span>
-                            <button onClick={()=>setCostProds(prev=>prev.map((cp,ci)=>ci>i?{...cp,printVendor:p.printVendor,printLocations:Object.fromEntries(Object.entries(cp.printLocations||{}).map(([k,v])=>([k,{...v,printer:p.printVendor}])))}:cp))}
-                              style={{fontSize:10,color:T.amber,fontFamily:font,background:T.accentDim,border:`1px solid ${T.amber}44`,borderRadius:5,cursor:"pointer",padding:"2px 8px",fontWeight:600}}>↓ All</button>
                             <select value={p.printVendor||""} onChange={e=>{
                               const v=e.target.value;
                               const updated={};
@@ -539,12 +535,15 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                               });
                               updateProd(i,{...p,printVendor:v,printLocations:updated});
                             }}
-                              style={{background:T.surface,border:`1px solid ${p.printVendor?T.accent+"66":T.border}`,borderRadius:6,color:p.printVendor?T.text:T.muted,fontFamily:font,fontSize:12,padding:"4px 10px",outline:"none",cursor:"pointer"}}>
+                              style={{flex:1,background:T.surface,border:"1px solid "+(p.printVendor?T.accent+"66":T.border),borderRadius:6,color:p.printVendor?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
                               <option value="">— select vendor —</option>
                               {Object.keys(PRINTERS).map(pr=><option key={pr} value={pr}>{pr}</option>)}
                             </select>
+                            <button onClick={()=>setCostProds(prev=>prev.map((cp,ci)=>ci>i?{...cp,printVendor:p.printVendor,printLocations:Object.fromEntries(Object.entries(cp.printLocations||{}).map(([k,v])=>([k,{...v,printer:p.printVendor}])))}:cp))}
+                              style={{fontSize:10,color:T.amber,fontFamily:font,background:T.accentDim,border:"1px solid "+T.amber+"44",borderRadius:5,cursor:"pointer",padding:"6px 12px",fontWeight:600,whiteSpace:"nowrap",flexShrink:0}}>↓ All</button>
                           </div>
                         </div>
+                        <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Print Locations</div>
                         <div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
                             <thead>
