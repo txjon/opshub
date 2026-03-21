@@ -142,7 +142,7 @@ export default async function DashboardPage() {
     })),
   ].slice(0, 6);
 
-  const phaseOrder = ["pre_production","production","receiving","shipping"];
+  const phaseOrder = ["intake","pre_production","production","receiving","shipping"];
   const phaseMax = Math.max(...phaseOrder.map(p => phaseCounts[p]||0), 1);
 
   return (
