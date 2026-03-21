@@ -204,20 +204,14 @@ export default async function DashboardPage() {
         {/* Middle: Production pipeline + shipping */}
         <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px" }}>
           {secLabel("Production pipeline")}
-          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:12 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:12 }}>
             {phaseOrder.map(phase => {
               const count = phaseCounts[phase]||0;
               const ps = PHASE_STYLES[phase];
-              const pct = Math.round((count/phaseMax)*100);
               return (
-                <div key={phase}>
-                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
-                    <span style={{ fontSize:11, color:T.muted, fontFamily:font }}>{ps.label}</span>
-                    <span style={{ fontSize:11, fontWeight:700, color:ps.text, fontFamily:mono }}>{count}</span>
-                  </div>
-                  <div style={{ height:4, background:T.surface, borderRadius:2, overflow:"hidden" }}>
-                    <div style={{ height:"100%", width:pct+"%", background:ps.text, borderRadius:2 }}/>
-                  </div>
+                <div key={phase} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"6px 8px", borderRadius:6, background:count>0?ps.bg:"transparent" }}>
+                  <span style={{ fontSize:12, color:count>0?ps.text:T.muted, fontFamily:font, fontWeight:count>0?600:400 }}>{ps.label}</span>
+                  <span style={{ fontSize:16, fontWeight:700, color:count>0?ps.text:T.faint, fontFamily:mono }}>{count}</span>
                 </div>
               );
             })}
