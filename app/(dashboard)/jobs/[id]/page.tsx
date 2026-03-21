@@ -182,7 +182,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   return (
     <div style={{fontFamily:"var(--font-sans)",color:"#e8eaf2",maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
       {/* Back */}
-      <button onClick={()=>router.push("/jobs")} style={{background:"none",border:"none",color:"#7a82a0",fontSize:12,cursor:"pointer",marginBottom:12,padding:0,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
+      <button onClick={async ()=>{
+        if (tab==="costing" && saveCostingRef.current) {
+          try { await saveCostingRef.current(); } catch(e) {
+            if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return;
+          }
+        }
+        router.push("/jobs");
+      }} style={{background:"none",border:"none",color:"#7a82a0",fontSize:12,cursor:"pointer",marginBottom:12,padding:0,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
         ← All projects
       </button>
 
@@ -240,9 +247,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       <div style={{display:"flex",gap:6,marginBottom:"1.5rem",padding:4,background:"#181c27",borderRadius:8,width:"fit-content"}}>
         {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
           <button key={t.id} onClick={async ()=>{
-            if (tab==="costing" && t.id!=="costing" && saveCostingRef.current) {
-              await saveCostingRef.current();
-              router.refresh();
+            if (tab==="costing" && t.id!=="costing") {
+              if (saveCostingRef.current) {
+                try {
+                  await saveCostingRef.current();
+                  router.refresh();
+                } catch(e) {
+                  if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return;
+                }
+              }
             }
             setTab(t.id);
           }}

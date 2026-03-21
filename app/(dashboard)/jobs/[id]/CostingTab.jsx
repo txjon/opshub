@@ -219,6 +219,16 @@ const CToggle=({label,value,onChange})=>(
 const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave})=>{
   const [costTab,setCostTab]=useState("calc");
   const [collapsed,setCollapsed]=useState(()=>{ const c={}; (costProds||[]).forEach(p=>{ c[p.id]=true; }); return c; });
+  const [localCosts,setLocalCosts]=useState({});
+  const getCostDisplay=(pid,sz,val)=>{ const k=pid+"_"+sz; return localCosts[k]!==undefined?localCosts[k]:val>0?String(val):""; };
+  const setCostLocal=(pid,sz,raw)=>setLocalCosts(p=>({...p,[pid+"_"+sz]:raw}));
+  const commitCost=(i,p,sz)=>{
+    const k=p.id+"_"+sz;
+    if(localCosts[k]===undefined) return;
+    const parsed=parseFloat(localCosts[k])||0;
+    setLocalCosts(p2=>{const n={...p2};delete n[k];return n;});
+    updateProd(i,{...p,blankCosts:{...(p.blankCosts||{}),[sz]:parsed}});
+  };
   const toggleCollapse=(id)=>setCollapsed(p=>({...p,[id]:!p[id]}));
 
   useEffect(()=>{
@@ -470,9 +480,10 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                     <td style={{padding:"3px 8px",textAlign:"left",borderRight:`1px solid ${T.border}`}}>
                                       <div style={{display:"flex",alignItems:"center",justifyContent:"flex-start",gap:2}}>
                                         <span style={{fontSize:11,color:T.faint,fontFamily:mono}}>$</span>
-                                        <input type="text" inputMode="decimal" value={bc||""} placeholder="0.00"
-                                          onChange={e=>updateProd(i,{...p,blankCosts:{...(p.blankCosts||{}),[sz]:parseFloat(e.target.value)||0}})}
-                                          data-costfield onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab")focusNext(e,e.shiftKey);if(e.key==="ArrowDown"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:false},false);}if(e.key==="ArrowUp"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:true},true);}}}
+                                        <input type="text" inputMode="decimal" value={getCostDisplay(p.id,sz,bc)} placeholder="0.00"
+                                          onChange={e=>{ const raw=e.target.value; if(/^\d*\.?\d*$/.test(raw)) setCostLocal(p.id,sz,raw); }}
+                                          onBlur={()=>commitCost(i,p,sz)}
+                                          data-costfield onKeyDown={e=>{if(e.key==="Enter"){commitCost(i,p,sz);focusNext(e,false);}if(e.key==="Tab"){commitCost(i,p,sz);focusNext(e,e.shiftKey);}if(e.key==="ArrowDown"){e.preventDefault();commitCost(i,p,sz);focusNext({...e,key:"Tab",shiftKey:false},false);}if(e.key==="ArrowUp"){e.preventDefault();commitCost(i,p,sz);focusNext({...e,key:"Tab",shiftKey:true},true);}}}
                                           style={{width:60,textAlign:"left",background:"transparent",border:"none",outline:"none",color:bc>0?T.text:T.faint,fontSize:12,fontFamily:mono}}/>
                                       </div>
                                     </td>
@@ -1165,6 +1176,15 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
   });
   const [savedOrderInfo, setSavedOrderInfo] = useState({ ...orderInfo });
   const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) || JSON.stringify(orderInfo) !== JSON.stringify(savedOrderInfo);
+
+  // Warn on page close/refresh if unsaved
+  useEffect(() => {
+    const handler = (e) => {
+      if (costingDirty) { e.preventDefault(); e.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [costingDirty]);
 
   // Register save function with parent so tab switching can auto-save
   useEffect(() => {
