@@ -258,8 +258,8 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
   };
 
   return(
-    <div style={{display:"flex",flexDirection:"column",gap:12}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginTop:-20}}>
         <div style={{display:"flex",gap:4,background:T.surface,padding:4,borderRadius:8}}>
           {[["calc","Calculator"],["quote","Client Quote"],["po","Purchase Order"]].map(([k,l])=>(
             <button key={k} onClick={()=>setCostTab(k)}
@@ -322,7 +322,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
       )}
 
       {costTab==="calc"&&(
-        <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:16}}>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <div>
             {costProds.map((p,i)=>{
               const r=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);
@@ -931,19 +931,6 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
             })}
 
           </div>
-          {/* Order info sidebar */}
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:14,alignSelf:"flex-start",position:"sticky",top:74}}>
-            <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Order Info</div>
-            <div style={{display:"flex",flexDirection:"column",gap:9}}>
-              <CInput label="Client" value={orderInfo.clientName} onChange={v=>setOrderInfo(o=>({...o,clientName:v}))}/>
-              <CInput label="Quote #" value={orderInfo.invoiceNum} onChange={v=>setOrderInfo(o=>({...o,invoiceNum:v}))}/>
-              <CInput label="Valid until" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))} placeholder="Apr 15, 2026"/>
-              <CInput label="Ship date" value={orderInfo.shipDate} onChange={v=>setOrderInfo(o=>({...o,shipDate:v}))} placeholder="Apr 30, 2026"/>
-              <CInput label="Ship method" value={orderInfo.shipMethod} onChange={v=>setOrderInfo(o=>({...o,shipMethod:v}))} placeholder="UPS Ground"/>
-              <textarea value={orderInfo.notes} onChange={e=>setOrderInfo(o=>({...o,notes:e.target.value}))} placeholder="Quote notes for client…"
-                style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",height:70,width:"100%",boxSizing:"border-box"}}/>
-            </div>
-          </div>
         </div>
       )}
 
@@ -954,6 +941,17 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
         const approved=project.prodStatus==="Awaiting Deposit"||project.prodStatus==="Ready for Production"||project.prodStatus==="Bulk Production";
         return(
           <div style={{maxWidth:680,margin:"0 auto"}}>
+            {/* Quote details */}
+            <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+              <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Quote details</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+                <CInput label="Quote #" value={orderInfo.invoiceNum} onChange={v=>setOrderInfo(o=>({...o,invoiceNum:v}))}/>
+                <CInput label="Valid until" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))} placeholder="Apr 15, 2026"/>
+                <CInput label="Ship date" value={orderInfo.shipDate} onChange={v=>setOrderInfo(o=>({...o,shipDate:v}))} placeholder="Apr 30, 2026"/>
+                <CInput label="Ship method" value={orderInfo.shipMethod} onChange={v=>setOrderInfo(o=>({...o,shipMethod:v}))} placeholder="UPS Ground"/>
+                <CInput label="Notes" value={orderInfo.notes} onChange={v=>setOrderInfo(o=>({...o,notes:v}))} placeholder="Quote notes..."/>
+              </div>
+            </div>
             <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
               <div style={{fontSize:12,color:T.muted,fontFamily:font,flex:1}}>Preview — this is what your client sees</div>
               <button onClick={()=>window.print()} style={{background:T.accent,color:"#fff",border:"none",borderRadius:7,padding:"6px 16px",fontSize:12,fontFamily:font,fontWeight:600,cursor:"pointer"}}>⬇ Download PDF</button>

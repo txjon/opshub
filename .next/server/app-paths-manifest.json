@@ -1,7 +1,7 @@
 {
-  "/(dashboard)/jobs/[id]/page": "app/(dashboard)/jobs/[id]/page.js",
-  "/(dashboard)/dashboard/page": "app/(dashboard)/dashboard/page.js",
   "/(dashboard)/jobs/page": "app/(dashboard)/jobs/page.js",
+  "/(dashboard)/dashboard/page": "app/(dashboard)/dashboard/page.js",
+  "/(dashboard)/clients/page": "app/(dashboard)/clients/page.js",
   "/(dashboard)/templates/page": "app/(dashboard)/templates/page.js",
-  "/(dashboard)/clients/page": "app/(dashboard)/clients/page.js"
+  "/(dashboard)/jobs/[id]/page": "app/(dashboard)/jobs/[id]/page.js"
 }
