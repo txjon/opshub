@@ -14,9 +14,11 @@ export default function NewJobPage() {
     phase: "intake" as const,
     priority: "normal" as "normal" | "high" | "urgent",
     payment_terms: "" as "" | "net_15" | "net_30" | "deposit_balance" | "prepaid",
+    payment_method: "" as "" | "credit_card" | "ach" | "wire" | "check" | "paypal" | "venmo" | "zelle",
     target_ship_date: "",
+    in_hands_date: "",
     notes: "",
-    client_name: "", // will create client on the fly for now
+    client_name: "",
   });
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
@@ -27,7 +29,6 @@ export default function NewJobPage() {
     setError("");
 
     try {
-      // Create or find client
       let clientId: string | null = null;
       if (form.client_name.trim()) {
         const { data: existingClient } = await supabase
@@ -58,9 +59,13 @@ export default function NewJobPage() {
           priority: form.priority,
           payment_terms: form.payment_terms || null,
           target_ship_date: form.target_ship_date || null,
+          type_meta: {
+            in_hands_date: form.in_hands_date || null,
+            payment_method: form.payment_method || null,
+          },
           notes: form.notes || null,
           client_id: clientId,
-          job_number: "", // triggers auto-generate
+          job_number: "",
         })
         .select("id")
         .single();
@@ -73,8 +78,8 @@ export default function NewJobPage() {
     }
   };
 
-  const inputClass = "w-full px-3 py-2 rounded-md bg-secondary border border-border text-foreground text-sm outline-none focus:border-primary transition-colors";
-  const labelClass = "block text-sm font-medium mb-1.5";
+  const ic = "w-full px-3 py-2 rounded-md bg-secondary border border-border text-foreground text-sm outline-none focus:border-primary transition-colors";
+  const lc = "block text-sm font-medium mb-1.5";
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -84,20 +89,30 @@ export default function NewJobPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
+
+        {/* Job Details */}
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">
           <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Job Details</h2>
 
-          <div>
-            <label className={labelClass}>Job Title *</label>
-            <input value={form.title} onChange={e => set("title", e.target.value)} required
-              placeholder="e.g. The Amity Affliction US Tour 2026"
-              className={inputClass} />
+          {/* Client + Title on same line */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={lc}>Client</label>
+              <input value={form.client_name} onChange={e => set("client_name", e.target.value)}
+                placeholder="Client or band name" className={ic} />
+              <p className="text-xs text-muted-foreground mt-1">Creates a new client if not found</p>
+            </div>
+            <div>
+              <label className={lc}>Job Title *</label>
+              <input value={form.title} onChange={e => set("title", e.target.value)} required
+                placeholder="e.g. TAA US Tour 2026" className={ic} />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Job Type *</label>
-              <select value={form.job_type} onChange={e => set("job_type", e.target.value)} className={inputClass}>
+              <label className={lc}>Job Type *</label>
+              <select value={form.job_type} onChange={e => set("job_type", e.target.value)} className={ic}>
                 <option value="tour">Tour</option>
                 <option value="webstore">Webstore</option>
                 <option value="corporate">Corporate</option>
@@ -105,36 +120,37 @@ export default function NewJobPage() {
               </select>
             </div>
             <div>
-              <label className={labelClass}>Priority</label>
-              <select value={form.priority} onChange={e => set("priority", e.target.value)} className={inputClass}>
+              <label className={lc}>Priority</label>
+              <select value={form.priority} onChange={e => set("priority", e.target.value)} className={ic}>
                 <option value="normal">Normal</option>
                 <option value="high">High</option>
                 <option value="urgent">Urgent</option>
               </select>
             </div>
           </div>
-
-          <div>
-            <label className={labelClass}>Client</label>
-            <input value={form.client_name} onChange={e => set("client_name", e.target.value)}
-              placeholder="Client or band name"
-              className={inputClass} />
-            <p className="text-xs text-muted-foreground mt-1">Creates a new client if not found</p>
-          </div>
         </div>
 
+        {/* Timeline & Payment */}
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">
           <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Timeline & Payment</h2>
 
+          {/* Dates on same line */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Target Ship Date</label>
-              <input type="date" value={form.target_ship_date} onChange={e => set("target_ship_date", e.target.value)}
-                className={inputClass} />
+              <label className={lc}>Target Ship Date</label>
+              <input type="date" value={form.target_ship_date} onChange={e => set("target_ship_date", e.target.value)} className={ic} />
             </div>
             <div>
-              <label className={labelClass}>Payment Terms</label>
-              <select value={form.payment_terms} onChange={e => set("payment_terms", e.target.value)} className={inputClass}>
+              <label className={lc}>In Hands Date</label>
+              <input type="date" value={form.in_hands_date} onChange={e => set("in_hands_date", e.target.value)} className={ic} />
+            </div>
+          </div>
+
+          {/* Payment Terms + Method on same line */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={lc}>Payment Terms</label>
+              <select value={form.payment_terms} onChange={e => set("payment_terms", e.target.value)} className={ic}>
                 <option value="">Not set</option>
                 <option value="net_15">Net 15</option>
                 <option value="net_30">Net 30</option>
@@ -142,15 +158,29 @@ export default function NewJobPage() {
                 <option value="prepaid">Prepaid</option>
               </select>
             </div>
+            <div>
+              <label className={lc}>Payment Method</label>
+              <select value={form.payment_method} onChange={e => set("payment_method", e.target.value)} className={ic}>
+                <option value="">Not set</option>
+                <option value="credit_card">Credit Card</option>
+                <option value="ach">ACH</option>
+                <option value="wire">Wire Transfer</option>
+                <option value="check">Check</option>
+                <option value="paypal">PayPal</option>
+                <option value="venmo">Venmo</option>
+                <option value="zelle">Zelle</option>
+              </select>
+            </div>
           </div>
         </div>
 
+        {/* Notes */}
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">
           <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Notes</h2>
           <textarea value={form.notes} onChange={e => set("notes", e.target.value)}
             placeholder="Any additional context..."
             rows={3}
-            className={inputClass + " resize-none"} />
+            className={ic + " resize-none"} />
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}

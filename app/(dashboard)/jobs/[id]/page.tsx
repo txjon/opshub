@@ -346,6 +346,23 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
 
+              {/* Delete project */}
+              <button
+                onClick={async () => {
+                  if (!window.confirm(`Are you sure you want to delete "${job.title}"? This cannot be undone.`)) return;
+                  for (const item of items) {
+                    await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
+                    await supabase.from("items").delete().eq("id", item.id);
+                  }
+                  await supabase.from("jobs").delete().eq("id", params.id);
+                  router.push("/jobs");
+                }}
+                style={{width:"100%",padding:"8px",background:"transparent",border:"1px solid #3d1212",borderRadius:8,color:"#f05353",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
+                onMouseEnter={e=>(e.currentTarget.style.background="#3d1212")}
+                onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                Delete project
+              </button>
+
             </div>
 
             {/* Right */}

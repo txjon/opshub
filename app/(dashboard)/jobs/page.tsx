@@ -132,8 +132,8 @@ export default function JobsPage() {
   return (
     <div style={{ fontFamily: font, color: T.text, display:"flex", flexDirection:"column", gap:14 }}>
       {/* Header */}
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <h1 style={{ fontSize:22, fontWeight:700, margin:0, letterSpacing:"-0.02em" }}>Jobs</h1>
+      <div>
+        <h1 style={{ fontSize:22, fontWeight:700, margin:"0 0 10px", letterSpacing:"-0.02em" }}>Jobs</h1>
         <a href="/jobs/new" style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"8px 18px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none" }}>
           + New Job
         </a>
