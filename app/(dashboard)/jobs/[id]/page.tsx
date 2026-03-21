@@ -155,8 +155,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const updRxNested = (id: string, key: string, sz: string, val: number) =>
     setRxData(prev => ({...prev, [id]:{...prev[id],[key]:{...(prev[id]?.[key]||{}),[sz]:val}}}));
 
-  if (loading) return React.createElement("div", {style:{padding:"2rem",color:"#7a82a0",fontSize:13}}, "Loading...");
-  if (!job) return React.createElement("div", {style:{padding:"2rem",color:"#7a82a0",fontSize:13}}, "Job not found.");
+  if (loading) return React.createElement("div", {style:{padding:"2rem",color:"var(--color-text-secondary)",fontSize:13}}, "Loading...");
+  if (!job) return React.createElement("div", {style:{padding:"2rem",color:"var(--color-text-secondary)",fontSize:13}}, "Job not found.");
 
   const totalRev = items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.sell_per_unit)||0),0);
   const totalCost = items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.cost_per_unit)||0),0);
@@ -167,47 +167,47 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const phaseColor = PHASE_COLORS[job.phase]||PHASE_COLORS.intake;
   const daysLeft = job.target_ship_date ? Math.ceil((new Date(job.target_ship_date).getTime()-Date.now())/(1000*60*60*24)) : null;
 
-  const T = {surface:"#181c27",card:"#1e2333",border:"#2a3050",text:"#e8eaf2",muted:"#7a82a0",faint:"#3a4060",accent:"#4f8ef7"};
-  const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
-  const ic = {width:"100%",padding:"6px 10px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:"13px",fontFamily:font,boxSizing:"border-box" as const};
-  const lc = {fontSize:"12px",color:T.muted,marginBottom:"4px",display:"block"};
-  const card = {background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"1rem 1.25rem"};
+  const ic = {width:"100%",padding:"6px 10px",border:"0.5px solid var(--color-border-tertiary)",borderRadius:"var(--border-radius-md)",background:"var(--color-background-primary)",color:"var(--color-text-primary)",fontSize:"13px",fontFamily:"var(--font-sans)",boxSizing:"border-box" as const};
+  const lc = {fontSize:"12px",color:"var(--color-text-secondary)",marginBottom:"4px",display:"block"};
+  const card = {background:"var(--color-background-primary)",border:"0.5px solid var(--color-border-tertiary)",borderRadius:"var(--border-radius-lg)",padding:"1rem 1.25rem"};
 
   return (
-    <div style={{fontFamily:"var(--font-sans)",color:"#e8eaf2",maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
+    <div style={{fontFamily:"var(--font-sans)",color:"var(--color-text-primary)",maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
       {/* Back */}
-      <button onClick={()=>router.push("/jobs")} style={{background:"none",border:"none",color:"#7a82a0",fontSize:12,cursor:"pointer",marginBottom:12,padding:0,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
-        ← All projects
+      <button onClick={()=>router.push("/jobs")} style={{background:"none",border:"none",color:"var(--color-text-secondary)",fontSize:13,cursor:"pointer",marginBottom:16,padding:0}}>
+        &larr; All jobs
       </button>
 
       {/* Header */}
       <div style={{marginBottom:"1.5rem"}}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
-              <span style={{fontSize:11,color:"#7a82a0",fontFamily:"'IBM Plex Mono',monospace"}}>{job.job_number}</span>
-              <span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <span style={{fontSize:12,color:"var(--color-text-secondary)",fontFamily:"var(--font-mono)"}}>{job.job_number}</span>
+              <span style={{padding:"2px 8px",borderRadius:"var(--border-radius-md)",fontSize:11,fontWeight:500,background:phaseColor.bg,color:phaseColor.text}}>
                 {job.phase.replace(/_/g," ")}
               </span>
-              {job.priority==="high"&&<span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:"#3d2a08",color:"#f5a623"}}>High priority</span>}
-              {job.priority==="urgent"&&<span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:"#3d1212",color:"#f05353"}}>Urgent</span>}
-              {saving&&<span style={{fontSize:11,color:"#7a82a0"}}>Saving...</span>}
+              {job.priority==="high"&&<span style={{padding:"2px 8px",borderRadius:"var(--border-radius-md)",fontSize:11,fontWeight:500,background:"#FAEEDA",color:"#633806"}}>High priority</span>}
+              {job.priority==="urgent"&&<span style={{padding:"2px 8px",borderRadius:"var(--border-radius-md)",fontSize:11,fontWeight:500,background:"#FCEBEB",color:"#791F1F"}}>Urgent</span>}
+              {saving&&<span style={{fontSize:11,color:"var(--color-text-secondary)"}}>Saving...</span>}
             </div>
-            <h1 style={{fontSize:26,fontWeight:700,margin:"0 0 3px",letterSpacing:"-0.02em",color:"#e8eaf2",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>{(job.clients as any)?.name||"No client"}</h1>
-            <div style={{fontSize:16,color:"#7a82a0",marginBottom:6}}>{job.title}</div>
-            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#7a82a0"}}>
+            <h1 style={{fontSize:22,fontWeight:500,margin:"0 0 4px"}}>{job.title}</h1>
+            <div style={{fontSize:13,color:"var(--color-text-secondary)",display:"flex",alignItems:"center",gap:10}}>
               <span style={{textTransform:"capitalize"}}>{job.job_type}</span>
-              <span style={{color:"#3a4060"}}>·</span>
+              <span>·</span>
+              <span>{(job.clients as any)?.name}</span>
+              <span>·</span>
               <span>{totalUnits.toLocaleString()} units</span>
+              {totalRev>0&&<><span>·</span><span style={{color:margin>=35?"#3B6D11":margin>=25?"#854F0B":"#A32D2D",fontWeight:500}}>{margin.toFixed(1)}% margin</span></>}
             </div>
           </div>
           <div style={{textAlign:"right"}}>
             {daysLeft!==null&&(
               <>
-                <div style={{fontSize:22,fontWeight:700,color:daysLeft<0?"#f05353":daysLeft<=3?"#f5a623":"#e8eaf2",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
+                <div style={{fontSize:20,fontWeight:500,color:daysLeft<0?"#A32D2D":daysLeft<=3?"#854F0B":"var(--color-text-primary)"}}>
                   {daysLeft<0?Math.abs(daysLeft)+"d overdue":daysLeft===0?"Ships today":daysLeft+"d to ship"}
                 </div>
-                <div style={{fontSize:12,color:"#7a82a0",marginTop:2}}>
+                <div style={{fontSize:12,color:"var(--color-text-secondary)"}}>
                   {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
                 </div>
               </>
@@ -216,109 +216,110 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginTop:16}}>
           {[
-            {label:"Revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():totalCost>0?"$"+Math.round(totalCost*1.43).toLocaleString():"—",color:"#4f8ef7"},
+            {label:"Revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():"—"},
             {label:"Cost",value:totalCost>0?"$"+Math.round(totalCost).toLocaleString():"—"},
-            {label:"Net profit",value:totalCost>0?"$"+Math.round((totalRev||totalCost*1.43)-totalCost).toLocaleString():"—",color:"#34c97a"},
-            {label:"Margin",value:totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100).toFixed(1)+"%":"—",color:(()=>{const m=totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100):0;return m>=30?"#34c97a":m>=20?"#f5a623":"#f05353";})()},
+            {label:"Paid",value:"$"+totalPaid.toLocaleString(),sub:totalDue>0?"$"+totalDue.toLocaleString()+" outstanding":"Fully paid"},
+            {label:"Contract",value:job.contract_status.replace(/_/g," "),cap:true},
           ].map(s=>(
-            <div key={s.label} style={{background:"#181c27",border:"1px solid #2a3050",borderRadius:8,padding:"12px 14px"}}>
-              <div style={{fontSize:12,color:"#7a82a0",marginBottom:4}}>{s.label}</div>
-              <div style={{fontSize:16,fontWeight:500,color:(s as any).color||"#e8eaf2",textTransform:(s as any).cap?"capitalize":"none"}}>{s.value}</div>
-              {(s as any).sub&&<div style={{fontSize:11,color:"#7a82a0",marginTop:2}}>{(s as any).sub}</div>}
+            <div key={s.label} style={{background:"var(--color-background-secondary)",borderRadius:"var(--border-radius-md)",padding:"12px 14px"}}>
+              <div style={{fontSize:12,color:"var(--color-text-secondary)",marginBottom:4}}>{s.label}</div>
+              <div style={{fontSize:16,fontWeight:500,textTransform:(s as any).cap?"capitalize":"none"}}>{s.value}</div>
+              {(s as any).sub&&<div style={{fontSize:11,color:"var(--color-text-secondary)",marginTop:2}}>{(s as any).sub}</div>}
             </div>
           ))}
         </div>
       </div>
 
       {/* Tabs */}
-      <div style={{display:"flex",gap:6,marginBottom:"1.5rem",padding:4,background:"#181c27",borderRadius:8,width:"fit-content"}}>
+      <div style={{display:"flex",borderBottom:"0.5px solid var(--color-border-tertiary)",marginBottom:"1.5rem"}}>
         {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{padding:"7px 16px",fontSize:13,fontWeight:tab===t.id?600:400,background:tab===t.id?"#4f8ef7":"transparent",color:tab===t.id?"#fff":"#7a82a0",border:"none",borderRadius:6,cursor:"pointer",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
+            style={{padding:"8px 16px",fontSize:13,fontWeight:500,background:"none",border:"none",borderBottom:tab===t.id?"2px solid var(--color-text-primary)":"2px solid transparent",color:tab===t.id?"var(--color-text-primary)":"var(--color-text-secondary)",cursor:"pointer",marginBottom:-1}}>
             {t.label}
           </button>
         ))}
       </div>
 
       {/* OVERVIEW */}
-                  {tab==="overview"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:10,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
-
-          {/* Stats */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+            {tab==="overview"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          {/* Summary stats */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
             {[
-              {label:"Projected revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():"$"+Math.round(totalCost*1.43).toLocaleString(),color:"#4f8ef7"},
-              {label:"Projected cost",value:"$"+Math.round(totalCost).toLocaleString()},
-              {label:"Projected profit",value:totalCost>0?"$"+Math.round((totalRev||totalCost*1.43)-totalCost).toLocaleString():"—",color:"#34c97a"},
-              {label:"Projected margin",value:totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100).toFixed(1)+"%":"—",color:(()=>{const m=totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100):0;return m>=30?"#34c97a":m>=20?"#f5a623":"#f05353";})()},
+              {label:"Projected revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():"$"+Math.round(totalCost*1.43).toLocaleString(),sub:"at 30% margin target",color:"#185FA5"},
+              {label:"Projected cost",value:"$"+Math.round(totalCost).toLocaleString(),sub:totalUnits.toLocaleString()+" units"},
+              {label:"Paid",value:"$"+totalPaid.toLocaleString(),sub:totalDue>0?"$"+totalDue.toLocaleString()+" outstanding":"Fully paid",subColor:totalDue>0?"var(--color-text-danger)":undefined},
+              {label:"Contract",value:job.contract_status.replace(/_/g," "),sub:job.target_ship_date?"Ship "+new Date(job.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"No ship date",cap:true},
             ].map(s=>(
-              <div key={s.label} style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:8,padding:"8px 12px"}}>
-                <div style={{fontSize:10,color:"#7a82a0",marginBottom:2}}>{s.label}</div>
-                <div style={{fontSize:15,fontWeight:600,color:s.color||"#e8eaf2"}}>{s.value}</div>
+              <div key={s.label} style={{background:"var(--color-background-secondary)",borderRadius:"var(--border-radius-md)",padding:"12px 14px"}}>
+                <div style={{fontSize:12,color:"var(--color-text-secondary)",marginBottom:4}}>{s.label}</div>
+                <div style={{fontSize:18,fontWeight:500,color:s.color||"var(--color-text-primary)",textTransform:(s as any).cap?"capitalize":"none"}}>{s.value}</div>
+                {(s as any).sub&&<div style={{fontSize:11,color:(s as any).subColor||"var(--color-text-secondary)",marginTop:3}}>{(s as any).sub}</div>}
               </div>
             ))}
           </div>
 
+          {/* Two column layout */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,alignItems:"start"}}>
 
-          {/* Two columns */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"start"}}>
+            {/* Left column */}
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
 
-            {/* Left */}
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project info</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Client</label>
+              {/* Project info */}
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:500,color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12}}>Project info</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div style={{gridColumn:"1/-1"}}><label style={lc}>Client</label>
                     <input style={ic} value={(job.clients as any)?.name||""} readOnly placeholder="No client assigned"/>
                   </div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Project title</label>
+                  <div style={{gridColumn:"1/-1"}}><label style={lc}>Project title</label>
                     <input style={ic} value={job.title} onChange={e=>upd("title",e.target.value)}/>
                   </div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Type</label>
+                  <div><label style={lc}>Project type</label>
                     <select style={ic} value={job.job_type} onChange={e=>upd("job_type",e.target.value)}>
                       {["tour","webstore","corporate","brand"].map(t=><option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Priority</label>
+                  <div><label style={lc}>Priority</label>
                     <select style={ic} value={job.priority} onChange={e=>upd("priority",e.target.value)}>
                       {["normal","high","urgent"].map(p=><option key={p} value={p}>{p}</option>)}
                     </select>
                   </div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Phase</label>
+                  <div><label style={lc}>Phase</label>
                     <select style={ic} value={job.phase} onChange={e=>upd("phase",e.target.value)}>
                       {["intake","pre_production","production","receiving","shipping","complete","on_hold","cancelled"].map(p=><option key={p} value={p}>{p.replace(/_/g," ")}</option>)}
                     </select>
                   </div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Contract</label>
+                  <div><label style={lc}>Contract</label>
                     <select style={ic} value={job.contract_status} onChange={e=>upd("contract_status",e.target.value)}>
                       {["not_sent","sent","signed","waived"].map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
                     </select>
                   </div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Project notes</label>
-                    <textarea style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
+                  <div style={{gridColumn:"1/-1"}}><label style={lc}>Project notes</label>
+                    <textarea style={{...ic,minHeight:70,resize:"vertical",lineHeight:1.5}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
                   </div>
                 </div>
               </div>
 
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Payment records</div>
-                {payments.length===0&&<p style={{fontSize:12,color:"#7a82a0"}}>No payments recorded yet.</p>}
+              {/* Payment records */}
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:500,color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12}}>Payment records</div>
+                {payments.length===0&&<p style={{fontSize:13,color:"var(--color-text-secondary)"}}>No payments recorded yet.</p>}
                 {payments.length>0&&(
-                  <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
-                    <thead><tr style={{borderBottom:"1px solid #2a3050"}}>
-                      {["Invoice","Type","Amount","Due","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:"#7a82a0",fontWeight:500}}>{h}</th>)}
+                  <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
+                    <thead><tr style={{borderBottom:"0.5px solid var(--color-border-tertiary)"}}>
+                      {["Invoice","Type","Amount","Due","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"4px 8px",color:"var(--color-text-secondary)",fontWeight:500}}>{h}</th>)}
                     </tr></thead>
                     <tbody>{payments.map(p=>(
-                      <tr key={p.id} style={{borderBottom:"1px solid #2a3050"}}>
-                        <td style={{padding:"6px",fontFamily:"var(--font-mono)",color:"#7a82a0"}}>{p.invoice_number||"—"}</td>
-                        <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
-                        <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
-                        <td style={{padding:"6px",color:"#7a82a0"}}>{p.due_date?new Date(p.due_date).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"—"}</td>
-                        <td style={{padding:"6px"}}>
-                          <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
-                            background:p.status==="paid"?"#0e3d24":p.status==="overdue"?"#3d1212":"#3d2a08",
-                            color:p.status==="paid"?"#34c97a":p.status==="overdue"?"#f05353":"#f5a623"}}>{p.status}</span>
+                      <tr key={p.id} style={{borderBottom:"0.5px solid var(--color-border-tertiary)"}}>
+                        <td style={{padding:"8px",fontFamily:"var(--font-mono)",fontSize:11,color:"var(--color-text-secondary)"}}>{p.invoice_number||"—"}</td>
+                        <td style={{padding:"8px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
+                        <td style={{padding:"8px",fontWeight:500}}>${p.amount.toLocaleString()}</td>
+                        <td style={{padding:"8px",color:"var(--color-text-secondary)"}}>{p.due_date?new Date(p.due_date).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"—"}</td>
+                        <td style={{padding:"8px"}}>
+                          <span style={{padding:"2px 8px",borderRadius:"var(--border-radius-md)",fontSize:11,fontWeight:500,
+                            background:p.status==="paid"?"#EAF3DE":p.status==="overdue"?"#FCEBEB":"#FAEEDA",
+                            color:p.status==="paid"?"#27500A":p.status==="overdue"?"#791F1F":"#633806"}}>{p.status}</span>
                         </td>
                       </tr>
                     ))}</tbody>
@@ -326,103 +327,88 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 )}
               </div>
 
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Activity</div>
-                <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                  <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                    <div style={{width:6,height:6,borderRadius:"50%",background:"#4f8ef7",flexShrink:0,marginTop:4}}/>
-                    <div><div style={{fontSize:12}}>Project created</div><div style={{fontSize:10,color:"#7a82a0"}}>{new Date(job.created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div></div>
+              {/* Activity */}
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:500,color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12}}>Activity</div>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  <div style={{display:"flex",gap:10}}>
+                    <div style={{width:7,height:7,borderRadius:"50%",background:"#378ADD",flexShrink:0,marginTop:5}}/>
+                    <div><div style={{fontSize:13}}>Project created</div><div style={{fontSize:11,color:"var(--color-text-secondary)"}}>{new Date(job.created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div></div>
                   </div>
                   {items.length>0&&(
-                    <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                      <div style={{width:6,height:6,borderRadius:"50%",background:"#34c97a",flexShrink:0,marginTop:4}}/>
-                      <div><div style={{fontSize:12}}>{items.length} item{items.length!==1?"s":""} on buy sheet</div><div style={{fontSize:10,color:"#7a82a0"}}>{totalUnits.toLocaleString()} total units</div></div>
+                    <div style={{display:"flex",gap:10}}>
+                      <div style={{width:7,height:7,borderRadius:"50%",background:"#639922",flexShrink:0,marginTop:5}}/>
+                      <div><div style={{fontSize:13}}>{items.length} item{items.length!==1?"s":""} on buy sheet</div><div style={{fontSize:11,color:"var(--color-text-secondary)"}}>{totalUnits.toLocaleString()} total units</div></div>
                     </div>
                   )}
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <div style={{width:6,height:6,borderRadius:"50%",background:"#3a4060",flexShrink:0}}/>
-                    <input style={ic} placeholder="Add a note..."/>
-                  </div>
                 </div>
               </div>
 
-              {/* Delete project */}
-              <button
-                onClick={async () => {
-                  if (!window.confirm(`Are you sure you want to delete "${job.title}"? This cannot be undone.`)) return;
-                  for (const item of items) {
-                    await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
-                    await supabase.from("items").delete().eq("id", item.id);
-                  }
-                  await supabase.from("jobs").delete().eq("id", params.id);
-                  router.push("/jobs");
-                }}
-                style={{width:"100%",padding:"8px",background:"transparent",border:"1px solid #3d1212",borderRadius:8,color:"#f05353",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
-                onMouseEnter={e=>(e.currentTarget.style.background="#3d1212")}
-                onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                Delete project
-              </button>
-
             </div>
 
-            {/* Right */}
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {/* Right column */}
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
 
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Contacts</div>
-                {contacts.length===0&&<p style={{fontSize:12,color:"#7a82a0"}}>No contacts assigned.</p>}
-                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {/* Contacts */}
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:500,color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12}}>Contacts</div>
+                {contacts.length===0&&<p style={{fontSize:13,color:"var(--color-text-secondary)"}}>No contacts assigned.</p>}
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
                   {contacts.map((c,i)=>(
-                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,paddingBottom:i<contacts.length-1?6:0,borderBottom:i<contacts.length-1?"1px solid #2a3050":"none"}}>
-                      <div style={{width:26,height:26,borderRadius:"50%",background:"#1e3a6e",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:"#4f8ef7",flexShrink:0}}>
+                    <div key={c.id} style={{display:"flex",alignItems:"flex-start",gap:10,paddingBottom:i<contacts.length-1?8:0,borderBottom:i<contacts.length-1?"0.5px solid var(--color-border-tertiary)":"none"}}>
+                      <div style={{width:30,height:30,borderRadius:"50%",background:"var(--color-background-info)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:500,color:"var(--color-text-info)",flexShrink:0}}>
                         {c.name.split(" ").map((n:string)=>n[0]).join("").slice(0,2)}
                       </div>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:12,fontWeight:600}}>{c.name} <span style={{fontWeight:400,color:"#7a82a0",fontSize:11}}>· {c.role_label} · {c.role_on_job}</span></div>
-                        {c.email&&<div style={{fontSize:10,color:"#4f8ef7"}}>{c.email}</div>}
+                      <div>
+                        <div style={{fontSize:13,fontWeight:500}}>{c.name} <span style={{fontSize:11,color:"var(--color-text-secondary)",fontWeight:400}}>· {c.role_label} · {c.role_on_job}</span></div>
+                        {c.email&&<div style={{fontSize:11,color:"var(--color-text-info)",marginTop:2}}>{c.email}</div>}
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Target ship date</label><input style={ic} type="date" value={job.target_ship_date||""} onChange={e=>upd("target_ship_date",e.target.value)}/></div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>In hands date</label><input style={ic} type="date" value={job.type_meta?.show_date||""} onChange={e=>upd("type_meta",{...job.type_meta,show_date:e.target.value})}/></div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Location name</label><input style={ic} value={job.type_meta?.venue_name||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_name:e.target.value})}/></div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Delivery address</label><input style={ic} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/></div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Shipping notes</label><input style={ic} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})} placeholder="Carrier, dock info, on-site contact..."/></div>
+              {/* Shipping details */}
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:500,color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:12}}>Shipping details</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div><label style={lc}>Target ship date</label><input style={ic} type="date" value={job.target_ship_date||""} onChange={e=>upd("target_ship_date",e.target.value)}/></div>
+                  <div><label style={lc}>In hands date</label><input style={ic} type="date" value={job.type_meta?.show_date||""} onChange={e=>upd("type_meta",{...job.type_meta,show_date:e.target.value})}/></div>
+                  <div style={{gridColumn:"1/-1"}}><label style={lc}>Location name</label><input style={ic} value={job.type_meta?.venue_name||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_name:e.target.value})}/></div>
+                  <div style={{gridColumn:"1/-1"}}><label style={lc}>Delivery address</label><input style={ic} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/></div>
+                  <div style={{gridColumn:"1/-1"}}><label style={lc}>Shipping notes</label><textarea style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.5}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})} placeholder="Carrier preferences, loading dock info, contact on site..."/></div>
                 </div>
               </div>
 
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em"}}>Items</div>
-                  <span style={{fontSize:10,color:"#7a82a0"}}>{items.length} items · {totalUnits.toLocaleString()} units</span>
+              {/* Items */}
+              <div style={card}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:500,color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:"0.06em"}}>Items</div>
+                  <span style={{fontSize:12,color:"var(--color-text-secondary)"}}>{items.length} items · {totalUnits.toLocaleString()} units</span>
                 </div>
-                {items.length===0&&<p style={{fontSize:12,color:"#7a82a0"}}>No items yet. Add items in the Buy Sheet tab.</p>}
-                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {items.length===0&&<p style={{fontSize:13,color:"var(--color-text-secondary)"}}>No items yet. Add items in the Buy Sheet tab.</p>}
+                <div style={{display:"flex",flexDirection:"column",gap:5}}>
                   {items.map(item=>{
                     const qty=tQty(item.qtys||{});
                     const dc=(item as any).decoration_type;
                     const decoColors: Record<string,{bg:string,text:string}> = {
-                      screen_print:{bg:"#1e3a6e",text:"#4f8ef7"},
-                      embroidery:{bg:"#2d1f5e",text:"#a78bfa"},
-                      patch:{bg:"#3d2a08",text:"#f5a623"},
+                      screen_print:{bg:"#E6F1FB",text:"#0C447C"},
+                      embroidery:{bg:"#EEEDFE",text:"#3C3489"},
+                      patch:{bg:"#FAEEDA",text:"#633806"},
                     };
                     const deco = dc?decoColors[dc]||decoColors.screen_print:null;
                     return (
-                      <div key={item.id} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",background:"#181c27",borderRadius:6}}>
+                      <div key={item.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"var(--color-background-secondary)",borderRadius:"var(--border-radius-md)"}}>
                         <div style={{flex:1,minWidth:0}}>
-                          <span style={{fontSize:12,fontWeight:600,color:"#e8eaf2"}}>{item.name}</span>
-                          <span style={{fontSize:10,color:"#7a82a0",marginLeft:7}}>{item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}</span>
+                          <div style={{fontSize:13,fontWeight:500}}>{item.name}</div>
+                          <div style={{fontSize:11,color:"var(--color-text-secondary)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                            {item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}
+                          </div>
                         </div>
-                        <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:"nowrap",
-                          background:item.status==="confirmed"?"#0e3d24":"#3d2a08",
-                          color:item.status==="confirmed"?"#34c97a":"#f5a623"}}>{item.status}</span>
-                        {deco&&<span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:"nowrap",background:deco.bg,color:deco.text}}>{dc.replace(/_/g," ")}</span>}
+                        <span style={{padding:"2px 8px",borderRadius:"99px",fontSize:11,fontWeight:500,whiteSpace:"nowrap",
+                          background:item.status==="confirmed"?"#EAF3DE":"#FAEEDA",
+                          color:item.status==="confirmed"?"#27500A":"#633806"}}>{item.status}</span>
+                        {deco&&<span style={{padding:"2px 8px",borderRadius:"99px",fontSize:11,fontWeight:500,whiteSpace:"nowrap",background:deco.bg,color:deco.text}}>{dc.replace(/_/g," ")}</span>}
                       </div>
                     );
                   })}
@@ -432,43 +418,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             </div>
           </div>
         </div>
-      )}
-
-      {/* BUYSHEET */}
-      {tab==="buysheet"&&(
-        <BuySheetTab
-          items={items}
-          onUpdateItems={async (newItems:any[]) => {
-            const deleted = items.filter(i => !newItems.find((ni:any) => ni.id === i.id));
-            for (const item of deleted) {
-              await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
-              await supabase.from("items").delete().eq("id", item.id);
-            }
-            const added = newItems.filter((ni:any) => !items.find(i => i.id === ni.id));
-            for (const item of added) {
-              const { data } = await supabase.from("items").insert({
-                job_id: params.id, name: item.name,
-                blank_vendor: item.blank_vendor || null,
-                blank_sku: item.blank_sku || null,
-                cost_per_unit: item.cost_per_unit || null,
-                blank_costs: item.blankCosts && Object.keys(item.blankCosts).length > 0 ? item.blankCosts : null,
-                status: "tbd", artwork_status: "not_started", sort_order: items.length,
-              }).select("id").single();
-              if (data && item.sizes?.length > 0) {
-                await supabase.from("buy_sheet_lines").insert(
-                  item.sizes.map((sz:string) => ({ item_id: data.id, size: sz, qty_ordered: item.qtys?.[sz] || 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }))
-                );
-              }
-            }
-            const updated = newItems.filter((ni:any) => items.find(i => i.id === ni.id));
-            for (let idx = 0; idx < updated.length; idx++) {
-              const item = updated[idx];
-              const newSortOrder = newItems.findIndex((ni:any) => ni.id === item.id);
-              await saveItem(item.id, { qtys: item.qtys, cost_per_unit: item.cost_per_unit, sort_order: newSortOrder } as any);
-            }
-            await loadData();
-          }}
-        />
       )}
 
       {/* COSTING */}
@@ -483,25 +432,25 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* PRODUCTION */}
       {tab==="production"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {items.length===0&&<div style={{...card,textAlign:"center",color:"#7a82a0",padding:"2rem",fontSize:13}}>No items yet.</div>}
+          {items.length===0&&<div style={{...card,textAlign:"center",color:"var(--color-text-secondary)",padding:"2rem",fontSize:13}}>No items yet.</div>}
           {items.map(item=>{
             const si=PIPELINE_STAGES.findIndex(s=>s.id===item.pipeline_stage);
             const pct=getPct(item.pipeline_stage||"blanks_ordered");
             const dc=DECO_COLORS[item.decoration_type||"screen_print"]||DECO_COLORS.screen_print;
             return (
               <div key={item.id} style={{...card,padding:0,overflow:"hidden"}}>
-                <div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderBottom:"1px solid #2a3050"}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderBottom:"0.5px solid var(--color-border-tertiary)"}}>
                   <div style={{flex:1}}>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
                       <span style={{fontSize:13,fontWeight:500}}>{item.name}</span>
-                      {item.decoration_type&&<span style={{padding:"1px 7px",borderRadius:6,fontSize:11,fontWeight:500,background:dc.bg,color:dc.text}}>{item.decoration_type.replace(/_/g," ")}</span>}
-                      {item.status==="tbd"&&<span style={{padding:"1px 7px",borderRadius:6,fontSize:11,fontWeight:500,background:"#FAEEDA",color:"#633806"}}>TBD</span>}
+                      {item.decoration_type&&<span style={{padding:"1px 7px",borderRadius:"var(--border-radius-md)",fontSize:11,fontWeight:500,background:dc.bg,color:dc.text}}>{item.decoration_type.replace(/_/g," ")}</span>}
+                      {item.status==="tbd"&&<span style={{padding:"1px 7px",borderRadius:"var(--border-radius-md)",fontSize:11,fontWeight:500,background:"#FAEEDA",color:"#633806"}}>TBD</span>}
                     </div>
-                    <div style={{fontSize:11,color:"#7a82a0",marginTop:2}}>{item.decorator||"No decorator"} · {tQty(item.qtys||{}).toLocaleString()} units</div>
+                    <div style={{fontSize:11,color:"var(--color-text-secondary)",marginTop:2}}>{item.decorator||"No decorator"} · {tQty(item.qtys||{}).toLocaleString()} units</div>
                   </div>
                   <div style={{fontSize:13,fontWeight:500,color:pct===100?"#3B6D11":"#0C447C"}}>{pct}%</div>
                 </div>
-                <div style={{height:3,background:"#181c27"}}>
+                <div style={{height:3,background:"var(--color-background-secondary)"}}>
                   <div style={{height:"100%",width:pct+"%",background:pct===100?"#639922":"#378ADD",transition:"width 0.3s"}}/>
                 </div>
                 <div style={{padding:"10px 14px",display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -513,16 +462,16 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                           const newStage=stage.gate&&si===idx?PIPELINE_STAGES[idx+1]?.id||stage.id:stage.id;
                           updItem(item.id,{pipeline_stage:newStage,decorator_assignment_id:(item as any).decorator_assignment_id});
                         }}
-                        style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:6,fontSize:11,fontWeight:active?500:400,cursor:"pointer",border:"0.5px solid "+(done?"#185FA5":"var(--color-border-tertiary)"),background:active?"#E6F1FB":done?"#E6F1FB66":"transparent",color:done?"#0C447C":"var(--color-text-secondary)"}}>
+                        style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:"var(--border-radius-md)",fontSize:11,fontWeight:active?500:400,cursor:"pointer",border:"0.5px solid "+(done?"#185FA5":"var(--color-border-tertiary)"),background:active?"#E6F1FB":done?"#E6F1FB66":"transparent",color:done?"#0C447C":"var(--color-text-secondary)"}}>
                         <div style={{width:6,height:6,borderRadius:"50%",background:done?"#378ADD":"var(--color-border-secondary)",flexShrink:0}}/>
                         {stage.label}
-                        {stage.gate&&active&&<span style={{fontSize:10,background:"#FAEEDA",color:"#854F0B",padding:"1px 5px",borderRadius:6,marginLeft:2}}>Approve</span>}
+                        {stage.gate&&active&&<span style={{fontSize:10,background:"#FAEEDA",color:"#854F0B",padding:"1px 5px",borderRadius:"var(--border-radius-md)",marginLeft:2}}>Approve</span>}
                       </button>
                     );
                   })}
                 </div>
                 {item.pipeline_stage==="shipped"&&(
-                  <div style={{margin:"0 14px 10px",padding:"8px 12px",background:"#EAF3DE",border:"0.5px solid #C0DD97",borderRadius:6,fontSize:12,color:"#27500A"}}>
+                  <div style={{margin:"0 14px 10px",padding:"8px 12px",background:"#EAF3DE",border:"0.5px solid #C0DD97",borderRadius:"var(--border-radius-md)",fontSize:12,color:"#27500A"}}>
                     Handed off to Receiving — log inbound details in the Warehouse tab
                   </div>
                 )}
@@ -536,10 +485,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {tab==="warehouse"&&(
         <div style={{display:"flex",flexDirection:"column",gap:16}}>
           <div>
-            <div style={{fontSize:11,fontWeight:500,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Receiving</div>
+            <div style={{fontSize:11,fontWeight:500,color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Receiving</div>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {items.filter(it=>it.pipeline_stage==="shipped"||rxData[it.id]).length===0&&(
-                <div style={{...card,textAlign:"center",fontSize:13,color:"#7a82a0",padding:"2rem"}}>
+                <div style={{...card,textAlign:"center",fontSize:13,color:"var(--color-text-secondary)",padding:"2rem"}}>
                   No items shipped yet. Mark items as Shipped in the Production tab.
                 </div>
               )}
@@ -553,12 +502,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     <div onClick={()=>setRxExp(p=>({...p,[item.id]:!p[item.id]}))} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",cursor:"pointer",background:isRxd?"#EAF3DE44":"transparent"}}>
                       <div style={{flex:1}}>
                         <span style={{fontSize:13,fontWeight:500}}>{item.name}</span>
-                        <span style={{fontSize:11,color:"#7a82a0",marginLeft:8}}>{item.blank_sku}</span>
+                        <span style={{fontSize:11,color:"var(--color-text-secondary)",marginLeft:8}}>{item.blank_sku}</span>
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
-                        {isRxd?<span style={{color:"#3B6D11",fontWeight:500}}>Received {rx.receivedAt}</span>:<span style={{color:"#7a82a0"}}>{ordered.toLocaleString()} expected</span>}
-                        {rx.location&&<span style={{background:"#181c27",padding:"1px 7px",borderRadius:6,fontSize:11}}>{rx.location}</span>}
-                        <span style={{fontSize:10,color:"#7a82a0"}}>{isExp?"▲":"▼"}</span>
+                        {isRxd?<span style={{color:"#3B6D11",fontWeight:500}}>Received {rx.receivedAt}</span>:<span style={{color:"var(--color-text-secondary)"}}>{ordered.toLocaleString()} expected</span>}
+                        {rx.location&&<span style={{background:"var(--color-background-secondary)",padding:"1px 7px",borderRadius:"var(--border-radius-md)",fontSize:11}}>{rx.location}</span>}
+                        <span style={{fontSize:10,color:"var(--color-text-secondary)"}}>{isExp?"▲":"▼"}</span>
                       </div>
                     </div>
                     {isExp&&(
@@ -568,9 +517,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                           <div><label style={lc}>Tracking #</label><input style={ic} value={rx.trackingNum||""} onChange={e=>updRx(item.id,{trackingNum:e.target.value})} placeholder="1Z999AA1..."/></div>
                           <div><label style={lc}>Storage location</label><input style={ic} value={rx.location||""} onChange={e=>updRx(item.id,{location:e.target.value})} placeholder="Rack B, Shelf 3"/></div>
                         </div>
-                        <table style={{width:"100%",fontSize:12,borderCollapse:"collapse",border:"1px solid #2a3050"}}>
-                          <thead><tr style={{background:"#181c27"}}>
-                            {["Size","Ordered","Shipped","Var 1","Received","Var 2"].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"center",fontSize:11,fontWeight:500,color:"#7a82a0",borderRight:"0.5px solid var(--color-border-tertiary)"}}>{h}</th>)}
+                        <table style={{width:"100%",fontSize:12,borderCollapse:"collapse",border:"0.5px solid var(--color-border-tertiary)"}}>
+                          <thead><tr style={{background:"var(--color-background-secondary)"}}>
+                            {["Size","Ordered","Shipped","Var 1","Received","Var 2"].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"center",fontSize:11,fontWeight:500,color:"var(--color-text-secondary)",borderRight:"0.5px solid var(--color-border-tertiary)"}}>{h}</th>)}
                           </tr></thead>
                           <tbody>{(item.sizes||[]).map((sz,si)=>{
                             const oq=(item.qtys||{})[sz]||0;
@@ -581,24 +530,24 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                             return (
                               <tr key={sz} style={{borderBottom:si<(item.sizes||[]).length-1?"0.5px solid var(--color-border-tertiary)":"none"}}>
                                 <td style={{padding:"6px 10px",textAlign:"center",fontWeight:500,borderRight:"0.5px solid var(--color-border-tertiary)"}}>{sz}</td>
-                                <td style={{padding:"6px 10px",textAlign:"center",fontFamily:"var(--font-mono)",color:"#7a82a0",borderRight:"0.5px solid var(--color-border-tertiary)"}}>{oq}</td>
-                                <td style={{padding:"4px 6px",textAlign:"center",borderRight:"0.5px solid var(--color-border-tertiary)"}}><input type="number" min="0" value={sq??oq} onChange={e=>updRxNested(item.id,"shipped",sz,parseInt(e.target.value)||0)} style={{width:50,textAlign:"center",padding:"3px",border:"1px solid #2a3050",borderRadius:6,background:"var(--color-background-primary)",color:v1!==null&&v1<0?"#A32D2D":"var(--color-text-primary)",fontSize:12,fontFamily:"var(--font-mono)"}}/></td>
+                                <td style={{padding:"6px 10px",textAlign:"center",fontFamily:"var(--font-mono)",color:"var(--color-text-secondary)",borderRight:"0.5px solid var(--color-border-tertiary)"}}>{oq}</td>
+                                <td style={{padding:"4px 6px",textAlign:"center",borderRight:"0.5px solid var(--color-border-tertiary)"}}><input type="number" min="0" value={sq??oq} onChange={e=>updRxNested(item.id,"shipped",sz,parseInt(e.target.value)||0)} style={{width:50,textAlign:"center",padding:"3px",border:"0.5px solid var(--color-border-tertiary)",borderRadius:"var(--border-radius-md)",background:"var(--color-background-primary)",color:v1!==null&&v1<0?"#A32D2D":"var(--color-text-primary)",fontSize:12,fontFamily:"var(--font-mono)"}}/></td>
                                 <td style={{padding:"6px 10px",textAlign:"center",fontFamily:"var(--font-mono)",fontSize:11,fontWeight:500,color:v1===null?"var(--color-text-secondary)":v1<0?"#A32D2D":v1>0?"#3B6D11":"var(--color-text-secondary)",borderRight:"0.5px solid var(--color-border-tertiary)"}}>{v1===null?"—":v1===0?"—":(v1>0?"+":"")+v1}</td>
-                                <td style={{padding:"4px 6px",textAlign:"center",borderRight:"0.5px solid var(--color-border-tertiary)"}}><input type="number" min="0" value={rq??(sq??oq)} onChange={e=>updRxNested(item.id,"received",sz,parseInt(e.target.value)||0)} style={{width:50,textAlign:"center",padding:"3px",border:"1px solid #2a3050",borderRadius:6,background:"var(--color-background-primary)",color:v2!==null&&v2<0?"#A32D2D":"var(--color-text-primary)",fontSize:12,fontFamily:"var(--font-mono)"}}/></td>
+                                <td style={{padding:"4px 6px",textAlign:"center",borderRight:"0.5px solid var(--color-border-tertiary)"}}><input type="number" min="0" value={rq??(sq??oq)} onChange={e=>updRxNested(item.id,"received",sz,parseInt(e.target.value)||0)} style={{width:50,textAlign:"center",padding:"3px",border:"0.5px solid var(--color-border-tertiary)",borderRadius:"var(--border-radius-md)",background:"var(--color-background-primary)",color:v2!==null&&v2<0?"#A32D2D":"var(--color-text-primary)",fontSize:12,fontFamily:"var(--font-mono)"}}/></td>
                                 <td style={{padding:"6px 10px",textAlign:"center",fontFamily:"var(--font-mono)",fontSize:11,fontWeight:500,color:v2===null?"var(--color-text-secondary)":v2<0?"#A32D2D":v2>0?"#3B6D11":"var(--color-text-secondary)"}}>{v2===null?"—":v2===0?"—":(v2>0?"+":"")+v2}</td>
                               </tr>
                             );
                           })}</tbody>
                         </table>
                         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                          <span style={{fontSize:12,color:"#7a82a0"}}>Condition:</span>
+                          <span style={{fontSize:12,color:"var(--color-text-secondary)"}}>Condition:</span>
                           {["Good","Damaged"].map(opt=>(
-                            <button key={opt} onClick={()=>updRx(item.id,{condition:opt})} style={{padding:"4px 12px",borderRadius:6,fontSize:12,cursor:"pointer",border:"1px solid #2a3050",background:rx.condition===opt?(opt==="Good"?"#EAF3DE":"#FAEEDA"):"var(--color-background-primary)",color:rx.condition===opt?(opt==="Good"?"#27500A":"#854F0B"):"var(--color-text-secondary)"}}>{opt}</button>
+                            <button key={opt} onClick={()=>updRx(item.id,{condition:opt})} style={{padding:"4px 12px",borderRadius:"var(--border-radius-md)",fontSize:12,cursor:"pointer",border:"0.5px solid var(--color-border-tertiary)",background:rx.condition===opt?(opt==="Good"?"#EAF3DE":"#FAEEDA"):"var(--color-background-primary)",color:rx.condition===opt?(opt==="Good"?"#27500A":"#854F0B"):"var(--color-text-secondary)"}}>{opt}</button>
                           ))}
                         </div>
                         {!isRxd&&(
                           <div style={{display:"flex",justifyContent:"flex-end"}}>
-                            <button onClick={()=>updRx(item.id,{receivedAt:new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})})} style={{padding:"7px 20px",borderRadius:6,background:"#639922",color:"#fff",border:"none",fontSize:12,fontWeight:500,cursor:"pointer"}}>Mark Received</button>
+                            <button onClick={()=>updRx(item.id,{receivedAt:new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})})} style={{padding:"7px 20px",borderRadius:"var(--border-radius-md)",background:"#639922",color:"#fff",border:"none",fontSize:12,fontWeight:500,cursor:"pointer"}}>Mark Received</button>
                           </div>
                         )}
                       </div>
@@ -609,14 +558,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             </div>
           </div>
           <div>
-            <div style={{fontSize:11,fontWeight:500,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Shipping</div>
+            <div style={{fontSize:11,fontWeight:500,color:"var(--color-text-secondary)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Shipping</div>
             <div style={{...card,display:"flex",flexDirection:"column",gap:12}}>
               {Object.keys(rxData).length>0&&(
                 <div>
-                  <div style={{fontSize:12,fontWeight:500,color:"#7a82a0",marginBottom:8}}>Receiving handoff</div>
+                  <div style={{fontSize:12,fontWeight:500,color:"var(--color-text-secondary)",marginBottom:8}}>Receiving handoff</div>
                   <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
-                    <thead><tr style={{borderBottom:"1px solid #2a3050"}}>
-                      {["Item","Location","Ordered","Received","Status"].map(h=><th key={h} style={{padding:"6px 10px",textAlign:["Ordered","Received"].includes(h)?"center":"left",color:"#7a82a0",fontWeight:500}}>{h}</th>)}
+                    <thead><tr style={{borderBottom:"0.5px solid var(--color-border-tertiary)"}}>
+                      {["Item","Location","Ordered","Received","Status"].map(h=><th key={h} style={{padding:"6px 10px",textAlign:["Ordered","Received"].includes(h)?"center":"left",color:"var(--color-text-secondary)",fontWeight:500}}>{h}</th>)}
                     </tr></thead>
                     <tbody>{Object.entries(rxData).map(([id,rx]:any)=>{
                       const item=items.find(it=>it.id===id);
@@ -625,13 +574,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       const rec=Object.values(rx.received||{}).reduce((a:number,v:any)=>a+v,0)||ord;
                       const short=(rec as number)<ord;
                       return (
-                        <tr key={id} style={{borderBottom:"1px solid #2a3050"}}>
+                        <tr key={id} style={{borderBottom:"0.5px solid var(--color-border-tertiary)"}}>
                           <td style={{padding:"8px 10px",fontWeight:500}}>{item.name}</td>
-                          <td style={{padding:"8px 10px",color:"#7a82a0"}}>{rx.location||"—"}</td>
+                          <td style={{padding:"8px 10px",color:"var(--color-text-secondary)"}}>{rx.location||"—"}</td>
                           <td style={{padding:"8px 10px",textAlign:"center",fontFamily:"var(--font-mono)"}}>{ord}</td>
                           <td style={{padding:"8px 10px",textAlign:"center",fontFamily:"var(--font-mono)",color:short?"#A32D2D":"#3B6D11",fontWeight:500}}>{rec as number}</td>
                           <td style={{padding:"8px 10px"}}>
-                            <span style={{padding:"2px 8px",borderRadius:6,fontSize:11,fontWeight:500,background:rx.condition==="Damaged"?"#FAEEDA":short?"#FAEEDA":"#EAF3DE",color:rx.condition==="Damaged"?"#854F0B":short?"#854F0B":"#27500A"}}>
+                            <span style={{padding:"2px 8px",borderRadius:"var(--border-radius-md)",fontSize:11,fontWeight:500,background:rx.condition==="Damaged"?"#FAEEDA":short?"#FAEEDA":"#EAF3DE",color:rx.condition==="Damaged"?"#854F0B":short?"#854F0B":"#27500A"}}>
                               {rx.condition==="Damaged"?"Damage":short?((rec as number)-ord)+" short":"OK"}
                             </span>
                           </td>
@@ -642,13 +591,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               )}
               <div>
-                <div style={{fontSize:12,fontWeight:500,color:"#7a82a0",marginBottom:8}}>Fulfillment status</div>
+                <div style={{fontSize:12,fontWeight:500,color:"var(--color-text-secondary)",marginBottom:8}}>Fulfillment status</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
                   {SHIP_STAGES.map((stage,idx)=>{
                     const si=SHIP_STAGES.findIndex(s=>s.id===shipStage);
                     const done=si>=idx, active=shipStage===stage.id;
                     return (
-                      <button key={stage.id} onClick={()=>setShipStage(stage.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px",borderRadius:6,fontSize:12,fontWeight:active?500:400,cursor:"pointer",border:"0.5px solid "+(done?stage.color+"88":"var(--color-border-tertiary)"),background:active?stage.color+"22":done?stage.color+"11":"transparent",color:done?stage.color:"#7a82a0"}}>
+                      <button key={stage.id} onClick={()=>setShipStage(stage.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px",borderRadius:"var(--border-radius-md)",fontSize:12,fontWeight:active?500:400,cursor:"pointer",border:"0.5px solid "+(done?stage.color+"88":"var(--color-border-tertiary)"),background:active?stage.color+"22":done?stage.color+"11":"transparent",color:done?stage.color:"var(--color-text-secondary)"}}>
                         <div style={{width:7,height:7,borderRadius:"50%",background:done?stage.color:"var(--color-border-secondary)"}}/>
                         {stage.label}
                       </button>
