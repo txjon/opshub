@@ -1033,16 +1033,17 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                               <span style={{fontSize:10,fontWeight:700,color:"#bbb",fontFamily:"monospace",flexShrink:0}}>{String.fromCharCode(65+pi)}</span>
                               <span style={{fontSize:13,fontWeight:700,color:"#1a1a1a"}}>{p.name||("Item "+(pi+1))}</span>
                             </div>
-                            <div style={{fontSize:10,color:"#888",marginTop:2,paddingLeft:17}}>
-                              {[p.supplier, p.style, p.color].filter(Boolean).join(" · ")}
-                            </div>
+                            {(p.style||p.blankCostPerUnit!==undefined)&&(
+                              <div style={{fontSize:10,color:"#555",marginTop:2,paddingLeft:17}}>{[p.style].filter(Boolean).join("")}</div>
+                            )}
+                            {p.color&&<div style={{fontSize:10,color:"#888",paddingLeft:17}}>{p.color}</div>}
                           </td>
                           <td style={{padding:"12px 8px",verticalAlign:"top"}}>
-                            <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                            <div style={{display:"grid",gridTemplateColumns:"repeat(3, minmax(52px, 1fr))",gap:"3px 6px"}}>
                               {(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).map(sz=>(
-                                <span key={sz} style={{fontSize:10,background:"#f2f2f2",borderRadius:3,padding:"1px 6px",fontFamily:"monospace",color:"#444"}}>
-                                  {sz} {p.qtys[sz]}
-                                </span>
+                                <div key={sz} style={{fontSize:10,color:"#444",fontFamily:"monospace",whiteSpace:"nowrap"}}>
+                                  <span style={{color:"#999",marginRight:3}}>{sz}</span>{p.qtys[sz].toLocaleString()}
+                                </div>
                               ))}
                             </div>
                           </td>
