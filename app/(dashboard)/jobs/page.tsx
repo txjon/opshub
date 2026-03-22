@@ -76,6 +76,7 @@ export default function JobsPage() {
   };
 
   const phaseCounts = useMemo(() => ({
+    intake: jobs.filter(j => j.phase === "intake").length,
     pre_production: jobs.filter(j => j.phase === "pre_production").length,
     production: jobs.filter(j => j.phase === "production").length,
     receiving: jobs.filter(j => j.phase === "receiving").length,
@@ -84,6 +85,7 @@ export default function JobsPage() {
 
   const visible = useMemo(() => jobs.filter(j => {
     if (filter === "active") return !["complete","cancelled","on_hold"].includes(j.phase);
+    if (filter === "intake") return j.phase === "intake";
     if (filter === "pre_production") return j.phase === "pre_production";
     if (filter === "production") return j.phase === "production";
     if (filter === "receiving") return j.phase === "receiving";
@@ -143,7 +145,8 @@ export default function JobsPage() {
       <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
         <div style={{ display:"flex", gap:3, background:T.surface, padding:3, borderRadius:8 }}>
           {[
-            ["active","All Active",null],
+            ["active","All Active",jobs.filter(j => !["complete","cancelled","on_hold"].includes(j.phase)).length],
+            ["intake","Intake",phaseCounts.intake],
             ["pre_production","Pre-Production",phaseCounts.pre_production],
             ["production","Production",phaseCounts.production],
             ["receiving","Receiving",phaseCounts.receiving],
