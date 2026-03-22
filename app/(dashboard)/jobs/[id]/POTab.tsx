@@ -141,7 +141,7 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
         )}
       </div>
 
-      {vItems.map((item,idx)=>(
+      {vItems.map((item)=>{ const idx = sorted.findIndex(it=>it.id===item.id); return (
         <div key={item.id} style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,overflow:"hidden"}}>
           <div style={{background:"#2a2f42",padding:"8px 14px",display:"flex",alignItems:"center",gap:10}}>
             <span style={{background:T.accentDim,color:T.accent,fontFamily:mono,fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:5}}>{String.fromCharCode(65+idx)}</span>
@@ -177,7 +177,7 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
             </div>
           </div>
         </div>
-      ))}
+      ); })}
 
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         <button onClick={saveFields} disabled={saving}
@@ -240,7 +240,8 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
               <div><span style={{opacity:.6,marginRight:4,textTransform:"uppercase" as const,fontSize:"8.5px",letterSpacing:"0.05em"}}>Total units</span>{vItems.reduce((a,it)=>a+totalQty(it.buy_sheet_lines||[]),0).toLocaleString()}</div>
             </div>
 
-            {vItems.map((item,idx)=>{
+            {vItems.map((item)=>{
+              const idx = sorted.findIndex(it=>it.id===item.id);
               const cp = getCostProd(item.id);
               const lines = sortedLines(item.buy_sheet_lines||[]);
               const units = totalQty(item.buy_sheet_lines||[]);
