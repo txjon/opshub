@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import { CostingTabWrapper } from "./CostingTab";
+import { POTab } from "./POTab";
 import { BuySheetTab } from "./BuySheetTab";
 
 const PIPELINE_STAGES = [
@@ -245,7 +246,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:"1.5rem",padding:4,background:"#181c27",borderRadius:8,width:"fit-content"}}>
-        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
+        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
           <button key={t.id} onClick={async ()=>{
             if (tab==="costing" && t.id!=="costing") {
               if (saveCostingRef.current) {
@@ -506,6 +507,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
 
       {/* PRODUCTION */}
+      {tab==="po"&&(
+        <POTab
+          project={job}
+          items={items}
+          costingData={job.costing_data}
+        />
+      )}
       {tab==="production"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           {items.length===0&&<div style={{...card,textAlign:"center",color:"#7a82a0",padding:"2rem",fontSize:13}}>No items yet.</div>}

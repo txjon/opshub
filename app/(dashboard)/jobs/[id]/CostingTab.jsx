@@ -272,7 +272,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginTop:-20}}>
         <div style={{display:"flex",gap:4,background:T.surface,padding:4,borderRadius:8}}>
-          {[["calc","Calculator"],["quote","Client Quote"],["po","Purchase Order"]].map(([k,l])=>(
+          {[["calc","Calculator"],["quote","Client Quote"]].map(([k,l])=>(
             <button key={k} onClick={()=>setCostTab(k)}
               style={{background:costTab===k?T.accent:"transparent",color:costTab===k?"#fff":T.muted,border:"none",borderRadius:6,padding:"5px 14px",fontSize:12,fontFamily:font,fontWeight:600,cursor:"pointer"}}>
               {l}
@@ -1081,37 +1081,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
       })()}
 
       {/* PO */}
-      {costTab==="po"&&(
-        <div style={{background:"white",color:"#1a1a2e",fontFamily:font,padding:36,borderRadius:10,maxWidth:740}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
-            <div><div style={{fontSize:11,color:"#888",marginBottom:3}}>BILL TO</div><div style={{fontSize:13,fontWeight:600}}>HOUSE PARTY DISTRO</div><div style={{fontSize:11,color:"#666",lineHeight:1.6}}>JON@HOUSEPARTYDISTRO.COM<br/>3945 W RENO AVE, STE A · LAS VEGAS, NV 89118</div></div>
-            <div>
-              <div style={{fontSize:17,fontWeight:800,color:"#5b7cf6",marginBottom:10}}>PURCHASE ORDER</div>
-              <table style={{fontSize:11,borderCollapse:"collapse"}}><tbody>
-                {[["DATE",today],["PO #",(orderInfo.invoiceNum||"—")+" - A"],["SHIP DATE",orderInfo.shipDate||"—"],["SHIP METHOD",orderInfo.shipMethod||"—"]].map(([k,v])=>(
-                  <tr key={k}><td style={{padding:"2px 14px 2px 0",fontWeight:700,color:"#555"}}>{k}</td><td style={{padding:"2px 0"}}>{v}</td></tr>
-                ))}
-              </tbody></table>
-            </div>
-          </div>
-          <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16,fontSize:11}}>
-            <thead><tr style={{background:"#f0f2fb"}}>{["CLIENT","DESIGN","MODEL","COLOR","QTY","TOTAL"].map(h=><th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:700,color:"#555",borderBottom:"2px solid #d0d4f0"}}>{h}</th>)}</tr></thead>
-            <tbody>
-              {costProds.filter(p=>(p.totalQty||0)>0).map((p,pi)=>(
-                <tr key={pi} style={{borderBottom:"1px solid #f0f2fb"}}>
-                  <td style={{padding:"8px 10px"}}>{orderInfo.clientName||"—"}</td>
-                  <td style={{padding:"8px 10px"}}>{p.name||"—"}</td>
-                  <td style={{padding:"8px 10px"}}>{p.style||"—"}</td>
-                  <td style={{padding:"8px 10px"}}>{p.color||"—"}</td>
-                  <td style={{padding:"8px 10px",fontFamily:mono}}>{p.totalQty||0}</td>
-                  <td style={{padding:"8px 10px",fontFamily:mono,fontWeight:600}}>{fmtD((p.blankCostPerUnit||0)*1.035*(p.totalQty||0))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div style={{marginTop:20,paddingTop:12,borderTop:"1px solid #e0e4f8",fontSize:9,color:"#aaa",lineHeight:1.6}}>HOUSE PARTY DISTRO MUST BE NOTIFIED OF ANY BLANK SHORTAGES WITHIN 24 HOURS OF RECEIPT. PACKING LISTS AND TRACKING NUMBERS MUST BE SUPPLIED IMMEDIATELY AFTER SHIPMENT. INVOICES DUE WITHIN 30 DAYS OF PO DATE.</div>
-        </div>
-      )}
+
     </div>
   );
 };
