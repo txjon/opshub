@@ -247,9 +247,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:"1.5rem",padding:4,background:"#181c27",borderRadius:8,width:"fit-content"}}>
-        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
+        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
           <button key={t.id} onClick={async ()=>{
-            if (tab==="costing" && t.id!=="costing") {
+            if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
               if (saveCostingRef.current) {
                 try {
                   await saveCostingRef.current();
@@ -501,13 +501,27 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* COSTING */}
             {tab==="costing"&&(
         <CostingTabWrapper
+          key={items.map(i=>i.id).join(',')}
           project={job}
           buyItems={items}
           onUpdateBuyItems={setItems}
+          onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
+          initialTab="calc"
+          hideSubTabs={true}
         />
       )}
 
-      {/* PRODUCTION */}
+      {tab==="quote"&&(
+        <CostingTabWrapper
+          key={"quote-"+items.map(i=>i.id).join(',')}
+          project={job}
+          buyItems={items}
+          onUpdateBuyItems={setItems}
+          onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
+          initialTab="quote"
+          hideSubTabs={true}
+        />
+      )}
       {tab==="po"&&(
         <POTab
           project={job}

@@ -216,8 +216,8 @@ const CToggle=({label,value,onChange})=>(
   </div>
 );
 
-const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave})=>{
-  const [costTab,setCostTab]=useState("calc");
+const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave,initialTab,hideSubTabs})=>{
+  const [costTab,setCostTab]=useState(initialTab||"calc");
   const [collapsed,setCollapsed]=useState(()=>{ const c={}; (costProds||[]).forEach(p=>{ c[p.id]=true; }); return c; });
   const [localCosts,setLocalCosts]=useState({});
   const getCostDisplay=(pid,sz,val)=>{ const k=pid+"_"+sz; return localCosts[k]!==undefined?localCosts[k]:val>0?String(val):""; };
@@ -270,6 +270,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      {!hideSubTabs && (
       <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginTop:-20}}>
         <div style={{display:"flex",gap:4,background:T.surface,padding:4,borderRadius:8}}>
           {[["calc","Calculator"],["quote","Client Quote"]].map(([k,l])=>(
@@ -280,6 +281,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
           ))}
         </div>
       </div>
+      )}
 
       {costingDirty&&(
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:T.amberDim,border:"1px solid "+T.amber+"66",borderRadius:8,padding:"8px 14px",marginTop:-8}}>
@@ -1089,7 +1091,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
 export { CostingTab };
 
-export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave }) {
+export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave, initialTab = "calc", hideSubTabs = false }) {
   // Load saved costing state from project.costing_data if available
   const savedData = project?.costing_data || null;
   const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
@@ -1208,7 +1210,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
       inclShip={inclShip} setInclShip={setInclShip}
       inclCC={inclCC} setInclCC={setInclCC}
       orderInfo={orderInfo} setOrderInfo={setOrderInfo}
-      costingDirty={costingDirty} onSave={onSave}
+      costingDirty={costingDirty} onSave={onSave} initialTab={initialTab} hideSubTabs={hideSubTabs}
     />
   );
 }
