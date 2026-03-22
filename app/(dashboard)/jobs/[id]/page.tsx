@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import { CostingTabWrapper } from "./CostingTab";
-import { POTab } from "./POTab";
+import { POTab } from "./POTab.jsx";
 import { BuySheetTab } from "./BuySheetTab";
 
 const PIPELINE_STAGES = [
