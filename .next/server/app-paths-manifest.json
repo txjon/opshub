@@ -1,6 +1,7 @@
 {
-  "/(dashboard)/jobs/new/page": "app/(dashboard)/jobs/new/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
   "/(dashboard)/production/page": "app/(dashboard)/production/page.js",
+  "/(dashboard)/jobs/new/page": "app/(dashboard)/jobs/new/page.js",
   "/(dashboard)/decorators/page": "app/(dashboard)/decorators/page.js",
   "/(dashboard)/clients/page": "app/(dashboard)/clients/page.js",
   "/(dashboard)/jobs/[id]/page": "app/(dashboard)/jobs/[id]/page.js"

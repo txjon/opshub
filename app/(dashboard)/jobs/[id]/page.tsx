@@ -41,6 +41,7 @@ const getPct = (s: string) => (PIPELINE_STAGES.find(p=>p.id===s)||{pct:0}).pct;
 
 type Item = {
   id: string; job_id: string; name: string; blank_vendor: string|null; blank_sku: string|null;
+  drive_link: string|null; incoming_goods: string|null; production_notes_po: string|null; packing_notes: string|null;
   garment_type: string|null; status: string; artwork_status: string; notes: string|null;
   cost_per_unit: number|null; sell_per_unit: number|null; sort_order: number;
   blank_costs: Record<string,number>|null;
