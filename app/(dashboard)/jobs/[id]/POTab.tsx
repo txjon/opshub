@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { calcCostProduct, PRINTERS, lookupPrintPrice, lookupTagPrice } from "./CostingTab";
 
 const T = {
   card:"#1e2333", surface:"#181c27", border:"#2a3050",
@@ -14,7 +15,7 @@ const mono = "'IBM Plex Mono','Courier New',monospace";
 const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
 
 function fmtD(n:number) {
-  return "$"+n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  return "$"+Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 function sortedLines(lines:{size:string;qty_ordered:number}[]) {
   return [...lines].sort((a,b)=>{
@@ -34,6 +35,106 @@ function NoteBox({label,text}:{label:string;text:string}) {
       <div style={{fontSize:"9.5px",color:"#444",lineHeight:1.5,whiteSpace:"pre-wrap" as const}}>{text}</div>
     </div>
   );
+}
+
+function buildLineItems(cp:any, allProds:any[]) {
+  if (!cp) return { printLines:[], finLines:[], specLines:[], setupLines:[] };
+  const qty = cp.totalQty||0;
+  const pr = (PRINTERS as any)[cp.printVendor];
+
+  const printLines:{desc:string;qty:number;unit:number;total:number}[] = [];
+  const finLines:{desc:string;qty:number;unit:number;total:number}[] = [];
+  const specLines:{desc:string;qty:number;unit:number;total:number}[] = [];
+  const setupLines:{desc:string;total:number}[] = [];
+
+  // Print locations — use same logic as calcCostProduct
+  for (let loc=1; loc<=6; loc++) {
+    const ld = cp.printLocations?.[loc];
+    const printer = ld?.printer || cp.printVendor;
+    if (printer && ld?.screens > 0 && ld?.location) {
+      const isShared = !!(ld.shared) && ld.location;
+      const sharedQty = isShared ? allProds.reduce((sum:number,p:any)=>{
+        const match = Object.values(p.printLocations||{}).find((l:any)=>l.location&&l.location.trim().toLowerCase()===ld.location.trim().toLowerCase()&&l.screens>0);
+        return sum+(match?(p.totalQty||0):0);
+      },0) : 0;
+      const effectiveQty = isShared && sharedQty > 0 ? sharedQty : qty;
+      const unitCost = (lookupPrintPrice as any)(printer, effectiveQty, ld.screens);
+      printLines.push({
+        desc:`${ld.location} — ${ld.screens} color${ld.screens!==1?"s":""}${isShared?" (shared)":""}`,
+        qty, unit:unitCost, total:unitCost*qty
+      });
+    }
+  }
+  if (cp.tagPrint && cp.printVendor) {
+    const unitCost = (lookupTagPrice as any)(cp.printVendor, qty);
+    printLines.push({desc:`Tag print — ${cp.tagRepeat?"repeat":"new"} tag`, qty, unit:unitCost, total:unitCost*qty});
+  }
+
+  // Finishing
+  if (cp.finishingQtys && pr) {
+    if (cp.finishingQtys["Packaging_on"]) {
+      const variant = cp.isFleece?"Fleece":(cp.finishingQtys["Packaging_variant"]||"Tee");
+      const rate = pr.finishing?.[variant]||0;
+      if (rate > 0) finLines.push({desc:`${variant} polybag`, qty, unit:rate, total:rate*qty});
+    }
+    if (cp.finishingQtys["HangTag_on"]) {
+      const rate = pr.specialty?.HangTag||0;
+      if (rate > 0) finLines.push({desc:"Hang tag", qty, unit:rate, total:rate*qty});
+    }
+    if (cp.finishingQtys["HemTag_on"]) {
+      const rate = pr.specialty?.HemTag||0;
+      if (rate > 0) finLines.push({desc:"Hem tag", qty, unit:rate, total:rate*qty});
+    }
+    if (cp.finishingQtys["Applique_on"]) {
+      const rate = pr.specialty?.Applique||0;
+      if (rate > 0) finLines.push({desc:"Applique", qty, unit:rate, total:rate*qty});
+    }
+    if (cp.isFleece) {
+      const activeLocs = [1,2,3,4,5,6].filter(loc=>{const ld=cp.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length;
+      const locs = activeLocs+(cp.tagPrint?1:0);
+      const rate = (pr.finishing?.Tee||0)*locs;
+      if (rate > 0) finLines.push({desc:"Fleece upcharge", qty, unit:rate, total:rate*qty});
+    }
+  }
+
+  // Specialty
+  if (cp.specialtyQtys && pr) {
+    const activeLocs = [1,2,3,4,5,6].filter(loc=>{const ld=cp.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length;
+    ["WaterBase","Glow","Shimmer","Metallic","Puff","HighDensity","Reflective","Foil"].forEach(key=>{
+      if (cp.specialtyQtys[key+"_on"]) {
+        const rate = (pr.specialty?.[key]||0)*activeLocs;
+        if (rate > 0) specLines.push({desc:key.replace(/([A-Z])/g," $1").trim(), qty, unit:rate, total:rate*qty});
+      }
+    });
+  }
+
+  // Setup fees
+  if (cp.setupFees && pr) {
+    const autoScreens = [1,2,3,4,5,6].reduce((a:number,loc:number)=>a+(parseFloat(cp.printLocations?.[loc]?.screens)||0),0);
+    if (autoScreens > 0 && (pr.setup?.Screens||0) > 0) {
+      setupLines.push({desc:`${autoScreens} screen${autoScreens!==1?"s":""}`, total:(pr.setup.Screens||0)*autoScreens});
+    }
+    const activeSizes = (cp.sizes||[]).filter((sz:string)=>(cp.qtys?.[sz]||0)>0).length;
+    if (!cp.tagRepeat && cp.tagPrint && (pr.setup?.TagScreens||0) > 0) {
+      setupLines.push({desc:`Tag screens (${activeSizes} sizes)`, total:(pr.setup.TagScreens||0)*activeSizes});
+    }
+    if ((cp.setupFees.seps||0) > 0 && (pr.setup?.Seps||0) > 0) {
+      setupLines.push({desc:`Seps (${cp.setupFees.seps})`, total:(pr.setup.Seps||0)*cp.setupFees.seps});
+    }
+    if ((cp.setupFees.inkChanges||0) > 0 && (pr.setup?.InkChange||0) > 0) {
+      setupLines.push({desc:`Ink changes (${cp.setupFees.inkChanges})`, total:(pr.setup.InkChange||0)*cp.setupFees.inkChanges});
+    }
+    if ((cp.setupFees.manualCost||0) > 0) {
+      setupLines.push({desc:"Additional setup", total:cp.setupFees.manualCost});
+    }
+  }
+
+  // Custom costs
+  (cp.customCosts||[]).forEach((c:any)=>{
+    if (c.amount > 0) setupLines.push({desc:c.name||"Custom cost", total:c.amount});
+  });
+
+  return { printLines, finLines, specLines, setupLines };
 }
 
 export function POTab({project,items,costingData}:{project:any;items:any[];costingData:any}) {
@@ -64,15 +165,25 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
     setPackingNotes(notes);
   },[items]);
 
+  const costProds = costingData?.costProds||[];
+  const costMargin = costingData?.costMargin||"30%";
+  const inclShip = costingData?.inclShip!==undefined ? costingData.inclShip : true;
+  const inclCC = costingData?.inclCC!==undefined ? costingData.inclCC : true;
+
   function getCostProd(id:string) {
-    return (costingData?.costProds||[]).find((p:any)=>p.id===id);
+    return costProds.find((p:any)=>p.id===id);
+  }
+  function getResult(id:string) {
+    const cp = getCostProd(id);
+    if (!cp) return null;
+    return (calcCostProduct as any)(cp, costMargin, inclShip, inclCC, costProds);
   }
   function getDec(name:string) {
     return decorators.find(d=>d.name===name||d.short_code===name);
   }
 
   const sorted = [...items].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
-  const vendors:string[] = [...new Set((costingData?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
+  const vendors:string[] = [...new Set(costProds.map((p:any)=>p.printVendor).filter(Boolean))] as string[];
   const active = selectedVendor||vendors[0]||"";
   const vItems = sorted.filter(it=>getCostProd(it.id)?.printVendor===active);
   const ship = shipMethods.find(s=>s.id===selectedShipMethod);
@@ -89,12 +200,11 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
   }
 
   const ready = selectedShipMethod && active;
-  const allFilled = vItems.every(it => packingNotes[it.id]?.trim());
+  const allFilled = vItems.every(it=>packingNotes[it.id]?.trim());
 
   return (
     <div style={{fontFamily:font,color:T.text,display:"flex",flexDirection:"column",gap:12}}>
 
-      {/* Setup bar */}
       <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,padding:"12px 14px",display:"flex",gap:12,alignItems:"flex-end",flexWrap:"wrap" as const}}>
         <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180}}>
           <div style={{fontSize:9,color:T.muted,textTransform:"uppercase" as const,letterSpacing:"0.07em"}}>Ship method</div>
@@ -104,18 +214,16 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
             {shipMethods.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
-
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
           <div style={{fontSize:9,color:T.muted,textTransform:"uppercase" as const,letterSpacing:"0.07em"}}>Acct. no.</div>
           <div style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:ship?.account_number?T.text:T.faint,fontFamily:mono,fontSize:12,padding:"6px 10px",minWidth:90}}>
             {ship?.account_number||"—"}
           </div>
         </div>
-
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
           <div style={{fontSize:9,color:T.muted,textTransform:"uppercase" as const,letterSpacing:"0.07em"}}>Vendor</div>
           <div style={{display:"flex",gap:6}}>
-            {vendors.length===0 && <div style={{fontSize:11,color:T.faint,padding:"6px 0"}}>No vendors assigned in costing</div>}
+            {vendors.length===0&&<div style={{fontSize:11,color:T.faint,padding:"6px 0"}}>No vendors assigned in costing</div>}
             {vendors.map(v=>(
               <button key={v} onClick={()=>setSelectedVendor(v)}
                 style={{background:active===v?T.accent:T.surface,border:"1px solid "+(active===v?T.accent:T.border),borderRadius:6,color:active===v?"#fff":T.muted,fontFamily:font,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>
@@ -124,9 +232,8 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
             ))}
           </div>
         </div>
-
         <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
-          {ready && (
+          {ready&&(
             <div style={{fontSize:11,color:allFilled?T.green:T.amber}}>
               {vItems.filter(it=>packingNotes[it.id]?.trim()).length}/{vItems.length} items ready
             </div>
@@ -138,10 +245,9 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
         </div>
       </div>
 
-      {/* Packing notes table */}
-      {active && (
+      {active&&(
         <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,overflow:"hidden"}}>
-          <div style={{display:"grid",gridTemplateColumns:"40px 1fr 120px 1fr",gap:0,background:T.surface,borderBottom:"1px solid "+T.border}}>
+          <div style={{display:"grid",gridTemplateColumns:"40px 1fr 120px 1fr",background:T.surface,borderBottom:"1px solid "+T.border}}>
             {["","Item","Vendor","Packing / shipping notes"].map((h,i)=>(
               <div key={i} style={{padding:"7px 12px",fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase" as const,letterSpacing:"0.07em",borderRight:i<3?"1px solid "+T.border:"none"}}>{h}</div>
             ))}
@@ -150,7 +256,7 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
             const idx = sorted.findIndex(it=>it.id===item.id);
             const filled = !!packingNotes[item.id]?.trim();
             return (
-              <div key={item.id} style={{display:"grid",gridTemplateColumns:"40px 1fr 120px 1fr",gap:0,borderBottom:i<vItems.length-1?"1px solid "+T.border:"none",alignItems:"center"}}>
+              <div key={item.id} style={{display:"grid",gridTemplateColumns:"40px 1fr 120px 1fr",borderBottom:i<vItems.length-1?"1px solid "+T.border:"none",alignItems:"center"}}>
                 <div style={{padding:"10px 12px",display:"flex",alignItems:"center",justifyContent:"center",borderRight:"1px solid "+T.border}}>
                   <span style={{width:22,height:22,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:T.accent,fontFamily:mono}}>
                     {String.fromCharCode(65+idx)}
@@ -171,7 +277,7 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
                     style={{flex:1,background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"5px 8px",outline:"none",resize:"none" as const,lineHeight:1.4}}
                   />
                   <div style={{width:8,height:8,borderRadius:"50%",background:filled?T.green:T.faint,flexShrink:0}} />
-                  {saving[item.id] && <div style={{fontSize:9,color:T.muted,flexShrink:0}}>saving</div>}
+                  {saving[item.id]&&<div style={{fontSize:9,color:T.muted,flexShrink:0}}>saving</div>}
                 </div>
               </div>
             );
@@ -179,8 +285,7 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
         </div>
       )}
 
-      {/* Export button */}
-      {ready && (
+      {ready&&(
         <div style={{display:"flex",justifyContent:"flex-end"}}>
           <button onClick={()=>window.print()}
             style={{background:T.green,border:"none",borderRadius:7,color:"#fff",fontFamily:font,fontSize:12,fontWeight:600,padding:"8px 20px",cursor:"pointer"}}>
@@ -189,13 +294,12 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
         </div>
       )}
 
-      {/* PO Preview */}
-      {showPreview && ready && (
+      {showPreview&&ready&&(
         <div style={{background:"#fff",color:"#1a1a1a",borderRadius:10,padding:"36px 40px",fontFamily:"'Helvetica Neue',Arial,sans-serif",fontSize:11,lineHeight:1.5}}>
 
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",paddingBottom:18,borderBottom:"2px solid #1a1a1a",marginBottom:18}}>
             <div style={{fontSize:20,fontWeight:800,letterSpacing:-1,lineHeight:1.1}}>
-              house party<br /><span style={{color:"#aaa",fontWeight:300}}>distro</span>
+              house party<br/><span style={{color:"#aaa",fontWeight:300}}>distro</span>
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:20,fontWeight:700,letterSpacing:2}}>PURCHASE ORDER</div>
@@ -215,19 +319,19 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:16}}>
             <div>
               <div style={{fontSize:8,fontWeight:700,textTransform:"uppercase" as const,letterSpacing:"0.1em",color:"#aaa",marginBottom:6}}>Bill to</div>
-              <div style={{fontSize:10,lineHeight:1.7}}>House Party Distro<br />jon@housepartydistro.com<br />3945 W Reno Ave, Ste A<br />Las Vegas, NV 89118</div>
+              <div style={{fontSize:10,lineHeight:1.7}}>House Party Distro<br/>jon@housepartydistro.com<br/>3945 W Reno Ave, Ste A<br/>Las Vegas, NV 89118</div>
             </div>
             <div>
               <div style={{fontSize:8,fontWeight:700,textTransform:"uppercase" as const,letterSpacing:"0.1em",color:"#aaa",marginBottom:6}}>Ship to / Decorator</div>
               {getDec(active) ? (
                 <div style={{fontSize:10,lineHeight:1.7}}>
-                  {getDec(active)!.name}<br />
-                  {getDec(active)!.email&&<span>{getDec(active)!.email}<br /></span>}
-                  {getDec(active)!.address&&<span>{getDec(active)!.address}<br /></span>}
+                  {getDec(active)!.name}<br/>
+                  {getDec(active)!.email&&<span>{getDec(active)!.email}<br/></span>}
+                  {getDec(active)!.address&&<span>{getDec(active)!.address}<br/></span>}
                   {[getDec(active)!.city,getDec(active)!.state,getDec(active)!.zip].filter(Boolean).join(", ")}
                 </div>
               ) : (
-                <div style={{fontSize:10,color:"#888"}}>{active}<br /><span style={{fontSize:9,color:"#aaa"}}>Add address in Decorators page</span></div>
+                <div style={{fontSize:10,color:"#888"}}>{active}<br/><span style={{fontSize:9,color:"#aaa"}}>Add address in Decorators page</span></div>
               )}
             </div>
           </div>
@@ -241,34 +345,13 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
           {vItems.map((item)=>{
             const idx = sorted.findIndex(it=>it.id===item.id);
             const cp = getCostProd(item.id);
+            const r = getResult(item.id);
             const lines = sortedLines(item.buy_sheet_lines||[]);
             const units = totalQty(item.buy_sheet_lines||[]);
-            const printL:{desc:string;qty?:number;unit?:number;total?:number}[] = [];
-            const finL:{desc:string;qty?:number;unit?:number;total?:number}[] = [];
-            const setupL:{desc:string;total:number}[] = [];
-            const incoming = item.incoming_goods || (cp?.supplier ? "Blanks from "+cp.supplier : "");
-            const prodNotes = item.production_notes_po || cp?.itemNotes || "";
+            const {printLines,finLines,specLines,setupLines} = buildLineItems(cp, costProds);
+            const incoming = item.incoming_goods||(cp?.supplier?"Blanks from "+cp.supplier:"");
+            const prodNotes = item.production_notes_po||cp?.itemNotes||"";
             const packing = packingNotes[item.id]||"";
-
-            if (cp) {
-              [1,2,3,4,5,6].forEach(loc=>{
-                const ld = cp.printLocations?.[loc];
-                if (ld?.location&&ld?.screens>0) {
-                  printL.push({desc:ld.location+" — "+ld.screens+" color"+(ld.screens!==1?"s":"")+(ld.shared?" (shared)":""),qty:units,unit:ld.screens*0.065,total:ld.screens*0.065*units});
-                }
-              });
-              if (cp.tagPrint) printL.push({desc:"Tag print — "+(cp.tagRepeat?"repeat":"new")+" tag",qty:units,unit:0.40,total:0.40*units});
-              const FR:Record<string,{label:string;rate:number}> = {
-                Packaging_on:{label:"Polybag",rate:2.35},
-                HangTag_on:{label:"Hang tag",rate:0.65},
-                HemTag_on:{label:"Hem tag",rate:0.45},
-              };
-              Object.entries(cp.finishingQtys||{}).forEach(([k,v])=>{ if(v&&FR[k]) finL.push({desc:FR[k].label,qty:units,unit:FR[k].rate,total:FR[k].rate*units}); });
-              if (cp.setupFees?.screens>0) setupL.push({desc:cp.setupFees.screens+" screen"+(cp.setupFees.screens!==1?"s":""),total:cp.setupFees.screens*20});
-              if (cp.setupFees?.manualCost>0) setupL.push({desc:"Additional setup",total:cp.setupFees.manualCost});
-            }
-
-            const itemTotal = [...printL,...finL].reduce((a,l)=>a+(l.total||0),0)+setupL.reduce((a,l)=>a+l.total,0);
 
             return (
               <div key={item.id} style={{borderLeft:"3px solid #1a1a1a",paddingLeft:16,marginBottom:24}}>
@@ -293,34 +376,46 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
                     <a href={item.drive_link} style={{color:"#1a56db"}}>{item.drive_link}</a>
                   </div>
                 )}
-                {printL.length>0&&(
+                {printLines.length>0&&(
                   <div style={{marginBottom:8}}>
                     <div style={{fontSize:8,fontWeight:700,textTransform:"uppercase" as const,letterSpacing:"0.1em",color:"#aaa",marginBottom:4,paddingBottom:3,borderBottom:"0.5px solid #eee"}}>Print</div>
-                    {printL.map((l,i)=>(
+                    {printLines.map((l,i)=>(
                       <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",borderBottom:"0.5px solid #f5f5f5",fontSize:10}}>
                         <div style={{flex:1,color:"#333"}}>{l.desc}</div>
-                        {l.qty&&l.unit?<div style={{color:"#aaa",fontSize:9,margin:"0 12px"}}>{l.qty.toLocaleString()}×{fmtD(l.unit)}</div>:null}
-                        <div style={{fontWeight:600}}>{l.total?fmtD(l.total):"—"}</div>
+                        <div style={{color:"#aaa",fontSize:9,margin:"0 12px"}}>{l.qty.toLocaleString()}×{fmtD(l.unit)}</div>
+                        <div style={{fontWeight:600}}>{fmtD(l.total)}</div>
                       </div>
                     ))}
                   </div>
                 )}
-                {finL.length>0&&(
+                {finLines.length>0&&(
                   <div style={{marginBottom:8}}>
                     <div style={{fontSize:8,fontWeight:700,textTransform:"uppercase" as const,letterSpacing:"0.1em",color:"#aaa",marginBottom:4,paddingBottom:3,borderBottom:"0.5px solid #eee"}}>Finishing & packaging</div>
-                    {finL.map((l,i)=>(
+                    {finLines.map((l,i)=>(
                       <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",borderBottom:"0.5px solid #f5f5f5",fontSize:10}}>
                         <div style={{flex:1,color:"#333"}}>{l.desc}</div>
-                        {l.qty&&l.unit?<div style={{color:"#aaa",fontSize:9,margin:"0 12px"}}>{l.qty.toLocaleString()}×{fmtD(l.unit)}</div>:null}
-                        <div style={{fontWeight:600}}>{l.total?fmtD(l.total):"—"}</div>
+                        <div style={{color:"#aaa",fontSize:9,margin:"0 12px"}}>{l.qty.toLocaleString()}×{fmtD(l.unit)}</div>
+                        <div style={{fontWeight:600}}>{fmtD(l.total)}</div>
                       </div>
                     ))}
                   </div>
                 )}
-                {setupL.length>0&&(
+                {specLines.length>0&&(
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,fontWeight:700,textTransform:"uppercase" as const,letterSpacing:"0.1em",color:"#aaa",marginBottom:4,paddingBottom:3,borderBottom:"0.5px solid #eee"}}>Specialty</div>
+                    {specLines.map((l,i)=>(
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",borderBottom:"0.5px solid #f5f5f5",fontSize:10}}>
+                        <div style={{flex:1,color:"#333"}}>{l.desc}</div>
+                        <div style={{color:"#aaa",fontSize:9,margin:"0 12px"}}>{l.qty.toLocaleString()}×{fmtD(l.unit)}</div>
+                        <div style={{fontWeight:600}}>{fmtD(l.total)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {setupLines.length>0&&(
                   <div style={{marginBottom:8}}>
                     <div style={{fontSize:8,fontWeight:700,textTransform:"uppercase" as const,letterSpacing:"0.1em",color:"#aaa",marginBottom:4,paddingBottom:3,borderBottom:"0.5px solid #eee"}}>Setup fees</div>
-                    {setupL.map((l,i)=>(
+                    {setupLines.map((l,i)=>(
                       <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",borderBottom:"0.5px solid #f5f5f5",fontSize:10}}>
                         <div style={{flex:1,color:"#333"}}>{l.desc}</div>
                         <div style={{color:"#aaa",fontSize:9,margin:"0 12px"}}>flat</div>
@@ -329,10 +424,10 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
                     ))}
                   </div>
                 )}
-                {itemTotal>0&&(
+                {r&&r.poTotal>0&&(
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:8,paddingTop:6,borderTop:"1px solid #1a1a1a"}}>
                     <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase" as const,letterSpacing:"0.08em",color:"#888"}}>Item {String.fromCharCode(65+idx)} total</div>
-                    <div style={{fontSize:13,fontWeight:700}}>{fmtD(itemTotal)}</div>
+                    <div style={{fontSize:13,fontWeight:700}}>{fmtD(r.poTotal)}</div>
                   </div>
                 )}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginTop:10}}>
@@ -347,7 +442,9 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
           <div style={{display:"flex",justifyContent:"flex-end",marginBottom:20,paddingTop:8,borderTop:"0.5px solid #ddd"}}>
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase" as const,letterSpacing:"0.12em",color:"#aaa",marginBottom:4}}>PO Total</div>
-              <div style={{fontSize:24,fontWeight:700,letterSpacing:-1}}>{fmtD(vItems.reduce((a,it)=>a+(getCostProd(it.id)?.poTotal||0),0))}</div>
+              <div style={{fontSize:24,fontWeight:700,letterSpacing:-1}}>
+                {fmtD(vItems.reduce((a,it)=>a+(getResult(it.id)?.poTotal||0),0))}
+              </div>
             </div>
           </div>
 
@@ -355,10 +452,8 @@ export function POTab({project,items,costingData}:{project:any;items:any[];costi
             <strong style={{fontSize:8,fontWeight:700,color:"#888",display:"block",marginBottom:3}}>House Party Distro Purchase Order Conditions</strong>
             House Party Distro must be notified of any blank shortages or discrepancies within 24 hours of receipt of goods. Outbound shipping is at the sole direction of House Party Distro. Packing lists and tracking numbers must be supplied to House Party Distro immediately after the order has shipped. House Party Distro must be invoiced for any charges within 30 days of the PO date. This PO and any documents, files, or previous e-mails may contain confidential information that is legally privileged. If you are not the intended recipient, you are hereby notified that any disclosure, copying, distribution or use of any of the information contained in or attached to this transmission is strictly prohibited.
           </div>
-
         </div>
       )}
-
     </div>
   );
 }
