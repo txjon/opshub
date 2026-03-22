@@ -151,7 +151,6 @@ export default function JobsPage() {
             ["production","Production",phaseCounts.production],
             ["receiving","Receiving",phaseCounts.receiving],
             ["shipping","Shipping",phaseCounts.shipping],
-            ["all","All",null],
           ].map(([k,l,count]) => (
             <button key={k as string} onClick={() => setFilter(k as string)}
               style={{ background:filter===k?T.accent:"transparent", color:filter===k?"#fff":T.muted, border:"none", borderRadius:5, padding:"4px 10px", fontSize:11, fontFamily:font, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
