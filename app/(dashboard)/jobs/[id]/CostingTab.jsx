@@ -298,22 +298,11 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
           {(()=>{
             const totalQty=results.reduce((a,r)=>a+r.qty,0);
             const avgSell=totalQty>0?totGross/totalQty:0;
-            const anyOverride=costProds.some(p=>p.sellOverride);
             return avgSell>0?(
               <div style={{display:"flex",alignItems:"center",gap:8,paddingLeft:16,borderLeft:`1px solid ${T.border}`}}>
                 <div>
                   <div style={{fontSize:9,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Avg $/unit</div>
                   <div style={{fontSize:15,fontWeight:700,color:T.green,fontFamily:mono}}>{fmtD(avgSell)}</div>
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                  <button onClick={()=>setCostProds(prev=>prev.map(p=>({...p,sellOverride:parseFloat(avgSell.toFixed(2))})))}
-                    style={{background:T.accent,border:"none",borderRadius:5,color:"#fff",cursor:"pointer",padding:"3px 10px",fontSize:10,fontFamily:font,fontWeight:700,whiteSpace:"nowrap"}}>
-                    Apply to all
-                  </button>
-                  {anyOverride&&<button onClick={()=>setCostProds(prev=>prev.map(p=>({...p,sellOverride:null})))}
-                    style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.faint,cursor:"pointer",padding:"3px 10px",fontSize:10,fontFamily:font,whiteSpace:"nowrap"}}>
-                    Clear overrides
-                  </button>}
                 </div>
               </div>
             ):null;
@@ -349,37 +338,41 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                       <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||("Product "+(i+1))}</span>
                     </div>
                     <div style={{display:"flex",gap:0,alignItems:"center"}}>
-                      <div style={{textAlign:"right",width:70,flexShrink:0}}>
+                      <div style={{textAlign:"right",width:70,flexShrink:0,marginRight:16}}>
                         <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
                         <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                       </div>
-                      <div style={{width:1,height:28,background:T.border,margin:"0 12px",flexShrink:0}}/>
-                      <div style={{display:"flex",alignItems:"center",gap:6}} onClick={e=>e.stopPropagation()}>
-                        <div style={{textAlign:"right",width:90,marginRight:2}}>
+                      <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>
+                      <div style={{display:"flex",alignItems:"center",gap:0,flexDirection:"row-reverse"}} onClick={e=>e.stopPropagation()}>
+                        <div style={{textAlign:"right",flexShrink:0}}>
                           <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Sell $/unit</div>
                           {p._sellOverride?(
-                            <div style={{display:"flex",alignItems:"center",gap:4}}>
+                            <div style={{display:"flex",alignItems:"center",gap:4,flexDirection:"row-reverse"}}>
                               <div style={{background:T.surface,border:"1px solid "+T.amber,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2}}>
                                 <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
                                 <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus
                                   onChange={e=>updateProd(i,{...p,_sellOverrideVal:e.target.value})}
                                   style={{width:50,background:"transparent",border:"none",outline:"none",color:T.amber,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
                               </div>
-                              <button onClick={()=>updateProd(i,{...p,sellOverride:parseFloat(p._sellOverrideVal)||null,_sellOverride:false})}
-                                style={{background:T.green,border:"none",borderRadius:5,color:"#fff",cursor:"pointer",padding:"3px 8px",fontSize:10,fontFamily:font,fontWeight:700}}>✓</button>
-                              <button onClick={()=>updateProd(i,{...p,_sellOverride:false,sellOverride:null,_sellOverrideVal:null})}
-                                style={{background:"none",border:"1px solid "+T.border,borderRadius:5,color:T.muted,cursor:"pointer",padding:"3px 6px",fontSize:10}}>✕</button>
+                              <div style={{display:"flex",gap:4,marginRight:6}}>
+                                <button onClick={()=>updateProd(i,{...p,sellOverride:parseFloat(p._sellOverrideVal)||null,_sellOverride:false})}
+                                  style={{background:T.green,border:"none",borderRadius:5,color:"#fff",cursor:"pointer",padding:"3px 8px",fontSize:10,fontFamily:font,fontWeight:700}}>✓</button>
+                                <button onClick={()=>updateProd(i,{...p,_sellOverride:false,sellOverride:null,_sellOverrideVal:null})}
+                                  style={{background:"none",border:"1px solid "+T.border,borderRadius:5,color:T.muted,cursor:"pointer",padding:"3px 6px",fontSize:10}}>✕</button>
+                              </div>
                             </div>
                           ):(
-                            <div style={{display:"flex",alignItems:"center",gap:5}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6,flexDirection:"row-reverse"}}>
                               <div style={{background:T.surface,border:"1px solid "+(p.sellOverride?T.amber:T.border),borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2}}>
                                 <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
                                 <span style={{fontSize:12,fontWeight:700,color:p.sellOverride?T.amber:r?.sellPerUnit>0?T.green:T.faint,fontFamily:mono}}>{p.sellOverride?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
                               </div>
-                              <button onClick={()=>updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""})}
-                                style={{fontSize:9,color:T.amber,fontFamily:font,background:"none",border:"1px solid "+T.amber+"44",borderRadius:4,cursor:"pointer",padding:"2px 7px"}}>override</button>
-                              {p.sellOverride&&<button onClick={()=>updateProd(i,{...p,sellOverride:null})}
-                                style={{fontSize:9,color:T.faint,fontFamily:font,background:"none",border:"1px solid "+T.border,borderRadius:4,cursor:"pointer",padding:"2px 7px"}}>auto</button>}
+                              <div style={{display:"flex",gap:4,marginRight:6}}>
+                                <button onClick={()=>updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""})}
+                                  style={{fontSize:9,color:T.amber,fontFamily:font,background:"none",border:"1px solid "+T.amber+"44",borderRadius:4,cursor:"pointer",padding:"2px 7px"}}>override</button>
+                                {p.sellOverride&&<button onClick={()=>updateProd(i,{...p,sellOverride:null})}
+                                  style={{fontSize:9,color:T.faint,fontFamily:font,background:"none",border:"1px solid "+T.border,borderRadius:4,cursor:"pointer",padding:"2px 7px"}}>auto</button>}
+                              </div>
                             </div>
                           )}
                         </div>
