@@ -25,12 +25,12 @@ export async function generatePDF(html: string): Promise<Buffer> {
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
-        "--single-process",
         "--no-zygote",
+        "--single-process",
       ],
       defaultViewport: chromium.default.defaultViewport,
       executablePath: await chromium.default.executablePath(
-        "https://github.com/Sparticuz/chromium/releases/download/v110.0.1/chromium-v110.0.1-pack.tar"
+        "https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar"
       ),
       headless: true,
     });
