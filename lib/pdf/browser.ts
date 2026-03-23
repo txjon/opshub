@@ -1,12 +1,12 @@
-import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
 
-export async function getBrowser() {
+export async function generatePDF(html: string): Promise<Buffer> {
   const isLocal = process.env.NODE_ENV === "development";
 
+  let browser;
+
   if (isLocal) {
-    // Use local Chrome in dev
-    return puppeteer.launch({
+    browser = await puppeteer.launch({
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
       executablePath:
         process.platform === "win32"
@@ -16,19 +16,16 @@ export async function getBrowser() {
           : "/usr/bin/google-chrome",
       headless: true,
     });
+  } else {
+    const chromium = require("chrome-aws-lambda");
+    browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath,
+      headless: chromium.headless,
+    });
   }
 
-  // Vercel production
-  return puppeteer.launch({
-    args: chromium.args,
-    defaultViewport: chromium.defaultViewport,
-    executablePath: await chromium.executablePath(),
-    headless: chromium.headless,
-  });
-}
-
-export async function generatePDF(html: string): Promise<Buffer> {
-  const browser = await getBrowser();
   try {
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "networkidle0" });
