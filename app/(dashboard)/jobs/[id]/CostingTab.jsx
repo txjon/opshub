@@ -237,7 +237,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
       const existingIds=new Set(prev.map(p=>p.id));
       const newItems=buyItems.filter(bi=>!existingIds.has(bi.id)).map(it=>{
         const styleKey=(it.style||"").split("–")[0].trim().replace(/\s+/g,"");
-        const blankCosts=seedBlankCosts(styleKey,it.color||"",it.sizes||[]);
+        const blankCosts=it.blankCosts&&Object.keys(it.blankCosts).length>0?it.blankCosts:seedBlankCosts(styleKey,it.color||"",it.sizes||[]);
         return{...EMPTY_COST_PRODUCT(),id:it.id,name:it.name||"",style:it.style||"",color:it.color||"",sizes:it.sizes||[],qtys:it.qtys||{},blankCosts,totalQty:it.totalQty||0};
       });
       const updated=prev.map(cp=>{

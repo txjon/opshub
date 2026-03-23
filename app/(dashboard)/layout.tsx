@@ -24,6 +24,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     { href: "/receiving", label: "Receiving", roles: ["manager","warehouse"] },
     { href: "/shipping", label: "Shipping", roles: ["manager","shipping"] },
     { href: "/clients", label: "Clients", roles: ["manager","sales"] },
+    { href: "/blank-catalog", label: "Blank Catalog", roles: ["manager","production"] },
     { href: "/decorators", label: "Decorators", roles: ["manager","production"] },
     { href: "/templates", label: "Templates", roles: ["manager","sales"] },
   ].filter(item => item.roles.includes(role));
