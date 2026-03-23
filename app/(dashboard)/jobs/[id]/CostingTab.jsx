@@ -1101,7 +1101,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
 export { CostingTab };
 
-export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, initialTab = "calc", hideSubTabs = false }) {
+export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false }) {
   const savedData = project?.costing_data || null;
   const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
   const sortSizesW = (sizes) => [...(sizes||[])].sort((a,b) => {
@@ -1153,9 +1153,9 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
     notes: project?.notes || "",
     productionNotes: "", finishingNotes: "",
   });
-  const [savedOrderInfo, setSavedOrderInfo] = useState(savedData?.orderInfo || {});
+  const [savedOrderInfo, setSavedOrderInfo] = useState(savedData?.orderInfo || { clientName: project?.clients?.name || "", clientEmail: "", invoiceNum: project?.job_number || "", validUntil: "", shipDate: project?.target_ship_date || "", vendorId: "", shipMethod: "", notes: project?.notes || "", productionNotes: "", finishingNotes: "" });
   const [saveStatus, setSaveStatus] = useState("saved");
-
+  const onSaveRef = React.useRef(null);
   const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) ||
     JSON.stringify(orderInfo) !== JSON.stringify(savedOrderInfo);
 
@@ -1180,7 +1180,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
     if (!costingDirty) return;
     setSaveStatus("saving"); if(onSaveStatus) onSaveStatus("saving");
     const t = setTimeout(async () => {
-      await onSave();
+      await onSaveRef.current?.();
       setSaveStatus("saved"); if(onSaveStatus) onSaveStatus("saved");
       if(onSaveStatus) onSaveStatus("saved");
     }, 1500);
@@ -1190,7 +1190,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
   // Register save with parent for tab-switch saves
   useEffect(() => {
     if (typeof onRegisterSave === "function") {
-      onRegisterSave(async () => { await onSave(); });
+      onRegisterSave(async () => { await onSaveRef.current?.(); });
     }
   }, [costProds, costMargin, inclShip, inclCC, orderInfo]);
 
@@ -1212,10 +1212,10 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
           costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo },
           costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty }
         }).eq("id", project.id);
-      } catch(e) { console.error("Failed to save costing data", e); }
+        if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }, costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty } });      } catch(e) { console.error("Failed to save costing data", e); }
     }
   };
-
+  onSaveRef.current = onSave;
   return (
     <CostingTab
       project={project} buyItems={buyItems} onUpdateBuyItems={onUpdateBuyItems}

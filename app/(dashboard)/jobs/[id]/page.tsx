@@ -63,6 +63,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const supabase = createClient();
   const [tab, setTab] = useState("overview");
+  const saveBuySheetRef = useRef<(() => Promise<void>) | null>(null);
   const saveCostingRef = useRef<(() => Promise<void>) | null>(null);
   const [job, setJob] = useState<Job|null>(null);
   const [items, setItems] = useState<Item[]>([]);
@@ -70,7 +71,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [costingSaveStatus, setCostingSaveStatus] = useState("");
+  const [costingSaveStatus, setCostingSaveStatus] = useState("saved");
   const [rxExp, setRxExp] = useState<Record<string,boolean>>({});
   const [rxData, setRxData] = useState<Record<string,any>>({});
   const [shipStage, setShipStage] = useState<string|null>(null);
@@ -251,6 +252,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       <div style={{display:"flex",gap:6,marginBottom:"1.5rem",padding:4,background:"#181c27",borderRadius:8,width:"fit-content",alignItems:"center"}}>
         {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
           <button key={t.id} onClick={async ()=>{
+            if (tab==="buysheet" && t.id!=="buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
             if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
               if (saveCostingRef.current) {
                 try {
@@ -460,7 +462,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* BUYSHEET */}
       {tab==="buysheet"&&(
         <BuySheetTab
-          items={items}
+          onRegisterSave={(fn: () => Promise<void>) => { saveBuySheetRef.current = fn; }}          items={items}
           onUpdateItems={async (newItems:any[]) => {
             const deleted = items.filter(i => !newItems.find((ni:any) => ni.id === i.id));
             for (const item of deleted) {
@@ -503,6 +505,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onUpdateBuyItems={setItems}
           onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
           onSaveStatus={(s: string) => setCostingSaveStatus(s)}
+          onSaved={(data: any) => setJob(j => j ? {...j, ...data} : j)}
           initialTab="calc"
           hideSubTabs={true}
         />
@@ -516,6 +519,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onUpdateBuyItems={setItems}
           onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
           onSaveStatus={(s: string) => setCostingSaveStatus(s)}
+          onSaved={(data: any) => setJob(j => j ? {...j, ...data} : j)}
           initialTab="quote"
           hideSubTabs={true}
         />
