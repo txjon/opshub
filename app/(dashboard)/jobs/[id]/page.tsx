@@ -75,6 +75,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [rxData, setRxData] = useState<Record<string,any>>({});
   const [shipStage, setShipStage] = useState<string|null>(null);
   const [shipNotes, setShipNotes] = useState("");
+  const [activityNote, setActivityNote] = useState("");
 
   const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
   const sortSizes = (sizes: string[]) => [...sizes].sort((a,b) => {
@@ -365,10 +366,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       <div><div style={{fontSize:12}}>{items.length} item{items.length!==1?"s":""} on buy sheet</div><div style={{fontSize:10,color:"#7a82a0"}}>{totalUnits.toLocaleString()} total units</div></div>
                     </div>
                   )}
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <div style={{width:6,height:6,borderRadius:"50%",background:"#3a4060",flexShrink:0}}/>
-                    <input style={ic} placeholder="Add a note..."/>
-                  </div>
                 </div>
               </div>
 
