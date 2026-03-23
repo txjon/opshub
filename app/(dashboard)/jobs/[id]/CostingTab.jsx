@@ -243,7 +243,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
       const updated=prev.map(cp=>{
         const bi=buyItems.find(b=>b.id===cp.id);
         if(!bi) return cp;
-        return{...cp,qtys:bi.qtys||cp.qtys,totalQty:bi.totalQty||cp.totalQty,sizes:bi.sizes||cp.sizes,name:bi.name||cp.name||""};
+        const computedQty=bi.totalQty||Object.values(bi.qtys||{}).reduce((a,v)=>a+v,0)||cp.totalQty||0; return{...cp,qtys:bi.qtys||cp.qtys,totalQty:computedQty,sizes:bi.sizes||cp.sizes,name:bi.name||cp.name||""};
       });
       const buyIds=new Set(buyItems.map(b=>b.id));
       const filtered=updated.filter(cp=>buyIds.has(cp.id));
