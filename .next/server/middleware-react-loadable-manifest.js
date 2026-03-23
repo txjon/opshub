@@ -1,1 +1,0 @@
-self.__REACT_LOADABLE_MANIFEST="{\"app/(dashboard)/jobs/[id]/CostingTab.jsx -> @/lib/supabase/client\":{\"id\":\"app/(dashboard)/jobs/[id]/CostingTab.jsx -> @/lib/supabase/client\",\"files\":[]}}"
