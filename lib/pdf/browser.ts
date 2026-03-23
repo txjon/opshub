@@ -1,4 +1,3 @@
-import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
 
 export async function generatePDF(html: string): Promise<Buffer> {
@@ -10,19 +9,28 @@ export async function generatePDF(html: string): Promise<Buffer> {
     browser = await puppeteer.launch({
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
       executablePath:
-        process.platform === "win32"
-          ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
-          : process.platform === "darwin"
+        process.platform === "darwin"
           ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
           : "/usr/bin/google-chrome",
       headless: true,
     });
   } else {
+    const chromium = await import("@sparticuz/chromium");
+    chromium.default.setGraphicsMode = false;
+
     browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless as any,
+      args: [
+        ...chromium.default.args,
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--single-process",
+      ],
+      defaultViewport: chromium.default.defaultViewport,
+      executablePath: await chromium.default.executablePath(
+        "https://github.com/Sparticuz/chromium/releases/download/v110.0.1/chromium-v110.0.1-pack.tar"
+      ),
+      headless: true,
     });
   }
 
