@@ -81,6 +81,9 @@ export default function JobsPage() {
     production: jobs.filter(j => j.phase === "production").length,
     receiving: jobs.filter(j => j.phase === "receiving").length,
     shipping: jobs.filter(j => j.phase === "shipping").length,
+    complete: jobs.filter(j => j.phase === "complete").length,
+    cancelled: jobs.filter(j => j.phase === "cancelled").length,
+    on_hold: jobs.filter(j => j.phase === "on_hold").length,
   }), [jobs]);
 
   const visible = useMemo(() => jobs.filter(j => {
@@ -90,6 +93,9 @@ export default function JobsPage() {
     if (filter === "production") return j.phase === "production";
     if (filter === "receiving") return j.phase === "receiving";
     if (filter === "shipping") return j.phase === "shipping";
+    if (filter === "on_hold") return j.phase === "on_hold";
+    if (filter === "complete") return j.phase === "complete";
+    if (filter === "cancelled") return j.phase === "cancelled";
     if (filter === "all") return true;
     return true;
   }), [jobs, filter]);
@@ -151,6 +157,9 @@ export default function JobsPage() {
             ["production","Production",phaseCounts.production],
             ["receiving","Receiving",phaseCounts.receiving],
             ["shipping","Shipping",phaseCounts.shipping],
+            ["on_hold","On Hold",phaseCounts.on_hold],
+            ["complete","Complete",phaseCounts.complete],
+            ["cancelled","Cancelled",phaseCounts.cancelled],
           ].map(([k,l,count]) => (
             <button key={k as string} onClick={() => setFilter(k as string)}
               style={{ background:filter===k?T.accent:"transparent", color:filter===k?"#fff":T.muted, border:"none", borderRadius:5, padding:"4px 10px", fontSize:11, fontFamily:font, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
