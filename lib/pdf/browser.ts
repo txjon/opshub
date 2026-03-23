@@ -24,7 +24,9 @@ export async function generatePDF(html: string): Promise<Buffer> {
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
+        "--disable-gpu",
         "--single-process",
+        "--no-zygote",
       ],
       defaultViewport: chromium.default.defaultViewport,
       executablePath: await chromium.default.executablePath(
