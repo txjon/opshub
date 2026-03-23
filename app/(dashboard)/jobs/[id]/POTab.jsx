@@ -294,7 +294,7 @@ export function POTab({project,items,costingData}) {
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>{project?.clients?.name} — {active} PO</div>
               <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>window.print()} style={{background:T.green,border:"none",borderRadius:7,color:"#fff",fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:"pointer"}}>Export PDF</button>
+                <button onClick={()=>{const a=document.createElement("a");a.href=`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`;a.download="po.pdf";a.click();}} style={{background:T.green,border:"none",borderRadius:7,color:"#fff",fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:"pointer"}}>Export PDF</button>
                 <button onClick={()=>setShowModal(false)} style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:7,color:"#fff",fontFamily:font,fontSize:12,padding:"7px 14px",cursor:"pointer"}}>Close</button>
               </div>
             </div>
