@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
     serverActions: {
       allowedOrigins: ["localhost:3000"],
     },
-    serverComponentsExternalPackages: ["puppeteer-core", "chrome-aws-lambda"],
+    serverComponentsExternalPackages: ["puppeteer-core", "@sparticuz/chromium"],
   },
 };
 

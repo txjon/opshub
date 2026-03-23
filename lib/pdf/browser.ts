@@ -1,3 +1,4 @@
+import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
 
 export async function generatePDF(html: string): Promise<Buffer> {
@@ -17,12 +18,11 @@ export async function generatePDF(html: string): Promise<Buffer> {
       headless: true,
     });
   } else {
-    const chromium = require("chrome-aws-lambda");
     browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath,
-      headless: chromium.headless,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless as any,
     });
   }
 
