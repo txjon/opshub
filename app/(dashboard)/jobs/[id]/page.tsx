@@ -70,6 +70,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [costingSaveStatus, setCostingSaveStatus] = useState("");
   const [rxExp, setRxExp] = useState<Record<string,boolean>>({});
   const [rxData, setRxData] = useState<Record<string,any>>({});
   const [shipStage, setShipStage] = useState<string|null>(null);
@@ -246,14 +247,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       </div>
 
       {/* Tabs */}
-      <div style={{display:"flex",gap:6,marginBottom:"1.5rem",padding:4,background:"#181c27",borderRadius:8,width:"fit-content"}}>
+      <div style={{display:"flex",gap:6,marginBottom:"1.5rem",padding:4,background:"#181c27",borderRadius:8,width:"fit-content",alignItems:"center"}}>
         {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
           <button key={t.id} onClick={async ()=>{
             if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
               if (saveCostingRef.current) {
                 try {
                   await saveCostingRef.current();
-                  router.refresh();
                 } catch(e) {
                   if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return;
                 }
@@ -265,9 +265,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             {t.label}
           </button>
         ))}
-      </div>
-
-      {/* OVERVIEW */}
+        <span style={{fontSize:11,fontFamily:"IBM Plex Sans,Helvetica Neue,Arial,sans-serif",marginLeft:8,color:costingSaveStatus==="saving"?"#f5a623":costingSaveStatus==="saved"?"#34c97a":"#f05353"}}>{costingSaveStatus==="saving"?"Saving…":costingSaveStatus==="saved"?"Saved ✓":"Unsaved"}</span>
+      </div>      {/* OVERVIEW */}
                   {tab==="overview"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
 
@@ -506,6 +505,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           buyItems={items}
           onUpdateBuyItems={setItems}
           onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
+          onSaveStatus={(s: string) => setCostingSaveStatus(s)}
           initialTab="calc"
           hideSubTabs={true}
         />
@@ -518,6 +518,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           buyItems={items}
           onUpdateBuyItems={setItems}
           onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
+          onSaveStatus={(s: string) => setCostingSaveStatus(s)}
           initialTab="quote"
           hideSubTabs={true}
         />

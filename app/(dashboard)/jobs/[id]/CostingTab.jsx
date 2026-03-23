@@ -216,7 +216,7 @@ const CToggle=({label,value,onChange})=>(
   </div>
 );
 
-const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave,initialTab,hideSubTabs})=>{
+const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave,saveStatus,initialTab,hideSubTabs})=>{
   const [costTab,setCostTab]=useState(initialTab||"calc");
   const [collapsed,setCollapsed]=useState(()=>{ const c={}; (costProds||[]).forEach(p=>{ c[p.id]=true; }); return c; });
   const [localCosts,setLocalCosts]=useState({});
@@ -283,17 +283,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
       </div>
       )}
 
-      {costingDirty&&(
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:T.amberDim,border:"1px solid "+T.amber+"66",borderRadius:8,padding:"8px 14px",marginTop:-8}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{width:7,height:7,borderRadius:"50%",background:T.amber,flexShrink:0,display:"inline-block"}}/>
-            <span style={{fontSize:12,color:T.amber,fontFamily:font,fontWeight:600}}>Unsaved changes — your cost and pricing data will be lost if you navigate away without saving.</span>
-          </div>
-          <button onClick={async()=>await onSave()} style={{background:T.amber,border:"none",borderRadius:6,color:"#fff",fontSize:12,fontFamily:font,fontWeight:700,padding:"5px 14px",cursor:"pointer",flexShrink:0}}>Save now</button>
-        </div>
-      )}
-      {results.length>0&&costTab!=="quote"&&(
-        <div style={{display:"flex",gap:20,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 16px",flexWrap:"wrap",alignItems:"center"}}>
+      {results.length>0&&costTab!=="quote"&&(        <div style={{display:"flex",gap:20,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 16px",flexWrap:"wrap",alignItems:"center"}}>
           {[[fmtD(totGross),"Revenue",T.accent],[fmtD(totProfit),"Net Profit",mc],[fmtP(netMarg),"Net Margin",mc]].map(([v,l,c])=>(
             <div key={l}><div style={{fontSize:9,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>{l}</div><div style={{fontSize:15,fontWeight:700,color:c,fontFamily:mono}}>{v}</div></div>
           ))}
@@ -1111,8 +1101,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
 export { CostingTab };
 
-export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave, initialTab = "calc", hideSubTabs = false }) {
-  // Load saved costing state from project.costing_data if available
+export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, initialTab = "calc", hideSubTabs = false }) {
   const savedData = project?.costing_data || null;
   const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
   const sortSizesW = (sizes) => [...(sizes||[])].sort((a,b) => {
@@ -1121,7 +1110,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
     if(ai===-1) return 1; if(bi===-1) return -1;
     return ai-bi;
   });
-  // If we have saved costing data, merge it with current buy items
+
   const initItems = (buyItems || []).map(it => {
     const saved = savedData?.costProds?.find((p) => p.id === it.id);
     if (saved) return { ...saved, sizes: sortSizesW(it.sizes), qtys: it.qtys || saved.qtys || {} };
@@ -1148,6 +1137,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
       totalQty: Object.values(it.qtys || {}).reduce((a, v) => a + v, 0),
     };
   });
+
   const [costProds, setCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
   const [savedCostProds, setSavedCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
   const [costMargin, setCostMargin] = useState(savedData?.costMargin || "30%");
@@ -1163,38 +1153,47 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
     notes: project?.notes || "",
     productionNotes: "", finishingNotes: "",
   });
-  const [savedOrderInfo, setSavedOrderInfo] = useState({ ...orderInfo });
-  const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) || JSON.stringify(orderInfo) !== JSON.stringify(savedOrderInfo);
+  const [savedOrderInfo, setSavedOrderInfo] = useState(savedData?.orderInfo || {});
+  const [saveStatus, setSaveStatus] = useState("saved");
 
-  // Warn on page close/refresh if unsaved
+  const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) ||
+    JSON.stringify(orderInfo) !== JSON.stringify(savedOrderInfo);
+
+  // Warn on page close if unsaved
   useEffect(() => {
-    const handler = (e) => {
-      if (costingDirty) { e.preventDefault(); e.returnValue = ""; }
-    };
+    const handler = (e) => { if (costingDirty) { e.preventDefault(); e.returnValue = ""; } };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [costingDirty]);
 
-  // When buyItems change (e.g. name edit), sync savedCostProds so dirty flag stays clean
+  // Sync name changes from buyItems
   useEffect(() => {
-    setSavedCostProds(prev => {
-      // Only sync if the change came from buyItems (not user edits)
-      // We detect this by checking if names differ but nothing else meaningful changed
-      const synced = prev.map(sp => {
-        const bi = (buyItems||[]).find(b => b.id === sp.id);
-        if (bi && bi.name && bi.name !== sp.name) return {...sp, name: bi.name};
-        return sp;
-      });
-      return synced;
-    });
+    setSavedCostProds(prev => prev.map(sp => {
+      const bi = (buyItems||[]).find(b => b.id === sp.id);
+      if (bi && bi.name && bi.name !== sp.name) return {...sp, name: bi.name};
+      return sp;
+    }));
   }, [buyItems]);
 
-  // Register save function with parent so tab switching can auto-save
+  // Debounced auto-save — fires 1.5s after any change
   useEffect(() => {
-    if (typeof onRegisterSave === 'function') {
+    if (!costingDirty) return;
+    setSaveStatus("saving"); if(onSaveStatus) onSaveStatus("saving");
+    const t = setTimeout(async () => {
+      await onSave();
+      setSaveStatus("saved"); if(onSaveStatus) onSaveStatus("saved");
+      if(onSaveStatus) onSaveStatus("saved");
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [costProds, costMargin, inclShip, inclCC, orderInfo]);
+
+  // Register save with parent for tab-switch saves
+  useEffect(() => {
+    if (typeof onRegisterSave === "function") {
       onRegisterSave(async () => { await onSave(); });
     }
   }, [costProds, costMargin, inclShip, inclCC, orderInfo]);
+
   const onSave = async () => {
     setSavedCostProds(JSON.parse(JSON.stringify(costProds)));
     setSavedOrderInfo(JSON.parse(JSON.stringify(orderInfo)));
@@ -1213,15 +1212,10 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
           costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo },
           costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty }
         }).eq("id", project.id);
-        for (const r of results) {
-          if (r.qty > 0 && r.sellPerUnit > 0) {
-            await supabase.from("items").update({ sell_per_unit: r.sellPerUnit })
-              .eq("id", costProds.find(p => calcCostProduct(p, costMargin, inclShip, inclCC, costProds)?.sellPerUnit === r.sellPerUnit)?.id || "");
-          }
-        }
       } catch(e) { console.error("Failed to save costing data", e); }
     }
   };
+
   return (
     <CostingTab
       project={project} buyItems={buyItems} onUpdateBuyItems={onUpdateBuyItems}
@@ -1230,7 +1224,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
       inclShip={inclShip} setInclShip={setInclShip}
       inclCC={inclCC} setInclCC={setInclCC}
       orderInfo={orderInfo} setOrderInfo={setOrderInfo}
-      costingDirty={costingDirty} onSave={onSave} initialTab={initialTab} hideSubTabs={hideSubTabs}
+      costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs}
     />
   );
 }
