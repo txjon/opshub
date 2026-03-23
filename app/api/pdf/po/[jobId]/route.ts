@@ -5,11 +5,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { generatePDF } from "@/lib/pdf/browser";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
 const sortSizes = (sizes: string[]) => [...sizes].sort((a, b) => {
   const ai = SIZE_ORDER.indexOf(a), bi = SIZE_ORDER.indexOf(b);
@@ -142,6 +137,7 @@ function renderPOHTML(data: any): string {
 }
 
 export async function GET(req: NextRequest, { params }: { params: { jobId: string } }) {
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   try {
     const { jobId } = params;
     const vendorFilter = req.nextUrl.searchParams.get("vendor") ?? null;
