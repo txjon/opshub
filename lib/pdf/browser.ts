@@ -1,51 +1,36 @@
-import puppeteer from "puppeteer-core";
-
 export async function generatePDF(html: string): Promise<Buffer> {
-  const isLocal = process.env.NODE_ENV === "development";
+  const apiKey = process.env.BROWSERLESS_API_KEY;
 
-  let browser;
-
-  if (isLocal) {
-    browser = await puppeteer.launch({
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      executablePath:
-        process.platform === "darwin"
-          ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-          : "/usr/bin/google-chrome",
-      headless: true,
-    });
-  } else {
-    const chromium = await import("@sparticuz/chromium");
-    chromium.default.setGraphicsMode = false;
-
-    browser = await puppeteer.launch({
-      args: [
-        ...chromium.default.args,
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--no-zygote",
-        "--single-process",
-      ],
-      defaultViewport: chromium.default.defaultViewport,
-      executablePath: await chromium.default.executablePath(
-        "https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar"
-      ),
-      headless: true,
-    });
+  if (!apiKey) {
+    throw new Error("BROWSERLESS_API_KEY is not set");
   }
 
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    const pdf = await page.pdf({
-      format: "Letter",
-      printBackground: true,
-      margin: { top: "0.5in", right: "0.5in", bottom: "0.5in", left: "0.5in" },
-    });
-    return Buffer.from(pdf);
-  } finally {
-    await browser.close();
+  const response = await fetch(
+    `https://chrome.browserless.io/pdf?token=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        html,
+        options: {
+          format: "Letter",
+          printBackground: true,
+          margin: {
+            top: "0.5in",
+            right: "0.5in",
+            bottom: "0.5in",
+            left: "0.5in",
+          },
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Browserless error: ${response.status} — ${text}`);
   }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
