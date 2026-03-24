@@ -2,6 +2,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
+import { FALLBACK_PRINTERS } from "./legacy-pricing";
 
 type PricingData = {
   qtys: number[];
@@ -61,11 +62,101 @@ function SectionHead({ title }: { title: string }) {
   return <div style={{ fontSize:10, fontWeight:700, color:T.muted, fontFamily:font, textTransform:"uppercase" as const, letterSpacing:"0.08em", marginBottom:8, marginTop:4 }}>{title}</div>;
 }
 
-function NumCell({ value, onChange, width }: { value: number; onChange: (v:number)=>void; width?: number }) {
+function NumCell({ value, onChange, width, gridId, row, col }: { value: number; onChange: (v:number)=>void; width?: number; gridId?: string; row?: number; col?: number }) {
+  const moveTo = (r: number, c: number) => {
+    const el = document.querySelector(`[data-grid="${gridId}"][data-row="${r}"][data-col="${c}"]`) as HTMLInputElement;
+    if (el) { el.focus(); el.select(); }
+  };
   return (
     <input type="text" inputMode="numeric" value={value || ""} placeholder="0"
+      data-grid={gridId} data-row={row} data-col={col}
       onChange={e => onChange(parseFloat(e.target.value) || 0)}
-      style={{ width:width||58, textAlign:"center" as const, background:T.surface, border:`1px solid ${T.border}`, borderRadius:4, color:T.text, fontFamily:mono, fontSize:11, padding:"4px 2px", outline:"none" }} />
+      onFocus={e => e.target.select()}
+      onKeyDown={gridId !== undefined ? e => {
+        if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); moveTo(row!, col! + 1); }
+        if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); moveTo(row!, col! - 1); }
+        if (e.key === "Enter" || e.key === "ArrowDown") { e.preventDefault(); moveTo(row! + 1, col!); }
+        if (e.key === "ArrowUp") { e.preventDefault(); moveTo(row! - 1, col!); }
+        if (e.key === "ArrowRight" && e.currentTarget.selectionStart === e.currentTarget.value.length) { e.preventDefault(); moveTo(row!, col! + 1); }
+        if (e.key === "ArrowLeft" && e.currentTarget.selectionStart === 0) { e.preventDefault(); moveTo(row!, col! - 1); }
+      } : undefined}
+      style={{ width:width||48, textAlign:"center" as const, background:T.surface, border:`1px solid ${T.border}`, borderRadius:3, color:T.text, fontFamily:mono, fontSize:10, padding:"3px 1px", outline:"none" }} />
+  );
+}
+
+// ── Editable key-value section (finishing, setup, specialty) ─────────────────
+
+function KeyValueSection({ title, data, onUpdate }: { title: string; data: Record<string,number>; onUpdate: (d: Record<string,number>)=>void }) {
+  const [adding, setAdding] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const [editingKey, setEditingKey] = useState<string|null>(null);
+  const [editKeyVal, setEditKeyVal] = useState("");
+
+  const handleAdd = () => {
+    const k = newKey.trim();
+    if (!k || data[k] !== undefined) return;
+    onUpdate({...data, [k]: 0});
+    setNewKey("");
+    setAdding(false);
+  };
+
+  const handleRename = (oldKey: string) => {
+    const nk = editKeyVal.trim();
+    if (!nk || (nk !== oldKey && data[nk] !== undefined)) { setEditingKey(null); return; }
+    if (nk === oldKey) { setEditingKey(null); return; }
+    const newData: Record<string,number> = {};
+    for (const [k,v] of Object.entries(data)) {
+      newData[k === oldKey ? nk : k] = v;
+    }
+    onUpdate(newData);
+    setEditingKey(null);
+  };
+
+  const handleDelete = (key: string) => {
+    const newData = {...data};
+    delete newData[key];
+    onUpdate(newData);
+  };
+
+  const inp = { background:T.surface, border:`1px solid ${T.border}`, borderRadius:4, color:T.text, fontFamily:font, fontSize:11, padding:"3px 6px", outline:"none", width:90 };
+
+  return (
+    <div>
+      <SectionHead title={title} />
+      <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+        {Object.entries(data).map(([k,v]) => (
+          <div key={k} style={{ display:"flex", alignItems:"center", gap:6 }}>
+            {editingKey === k ? (
+              <input value={editKeyVal} onChange={e=>setEditKeyVal(e.target.value)}
+                onBlur={()=>handleRename(k)} onKeyDown={e=>e.key==="Enter"&&handleRename(k)}
+                autoFocus style={{...inp, flex:1}} />
+            ) : (
+              <span onClick={()=>{setEditingKey(k);setEditKeyVal(k);}}
+                style={{ fontSize:11, color:T.text, fontFamily:font, flex:1, cursor:"text", padding:"3px 0" }}>{k}</span>
+            )}
+            <NumCell value={v} onChange={val => onUpdate({...data, [k]:val})} width={56} />
+            <button onClick={()=>handleDelete(k)}
+              style={{ background:"none", border:"none", color:T.faint, cursor:"pointer", fontSize:11, padding:"0 2px", lineHeight:1 }}
+              onMouseEnter={e=>e.currentTarget.style.color=T.red}
+              onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+          </div>
+        ))}
+        {adding ? (
+          <div style={{ display:"flex", gap:4, alignItems:"center" }}>
+            <input value={newKey} onChange={e=>setNewKey(e.target.value)}
+              onKeyDown={e=>{if(e.key==="Enter")handleAdd();if(e.key==="Escape"){setAdding(false);setNewKey("");}}}
+              placeholder="Name..." autoFocus style={{...inp, flex:1}} />
+            <button onClick={handleAdd} style={{ background:T.accent, border:"none", borderRadius:4, color:"#fff", fontSize:10, padding:"3px 8px", cursor:"pointer" }}>Add</button>
+            <button onClick={()=>{setAdding(false);setNewKey("");}} style={{ background:"none", border:"none", color:T.faint, cursor:"pointer", fontSize:11 }}>✕</button>
+          </div>
+        ) : (
+          <button onClick={()=>setAdding(true)}
+            style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:4, color:T.muted, fontSize:10, fontFamily:font, padding:"3px 8px", cursor:"pointer", marginTop:2, alignSelf:"flex-start" }}>
+            + Add
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -111,53 +202,55 @@ function PricingEditor({ pricing, onChange }: { pricing: PricingData; onChange: 
     onChange({ ...p, prices: newPrices });
   };
 
-  const thStyle = { padding:"4px 6px", fontSize:9, fontWeight:700, color:T.muted, fontFamily:mono, textTransform:"uppercase" as const, letterSpacing:"0.06em", textAlign:"center" as const, borderBottom:`1px solid ${T.border}` };
-  const tdStyle = { padding:"3px 4px", textAlign:"center" as const, borderBottom:`1px solid ${T.border}22` };
+  const tagRowIdx = colorCounts.length;
+  const thStyle = { padding:"2px 3px", fontSize:8, fontWeight:700, color:T.muted, fontFamily:mono, textTransform:"uppercase" as const, letterSpacing:"0.04em", textAlign:"center" as const, borderBottom:`1px solid ${T.border}` };
+  const tdStyle = { padding:"1px 2px", textAlign:"center" as const, borderBottom:`1px solid ${T.border}15` };
+  const gid = "pricing";
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+    <div style={{ display:"flex", gap:20, alignItems:"flex-start" }}>
       {/* Print pricing grid */}
-      <div>
+      <div style={{ flexShrink:0 }}>
         <SectionHead title="Print Pricing (per unit by color count & qty)" />
         <div style={{ overflowX:"auto" as const }}>
-          <table style={{ borderCollapse:"collapse", fontSize:11, width:"100%" }}>
+          <table style={{ borderCollapse:"collapse", fontSize:10 }}>
             <thead>
               <tr>
-                <th style={{ ...thStyle, textAlign:"left" as const, width:80 }}>Colors</th>
+                <th style={{ ...thStyle, textAlign:"left" as const, width:65, padding:"2px 4px" }}>Colors</th>
                 {p.qtys.map((q,i) => (
                   <th key={i} style={thStyle}>
-                    <NumCell value={q} onChange={v=>updateQty(i,v)} width={52} />
-                    <button onClick={()=>removeQtyTier(i)} style={{ background:"none", border:"none", color:T.faint, cursor:"pointer", fontSize:9, display:"block", margin:"2px auto 0" }}>✕</button>
+                    <NumCell value={q} onChange={v=>updateQty(i,v)} width={44} gridId={gid} row={-1} col={i} />
+                    <button onClick={()=>removeQtyTier(i)} style={{ background:"none", border:"none", color:T.faint, cursor:"pointer", fontSize:8, display:"block", margin:"1px auto 0" }}>✕</button>
                   </th>
                 ))}
                 <th style={thStyle}>
-                  <button onClick={addQtyTier} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:4, color:T.muted, fontSize:10, padding:"2px 8px", cursor:"pointer" }}>+</button>
+                  <button onClick={addQtyTier} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:3, color:T.muted, fontSize:9, padding:"1px 6px", cursor:"pointer" }}>+</button>
                 </th>
               </tr>
             </thead>
             <tbody>
-              {colorCounts.map(c => (
+              {colorCounts.map((c, rowIdx) => (
                 <tr key={c}>
-                  <td style={{ ...tdStyle, textAlign:"left" as const, fontWeight:600, fontFamily:mono, color:T.accent, fontSize:11, padding:"4px 8px" }}>{c} color{c>1?"s":""}</td>
+                  <td style={{ ...tdStyle, textAlign:"left" as const, fontWeight:600, fontFamily:mono, color:T.accent, fontSize:10, padding:"1px 4px" }}>{c}c</td>
                   {p.qtys.map((_,i) => (
                     <td key={i} style={tdStyle}>
-                      <NumCell value={(p.prices[c]||[])[i]||0} onChange={v=>updatePrice(c,i,v)} width={52} />
+                      <NumCell value={(p.prices[c]||[])[i]||0} onChange={v=>updatePrice(c,i,v)} width={44} gridId={gid} row={rowIdx} col={i} />
                     </td>
                   ))}
                   <td style={tdStyle} />
                 </tr>
               ))}
               <tr>
-                <td colSpan={p.qtys.length+2} style={{ padding:"4px 8px" }}>
-                  <button onClick={addColorRow} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:4, color:T.muted, fontSize:10, fontFamily:font, padding:"3px 10px", cursor:"pointer" }}>+ Add color row</button>
+                <td colSpan={p.qtys.length+2} style={{ padding:"2px 4px" }}>
+                  <button onClick={addColorRow} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:3, color:T.muted, fontSize:9, fontFamily:font, padding:"2px 8px", cursor:"pointer" }}>+ color row</button>
                 </td>
               </tr>
               {/* Tag pricing */}
               <tr>
-                <td style={{ ...tdStyle, textAlign:"left" as const, fontWeight:600, fontFamily:mono, color:T.amber, fontSize:11, padding:"4px 8px" }}>Tag print</td>
+                <td style={{ ...tdStyle, textAlign:"left" as const, fontWeight:600, fontFamily:mono, color:T.amber, fontSize:10, padding:"1px 4px" }}>Tag</td>
                 {p.qtys.map((_,i) => (
                   <td key={i} style={tdStyle}>
-                    <NumCell value={p.tagPrices[i]||0} onChange={v=>updateTag(i,v)} width={52} />
+                    <NumCell value={p.tagPrices[i]||0} onChange={v=>updateTag(i,v)} width={44} gridId={gid} row={tagRowIdx} col={i} />
                   </td>
                 ))}
                 <td style={tdStyle} />
@@ -167,41 +260,14 @@ function PricingEditor({ pricing, onChange }: { pricing: PricingData; onChange: 
         </div>
       </div>
 
-      {/* Finishing, Setup, Specialty in 3 columns */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16 }}>
-        <div>
-          <SectionHead title="Finishing (per unit)" />
-          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            {Object.entries(p.finishing).map(([k,v]) => (
-              <div key={k} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-                <span style={{ fontSize:11, color:T.text, fontFamily:font }}>{k}</span>
-                <NumCell value={v} onChange={val => onChange({...p, finishing:{...p.finishing, [k]:val}})} width={60} />
-              </div>
-            ))}
-          </div>
-        </div>
-        <div>
-          <SectionHead title="Setup Fees" />
-          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            {Object.entries(p.setup).map(([k,v]) => (
-              <div key={k} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-                <span style={{ fontSize:11, color:T.text, fontFamily:font }}>{k}</span>
-                <NumCell value={v} onChange={val => onChange({...p, setup:{...p.setup, [k]:val}})} width={60} />
-              </div>
-            ))}
-          </div>
-        </div>
-        <div>
-          <SectionHead title="Specialty (per unit upcost)" />
-          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            {Object.entries(p.specialty).map(([k,v]) => (
-              <div key={k} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-                <span style={{ fontSize:11, color:T.text, fontFamily:font }}>{k}</span>
-                <NumCell value={v} onChange={val => onChange({...p, specialty:{...p.specialty, [k]:val}})} width={60} />
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* Finishing, Setup, Specialty in 3 columns on the right */}
+      <div style={{ flex:1, minWidth:0, display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, alignItems:"flex-start" }}>
+        <KeyValueSection title="Finishing (per unit)" data={p.finishing}
+          onUpdate={finishing => onChange({...p, finishing})} />
+        <KeyValueSection title="Setup Fees" data={p.setup}
+          onUpdate={setup => onChange({...p, setup})} />
+        <KeyValueSection title="Specialty (per unit upcost)" data={p.specialty}
+          onUpdate={specialty => onChange({...p, specialty})} />
       </div>
     </div>
   );
@@ -380,10 +446,23 @@ export default function DecoratorsPage() {
                     ) : (
                       <div style={{ textAlign:"center" as const, padding:"20px 0" }}>
                         <div style={{ fontSize:12, color:T.muted, marginBottom:10 }}>No pricing table yet</div>
-                        <button onClick={() => upd({pricing_data: EMPTY_PRICING} as any)}
-                          style={{ background:T.accent, border:"none", borderRadius:7, color:"#fff", fontSize:12, fontFamily:font, fontWeight:600, padding:"7px 16px", cursor:"pointer" }}>
-                          Set up pricing
-                        </button>
+                        <div style={{ display:"flex", gap:8, justifyContent:"center" }}>
+                          <button onClick={() => upd({pricing_data: EMPTY_PRICING} as any)}
+                            style={{ background:T.accent, border:"none", borderRadius:7, color:"#fff", fontSize:12, fontFamily:font, fontWeight:600, padding:"7px 16px", cursor:"pointer" }}>
+                            Start from scratch
+                          </button>
+                          {(() => {
+                            const key = d.short_code || d.name;
+                            const legacy = FALLBACK_PRINTERS[key] || FALLBACK_PRINTERS[key.toUpperCase()];
+                            if (!legacy) return null;
+                            return (
+                              <button onClick={() => upd({pricing_data: JSON.parse(JSON.stringify(legacy))} as any)}
+                                style={{ background:T.green, border:"none", borderRadius:7, color:"#fff", fontSize:12, fontFamily:font, fontWeight:600, padding:"7px 16px", cursor:"pointer" }}>
+                                Load existing pricing
+                              </button>
+                            );
+                          })()}
+                        </div>
                       </div>
                     )}
                   </div>
