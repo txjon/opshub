@@ -28,7 +28,7 @@ export default async function ReceivingPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Receiving</h1>
-        <p className="text-muted-foreground text-sm mt-1">{Object.keys(byJob).length} jobs with inbound inventory</p>
+        <p className="text-muted-foreground text-sm mt-1">{Object.keys(byJob).length} projects with inbound inventory</p>
       </div>
 
       {Object.keys(byJob).length === 0 && (
@@ -42,7 +42,7 @@ export default async function ReceivingPage() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div>
               <Link href={`/jobs/${jobId}`} className="font-semibold hover:text-primary transition-colors">
-                {job?.title ?? "Unknown Job"}
+                {job?.title ?? "Unknown Project"}
               </Link>
               <p className="text-xs text-muted-foreground mt-0.5">{job?.clients?.name} &middot; {job?.job_number}</p>
             </div>

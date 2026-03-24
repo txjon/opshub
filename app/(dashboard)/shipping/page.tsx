@@ -21,12 +21,12 @@ export default async function ShippingPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Shipping</h1>
-        <p className="text-muted-foreground text-sm mt-1">{jobs?.length ?? 0} jobs in fulfillment</p>
+        <p className="text-muted-foreground text-sm mt-1">{jobs?.length ?? 0} projects in fulfillment</p>
       </div>
 
       {!jobs?.length && (
         <div className="rounded-xl border border-border bg-card p-12 text-center">
-          <p className="text-muted-foreground text-sm">No jobs currently in shipping phase.</p>
+          <p className="text-muted-foreground text-sm">No projects currently in shipping phase.</p>
         </div>
       )}
 

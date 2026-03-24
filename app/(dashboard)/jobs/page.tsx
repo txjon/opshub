@@ -134,16 +134,16 @@ export default function JobsPage() {
   };
 
   if (loading) return (
-    <div style={{ padding:"2rem", color: T.muted, fontFamily: font, fontSize: 13 }}>Loading jobs...</div>
+    <div style={{ padding:"2rem", color: T.muted, fontFamily: font, fontSize: 13 }}>Loading projects...</div>
   );
 
   return (
     <div style={{ fontFamily: font, color: T.text, display:"flex", flexDirection:"column", gap:14 }}>
       {/* Header */}
       <div>
-        <h1 style={{ fontSize:22, fontWeight:700, margin:"0 0 10px", letterSpacing:"-0.02em" }}>Jobs</h1>
+        <h1 style={{ fontSize:22, fontWeight:700, margin:"0 0 10px", letterSpacing:"-0.02em" }}>Projects</h1>
         <a href="/jobs/new" style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"8px 18px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none" }}>
-          + New Job
+          + New Project
         </a>
       </div>
 
@@ -180,7 +180,7 @@ export default function JobsPage() {
       <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
         {sorted.length === 0 && (
           <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:32, textAlign:"center", fontSize:12, color:T.faint }}>
-            No jobs in this view.
+            No projects in this view.
           </div>
         )}
         {sorted.map(job => {

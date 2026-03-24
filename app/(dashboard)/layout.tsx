@@ -19,7 +19,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const navItems = [
     { href: "/dashboard", label: "Dashboard", roles: ["manager","production","warehouse","shipping","sales","readonly"] },
-    { href: "/jobs", label: "Jobs", roles: ["manager","production","sales"] },
+    { href: "/jobs", label: "Projects", roles: ["manager","production","sales"] },
     { href: "/production", label: "Production", roles: ["manager","production"] },
     { href: "/receiving", label: "Receiving", roles: ["manager","warehouse"] },
     { href: "/shipping", label: "Shipping", roles: ["manager","shipping"] },

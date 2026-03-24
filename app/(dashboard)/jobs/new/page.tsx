@@ -84,15 +84,15 @@ export default function NewJobPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">New Job</h1>
-        <p className="text-muted-foreground text-sm mt-1">Create a new production job</p>
+        <h1 className="text-2xl font-bold tracking-tight">New Project</h1>
+        <p className="text-muted-foreground text-sm mt-1">Create a new production project</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
 
         {/* Job Details */}
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-          <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Job Details</h2>
+          <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Project Details</h2>
 
           {/* Client + Title on same line */}
           <div className="grid grid-cols-2 gap-4">
@@ -103,7 +103,7 @@ export default function NewJobPage() {
               <p className="text-xs text-muted-foreground mt-1">Creates a new client if not found</p>
             </div>
             <div>
-              <label className={lc}>Job Title *</label>
+              <label className={lc}>Project Title *</label>
               <input value={form.title} onChange={e => set("title", e.target.value)} required
                 placeholder="e.g. TAA US Tour 2026" className={ic} />
             </div>
@@ -111,7 +111,7 @@ export default function NewJobPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={lc}>Job Type *</label>
+              <label className={lc}>Project Type *</label>
               <select value={form.job_type} onChange={e => set("job_type", e.target.value)} className={ic}>
                 <option value="tour">Tour</option>
                 <option value="webstore">Webstore</option>
@@ -188,7 +188,7 @@ export default function NewJobPage() {
         <div className="flex gap-3">
           <button type="submit" disabled={loading}
             className="px-6 py-2 rounded-md bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50">
-            {loading ? "Creating..." : "Create job"}
+            {loading ? "Creating..." : "Create project"}
           </button>
           <button type="button" onClick={() => router.back()}
             className="px-6 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary transition-colors">
