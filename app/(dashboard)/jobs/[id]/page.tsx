@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { CostingTabWrapper } from "./CostingTab";
 import { POTab } from "./POTab.jsx";
 import { BuySheetTab } from "./BuySheetTab";
+import { T, font, sortSizes } from "@/lib/theme";
 
 const PIPELINE_STAGES = [
   { id:"blanks_ordered", label:"Blanks Ordered", pct:10 },
@@ -79,13 +80,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [shipNotes, setShipNotes] = useState("");
   const [activityNote, setActivityNote] = useState("");
 
-  const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
-  const sortSizes = (sizes: string[]) => [...sizes].sort((a,b) => {
-    const ai=SIZE_ORDER.indexOf(a), bi=SIZE_ORDER.indexOf(b);
-    if(ai===-1&&bi===-1) return a.localeCompare(b);
-    if(ai===-1) return 1; if(bi===-1) return -1;
-    return ai-bi;
-  });
 
   useEffect(() => {
     loadData();
@@ -179,8 +173,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const phaseColor = PHASE_COLORS[job.phase]||PHASE_COLORS.intake;
   const daysLeft = job.target_ship_date ? Math.ceil((new Date(job.target_ship_date).getTime()-Date.now())/(1000*60*60*24)) : null;
 
-  const T = {surface:"#181c27",card:"#1e2333",border:"#2a3050",text:"#e8eaf2",muted:"#7a82a0",faint:"#3a4060",accent:"#4f8ef7"};
-  const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
   const ic = {width:"100%",padding:"6px 10px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:"13px",fontFamily:font,boxSizing:"border-box" as const};
   const lc = {fontSize:"12px",color:T.muted,marginBottom:"4px",display:"block"};
   const card = {background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"1rem 1.25rem"};

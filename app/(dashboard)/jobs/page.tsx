@@ -27,13 +27,7 @@ const getPct = (stage: string|null) => {
   return stage ? (pcts[stage] || 0) : 0;
 };
 
-const T = {
-  bg:"#0f1117", surface:"#181c27", card:"#1e2333", border:"#2a3050",
-  accent:"#4f8ef7", green:"#34c97a", amber:"#f5a623", red:"#f05353",
-  text:"#e8eaf2", muted:"#7a82a0", faint:"#3a4060",
-};
-const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
-const mono = `'IBM Plex Mono','Courier New',monospace`;
+import { T, font, mono } from "@/lib/theme";
 
 export default function JobsPage() {
   const router = useRouter();

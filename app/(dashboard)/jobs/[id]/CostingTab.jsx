@@ -1,17 +1,6 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
-
-const T = {
-  bg:"#0f1117", surface:"#181c27", card:"#1e2333", border:"#2a3050",
-  accent:"#4f8ef7", accentDim:"#1e3a6e",
-  green:"#34c97a", greenDim:"#0e3d24",
-  amber:"#f5a623", amberDim:"#3d2a08",
-  red:"#f05353", redDim:"#3d1212",
-  purple:"#a78bfa", purpleDim:"#2d1f5e",
-  text:"#e8eaf2", muted:"#7a82a0", faint:"#3a4060",
-};
-const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
-const mono = `'IBM Plex Mono','Courier New',monospace`;
+import { T, font, mono, sortSizes } from "@/lib/theme";
 
 const BLANK_COSTS = {
   "NL6210_White":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
@@ -1103,17 +1092,10 @@ export { CostingTab };
 
 export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false }) {
   const savedData = project?.costing_data || null;
-  const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
-  const sortSizesW = (sizes) => [...(sizes||[])].sort((a,b) => {
-    const ai=SIZE_ORDER.indexOf(a), bi=SIZE_ORDER.indexOf(b);
-    if(ai===-1&&bi===-1) return a.localeCompare(b);
-    if(ai===-1) return 1; if(bi===-1) return -1;
-    return ai-bi;
-  });
 
   const initItems = (buyItems || []).map(it => {
     const saved = savedData?.costProds?.find((p) => p.id === it.id);
-    if (saved) return { ...saved, sizes: sortSizesW(it.sizes), qtys: it.qtys || saved.qtys || {} };
+    if (saved) return { ...saved, sizes: sortSizes(it.sizes || []), qtys: it.qtys || saved.qtys || {} };
     let blankCosts = {};
     if (it.blankCosts && Object.keys(it.blankCosts).length > 0) {
       blankCosts = it.blankCosts;
@@ -1130,7 +1112,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
       name: it.name || "",
       style: it.blank_vendor || "",
       color: it.blank_sku || "",
-      sizes: sortSizesW(it.sizes),
+      sizes: sortSizes(it.sizes || []),
       qtys: it.qtys || {},
       blankCosts,
       blankCostPerUnit,

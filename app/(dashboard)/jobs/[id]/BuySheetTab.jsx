@@ -1,23 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-const T = {
-  bg:"#0f1117", surface:"#181c27", card:"#1e2333", border:"#2a3050",
-  accent:"#4f8ef7", accentDim:"#1e3a6e",
-  green:"#34c97a", amber:"#f5a623", red:"#f05353",
-  text:"#e8eaf2", muted:"#7a82a0", faint:"#3a4060",
-};
-const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
-const mono = `'IBM Plex Mono','Courier New',monospace`;
-
-const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","YXS","YS","YM","YL","YXL"];
-const sortSizes = (sizes) => [...sizes].sort((a,b) => {
-  const ai = SIZE_ORDER.indexOf(a), bi = SIZE_ORDER.indexOf(b);
-  if (ai === -1 && bi === -1) return a.localeCompare(b);
-  if (ai === -1) return 1; if (bi === -1) return -1;
-  return ai - bi;
-});
+import { createClient } from "@/lib/supabase/client";
+import { T, font, mono, sortSizes } from "@/lib/theme";
 const DEFAULT_CURVE = {S:5.13,M:20.57,L:38.14,XL:25.90,"2XL":7.69,"3XL":2.56};
 
 function distribute(total, sizes, curve) {
@@ -237,11 +221,8 @@ function ManualPicker({ onAdd, onClose }) {
   const [name, setName] = useState("");
 
   useEffect(() => {
-    const sb = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    );
-    sb.from("blank_catalog").select("*").order("brand").order("style").order("color")
+    const supabase = createClient();
+    supabase.from("blank_catalog").select("*").order("brand").order("style").order("color")
       .then(({ data }) => { setCatalog(data || []); setLoading(false); });
   }, []);
 
@@ -409,10 +390,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const doSave = async () => {
     const current = workingItems;
     const saved = JSON.parse(savedSnapshot);
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    );
+    const supabase = createClient();
 
     try {
       // 1. Deleted items
@@ -504,7 +482,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
   const [localQtys, setLocalQtys] = useState({});
-  const inputRefs = {};
+  const inputRefs = useRef({});
 
   const getLocalQty = (itemId, sz) => {
     const key = itemId+"_"+sz;
@@ -613,10 +591,11 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
                 {safeItems.map((item, rowIdx) => {
                   const isLast = rowIdx === safeItems.length - 1;
                   return (
-                    <tr key={item.id} style={{ borderBottom:isLast?"none":`1px solid ${T.border}`, background:T.card }}>
+                    <tr key={item.id} onDragOver={e => handleDragOver(e, rowIdx)} onDrop={() => handleDrop(rowIdx)} style={{ borderBottom:isLast?"none":`1px solid ${T.border}`, background:dragOverIdx===rowIdx?T.accentDim:T.card, transition:"background 0.1s" }}>
                       <td style={{ padding:"10px 14px", verticalAlign:"middle", borderRight:`1px solid ${T.border}` }}>
                         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                          <div style={{color:"rgba(255,255,255,0.2)",fontSize:12,cursor:"grab",padding:"0 4px 0 0",flexShrink:0,userSelect:"none"}}>⠿</div>
+                          <div draggable onDragStart={() => handleDragStart(rowIdx)} onDragOver={e => handleDragOver(e, rowIdx)} onDrop={() => handleDrop(rowIdx)} onDragEnd={handleDragEnd}
+                            style={{color:dragOverIdx===rowIdx?"rgba(79,142,247,0.7)":"rgba(255,255,255,0.2)",fontSize:12,cursor:"grab",padding:"0 4px 0 0",flexShrink:0,userSelect:"none",transition:"color 0.1s"}}>⠿</div>
                           <button onClick={() => removeItem(item.id)}
                             style={{ flexShrink:0, background:"none", border:"none", cursor:"pointer", color:"rgba(255,255,255,0.4)", fontSize:13, lineHeight:1, padding:"1px 2px", borderRadius:3 }}
                             onMouseEnter={e => e.currentTarget.style.color=T.red}
@@ -655,14 +634,14 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
                                   onChange={e => setLocalQty(item.id, sz, e.target.value)}
                                   onBlur={() => commitQty(rowIdx, item.id, sz)}
                                   onKeyDown={e => {
-                                    const moveTo = (r,c) => { setFocused({row:r,col:c}); setTimeout(()=>{ const el=inputRefs[r+"_"+c]; if(el) el.focus(); },0); };
+                                    const moveTo = (r,c) => { setFocused({row:r,col:c}); setTimeout(()=>{ const el=inputRefs.current[r+"_"+c]; if(el) el.focus(); },0); };
                                     if (e.key==="Enter") { e.preventDefault(); commitQty(rowIdx,item.id,sz); if(rowIdx<safeItems.length-1) moveTo(rowIdx+1, szIdx<safeItems[rowIdx+1].sizes.length?szIdx:0); }
                                     if (e.key==="ArrowRight"||(e.key==="Tab"&&!e.shiftKey)) { e.preventDefault(); commitQty(rowIdx,item.id,sz); const nc=szIdx+1; if(nc<item.sizes.length) moveTo(rowIdx,nc); else if(rowIdx<safeItems.length-1) moveTo(rowIdx+1,0); }
                                     if (e.key==="ArrowLeft"||(e.key==="Tab"&&e.shiftKey)) { e.preventDefault(); commitQty(rowIdx,item.id,sz); const nc=szIdx-1; if(nc>=0) moveTo(rowIdx,nc); else if(rowIdx>0) moveTo(rowIdx-1,safeItems[rowIdx-1].sizes.length-1); }
                                     if (e.key==="ArrowDown") { e.preventDefault(); commitQty(rowIdx,item.id,sz); if(rowIdx<safeItems.length-1) moveTo(rowIdx+1,szIdx<safeItems[rowIdx+1].sizes.length?szIdx:0); }
                                     if (e.key==="ArrowUp") { e.preventDefault(); commitQty(rowIdx,item.id,sz); if(rowIdx>0) moveTo(rowIdx-1,szIdx<safeItems[rowIdx-1].sizes.length?szIdx:0); }
                                   }}
-                                  ref={el => { if(el) inputRefs[rowIdx+"_"+szIdx] = el; }}
+                                  ref={el => { if(el) inputRefs.current[rowIdx+"_"+szIdx] = el; }}
                                   style={{ width:36, textAlign:"center", background:"transparent", border:"none", outline:"none", color:qty>0?T.text:T.faint, fontSize:12, fontFamily:mono, padding:0 }}/>
                               </div>
                             );

@@ -1,17 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-
-const T = {
-  card:"#1e2333", surface:"#181c27", border:"#2a3050",
-  text:"#e8eaf2", muted:"#7a82a0", faint:"#3a4060",
-  accent:"#4f8ef7", accentDim:"#1e3a6e",
-  green:"#34c97a", greenDim:"#0e3d24",
-  amber:"#f5a623", amberDim:"#3d2a08",
-};
-const font = "'IBM Plex Sans','Helvetica Neue',Arial,sans-serif";
-const mono = "'IBM Plex Mono','Courier New',monospace";
-const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
+import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 
 function fmtD(n) {
   return "$"+Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});

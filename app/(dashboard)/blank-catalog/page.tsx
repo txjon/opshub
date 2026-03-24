@@ -7,15 +7,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const font = "'Helvetica Neue', Arial, sans-serif";
-const mono = "ui-monospace, monospace";
-const T = {
-  bg: "#0f1117", surface: "#181b23", card: "#1e2130", border: "#2a2f45",
-  text: "#e8eaf0", muted: "#7a82a0", accent: "#4f8ef7", green: "#34c97a",
-  red: "#f05353",
-};
-
-const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL"];
+import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 
 type CatalogEntry = {
   id: string;

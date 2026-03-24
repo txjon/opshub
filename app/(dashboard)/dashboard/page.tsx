@@ -1,18 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 
-const T = {
-  card:"#1e2333", surface:"#181c27", border:"#2a3050",
-  text:"#e8eaf2", muted:"#7a82a0", faint:"#3a4060",
-  accent:"#4f8ef7", accentDim:"#1e3a6e",
-  green:"#34c97a", greenDim:"#0e3d24",
-  amber:"#f5a623", amberDim:"#3d2a08",
-  red:"#f05353", redDim:"#3d1212",
-  purple:"#a78bfa", purpleDim:"#2d1f5e",
-};
-
-const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
-const mono = `'IBM Plex Mono','Courier New',monospace`;
+import { T, font, mono } from "@/lib/theme";
 
 const PHASE_STYLES: Record<string,{bg:string,text:string,label:string}> = {
   intake:         { bg:T.surface,    text:T.muted,   label:"Intake" },

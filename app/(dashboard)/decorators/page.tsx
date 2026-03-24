@@ -2,14 +2,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { useState, useEffect } from "react";
 
-const T = {
-  bg:"#0f1117", surface:"#181c27", card:"#1e2333", border:"#2a3050",
-  text:"#e8eaf2", muted:"#7a82a0", faint:"#3a4060",
-  accent:"#4f8ef7", accentDim:"#1e3a6e",
-  green:"#34c97a", amber:"#f5a623", red:"#f05353",
-};
-const font = `'IBM Plex Sans','Helvetica Neue',Arial,sans-serif`;
-const mono = `'IBM Plex Mono','Courier New',monospace`;
+import { T, font, mono } from "@/lib/theme";
 
 type Decorator = {
   id: string;
