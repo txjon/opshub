@@ -400,9 +400,9 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                     </div>
                     <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>
                   </div>
-                  <div style={{padding:14,display:bodyDisplay,gridTemplateColumns:"380px 1fr",gap:0,alignItems:"start"}}>
+                  <div style={{padding:14,display:bodyDisplay,gridTemplateColumns:"400px 1fr",gap:0,alignItems:"start"}}>
                     {/* BLANKS PANEL */}
-                    <div style={{display:"flex",flexDirection:"column",gap:12,paddingRight:16,borderRight:"1px solid "+T.border,width:380,flexShrink:0}}>
+                    <div style={{display:"flex",flexDirection:"column",gap:12,paddingRight:16,borderRight:"1px solid "+T.border,width:400,flexShrink:0}}>
                       {/* BLANKS HEADER */}
                       <div style={{fontSize:10,fontWeight:700,color:T.accent,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.1em",paddingBottom:6,borderBottom:`1px solid ${T.border}`}}>Blanks</div>
 
@@ -434,10 +434,16 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                       </div>
                       </div>
 
-                      {/* Line 2: Style / Color / Fleece on same line */}
+                      {/* Line 2: Brand / Style / Color / Fleece */}
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"end"}}>
-                        <CInput label="Style / model" value={p.style||""} onChange={v=>updateProd(i,{...p,style:v})}/>
-                        <CInput label="Color" value={p.color||""} onChange={v=>updateProd(i,{...p,color:v})}/>
+                        <div>
+                          <div style={{fontSize:10,color:T.muted,fontFamily:font,marginBottom:4}}>Style</div>
+                          <div style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:font,padding:"6px 0"}}>{p.style||"—"}</div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:10,color:T.muted,fontFamily:font,marginBottom:4}}>Color</div>
+                          <div style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:font,padding:"6px 0"}}>{p.color||"—"}</div>
+                        </div>
                         <div>
                           <div style={{fontSize:10,color:T.muted,fontFamily:font,marginBottom:4}}>Fleece</div>
                           <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${T.border}`}}>
@@ -518,32 +524,24 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                           style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:52,boxSizing:"border-box"}}/>
                       </div>
                       {r&&(
-                        <div style={{borderRadius:8,border:"1px solid "+T.border,padding:"8px",marginTop:4,background:T.surface}}>
-                          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:6}}>
-                            {[
-                              ["Revenue", r.grossRev>0?fmtD(r.grossRev):"$0.00", T.accent],
-                              ["Blank Cost",    fmtD(r.blankCost),                     T.text],
-                              ["PO Total",      fmtD(r.poTotal),                       T.text],
-                              ["Total Cost",    fmtD(r.totalCost),                     T.text],
-                            ].map(([l,v,c])=>(
-                              <div key={l} style={{background:"#181c27",border:"1px solid #2a3050",borderRadius:6,padding:"6px 8px"}}>
-                                <div style={{fontSize:8,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:2}}>{l}</div>
-                                <div style={{fontSize:12,fontWeight:700,color:c,fontFamily:mono}}>{v}</div>
-                              </div>
-                            ))}
-                          </div>
-                          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
-                            {[
-                              ["Net Profit",       fmtD(r.netProfit),                     mc2],
-                              ["Profit Margin",    fmtP(r.margin_pct),                    mc2],
-                              ["Profit per piece", "$"+r.profitPerPiece.toFixed(2),       mc2],
-                            ].map(([l,v,c])=>(
-                              <div key={l} style={{background:mc2===T.green?"#0e3d24":mc2===T.amber?"#3d2a08":"#3d1212",border:"1px solid "+mc2+"44",borderRadius:6,padding:"6px 8px"}}>
-                                <div style={{fontSize:8,color:mc2+"99",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:2}}>{l}</div>
-                                <div style={{fontSize:12,fontWeight:700,color:mc2,fontFamily:mono}}>{v}</div>
-                              </div>
-                            ))}
-                          </div>
+                        <div style={{borderRadius:8,border:"1px solid "+T.border,overflow:"hidden",marginTop:4}}>
+                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
+                            <tbody>
+                              {[
+                                ["Revenue",        fmtD(r.grossRev),        T.accent],
+                                ["Blanks Cost",    fmtD(r.blankCost),       T.text],
+                                ["PO Total",       fmtD(r.poTotal),         T.text],
+                                ["Net Profit",     fmtD(r.netProfit),       mc2],
+                                ["Margin",         fmtP(r.margin_pct),      mc2],
+                                ["Profit / Piece", fmtD(r.profitPerPiece),  mc2],
+                              ].map(([l,v,c],idx)=>(
+                                <tr key={l} style={{borderBottom:idx<5?`1px solid ${T.border}22`:"none",background:idx>=3?(mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim):T.surface}}>
+                                  <td style={{padding:"6px 12px",fontSize:11,fontWeight:500,color:T.muted,fontFamily:font,width:"50%"}}>{l}</td>
+                                  <td style={{padding:"6px 12px",fontSize:13,fontWeight:700,color:c,fontFamily:mono,textAlign:"right"}}>{v}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
                       )}
                     </div>{/* end blanks panel */}
@@ -582,11 +580,11 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
                             <thead>
                               <tr style={{background:T.surface}}>
-                                <th style={{padding:"6px 10px",textAlign:"left",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"16%"}}/>
-                                <th style={{padding:"6px 10px",textAlign:"left",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"34%"}}>Location</th>
-                                <th style={{padding:"6px 10px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"16%"}}>Screens</th>
-                                <th style={{padding:"6px 10px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"16%"}}>Shared</th>
-                                <th style={{padding:"6px 10px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",width:"18%"}}>Cost</th>
+                                <th style={{padding:"6px 10px",textAlign:"left",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"15%"}}/>
+                                <th style={{padding:"6px 10px",textAlign:"left",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"40%"}}>Location</th>
+                                <th style={{padding:"6px 10px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"15%"}}>Screens</th>
+                                <th style={{padding:"6px 10px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"15%"}}>Shared</th>
+                                <th style={{padding:"6px 10px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",width:"15%"}}>Cost</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -642,16 +640,12 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                   </tr>
                                 );
                               })}
-                            </tbody>
-                          </table>
-                          {/* Tag Print row */}
-                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:12,borderTop:`2px solid ${T.border}`}}>
-                            <tbody>
-                              <tr style={{background:p.tagPrint?T.accentDim:T.card,verticalAlign:"top"}}>
-                                <td style={{padding:"10px 10px",borderRight:`1px solid ${T.border}`,width:"16%"}}>
-                                  <span style={{fontSize:11,fontWeight:700,color:p.tagPrint?T.accent:T.faint,fontFamily:font}}>Tag Print</span>
+                              {/* Tag Print row */}
+                              <tr style={{background:p.tagPrint?T.accentDim:T.card,verticalAlign:"top",borderTop:`2px solid ${T.border}`}}>
+                                <td style={{padding:"8px 10px",borderRight:`1px solid ${T.border}`,width:"15%"}}>
+                                  <span style={{fontSize:11,fontWeight:700,color:p.tagPrint?T.accent:T.faint,fontFamily:font}}>Tag</span>
                                 </td>
-                                <td style={{padding:"8px 8px",borderRight:`1px solid ${T.border}`,width:"34%"}}>
+                                <td style={{padding:"6px 6px",borderRight:`1px solid ${T.border}`,width:"40%"}}>
                                   <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"flex-start"}}>
                                     <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${p.tagPrint?T.accent:T.border}`}}>
                                       {["Yes","No"].map(opt=>{
@@ -683,18 +677,18 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                     )}
                                   </div>
                                 </td>
-                                <td style={{padding:"10px 10px",borderRight:`1px solid ${T.border}`,textAlign:"center",width:"16%"}}>
+                                <td style={{padding:"6px 6px",borderRight:`1px solid ${T.border}`,textAlign:"center",width:"15%"}}>
                                   {p.tagPrint&&(
-                                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                                      <span style={{fontSize:14,fontWeight:700,color:p.tagRepeat?T.faint:T.text,fontFamily:mono,textDecoration:p.tagRepeat?"line-through":"none"}}>
+                                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                                      <span style={{fontSize:13,fontWeight:700,color:p.tagRepeat?T.faint:T.text,fontFamily:mono,textDecoration:p.tagRepeat?"line-through":"none"}}>
                                         {(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).length}
                                       </span>
-                                      {p.tagRepeat&&<span style={{fontSize:12,fontWeight:700,color:T.amber,fontFamily:mono}}>0</span>}
+                                      {p.tagRepeat&&<span style={{fontSize:11,fontWeight:700,color:T.amber,fontFamily:mono}}>0</span>}
                                     </div>
                                   )}
                                 </td>
-                                <td style={{padding:"10px 10px",borderRight:`1px solid ${T.border}`,textAlign:"center",width:"16%"}}/>
-                                <td style={{padding:"10px 10px",textAlign:"center",width:"18%"}}>
+                                <td style={{padding:"6px 6px",borderRight:`1px solid ${T.border}`,textAlign:"center",width:"15%"}}/>
+                                <td style={{padding:"6px 10px",textAlign:"center",width:"15%"}}>
                                   {p.tagPrint&&(
                                     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
                                       <span style={{fontSize:13,fontWeight:700,color:T.green,fontFamily:mono}}>
@@ -746,8 +740,8 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                 const isLast=idx===arr.length-1;
                                 return(
                                   <tr key={label} style={{borderBottom:isLast?"none":`1px solid ${T.border}22`,background:active?T.accentDim:idx%2===0?T.card:T.surface}}>
-                                    <td style={{padding:"7px 14px",fontFamily:font,fontSize:12,fontWeight:600,color:active?T.accent:T.muted,borderRight:`1px solid ${T.border}`,width:"30%"}}>{label}</td>
-                                    <td style={{padding:"5px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"20%"}}>
+                                    <td style={{padding:"7px 12px",fontFamily:font,fontSize:12,fontWeight:600,color:active?T.accent:T.muted,borderRight:`1px solid ${T.border}`,width:"28%"}}>{label}</td>
+                                    <td style={{padding:"5px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"28%"}}>
                                       {key==="FleeceUpcharge"?(
                                         <span style={{fontSize:10,color:T.amber,fontFamily:font,fontWeight:600}}>auto</span>
                                       ):(
@@ -764,7 +758,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                         </div>
                                       )}
                                     </td>
-                                    <td style={{padding:"5px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"25%"}}>
+                                    <td style={{padding:"5px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"29%"}}>
                                       {col3==="blank"?null:col3==="variant"?(
                                         <select
                                           value={p.isFleece?"Fleece":(p.finishingQtys?.["Packaging_variant"]||"Tee")}
@@ -782,7 +776,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                         </div>
                                       )}
                                     </td>
-                                    <td style={{padding:"7px 14px",textAlign:"right",fontFamily:mono,fontSize:12,fontWeight:total>0?700:400,color:total>0?T.green:T.faint,width:"25%"}}>
+                                    <td style={{padding:"7px 10px",textAlign:"center",fontFamily:mono,fontSize:12,fontWeight:total>0?700:400,color:total>0?T.green:T.faint,width:"15%"}}>
                                       {active&&total>0?fmtD(total):(unitCost>0&&!active?<span style={{fontSize:10,color:T.faint}}>{fmtD(unitCost)} ea</span>:null)}
                                     </td>
                                   </tr>
@@ -892,8 +886,8 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                   const isLast=idx===specKeys.length-1;
                                   return(
                                     <tr key={key} style={{borderBottom:isLast?"none":`1px solid ${T.border}22`,background:active?T.accentDim:idx%2===0?T.card:T.surface}}>
-                                      <td style={{padding:"7px 14px",fontFamily:font,fontSize:12,fontWeight:600,color:active?T.accent:T.muted,borderRight:`1px solid ${T.border}`,width:"30%"}}>{label}</td>
-                                      <td style={{padding:"5px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"20%"}}>
+                                      <td style={{padding:"7px 12px",fontFamily:font,fontSize:12,fontWeight:600,color:active?T.accent:T.muted,borderRight:`1px solid ${T.border}`,width:"28%"}}>{label}</td>
+                                      <td style={{padding:"5px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"28%"}}>
                                         <div style={{display:"flex",borderRadius:5,overflow:"hidden",border:`1px solid ${T.border}`,width:"fit-content",margin:"0 auto"}}>
                                           {["Yes","No"].map(opt=>{
                                             const sel=(active?"Yes":"No")===opt;
@@ -910,7 +904,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                           })}
                                         </div>
                                       </td>
-                                      <td style={{padding:"4px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"25%"}}>
+                                      <td style={{padding:"4px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"29%"}}>
                                         {active?(
                                           <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
                                             <input type="text" inputMode="numeric" value={p.specialtyQtys?.[key+"_count"]!==undefined?p.specialtyQtys[key+"_count"]:allPrintCount}
@@ -920,7 +914,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                           </div>
                                         ):null}
                                       </td>
-                                      <td style={{padding:"7px 14px",textAlign:"right",fontFamily:mono,fontSize:12,fontWeight:total>0?700:400,color:total>0?T.green:T.faint,width:"25%"}}>
+                                      <td style={{padding:"7px 10px",textAlign:"center",fontFamily:mono,fontSize:12,fontWeight:total>0?700:400,color:total>0?T.green:T.faint,width:"15%"}}>
                                         {active&&unitCost>0?fmtD(total):(unitCost>0&&!active?<span style={{fontSize:10,color:T.faint}}>{fmtD(unitCost)} ea</span>:null)}
                                       </td>
                                     </tr>
