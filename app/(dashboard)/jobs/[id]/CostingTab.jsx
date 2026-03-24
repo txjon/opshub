@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { T, font, mono, sortSizes } from "@/lib/theme";
+import { SendEmailDialog } from "@/components/SendEmailDialog";
 
 const BLANK_COSTS = {
   "NL6210_White":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
@@ -207,6 +208,7 @@ const CToggle=({label,value,onChange})=>(
 
 const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave,saveStatus,initialTab,hideSubTabs})=>{
   const [costTab,setCostTab]=useState(initialTab||"calc");
+  const [showSendEmail,setShowSendEmail]=useState(false);
   const [collapsed,setCollapsed]=useState(()=>{ const c={}; (costProds||[]).forEach(p=>{ c[p.id]=true; }); return c; });
   const [localCosts,setLocalCosts]=useState({});
   const getCostDisplay=(pid,sz,val)=>{ const k=pid+"_"+sz; return localCosts[k]!==undefined?localCosts[k]:val>0?String(val):""; };
@@ -952,7 +954,19 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
             <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
               <div style={{fontSize:12,color:T.muted,fontFamily:font,flex:1}}>Preview — this is what your client sees</div>
               <button onClick={()=>{const a=document.createElement("a");a.href=`/api/pdf/quote/${project.id}`;a.download="quote.pdf";a.click();}} style={{background:T.accent,color:"#fff",border:"none",borderRadius:7,padding:"6px 16px",fontSize:12,fontFamily:font,fontWeight:600,cursor:"pointer"}}>⬇ Download PDF</button>
+              <button onClick={()=>setShowSendEmail(!showSendEmail)} style={{background:T.purple,color:"#fff",border:"none",borderRadius:7,padding:"6px 16px",fontSize:12,fontFamily:font,fontWeight:600,cursor:"pointer"}}>Send to Client</button>
             </div>
+            {showSendEmail&&(
+              <div style={{marginBottom:14}}>
+                <SendEmailDialog
+                  type="quote"
+                  jobId={project.id}
+                  defaultEmail={orderInfo.clientEmail||""}
+                  defaultSubject={`Quote${orderInfo.invoiceNum?" #"+orderInfo.invoiceNum:""} — ${project.clients?.name||project.title||"House Party Distro"}`}
+                  onClose={()=>setShowSendEmail(false)}
+                />
+              </div>
+            )}
             <div style={{background:"#fff",borderRadius:12,border:"1px solid #e5e7eb",overflow:"hidden",fontFamily:"Georgia, serif",color:"#111"}}>
               <div style={{padding:"32px 36px 24px",borderBottom:"3px solid #111"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>

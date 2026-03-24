@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
+import { SendEmailDialog } from "@/components/SendEmailDialog";
 
 function fmtD(n) {
   return "$"+Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -136,6 +137,7 @@ export function POTab({project,items,costingData}) {
   const [saving,setSaving] = useState({});
   const [showPreview,setShowPreview] = useState(false);
   const [showModal,setShowModal] = useState(false);
+  const [showSendEmail,setShowSendEmail] = useState(false);
 
   useEffect(()=>{
     async function load() {
@@ -236,8 +238,21 @@ export function POTab({project,items,costingData}) {
           <button onClick={()=>{const a=document.createElement("a");a.href=`/api/pdf/po/${project.id}?download=1${active?"\&vendor="+encodeURIComponent(active):""}`;a.download="po.pdf";a.click();}} disabled={!ready} style={{background:ready?T.green:T.surface,border:"1px solid "+(ready?T.green:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5}}>
             Export PDF
           </button>
+          <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.purple:T.surface,border:"1px solid "+(ready?T.purple:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5}}>
+            Send to Decorator
+          </button>
         </div>
       </div>
+      {showSendEmail&&(
+        <SendEmailDialog
+          type="po"
+          jobId={project.id}
+          vendor={active}
+          defaultEmail={getDec(active)?.contact_email||""}
+          defaultSubject={`PO — ${(project.clients?.name||project.title||"")} — ${active}`}
+          onClose={()=>setShowSendEmail(false)}
+        />
+      )}
 
       {active&&(
         <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,overflow:"hidden"}}>
