@@ -248,6 +248,7 @@ export function POTab({project,items,costingData}) {
           type="po"
           jobId={project.id}
           vendor={active}
+          contacts={getDec(active)?.contacts_list||[]}
           defaultEmail={getDec(active)?.contact_email||""}
           defaultSubject={`PO — ${(project.clients?.name||project.title||"")} — ${active}`}
           onClose={()=>setShowSendEmail(false)}

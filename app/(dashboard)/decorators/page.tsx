@@ -281,6 +281,62 @@ function PricingEditor({ pricing, onChange }: { pricing: PricingData; onChange: 
   );
 }
 
+// ── Decorator Contacts (multiple per decorator) ──────────────────────────────
+
+function DecoratorContacts({ contacts, onChange }: { contacts: any[]; onChange: (list: any[])=>void }) {
+  const [adding, setAdding] = useState(false);
+  const inp = { background:T.surface, border:`1px solid ${T.border}`, borderRadius:4, color:T.text, fontFamily:font, fontSize:11, padding:"5px 8px", outline:"none", width:"100%" as const, boxSizing:"border-box" as const };
+
+  const addContact = () => {
+    const name = (document.getElementById("dc-name") as HTMLInputElement)?.value.trim();
+    const email = (document.getElementById("dc-email") as HTMLInputElement)?.value.trim();
+    const phone = (document.getElementById("dc-phone") as HTMLInputElement)?.value.trim();
+    const role = (document.getElementById("dc-role") as HTMLInputElement)?.value.trim();
+    if (!name && !email) return;
+    onChange([...contacts, { name: name||"", email: email||"", phone: phone||"", role: role||"" }]);
+    setAdding(false);
+  };
+
+  const removeContact = (idx: number) => onChange(contacts.filter((_: any, i: number) => i !== idx));
+
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+        <div style={{ fontSize:10, fontWeight:700, color:T.muted, fontFamily:font, textTransform:"uppercase" as const, letterSpacing:"0.08em" }}>Contacts</div>
+        <button onClick={()=>setAdding(!adding)} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:4, color:T.muted, fontSize:10, padding:"2px 8px", cursor:"pointer" }}>+ Add</button>
+      </div>
+      {adding && (
+        <div style={{ background:T.surface, border:`1px solid ${T.accent}44`, borderRadius:6, padding:8, marginBottom:8 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginBottom:6 }}>
+            <input id="dc-name" placeholder="Name" style={inp} onKeyDown={e=>e.key==="Enter"&&addContact()} />
+            <input id="dc-email" placeholder="Email" style={inp} onKeyDown={e=>e.key==="Enter"&&addContact()} />
+            <input id="dc-phone" placeholder="Phone" style={inp} onKeyDown={e=>e.key==="Enter"&&addContact()} />
+            <input id="dc-role" placeholder="Role (e.g. Sales, Production)" style={inp} onKeyDown={e=>e.key==="Enter"&&addContact()} />
+          </div>
+          <div style={{ display:"flex", gap:6 }}>
+            <button onClick={addContact} style={{ background:T.green, border:"none", borderRadius:4, color:"#fff", fontSize:10, fontWeight:600, padding:"4px 10px", cursor:"pointer" }}>Save</button>
+            <button onClick={()=>setAdding(false)} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:4, color:T.muted, fontSize:10, padding:"4px 8px", cursor:"pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {contacts.length === 0 && !adding && <div style={{ fontSize:11, color:T.faint, fontFamily:font, padding:"4px 0" }}>No contacts yet</div>}
+      <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+        {contacts.map((c: any, i: number) => (
+          <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 8px", background:T.surface, borderRadius:6 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:12, fontWeight:600, color:T.text }}>{c.name||c.email} {c.role && <span style={{ fontWeight:400, color:T.muted, fontSize:10 }}>· {c.role}</span>}</div>
+              <div style={{ fontSize:10, color:T.muted }}>{[c.email, c.phone].filter(Boolean).join(" · ")}</div>
+            </div>
+            <button onClick={()=>removeContact(i)} style={{ background:"none", border:"none", color:T.faint, cursor:"pointer", fontSize:11 }}
+              onMouseEnter={e=>e.currentTarget.style.color=T.red}
+              onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Ship From toggle ─────────────────────────────────────────────────────────
 
 function ShipFromSection({ d, upd }: { d: any; upd: (u: any) => void }) {
@@ -398,7 +454,7 @@ export default function DecoratorsPage() {
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:14, fontWeight:600, color:T.text }}>{d.name}</div>
                   <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>
-                    {[d.contact_email||d.email, [d.city, d.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || "No details yet"}
+                    {[((d as any).contacts_list||[]).length > 0 ? `${(d as any).contacts_list.length} contact${(d as any).contacts_list.length>1?"s":""}` : (d.contact_email||d.email), [d.city, d.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || "No details yet"}
                   </div>
                 </div>
                 {isSaving && <span style={{ fontSize:11, color:T.amber, fontFamily:font }}>Saving…</span>}
@@ -416,19 +472,15 @@ export default function DecoratorsPage() {
                   {/* Contact + Address */}
                   <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:20 }}>
                     <div>
-                      <SectionHead title="Contact Info" />
-                      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                      <SectionHead title="Company Info" />
+                      <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
                         <Field label="Company name" value={d.name||""} onChange={v=>upd({name:v})} placeholder="ICON Printing" />
                         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                           <Field label="Short code" value={d.short_code||""} onChange={v=>upd({short_code:v.toUpperCase()})} placeholder="ICON" isMono />
                           <Field label="Lead time (days)" value={String(d.lead_time_days||"")} onChange={v=>upd({lead_time_days:parseInt(v)||null} as any)} placeholder="7" isMono />
                         </div>
-                        <Field label="Contact name" value={d.contact_name||""} onChange={v=>upd({contact_name:v})} placeholder="John Smith" />
-                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                          <Field label="Email" value={d.contact_email||d.email||""} onChange={v=>upd({contact_email:v, email:v})} placeholder="orders@printer.com" />
-                          <Field label="Phone" value={d.contact_phone||d.phone||""} onChange={v=>upd({contact_phone:v, phone:v})} placeholder="(702) 555-0100" />
-                        </div>
                       </div>
+                      <DecoratorContacts contacts={(d as any).contacts_list||[]} onChange={list=>upd({contacts_list:list} as any)} />
                     </div>
                     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
                       <div>

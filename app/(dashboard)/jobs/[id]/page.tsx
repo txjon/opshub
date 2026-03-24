@@ -316,26 +316,73 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </div>
 
               <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Payment records</div>
-                {payments.length===0&&<p style={{fontSize:12,color:"#7a82a0"}}>No payments recorded yet.</p>}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em"}}>Payment records</div>
+                  <button onClick={()=>setJob(j=>j?{...j,_addPayment:!(j as any)._addPayment} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
+                </div>
+                {(job as any)._addPayment&&(
+                  <div style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10,marginBottom:8}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:6}}>
+                      <select id="pm-type" style={ic}>
+                        <option value="deposit">Deposit</option>
+                        <option value="balance">Balance</option>
+                        <option value="full_payment">Full Payment</option>
+                        <option value="refund">Refund</option>
+                      </select>
+                      <input id="pm-amount" type="text" inputMode="decimal" placeholder="Amount" style={ic}/>
+                      <input id="pm-invoice" placeholder="Invoice #" style={ic}/>
+                      <input id="pm-due" type="date" style={ic}/>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={async()=>{
+                        const type=(document.getElementById("pm-type") as HTMLSelectElement).value;
+                        const amount=parseFloat((document.getElementById("pm-amount") as HTMLInputElement).value)||0;
+                        if(!amount) return;
+                        const invoice_number=(document.getElementById("pm-invoice") as HTMLInputElement).value.trim()||null;
+                        const due_date=(document.getElementById("pm-due") as HTMLInputElement).value||null;
+                        await supabase.from("payment_records").insert({job_id:job.id,type,amount,invoice_number,due_date,status:"draft"});
+                        setJob(j=>j?{...j,_addPayment:false} as any:j);
+                        loadData();
+                      }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>
+                      <button onClick={()=>setJob(j=>j?{...j,_addPayment:false} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:11,padding:"5px 10px",cursor:"pointer"}}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+                {payments.length===0&&!(job as any)._addPayment&&<p style={{fontSize:12,color:"#7a82a0"}}>No payments recorded yet.</p>}
                 {payments.length>0&&(
                   <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
                     <thead><tr style={{borderBottom:"1px solid #2a3050"}}>
-                      {["Invoice","Type","Amount","Due","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:"#7a82a0",fontWeight:500}}>{h}</th>)}
+                      {["Invoice","Type","Amount","Due","Status",""].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:"#7a82a0",fontWeight:500}}>{h}</th>)}
                     </tr></thead>
-                    <tbody>{payments.map(p=>(
+                    <tbody>{payments.map(p=>{
+                      const statuses=["draft","sent","viewed","partial","paid","overdue","void"];
+                      const nextStatus=()=>{const idx=statuses.indexOf(p.status);return statuses[(idx+1)%statuses.length];};
+                      return(
                       <tr key={p.id} style={{borderBottom:"1px solid #2a3050"}}>
                         <td style={{padding:"6px",fontFamily:"var(--font-mono)",color:"#7a82a0"}}>{p.invoice_number||"—"}</td>
                         <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
                         <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
                         <td style={{padding:"6px",color:"#7a82a0"}}>{p.due_date?new Date(p.due_date).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"—"}</td>
                         <td style={{padding:"6px"}}>
-                          <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
+                          <button onClick={async()=>{
+                            const ns=nextStatus();
+                            await supabase.from("payment_records").update({status:ns,paid_date:ns==="paid"?new Date().toISOString().split("T")[0]:null}).eq("id",p.id);
+                            loadData();
+                          }} style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
                             background:p.status==="paid"?"#0e3d24":p.status==="overdue"?"#3d1212":"#3d2a08",
-                            color:p.status==="paid"?"#34c97a":p.status==="overdue"?"#f05353":"#f5a623"}}>{p.status}</span>
+                            color:p.status==="paid"?"#34c97a":p.status==="overdue"?"#f05353":"#f5a623"}}>{p.status}</button>
                         </td>
-                      </tr>
-                    ))}</tbody>
+                        <td style={{padding:"6px"}}>
+                          <button onClick={async()=>{
+                            if(!confirm("Delete this payment?")) return;
+                            await supabase.from("payment_records").delete().eq("id",p.id);
+                            loadData();
+                          }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11}}
+                            onMouseEnter={e=>e.currentTarget.style.color=T.red}
+                            onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                        </td>
+                      </tr>);
+                    })}</tbody>
                   </table>
                 )}
               </div>
@@ -382,8 +429,49 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
 
               <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Contacts</div>
-                {contacts.length===0&&<p style={{fontSize:12,color:"#7a82a0"}}>No contacts assigned.</p>}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
+                  <button onClick={()=>setJob(j=>j?{...j,_addContact:!(j as any)._addContact} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
+                </div>
+                {(job as any)._addContact&&(
+                  <div style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10,marginBottom:8}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+                      <input id="ct-name" placeholder="Name" style={ic}/>
+                      <input id="ct-email" placeholder="Email" style={ic}/>
+                      <input id="ct-phone" placeholder="Phone" style={ic}/>
+                      <select id="ct-role" style={ic}>
+                        <option value="primary">Primary</option>
+                        <option value="billing">Billing</option>
+                        <option value="creative">Creative</option>
+                        <option value="logistics">Logistics</option>
+                        <option value="cc">CC</option>
+                      </select>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={async()=>{
+                        const name=(document.getElementById("ct-name") as HTMLInputElement).value.trim();
+                        if(!name) return;
+                        const email=(document.getElementById("ct-email") as HTMLInputElement).value.trim();
+                        const phone=(document.getElementById("ct-phone") as HTMLInputElement).value.trim();
+                        const role=(document.getElementById("ct-role") as HTMLSelectElement).value;
+                        // Find or create contact
+                        let contactId:string;
+                        if(email){
+                          const {data:existing}=await supabase.from("contacts").select("id").eq("email",email).single();
+                          if(existing) contactId=existing.id;
+                          else {const {data:nc}=await supabase.from("contacts").insert({name,email,phone:phone||null,client_id:job.client_id}).select("id").single();contactId=nc!.id;}
+                        } else {
+                          const {data:nc}=await supabase.from("contacts").insert({name,email:null,phone:phone||null,client_id:job.client_id}).select("id").single();contactId=nc!.id;
+                        }
+                        await supabase.from("job_contacts").insert({job_id:job.id,contact_id:contactId,role_on_job:role});
+                        setJob(j=>j?{...j,_addContact:false} as any:j);
+                        loadData();
+                      }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>
+                      <button onClick={()=>setJob(j=>j?{...j,_addContact:false} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:11,padding:"5px 10px",cursor:"pointer"}}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+                {contacts.length===0&&!(job as any)._addContact&&<p style={{fontSize:12,color:"#7a82a0"}}>No contacts assigned.</p>}
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   {contacts.map((c,i)=>(
                     <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,paddingBottom:i<contacts.length-1?6:0,borderBottom:i<contacts.length-1?"1px solid #2a3050":"none"}}>
@@ -394,6 +482,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         <div style={{fontSize:12,fontWeight:600}}>{c.name} <span style={{fontWeight:400,color:"#7a82a0",fontSize:11}}>· {c.role_label} · {c.role_on_job}</span></div>
                         {c.email&&<div style={{fontSize:10,color:"#4f8ef7"}}>{c.email}</div>}
                       </div>
+                      <button onClick={async()=>{
+                        await supabase.from("job_contacts").delete().eq("job_id",job.id).eq("contact_id",c.id);
+                        loadData();
+                      }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11,padding:"0 2px"}}
+                        onMouseEnter={e=>e.currentTarget.style.color=T.red}
+                        onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
                     </div>
                   ))}
                 </div>
