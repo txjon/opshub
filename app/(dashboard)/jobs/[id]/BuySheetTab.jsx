@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const T = {
@@ -358,27 +358,137 @@ function ManualPicker({ onAdd, onClose }) {
 }
 // ── Main BuySheetTab ─────────────────────────────────────────────────────────
 
-export function BuySheetTab({ items, onUpdateItems }) {
-  // All edits are local until Save is clicked
+export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSaved }) {
   const [localItems, setLocalItems] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState(JSON.stringify(items || []));
+  const onSaveRef = useRef(null);
 
-  // Sync from parent only when not dirty (i.e. on initial load)
+  // Working items: local edits take priority, otherwise parent data
   const workingItems = localItems !== null ? localItems : (items||[]);
+
+  // Dirty detection via JSON comparison (same pattern as CostingTab)
+  const currentSnapshot = JSON.stringify(workingItems);
+  const isDirty = currentSnapshot !== savedSnapshot;
 
   const updateLocal = (newItems) => {
     setLocalItems(newItems);
-    setDirty(true);
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    await onUpdateItems(workingItems);
-    setDirty(false);
-    setLocalItems(null);
-    setSaving(false);
+  // Sync savedSnapshot when parent items change externally (e.g. initial load)
+  useEffect(() => {
+    if (localItems === null) {
+      setSavedSnapshot(JSON.stringify(items || []));
+    }
+  }, [items]);
+
+  // ── Auto-save: 1.5s debounce after any change ──────────────────────────────
+  useEffect(() => {
+    if (!isDirty) return;
+    if (onSaveStatus) onSaveStatus("saving");
+    const t = setTimeout(async () => {
+      await onSaveRef.current?.();
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [currentSnapshot]);
+
+  // Register save with parent for tab-switch saves
+  useEffect(() => {
+    if (typeof onRegisterSave === "function") {
+      onRegisterSave(async () => { await onSaveRef.current?.(); });
+    }
+  }, [currentSnapshot]);
+
+  // Warn on page close if unsaved
+  useEffect(() => {
+    const handler = (e) => { if (isDirty) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
+  // ── Save function: diffs against DB, writes changes, updates parent ────────
+  const doSave = async () => {
+    const current = workingItems;
+    const saved = JSON.parse(savedSnapshot);
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    );
+
+    try {
+      // 1. Deleted items
+      const deleted = saved.filter(s => !current.find(c => c.id === s.id));
+      for (const item of deleted) {
+        if (typeof item.id === "string" && item.id.length > 20) {
+          await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
+          await supabase.from("items").delete().eq("id", item.id);
+        }
+      }
+
+      // 2. Added items (temp IDs are numbers from Date.now)
+      const idMap = {};
+      const added = current.filter(c => !saved.find(s => s.id === c.id));
+      for (const item of added) {
+        const { data } = await supabase.from("items").insert({
+          job_id: jobId, name: item.name,
+          blank_vendor: item.blank_vendor || null,
+          blank_sku: item.blank_sku || null,
+          cost_per_unit: item.cost_per_unit || null,
+          blank_costs: item.blankCosts && Object.keys(item.blankCosts).length > 0 ? item.blankCosts : null,
+          status: "tbd", artwork_status: "not_started",
+          sort_order: current.indexOf(item),
+        }).select("id").single();
+        if (data) {
+          idMap[item.id] = data.id;
+          if (item.sizes?.length > 0) {
+            await supabase.from("buy_sheet_lines").insert(
+              item.sizes.map(sz => ({ item_id: data.id, size: sz, qty_ordered: item.qtys?.[sz] || 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }))
+            );
+          }
+        }
+      }
+
+      // 3. Updated items (name, qtys, sort order)
+      const updated = current.filter(c => saved.find(s => s.id === c.id));
+      for (const item of updated) {
+        const prev = saved.find(s => s.id === item.id);
+        const newSortOrder = current.indexOf(item);
+        const dbUpdates = {};
+        if (item.name !== prev?.name) dbUpdates.name = item.name;
+        if (item.cost_per_unit !== prev?.cost_per_unit) dbUpdates.cost_per_unit = item.cost_per_unit || null;
+        if (JSON.stringify(item.blankCosts) !== JSON.stringify(prev?.blankCosts)) dbUpdates.blank_costs = item.blankCosts || null;
+        dbUpdates.sort_order = newSortOrder;
+        await supabase.from("items").update(dbUpdates).eq("id", item.id);
+
+        // Upsert buy_sheet_lines for changed qtys
+        if (JSON.stringify(item.qtys) !== JSON.stringify(prev?.qtys)) {
+          for (const [size, qty] of Object.entries(item.qtys || {})) {
+            await supabase.from("buy_sheet_lines").upsert(
+              { item_id: item.id, size, qty_ordered: qty },
+              { onConflict: "item_id,size" }
+            );
+          }
+        }
+      }
+
+      // 4. Remap temp IDs to real DB IDs in local state
+      const resolved = current.map(it => {
+        if (idMap[it.id]) return { ...it, id: idMap[it.id] };
+        return it;
+      });
+
+      // 5. Update snapshots and notify parent
+      const newSnapshot = JSON.stringify(resolved);
+      setSavedSnapshot(newSnapshot);
+      setLocalItems(resolved);
+      if (onSaved) onSaved(resolved);
+      if (onSaveStatus) onSaveStatus("saved");
+    } catch (e) {
+      console.error("Buy sheet save failed", e);
+      if (onSaveStatus) onSaveStatus("error");
+    }
   };
+  onSaveRef.current = doSave;
+
   const safeItems = (workingItems||[]).map(it => ({
     ...it,
     sizes: it.sizes||[],
@@ -396,7 +506,6 @@ export function BuySheetTab({ items, onUpdateItems }) {
   const [localQtys, setLocalQtys] = useState({});
   const inputRefs = {};
 
-  // Initialize localQtys from items
   const getLocalQty = (itemId, sz) => {
     const key = itemId+"_"+sz;
     return localQtys[key] !== undefined ? localQtys[key] : null;
@@ -441,10 +550,10 @@ export function BuySheetTab({ items, onUpdateItems }) {
   const handleDragOver = (e, idx) => { e.preventDefault(); setDragOverIdx(idx); };
   const handleDrop = (idx) => {
     if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setDragOverIdx(null); return; }
-    const newItems = [...(items||[])];
+    const newItems = [...(workingItems||[])];
     const [moved] = newItems.splice(dragIdx, 1);
     newItems.splice(idx, 0, moved);
-    onUpdateItems(newItems);
+    updateLocal(newItems);
     setDragIdx(null); setDragOverIdx(null);
   };
   const handleDragEnd = () => { setDragIdx(null); setDragOverIdx(null); };
@@ -477,13 +586,8 @@ export function BuySheetTab({ items, onUpdateItems }) {
             <button onClick={() => { setShowManual(!showManual); setShowPicker(false); }} style={{ background:T.surface, color:T.muted, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"pointer" }}>
               + Manual
             </button>
-            {dirty && (
-              <button onClick={handleSave} disabled={saving}
-                style={{ background:T.green, color:"#fff", border:"none", borderRadius:7, padding:"6px 16px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer", opacity:saving?0.6:1 }}>
-                {saving ? "Saving..." : "Save"}
-              </button>
-            )}
-            {!dirty && <span style={{ fontSize:11, color:T.faint, fontFamily:font }}>All saved</span>}
+            {isDirty && <span style={{ fontSize:11, color:T.amber, fontFamily:font }}>Saving…</span>}
+            {!isDirty && <span style={{ fontSize:11, color:T.faint, fontFamily:font }}>All saved</span>}
             {grandTotal > 0 && <span style={{ fontSize:12, color:T.green, fontFamily:mono, fontWeight:600 }}>{grandTotal.toLocaleString()} units total</span>}
             <div style={{ marginLeft:"auto", display:"flex", gap:12 }}>
               {[["↑↓←→","Nav"],["Enter","↓"],["Tab","→"]].map(([k,l]) => (
@@ -521,7 +625,7 @@ export function BuySheetTab({ items, onUpdateItems }) {
                             <input
                               value={item.name}
                               onChange={e => {
-                                const newItems = (items||[]).map((it,idx) => idx===rowIdx ? {...it, name:e.target.value} : it);
+                                const newItems = (workingItems||[]).map((it,idx) => idx===rowIdx ? {...it, name:e.target.value} : it);
                                 updateLocal(newItems);
                               }}
                               onClick={e => e.stopPropagation()}

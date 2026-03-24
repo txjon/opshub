@@ -72,6 +72,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [costingSaveStatus, setCostingSaveStatus] = useState("saved");
+  const [buySheetSaveStatus, setBuySheetSaveStatus] = useState("saved");
   const [rxExp, setRxExp] = useState<Record<string,boolean>>({});
   const [rxData, setRxData] = useState<Record<string,any>>({});
   const [shipStage, setShipStage] = useState<string|null>(null);
@@ -165,7 +166,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     setRxData(prev => ({...prev, [id]:{...prev[id],[key]:{...(prev[id]?.[key]||{}),[sz]:val}}}));
 
   if (loading) return React.createElement("div", {style:{padding:"2rem",color:"#7a82a0",fontSize:13}}, "Loading...");
-  if (!job) return React.createElement("div", {style:{padding:"2rem",color:"#7a82a0",fontSize:13}}, "Job not found.");
+  if (!job) return React.createElement("div", {style:{padding:"2rem",color:"#7a82a0",fontSize:13}}, "Project not found.");
 
   // Use costing_summary if available (set when costing tab is saved), fallback to item calculations
   const cs = job.costing_summary ? (typeof job.costing_summary === 'string' ? JSON.parse(job.costing_summary) : job.costing_summary) : null;
@@ -268,7 +269,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             {t.label}
           </button>
         ))}
-        <span style={{fontSize:11,fontFamily:"IBM Plex Sans,Helvetica Neue,Arial,sans-serif",marginLeft:8,color:costingSaveStatus==="saving"?"#f5a623":costingSaveStatus==="saved"?"#34c97a":"#f05353"}}>{costingSaveStatus==="saving"?"Saving…":costingSaveStatus==="saved"?"Saved ✓":"Unsaved"}</span>
+        {(()=>{
+          const s = tab==="buysheet" ? buySheetSaveStatus : costingSaveStatus;
+          if (tab!=="buysheet"&&tab!=="costing"&&tab!=="quote") return null;
+          return <span style={{fontSize:11,fontFamily:"IBM Plex Sans,Helvetica Neue,Arial,sans-serif",marginLeft:8,color:s==="saving"?"#f5a623":s==="saved"?"#34c97a":s==="error"?"#f05353":"#f05353"}}>{s==="saving"?"Saving…":s==="saved"?"Saved ✓":s==="error"?"Save error":"Unsaved"}</span>;
+        })()}
       </div>      {/* OVERVIEW */}
                   {tab==="overview"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
@@ -462,36 +467,19 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* BUYSHEET */}
       {tab==="buysheet"&&(
         <BuySheetTab
-          onRegisterSave={(fn: () => Promise<void>) => { saveBuySheetRef.current = fn; }}          items={items}
-          onUpdateItems={async (newItems:any[]) => {
-            const deleted = items.filter(i => !newItems.find((ni:any) => ni.id === i.id));
-            for (const item of deleted) {
-              await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
-              await supabase.from("items").delete().eq("id", item.id);
-            }
-            const added = newItems.filter((ni:any) => !items.find(i => i.id === ni.id));
-            for (const item of added) {
-              const { data } = await supabase.from("items").insert({
-                job_id: params.id, name: item.name,
-                blank_vendor: item.blank_vendor || null,
-                blank_sku: item.blank_sku || null,
-                cost_per_unit: item.cost_per_unit || null,
-                blank_costs: item.blankCosts && Object.keys(item.blankCosts).length > 0 ? item.blankCosts : null,
-                status: "tbd", artwork_status: "not_started", sort_order: items.length,
-              }).select("id").single();
-              if (data && item.sizes?.length > 0) {
-                await supabase.from("buy_sheet_lines").insert(
-                  item.sizes.map((sz:string) => ({ item_id: data.id, size: sz, qty_ordered: item.qtys?.[sz] || 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }))
-                );
-              }
-            }
-            const updated = newItems.filter((ni:any) => items.find(i => i.id === ni.id));
-            for (let idx = 0; idx < updated.length; idx++) {
-              const item = updated[idx];
-              const newSortOrder = newItems.findIndex((ni:any) => ni.id === item.id);
-              await saveItem(item.id, { qtys: item.qtys, cost_per_unit: item.cost_per_unit, name: item.name, sort_order: newSortOrder } as any);
-            }
-            await loadData();
+          items={items}
+          jobId={params.id}
+          onRegisterSave={(fn: () => Promise<void>) => { saveBuySheetRef.current = fn; }}
+          onSaveStatus={(s: string) => setBuySheetSaveStatus(s)}
+          onSaved={(resolved: any[]) => {
+            // Optimistic update — no loadData() call, no flash
+            const mapped = resolved.map((it: any) => ({
+              ...it,
+              sizes: it.sizes || [],
+              qtys: it.qtys || {},
+              totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a: number, v: number) => a + v, 0),
+            }));
+            setItems(mapped);
           }}
         />
       )}
