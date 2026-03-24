@@ -943,12 +943,11 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
             {/* Quote details */}
             <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:14}}>
               <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Quote details</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
                 <CInput label="Quote #" value={orderInfo.invoiceNum} onChange={v=>setOrderInfo(o=>({...o,invoiceNum:v}))}/>
+                <CInput label="Client email" value={orderInfo.clientEmail} onChange={v=>setOrderInfo(o=>({...o,clientEmail:v}))} placeholder="client@example.com"/>
                 <CInput label="Valid until" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))} placeholder="Apr 15, 2026"/>
-                <CInput label="Ship date" value={orderInfo.shipDate} onChange={v=>setOrderInfo(o=>({...o,shipDate:v}))} placeholder="Apr 30, 2026"/>
                 <CInput label="Ship method" value={orderInfo.shipMethod} onChange={v=>setOrderInfo(o=>({...o,shipMethod:v}))} placeholder="UPS Ground"/>
-                <CInput label="Notes" value={orderInfo.notes} onChange={v=>setOrderInfo(o=>({...o,notes:v}))} placeholder="Quote notes..."/>
               </div>
             </div>
             <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
@@ -992,8 +991,8 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                 {[
                   ["Date", today],
                   ["Valid until", orderInfo.validUntil||"30 days from issue"],
-                  ["Est. ship date", orderInfo.shipDate||"TBD"],
-                  ["Prepared for", orderInfo.clientName||project?.clients?.name||"—"],
+                  ["Est. ship date", project?.target_ship_date ? new Date(project.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "TBD"],
+                  ["Prepared for", project?.clients?.name||"—"],
                 ].map(([k,v],i,arr)=>(
                   <div key={k} style={{padding:"8px 12px",borderRight:i<arr.length-1?"0.5px solid #e5e7eb":"none"}}>
                     <div style={{fontSize:8,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#aaa",marginBottom:2}}>{k}</div>
@@ -1058,10 +1057,10 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                 </div>
 
                 {/* Notes */}
-                {orderInfo.notes&&(
+                {project?.notes&&(
                   <div style={{marginTop:20,padding:"12px 16px",background:"#f9f9f9",borderRadius:6,fontSize:11,color:"#555",lineHeight:1.7,fontFamily:"system-ui, sans-serif",whiteSpace:"pre-line"}}>
                     <div style={{fontSize:8,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#aaa",marginBottom:6}}>Notes</div>
-                    {orderInfo.notes}
+                    {project.notes}
                   </div>
                 )}
               </div>
@@ -1140,16 +1139,21 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
   const [inclShip, setInclShip] = useState(savedData?.inclShip !== undefined ? savedData.inclShip : true);
   const [inclCC, setInclCC] = useState(savedData?.inclCC !== undefined ? savedData.inclCC : true);
   const [orderInfo, setOrderInfo] = useState(savedData?.orderInfo || {
-    clientName: project?.clients?.name || "",
     clientEmail: "",
     invoiceNum: project?.job_number || "",
     validUntil: "",
-    shipDate: project?.target_ship_date || "",
-    vendorId: "", shipMethod: "",
-    notes: project?.notes || "",
+    shipMethod: "",
+    vendorId: "",
     productionNotes: "", finishingNotes: "",
   });
-  const [savedOrderInfo, setSavedOrderInfo] = useState(savedData?.orderInfo || { clientName: project?.clients?.name || "", clientEmail: "", invoiceNum: project?.job_number || "", validUntil: "", shipDate: project?.target_ship_date || "", vendorId: "", shipMethod: "", notes: project?.notes || "", productionNotes: "", finishingNotes: "" });
+  const [savedOrderInfo, setSavedOrderInfo] = useState(savedData?.orderInfo || {
+    clientEmail: "",
+    invoiceNum: project?.job_number || "",
+    validUntil: "",
+    shipMethod: "",
+    vendorId: "",
+    productionNotes: "", finishingNotes: "",
+  });
   const [saveStatus, setSaveStatus] = useState("saved");
   const onSaveRef = React.useRef(null);
   const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) ||
@@ -1162,12 +1166,13 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
     return () => window.removeEventListener("beforeunload", handler);
   }, [costingDirty]);
 
-  // Sync name changes from buyItems
+  // Sync buy item changes (name, sizes, qtys) into saved snapshot
   useEffect(() => {
     setSavedCostProds(prev => prev.map(sp => {
       const bi = (buyItems||[]).find(b => b.id === sp.id);
-      if (bi && bi.name && bi.name !== sp.name) return {...sp, name: bi.name};
-      return sp;
+      if (!bi) return sp;
+      const totalQty = bi.totalQty || Object.values(bi.qtys||{}).reduce((a,v)=>a+v,0) || sp.totalQty || 0;
+      return {...sp, name: bi.name||sp.name, sizes: sortSizes(bi.sizes||[]), qtys: bi.qtys||sp.qtys, totalQty};
     }));
   }, [buyItems]);
 
@@ -1208,7 +1213,19 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
           costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo },
           costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty }
         }).eq("id", project.id);
-        if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }, costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty } });      } catch(e) { console.error("Failed to save costing data", e); }
+        if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }, costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty } });
+        // Write refined blank costs back to items table
+        for (const cp of costProds) {
+          if (cp.blankCosts && Object.keys(cp.blankCosts).length > 0) {
+            const costValues = Object.values(cp.blankCosts).filter(v => v > 0);
+            const avgCost = costValues.length > 0 ? costValues.reduce((a, v) => a + v, 0) / costValues.length : null;
+            await supabase.from("items").update({
+              blank_costs: cp.blankCosts,
+              cost_per_unit: avgCost,
+            }).eq("id", cp.id);
+          }
+        }
+      } catch(e) { console.error("Failed to save costing data", e); }
     }
   };
   onSaveRef.current = onSave;
