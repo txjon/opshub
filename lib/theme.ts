@@ -1,8 +1,8 @@
 export const T = {
   bg: "#0f1117",
-  surface: "#181c27",
+  surface: "#1a1f2e",
   card: "#1e2333",
-  border: "#2a3050",
+  border: "#313a56",
   accent: "#4f8ef7",
   accentDim: "#1e3a6e",
   green: "#34c97a",
@@ -14,8 +14,8 @@ export const T = {
   purple: "#a78bfa",
   purpleDim: "#2d1f5e",
   text: "#e8eaf2",
-  muted: "#7a82a0",
-  faint: "#3a4060",
+  muted: "#8a92b0",
+  faint: "#515a78",
 };
 
 export const font = "'IBM Plex Sans','Helvetica Neue',Arial,sans-serif";

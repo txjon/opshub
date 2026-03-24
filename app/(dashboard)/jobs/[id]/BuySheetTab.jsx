@@ -630,7 +630,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
                                 <input type="text" inputMode="numeric" pattern="[0-9]*"
                                   value={getLocalQty(item.id,sz) !== null ? getLocalQty(item.id,sz) : (qty||"")}
                                   placeholder="0"
-                                  onFocus={() => { setFocused({row:rowIdx,col:szIdx}); setLocalQty(item.id,sz,qty||""); }}
+                                  onFocus={e => { setFocused({row:rowIdx,col:szIdx}); setLocalQty(item.id,sz,qty||""); e.target.select(); }}
                                   onChange={e => setLocalQty(item.id, sz, e.target.value)}
                                   onBlur={() => commitQty(rowIdx, item.id, sz)}
                                   onKeyDown={e => {
@@ -642,7 +642,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
                                     if (e.key==="ArrowUp") { e.preventDefault(); commitQty(rowIdx,item.id,sz); if(rowIdx>0) moveTo(rowIdx-1,szIdx<safeItems[rowIdx-1].sizes.length?szIdx:0); }
                                   }}
                                   ref={el => { if(el) inputRefs.current[rowIdx+"_"+szIdx] = el; }}
-                                  style={{ width:36, textAlign:"center", background:"transparent", border:"none", outline:"none", color:qty>0?T.text:T.faint, fontSize:12, fontFamily:mono, padding:0 }}/>
+                                  style={{ width:36, textAlign:"center", background:"transparent", border:"none", outline:"none", color:isFocused?T.text:qty>0?T.text:T.muted, fontSize:12, fontFamily:mono, padding:0 }}/>
                               </div>
                             );
                           })}

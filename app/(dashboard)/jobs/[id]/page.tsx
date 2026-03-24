@@ -155,8 +155,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const upd = (k: string, v: any) => { if (!job) return; const u = {...job, [k]:v} as Job; setJob(u); saveJob({[k]:v}); };
   const updItem = (id: string, p: Partial<Item>) => saveItem(id, p);
 
-  if (loading) return React.createElement("div", {style:{padding:"2rem",color:"#7a82a0",fontSize:13}}, "Loading...");
-  if (!job) return React.createElement("div", {style:{padding:"2rem",color:"#7a82a0",fontSize:13}}, "Project not found.");
+  if (loading) return React.createElement("div", {style:{padding:"2rem",color:T.muted,fontSize:13}}, "Loading...");
+  if (!job) return React.createElement("div", {style:{padding:"2rem",color:T.muted,fontSize:13}}, "Project not found.");
 
   // Use costing_summary if available (set when costing tab is saved), fallback to item calculations
   const cs = job.costing_summary ? (typeof job.costing_summary === 'string' ? JSON.parse(job.costing_summary) : job.costing_summary) : null;
@@ -174,7 +174,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const card = {background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"1rem 1.25rem"};
 
   return (
-    <div style={{fontFamily:"var(--font-sans)",color:"#e8eaf2",maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
+    <div style={{fontFamily:"var(--font-sans)",color:T.text,maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
       {/* Back */}
       <button onClick={async ()=>{
         if (tab==="costing" && saveCostingRef.current) {
@@ -183,7 +183,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           }
         }
         router.push("/jobs");
-      }} style={{background:"none",border:"none",color:"#7a82a0",fontSize:12,cursor:"pointer",marginBottom:12,padding:0,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
+      }} style={{background:"none",border:"none",color:T.muted,fontSize:12,cursor:"pointer",marginBottom:12,padding:0,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
         ← All projects
       </button>
 
@@ -192,29 +192,29 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
-              <span style={{fontSize:11,color:"#7a82a0",fontFamily:"'IBM Plex Mono',monospace"}}>{job.job_number}</span>
+              <span style={{fontSize:11,color:T.muted,fontFamily:"'IBM Plex Mono',monospace"}}>{job.job_number}</span>
               <span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>
                 {job.phase.replace(/_/g," ")}
               </span>
               {job.priority==="high"&&<span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:"#3d2a08",color:"#f5a623"}}>High priority</span>}
               {job.priority==="urgent"&&<span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:"#3d1212",color:"#f05353"}}>Urgent</span>}
-              {saving&&<span style={{fontSize:11,color:"#7a82a0"}}>Saving...</span>}
+              {saving&&<span style={{fontSize:11,color:T.muted}}>Saving...</span>}
             </div>
-            <h1 style={{fontSize:26,fontWeight:700,margin:"0 0 3px",letterSpacing:"-0.02em",color:"#e8eaf2",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>{(job.clients as any)?.name||"No client"}</h1>
-            <div style={{fontSize:16,color:"#7a82a0",marginBottom:6}}>{job.title}</div>
-            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#7a82a0"}}>
+            <h1 style={{fontSize:26,fontWeight:700,margin:"0 0 3px",letterSpacing:"-0.02em",color:T.text,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>{(job.clients as any)?.name||"No client"}</h1>
+            <div style={{fontSize:16,color:T.muted,marginBottom:6}}>{job.title}</div>
+            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.muted}}>
               <span style={{textTransform:"capitalize"}}>{job.job_type}</span>
-              <span style={{color:"#3a4060"}}>·</span>
+              <span style={{color:T.faint}}>·</span>
               <span>{totalUnits.toLocaleString()} units</span>
             </div>
           </div>
           <div style={{textAlign:"right"}}>
             {daysLeft!==null&&(
               <>
-                <div style={{fontSize:22,fontWeight:700,color:daysLeft<0?"#f05353":daysLeft<=3?"#f5a623":"#e8eaf2",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
+                <div style={{fontSize:22,fontWeight:700,color:daysLeft<0?"#f05353":daysLeft<=3?"#f5a623":T.text,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
                   {daysLeft<0?Math.abs(daysLeft)+"d overdue":daysLeft===0?"Ships today":daysLeft+"d to ship"}
                 </div>
-                <div style={{fontSize:12,color:"#7a82a0",marginTop:2}}>
+                <div style={{fontSize:12,color:T.muted,marginTop:2}}>
                   {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
                 </div>
               </>
@@ -223,15 +223,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginTop:16}}>
           {[
-            {label:"Revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():totalCost>0?"$"+Math.round(totalCost*1.43).toLocaleString():"—",color:"#4f8ef7"},
+            {label:"Revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():totalCost>0?"$"+Math.round(totalCost*1.43).toLocaleString():"—",color:T.accent},
             {label:"Cost",value:totalCost>0?"$"+Math.round(totalCost).toLocaleString():"—"},
             {label:"Net profit",value:totalCost>0?"$"+Math.round((totalRev||totalCost*1.43)-totalCost).toLocaleString():"—",color:"#34c97a"},
             {label:"Margin",value:totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100).toFixed(1)+"%":"—",color:(()=>{const m=totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100):0;return m>=30?"#34c97a":m>=20?"#f5a623":"#f05353";})()},
           ].map(s=>(
-            <div key={s.label} style={{background:"#181c27",border:"1px solid #2a3050",borderRadius:8,padding:"12px 14px"}}>
-              <div style={{fontSize:12,color:"#7a82a0",marginBottom:4}}>{s.label}</div>
-              <div style={{fontSize:16,fontWeight:500,color:(s as any).color||"#e8eaf2",textTransform:(s as any).cap?"capitalize":"none"}}>{s.value}</div>
-              {(s as any).sub&&<div style={{fontSize:11,color:"#7a82a0",marginTop:2}}>{(s as any).sub}</div>}
+            <div key={s.label} style={{background:T.surface,border:"1px solid #2a3050",borderRadius:8,padding:"12px 14px"}}>
+              <div style={{fontSize:12,color:T.muted,marginBottom:4}}>{s.label}</div>
+              <div style={{fontSize:16,fontWeight:500,color:(s as any).color||T.text,textTransform:(s as any).cap?"capitalize":"none"}}>{s.value}</div>
+              {(s as any).sub&&<div style={{fontSize:11,color:T.muted,marginTop:2}}>{(s as any).sub}</div>}
             </div>
           ))}
         </div>
@@ -241,7 +241,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       <div style={{display:"flex",gap:20}}>
         {/* Vertical tab nav */}
         <div style={{width:160,flexShrink:0}}>
-          <div style={{position:"sticky",top:16,display:"flex",flexDirection:"column",gap:2,padding:4,background:"#181c27",borderRadius:8}}>
+          <div style={{position:"sticky",top:16,display:"flex",flexDirection:"column",gap:2,padding:4,background:T.surface,borderRadius:8}}>
             {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
               <button key={t.id} onClick={async ()=>{
                 if (tab==="buysheet" && t.id!=="buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
@@ -256,7 +256,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 }
                 setTab(t.id);
               }}
-                style={{padding:"7px 12px",fontSize:13,fontWeight:tab===t.id?600:400,background:tab===t.id?"#4f8ef7":"transparent",color:tab===t.id?"#fff":"#7a82a0",border:"none",borderRadius:6,cursor:"pointer",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",textAlign:"left",width:"100%"}}>
+                style={{padding:"7px 12px",fontSize:13,fontWeight:tab===t.id?600:400,background:tab===t.id?T.accent:"transparent",color:tab===t.id?"#fff":T.muted,border:"none",borderRadius:6,cursor:"pointer",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",textAlign:"left",width:"100%"}}>
                 {t.label}
               </button>
             ))}
@@ -280,44 +280,44 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             {/* Left */}
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
 
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project info</div>
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project info</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Client</label>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client</label>
                     <input style={ic} value={(job.clients as any)?.name||""} readOnly placeholder="No client assigned"/>
                   </div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Project title</label>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project title</label>
                     <input style={ic} value={job.title} onChange={e=>upd("title",e.target.value)}/>
                   </div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Type</label>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Type</label>
                     <select style={ic} value={job.job_type} onChange={e=>upd("job_type",e.target.value)}>
                       {["tour","webstore","drop_ship"].map(t=><option key={t} value={t}>{t.replace(/_/g," ")}</option>)}
                     </select>
                   </div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Priority</label>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Priority</label>
                     <select style={ic} value={job.priority} onChange={e=>upd("priority",e.target.value)}>
                       {["normal","high","urgent"].map(p=><option key={p} value={p}>{p}</option>)}
                     </select>
                   </div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Phase</label>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Phase</label>
                     <select style={ic} value={job.phase} onChange={e=>upd("phase",e.target.value)}>
                       {["intake","pre_production","production","receiving","shipping","complete","on_hold","cancelled"].map(p=><option key={p} value={p}>{p.replace(/_/g," ")}</option>)}
                     </select>
                   </div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Contract</label>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Contract</label>
                     <select style={ic} value={job.contract_status} onChange={e=>upd("contract_status",e.target.value)}>
                       {["not_sent","sent","signed","waived"].map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
                     </select>
                   </div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Project notes</label>
+                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
                     <textarea style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
                   </div>
                 </div>
               </div>
 
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em"}}>Payment records</div>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payment records</div>
                   <button onClick={()=>setJob(j=>j?{...j,_addPayment:!(j as any)._addPayment} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
                 </div>
                 {(job as any)._addPayment&&(
@@ -348,21 +348,21 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     </div>
                   </div>
                 )}
-                {payments.length===0&&!(job as any)._addPayment&&<p style={{fontSize:12,color:"#7a82a0"}}>No payments recorded yet.</p>}
+                {payments.length===0&&!(job as any)._addPayment&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
                 {payments.length>0&&(
                   <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
                     <thead><tr style={{borderBottom:"1px solid #2a3050"}}>
-                      {["Invoice","Type","Amount","Due","Status",""].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:"#7a82a0",fontWeight:500}}>{h}</th>)}
+                      {["Invoice","Type","Amount","Due","Status",""].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:T.muted,fontWeight:500}}>{h}</th>)}
                     </tr></thead>
                     <tbody>{payments.map(p=>{
                       const statuses=["draft","sent","viewed","partial","paid","overdue","void"];
                       const nextStatus=()=>{const idx=statuses.indexOf(p.status);return statuses[(idx+1)%statuses.length];};
                       return(
                       <tr key={p.id} style={{borderBottom:"1px solid #2a3050"}}>
-                        <td style={{padding:"6px",fontFamily:"var(--font-mono)",color:"#7a82a0"}}>{p.invoice_number||"—"}</td>
+                        <td style={{padding:"6px",fontFamily:"var(--font-mono)",color:T.muted}}>{p.invoice_number||"—"}</td>
                         <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
                         <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
-                        <td style={{padding:"6px",color:"#7a82a0"}}>{p.due_date?new Date(p.due_date).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"—"}</td>
+                        <td style={{padding:"6px",color:T.muted}}>{p.due_date?new Date(p.due_date).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"—"}</td>
                         <td style={{padding:"6px"}}>
                           <button onClick={async()=>{
                             const ns=nextStatus();
@@ -387,17 +387,17 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 )}
               </div>
 
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Activity</div>
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Activity</div>
                 <div style={{display:"flex",flexDirection:"column",gap:7}}>
                   <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                    <div style={{width:6,height:6,borderRadius:"50%",background:"#4f8ef7",flexShrink:0,marginTop:4}}/>
-                    <div><div style={{fontSize:12}}>Project created</div><div style={{fontSize:10,color:"#7a82a0"}}>{new Date(job.created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div></div>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0,marginTop:4}}/>
+                    <div><div style={{fontSize:12}}>Project created</div><div style={{fontSize:10,color:T.muted}}>{new Date(job.created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div></div>
                   </div>
                   {items.length>0&&(
                     <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
                       <div style={{width:6,height:6,borderRadius:"50%",background:"#34c97a",flexShrink:0,marginTop:4}}/>
-                      <div><div style={{fontSize:12}}>{items.length} item{items.length!==1?"s":""} on buy sheet</div><div style={{fontSize:10,color:"#7a82a0"}}>{totalUnits.toLocaleString()} total units</div></div>
+                      <div><div style={{fontSize:12}}>{items.length} item{items.length!==1?"s":""} on buy sheet</div><div style={{fontSize:10,color:T.muted}}>{totalUnits.toLocaleString()} total units</div></div>
                     </div>
                   )}
                 </div>
@@ -428,9 +428,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             {/* Right */}
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
 
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
                   <button onClick={()=>setJob(j=>j?{...j,_addContact:!(j as any)._addContact} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
                 </div>
                 {(job as any)._addContact&&(
@@ -471,16 +471,16 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     </div>
                   </div>
                 )}
-                {contacts.length===0&&!(job as any)._addContact&&<p style={{fontSize:12,color:"#7a82a0"}}>No contacts assigned.</p>}
+                {contacts.length===0&&!(job as any)._addContact&&<p style={{fontSize:12,color:T.muted}}>No contacts assigned.</p>}
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   {contacts.map((c,i)=>(
                     <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,paddingBottom:i<contacts.length-1?6:0,borderBottom:i<contacts.length-1?"1px solid #2a3050":"none"}}>
-                      <div style={{width:26,height:26,borderRadius:"50%",background:"#1e3a6e",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:"#4f8ef7",flexShrink:0}}>
+                      <div style={{width:26,height:26,borderRadius:"50%",background:"#1e3a6e",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
                         {c.name.split(" ").map((n:string)=>n[0]).join("").slice(0,2)}
                       </div>
                       <div style={{flex:1}}>
-                        <div style={{fontSize:12,fontWeight:600}}>{c.name} <span style={{fontWeight:400,color:"#7a82a0",fontSize:11}}>· {c.role_label} · {c.role_on_job}</span></div>
-                        {c.email&&<div style={{fontSize:10,color:"#4f8ef7"}}>{c.email}</div>}
+                        <div style={{fontSize:12,fontWeight:600}}>{c.name} <span style={{fontWeight:400,color:T.muted,fontSize:11}}>· {c.role_label} · {c.role_on_job}</span></div>
+                        {c.email&&<div style={{fontSize:10,color:T.accent}}>{c.email}</div>}
                       </div>
                       <button onClick={async()=>{
                         await supabase.from("job_contacts").delete().eq("job_id",job.id).eq("contact_id",c.id);
@@ -493,38 +493,38 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
 
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Target ship date</label><input style={ic} type="date" value={job.target_ship_date||""} onChange={e=>upd("target_ship_date",e.target.value)}/></div>
-                  <div><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>In hands date</label><input style={ic} type="date" value={job.type_meta?.show_date||""} onChange={e=>upd("type_meta",{...job.type_meta,show_date:e.target.value})}/></div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Location name</label><input style={ic} value={job.type_meta?.venue_name||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_name:e.target.value})}/></div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Delivery address</label><input style={ic} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/></div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:"#7a82a0",marginBottom:3,display:"block"}}>Shipping notes</label><input style={ic} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})} placeholder="Carrier, dock info, on-site contact..."/></div>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Target ship date</label><input style={ic} type="date" value={job.target_ship_date||""} onChange={e=>upd("target_ship_date",e.target.value)}/></div>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>In hands date</label><input style={ic} type="date" value={job.type_meta?.show_date||""} onChange={e=>upd("type_meta",{...job.type_meta,show_date:e.target.value})}/></div>
+                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Location name</label><input style={ic} value={job.type_meta?.venue_name||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_name:e.target.value})}/></div>
+                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Delivery address</label><input style={ic} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/></div>
+                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label><input style={ic} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})} placeholder="Carrier, dock info, on-site contact..."/></div>
                 </div>
               </div>
 
-              <div style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:10,fontWeight:600,color:"#7a82a0",textTransform:"uppercase",letterSpacing:"0.07em"}}>Items</div>
-                  <span style={{fontSize:10,color:"#7a82a0"}}>{items.length} items · {totalUnits.toLocaleString()} units</span>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Items</div>
+                  <span style={{fontSize:10,color:T.muted}}>{items.length} items · {totalUnits.toLocaleString()} units</span>
                 </div>
-                {items.length===0&&<p style={{fontSize:12,color:"#7a82a0"}}>No items yet. Add items in the Buy Sheet tab.</p>}
+                {items.length===0&&<p style={{fontSize:12,color:T.muted}}>No items yet. Add items in the Buy Sheet tab.</p>}
                 <div style={{display:"flex",flexDirection:"column",gap:4}}>
                   {items.map(item=>{
                     const qty=tQty(item.qtys||{});
                     const dc=(item as any).decoration_type;
                     const decoColors: Record<string,{bg:string,text:string}> = {
-                      screen_print:{bg:"#1e3a6e",text:"#4f8ef7"},
+                      screen_print:{bg:"#1e3a6e",text:T.accent},
                       embroidery:{bg:"#2d1f5e",text:"#a78bfa"},
                       patch:{bg:"#3d2a08",text:"#f5a623"},
                     };
                     const deco = dc?decoColors[dc]||decoColors.screen_print:null;
                     return (
-                      <div key={item.id} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",background:"#181c27",borderRadius:6}}>
+                      <div key={item.id} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",background:T.surface,borderRadius:6}}>
                         <div style={{flex:1,minWidth:0}}>
-                          <span style={{fontSize:12,fontWeight:600,color:"#e8eaf2"}}>{item.name}</span>
-                          <span style={{fontSize:10,color:"#7a82a0",marginLeft:7}}>{item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}</span>
+                          <span style={{fontSize:12,fontWeight:600,color:T.text}}>{item.name}</span>
+                          <span style={{fontSize:10,color:T.muted,marginLeft:7}}>{item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}</span>
                         </div>
                         <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:"nowrap",
                           background:item.status==="confirmed"?"#0e3d24":"#3d2a08",

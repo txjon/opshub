@@ -494,7 +494,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                       <input type="text" inputMode="numeric" pattern="[0-9]*" value={qty||""} placeholder="0"
                                         onChange={e=>{const q=parseInt(e.target.value)||0;const newQtys={...(p.qtys||{}),[sz]:q};const newTotal=Object.values(newQtys).reduce((a,v)=>a+v,0);updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}}}
                                         data-costfield onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab")focusNext(e,e.shiftKey);if(e.key==="ArrowDown"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:false},false);}if(e.key==="ArrowUp"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:true},true);}}}
-                                        style={{width:60,textAlign:"left",background:"transparent",border:"none",outline:"none",color:qty>0?T.text:T.faint,fontSize:12,fontFamily:mono}}/>
+                                        style={{width:60,textAlign:"left",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono}}/>
                                     </td>
                                     <td style={{padding:"3px 8px",textAlign:"left",borderRight:`1px solid ${T.border}`}}>
                                       <div style={{display:"flex",alignItems:"center",justifyContent:"flex-start",gap:2}}>
@@ -503,7 +503,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                           onChange={e=>{ const raw=e.target.value; if(/^\d*\.?\d*$/.test(raw)) setCostLocal(p.id,sz,raw); }}
                                           onBlur={()=>commitCost(i,p,sz)}
                                           data-costfield onKeyDown={e=>{if(e.key==="Enter"){commitCost(i,p,sz);focusNext(e,false);}if(e.key==="Tab"){commitCost(i,p,sz);focusNext(e,e.shiftKey);}if(e.key==="ArrowDown"){e.preventDefault();commitCost(i,p,sz);focusNext({...e,key:"Tab",shiftKey:false},false);}if(e.key==="ArrowUp"){e.preventDefault();commitCost(i,p,sz);focusNext({...e,key:"Tab",shiftKey:true},true);}}}
-                                          style={{width:60,textAlign:"left",background:"transparent",border:"none",outline:"none",color:bc>0?T.text:T.faint,fontSize:12,fontFamily:mono}}/>
+                                          style={{width:60,textAlign:"left",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono}}/>
                                       </div>
                                     </td>
                                     <td style={{padding:"3px 12px",textAlign:"left",fontFamily:mono,fontSize:12,fontWeight:subtotal>0?600:400,color:subtotal>0?T.text:T.faint}}>{subtotal>0?fmtD(subtotal):"—"}</td>
@@ -631,7 +631,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                       <input type="text" inputMode="numeric" pattern="[0-9]*" value={ld.screens||""} placeholder="0"
                                         onChange={e=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,screens:parseFloat(e.target.value)||0,printer:ld.printer||p.printVendor||""}}})}
                                         data-costfield onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab")focusNext(e,e.shiftKey);if(e.key==="ArrowDown"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:false},false);}if(e.key==="ArrowUp"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:true},true);}}}
-                                        style={{width:50,textAlign:"center",background:"transparent",border:"none",outline:"none",color:ld.screens?T.text:T.faint,fontSize:12,fontFamily:mono}}/>
+                                        style={{width:50,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono}}/>
                                     </td>
                                     <td style={{padding:"4px 8px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
                                       <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
@@ -858,7 +858,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                               onChange={e=>{const raw=e.target.value;if(raw===""||/^[0-9]*\.?[0-9]*$/.test(raw))updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[row.field]:raw===""?0:raw.endsWith(".")?raw:parseFloat(raw)||0}});}}
                                               onBlur={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[row.field]:parseFloat(e.target.value)||0}})}
                                               data-costfield onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab")focusNext(e,e.shiftKey);}}
-                                              style={{width:60,textAlign:"center",background:"transparent",border:"none",outline:"none",color:row.qty>0?T.text:T.faint,fontSize:13,fontFamily:mono}}/>
+                                              style={{width:60,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontFamily:mono}}/>
                                           )}
                                         </td>
                                         <td style={{padding:"7px 12px",textAlign:"right",fontFamily:mono,fontSize:12,fontWeight:total>0?700:400,color:total>0?T.green:T.faint,width:"35%"}}>
