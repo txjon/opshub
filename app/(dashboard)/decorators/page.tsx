@@ -8,6 +8,7 @@ type PricingData = {
   qtys: number[];
   prices: Record<number, number[]>;
   tagPrices: number[];
+  packaging: Record<string, number>;
   finishing: Record<string, number>;
   setup: Record<string, number>;
   specialty: Record<string, number>;
@@ -36,9 +37,10 @@ const EMPTY_PRICING: PricingData = {
   qtys: [48, 72, 144, 288, 500, 1000, 2500],
   prices: { 1:[], 2:[], 3:[], 4:[], 5:[], 6:[] },
   tagPrices: [],
-  finishing: { Tee: 0, Longsleeve: 0, Fleece: 0 },
+  packaging: { Tee: 0, Longsleeve: 0, Fleece: 0 },
+  finishing: {},
   setup: { Screens: 0, TagScreens: 0, Seps: 0, InkChange: 0 },
-  specialty: { HangTag:0, HemTag:0, Applique:0, WaterBase:0, Glow:0, Shimmer:0, Metallic:0, Puff:0, HighDensity:0, Reflective:0, Foil:0 },
+  specialty: {},
 };
 
 function Field({ label, value, onChange, placeholder, isMono, wide }: {
@@ -63,23 +65,27 @@ function SectionHead({ title }: { title: string }) {
 }
 
 function NumCell({ value, onChange, width, gridId, row, col }: { value: number; onChange: (v:number)=>void; width?: number; gridId?: string; row?: number; col?: number }) {
+  const [local, setLocal] = useState<string|null>(null);
+  const display = local !== null ? local : (value ? String(value) : "");
+  const commit = (raw: string) => { setLocal(null); onChange(parseFloat(raw) || 0); };
   const moveTo = (r: number, c: number) => {
     const el = document.querySelector(`[data-grid="${gridId}"][data-row="${r}"][data-col="${c}"]`) as HTMLInputElement;
     if (el) { el.focus(); el.select(); }
   };
   return (
-    <input type="text" inputMode="numeric" value={value || ""} placeholder="0"
+    <input type="text" inputMode="decimal" value={display} placeholder="0"
       data-grid={gridId} data-row={row} data-col={col}
-      onChange={e => onChange(parseFloat(e.target.value) || 0)}
-      onFocus={e => e.target.select()}
-      onKeyDown={gridId !== undefined ? e => {
-        if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); moveTo(row!, col! + 1); }
-        if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); moveTo(row!, col! - 1); }
-        if (e.key === "Enter" || e.key === "ArrowDown") { e.preventDefault(); moveTo(row! + 1, col!); }
-        if (e.key === "ArrowUp") { e.preventDefault(); moveTo(row! - 1, col!); }
-        if (e.key === "ArrowRight" && e.currentTarget.selectionStart === e.currentTarget.value.length) { e.preventDefault(); moveTo(row!, col! + 1); }
-        if (e.key === "ArrowLeft" && e.currentTarget.selectionStart === 0) { e.preventDefault(); moveTo(row!, col! - 1); }
-      } : undefined}
+      onChange={e => setLocal(e.target.value)}
+      onFocus={e => { setLocal(String(value || "")); e.target.select(); }}
+      onBlur={e => commit(e.target.value)}
+      onKeyDown={e => {
+        if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); commit(e.currentTarget.value); if(gridId!==undefined) moveTo(row!, col! + 1); }
+        if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); commit(e.currentTarget.value); if(gridId!==undefined) moveTo(row!, col! - 1); }
+        if (e.key === "Enter" || e.key === "ArrowDown") { e.preventDefault(); commit(e.currentTarget.value); if(gridId!==undefined) moveTo(row! + 1, col!); }
+        if (e.key === "ArrowUp") { e.preventDefault(); commit(e.currentTarget.value); if(gridId!==undefined) moveTo(row! - 1, col!); }
+        if (gridId!==undefined && e.key === "ArrowRight" && e.currentTarget.selectionStart === e.currentTarget.value.length) { e.preventDefault(); commit(e.currentTarget.value); moveTo(row!, col! + 1); }
+        if (gridId!==undefined && e.key === "ArrowLeft" && e.currentTarget.selectionStart === 0) { e.preventDefault(); commit(e.currentTarget.value); moveTo(row!, col! - 1); }
+      }}
       style={{ width:width||48, textAlign:"center" as const, background:T.surface, border:`1px solid ${T.border}`, borderRadius:3, color:T.text, fontFamily:mono, fontSize:10, padding:"3px 1px", outline:"none" }} />
   );
 }
@@ -260,8 +266,10 @@ function PricingEditor({ pricing, onChange }: { pricing: PricingData; onChange: 
         </div>
       </div>
 
-      {/* Finishing, Setup, Specialty in 3 columns on the right */}
-      <div style={{ flex:1, minWidth:0, display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12, alignItems:"flex-start" }}>
+      {/* Packaging, Finishing, Setup, Specialty on the right */}
+      <div style={{ flex:1, minWidth:0, display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:12, alignItems:"flex-start" }}>
+        <KeyValueSection title="Packaging (per unit)" data={p.packaging||{}}
+          onUpdate={packaging => onChange({...p, packaging})} />
         <KeyValueSection title="Finishing (per unit)" data={p.finishing}
           onUpdate={finishing => onChange({...p, finishing})} />
         <KeyValueSection title="Setup Fees" data={p.setup}

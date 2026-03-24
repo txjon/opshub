@@ -72,8 +72,8 @@ const MARGIN_TIERS = {"10%":1.15,"15%":1.26,"20%":1.33,"25%":1.43,"30%":1.53};
 
 // Hardcoded fallback — used only if decorator has no pricing_data in DB
 const FALLBACK_PRINTERS = {
-  "STOKED":{qtys:[48,72,101,144,221,300,400,500,750,1000,2000,2500,5000,10000],prices:{1:[1.75,1.27,1.14,0.93,0.86,0.74,0.72,0.70,0.68,0.58,0.58,0.55,0.51,0.51],2:[2.51,1.84,1.63,1.23,1.14,0.94,0.91,0.83,0.81,0.69,0.67,0.56,0.51,0.51],3:[3.27,2.42,2.15,1.54,1.41,1.14,1.08,0.98,0.94,0.79,0.77,0.57,0.51,0.51],4:[4.03,2.99,2.65,1.86,1.69,1.34,1.27,1.12,1.07,0.89,0.87,0.58,0.54,0.53],5:[4.80,3.58,3.17,2.15,1.96,1.50,1.42,1.26,1.21,0.99,0.97,0.59,0.54,0.54],6:[6.02,4.50,4.02,2.64,2.41,1.81,1.72,1.51,1.45,1.18,1.15,0.64,0.56,0.56],7:[6.59,4.98,4.42,2.82,2.55,1.93,1.82,1.61,1.54,1.23,1.20,0.64,0.57,0.56],8:[7.09,5.31,4.69,3.07,2.78,2.06,1.94,1.69,1.61,1.30,1.26,0.65,0.57,0.56],9:[8.49,5.87,5.18,3.37,3.04,2.25,2.12,1.82,1.74,1.40,1.35,0.66,0.57,0.57],10:[9.88,6.44,5.68,3.72,3.36,2.44,2.30,1.97,1.86,1.50,1.45,0.66,0.58,0.57],11:[11.26,7.00,6.18,4.08,3.68,2.62,2.47,2.12,2.01,1.60,1.54,0.74,0.65,0.64],12:[12.50,7.46,6.56,4.68,4.25,2.82,2.65,2.26,2.14,1.70,1.64,0.76,0.65,0.64]},tagPrices:[0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55],finishing:{Tee:0.55,Longsleeve:0.55,Fleece:0.55},setup:{Screens:0,TagScreens:0,Seps:20,InkChange:15},specialty:{HangTag:0.25,HemTag:0.50,Applique:0.75,WaterBase:0.35,Glow:0.30,Shimmer:0.25,Metallic:0.75,Puff:0.50,HighDensity:0.50,Reflective:0.40,Foil:1.50}},
-  "ICON":{qtys:[96,144,216,288,500,1000,3000],prices:{1:[1.10,1.00,1.00,0.85,0.75,0.65,0.60],2:[1.10,1.00,1.00,0.85,0.75,0.65,0.60],3:[1.10,1.00,1.00,0.85,0.75,0.65,0.60],4:[1.10,1.00,1.00,0.85,0.75,0.65,0.60],5:[1.10,1.00,1.00,0.85,0.75,0.65,0.60],6:[1.10,1.00,1.00,0.85,0.75,0.65,0.60]},tagPrices:[0.50,0.50,0.50,0.45,0.45,0.40,0.40],finishing:{Tee:0.40,Longsleeve:0.50,Fleece:0.50},setup:{Screens:20,TagScreens:10,Seps:20,InkChange:20},specialty:{HangTag:0.10,HemTag:0.30,Applique:0.50,WaterBase:0.10,Glow:0.80,Shimmer:0.60,Metallic:0.60,Puff:0.75,HighDensity:0.65,Reflective:0.80,Foil:1.25}},
+  "STOKED":{qtys:[48,72,101,144,221,300,400,500,750,1000,2000,2500,5000,10000],prices:{1:[1.75,1.27,1.14,0.93,0.86,0.74,0.72,0.70,0.68,0.58,0.58,0.55,0.51,0.51],2:[2.51,1.84,1.63,1.23,1.14,0.94,0.91,0.83,0.81,0.69,0.67,0.56,0.51,0.51],3:[3.27,2.42,2.15,1.54,1.41,1.14,1.08,0.98,0.94,0.79,0.77,0.57,0.51,0.51],4:[4.03,2.99,2.65,1.86,1.69,1.34,1.27,1.12,1.07,0.89,0.87,0.58,0.54,0.53],5:[4.80,3.58,3.17,2.15,1.96,1.50,1.42,1.26,1.21,0.99,0.97,0.59,0.54,0.54],6:[6.02,4.50,4.02,2.64,2.41,1.81,1.72,1.51,1.45,1.18,1.15,0.64,0.56,0.56],7:[6.59,4.98,4.42,2.82,2.55,1.93,1.82,1.61,1.54,1.23,1.20,0.64,0.57,0.56],8:[7.09,5.31,4.69,3.07,2.78,2.06,1.94,1.69,1.61,1.30,1.26,0.65,0.57,0.56],9:[8.49,5.87,5.18,3.37,3.04,2.25,2.12,1.82,1.74,1.40,1.35,0.66,0.57,0.57],10:[9.88,6.44,5.68,3.72,3.36,2.44,2.30,1.97,1.86,1.50,1.45,0.66,0.58,0.57],11:[11.26,7.00,6.18,4.08,3.68,2.62,2.47,2.12,2.01,1.60,1.54,0.74,0.65,0.64],12:[12.50,7.46,6.56,4.68,4.25,2.82,2.65,2.26,2.14,1.70,1.64,0.76,0.65,0.64]},tagPrices:[0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55,0.55],packaging:{Tee:0.55,Longsleeve:0.55,Fleece:0.55},finishing:{},setup:{Screens:0,TagScreens:0,Seps:20,InkChange:15},specialty:{HangTag:0.25,HemTag:0.50,Applique:0.75,WaterBase:0.35,Glow:0.30,Shimmer:0.25,Metallic:0.75,Puff:0.50,HighDensity:0.50,Reflective:0.40,Foil:1.50}},
+  "ICON":{qtys:[96,144,216,288,500,1000,3000],prices:{1:[1.10,1.00,1.00,0.85,0.75,0.65,0.60],2:[1.10,1.00,1.00,0.85,0.75,0.65,0.60],3:[1.10,1.00,1.00,0.85,0.75,0.65,0.60],4:[1.10,1.00,1.00,0.85,0.75,0.65,0.60],5:[1.10,1.00,1.00,0.85,0.75,0.65,0.60],6:[1.10,1.00,1.00,0.85,0.75,0.65,0.60]},tagPrices:[0.50,0.50,0.50,0.45,0.45,0.40,0.40],packaging:{Tee:0.40,Longsleeve:0.50,Fleece:0.50},finishing:{},setup:{Screens:20,TagScreens:10,Seps:20,InkChange:20},specialty:{HangTag:0.10,HemTag:0.30,Applique:0.50,WaterBase:0.10,Glow:0.80,Shimmer:0.60,Metallic:0.60,Puff:0.75,HighDensity:0.65,Reflective:0.80,Foil:1.25}},
 };
 FALLBACK_PRINTERS["TEELAND"] = FALLBACK_PRINTERS["STOKED"];
 
@@ -141,11 +141,15 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
     const pr=PRINTERS[p.printVendor];
     const activeLocs=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length||0;
     if(pr){
-      if(p.finishingQtys["Packaging_on"]){const variant=p.isFleece?"Fleece":(p.finishingQtys["Packaging_variant"]||"Tee");finUnitRate+=(pr.finishing?.[variant]||0);}
-      if(p.finishingQtys["HangTag_on"]){finUnitRate+=(pr.specialty?.HangTag||0);}
-      if(p.finishingQtys["HemTag_on"]){finUnitRate+=(pr.specialty?.HemTag||0);}
-      if(p.finishingQtys["Applique_on"]){finUnitRate+=(pr.specialty?.Applique||0);}
-      if(p.isFleece){const locs=activeLocs+(p.tagPrint?1:0);finUnitRate+=(pr.finishing?.Tee||0)*locs;}
+      if(p.finishingQtys["Packaging_on"]){const variant=p.isFleece?"Fleece":(p.finishingQtys["Packaging_variant"]||"Tee");finUnitRate+=(pr.packaging?.[variant]||pr.finishing?.[variant]||0);}
+      // Dynamic finishing items from decorator pricing
+      Object.keys(p.finishingQtys||{}).forEach(fk=>{
+        if(fk.endsWith("_on")&&p.finishingQtys[fk]){
+          const key=fk.replace("_on","");
+          if(key!=="Packaging"){finUnitRate+=(pr.specialty?.[key]||pr.finishing?.[key]||0);}
+        }
+      });
+      if(p.isFleece){const locs=activeLocs+(p.tagPrint?1:0);finUnitRate+=(pr.packaging?.Tee||pr.finishing?.Tee||0)*locs;}
     }
   }
   let specUnitRate=0;
@@ -153,20 +157,41 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
     const pr=PRINTERS[p.printVendor];
     if(pr){
       const activeLocs=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length||0;
-      ["WaterBase","Glow","Shimmer","Metallic","Puff","HighDensity","Reflective","Foil"].forEach(key=>{
-        if(p.specialtyQtys[key+"_on"]){specUnitRate+=(pr.specialty?.[key]||0)*activeLocs;}
+      Object.keys(pr.specialty||{}).forEach(key=>{
+        if(p.specialtyQtys[key+"_on"]){
+          const count=p.specialtyQtys[key+"_count"]!==undefined?p.specialtyQtys[key+"_count"]:activeLocs;
+          specUnitRate+=(pr.specialty?.[key]||0)*count;
+        }
       });
     }
   }
   let setupTotal=0;
   if(p.setupFees){
     const pr=PRINTERS[p.printVendor||p.setupFees?.printer];
-    const autoScreens=[1,2,3,4,5,6].reduce((a,loc)=>a+(parseFloat(p.printLocations?.[loc]?.screens)||0),0);
-    if(pr) setupTotal+=(pr.setup.Screens||0)*autoScreens;
-    const activeSizes=(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).length;
-    if(pr&&!p.tagRepeat) setupTotal+=(pr.setup.TagScreens||0)*(p.tagPrint?activeSizes:(p.setupFees?.tagSizes||0));
-    if(pr) setupTotal+=(pr.setup.Seps||0)*(p.setupFees.seps||0);
-    if(pr) setupTotal+=(pr.setup.InkChange||0)*(p.setupFees.inkChanges||0);
+    if(pr){
+      const autoScreens=[1,2,3,4,5,6].reduce((a,loc)=>a+(parseFloat(p.printLocations?.[loc]?.screens)||0),0);
+      const activeSizes=(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).length;
+      const isScreensKey=(k)=>k==="Screens"||k.toLowerCase()==="screens";
+      const isTagScreensKey=(k)=>k==="TagScreens"||k==="Tag Screens"||k.toLowerCase().replace(/\s/g,"")==="tagscreens";
+      const getSpecCountCalc=(setupKey)=>{
+        const skLower=setupKey.toLowerCase();
+        const specOnKeys=Object.keys(p.specialtyQtys||{}).filter(sk=>sk.endsWith("_on")&&p.specialtyQtys[sk]);
+        for(const sk of specOnKeys){
+          const specName=sk.replace("_on","").toLowerCase();
+          if(skLower.includes(specName)) return p.specialtyQtys?.[sk.replace("_on","_count")]||0;
+        }
+        return null;
+      };
+      Object.keys(pr.setup||{}).forEach(k=>{
+        if(isScreensKey(k)) setupTotal+=(pr.setup[k]||0)*autoScreens;
+        else if(isTagScreensKey(k)&&!p.tagRepeat) setupTotal+=(pr.setup[k]||0)*(p.tagPrint?activeSizes:(p.setupFees?.tagSizes||0));
+        else {
+          const specCount=getSpecCountCalc(k);
+          if(specCount!==null) setupTotal+=(pr.setup[k]||0)*specCount;
+          else setupTotal+=(pr.setup[k]||0)*(p.setupFees?.[k]||0);
+        }
+      });
+    }
     if(p.setupFees.manualCost>0) setupTotal+=p.setupFees.manualCost;
   }
   const customTotal=(p.customCosts||[]).reduce((a,c)=>a+(c.amount||0),0);
@@ -701,46 +726,39 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                           )}
                         </div>
                       </div>
-                      {/* Finishing & Packaging */}
+                      {/* Finishing & Packaging — always visible */}
                       <div>
-                        <div onClick={()=>updateProd(i,{...p,_finOpen:!p._finOpen})}
-                          style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",padding:"6px 8px",borderRadius:6,background:p._finOpen?T.accentDim:T.surface,border:`1px solid ${p._finOpen?T.accent+"44":T.border}`,marginBottom:p._finOpen?8:0,transition:"all 0.15s"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <div style={{fontSize:10,fontWeight:700,color:p._finOpen?T.accent:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Finishing & Packaging</div>
-                            {!p._finOpen&&!!(p.finishingQtys?.Packaging_on||p.finishingQtys?.HangTag_on||p.finishingQtys?.HemTag_on||p.finishingQtys?.Applique_on||p.isFleece)&&<span style={{fontSize:11,color:T.green}}>✓</span>}
-                          </div>
-                          <span style={{fontSize:11,color:p._finOpen?T.accent:T.faint,display:"inline-block",transform:p._finOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.15s"}}>v</span>
+                        <div style={{padding:"6px 8px",borderRadius:6,background:T.surface,border:`1px solid ${T.border}`,marginBottom:8}}>
+                          <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Finishing & Packaging</div>
                         </div>
-                        {p._finOpen&&<div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+                        <div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
                             <tbody>
-                              {[
-                                {label:"Packaging", key:"Packaging", col3:"variant", col4:"finishing_variant"},
-                                {label:"Hang Tag", key:"HangTag", col3:"blank", col4:"specialty"},
-                                {label:"Hem Tag", key:"HemTag", col3:"blank", col4:"specialty"},
-                                {label:"Applique", key:"Applique", col3:"blank", col4:"specialty"},
-                                {label:"Fleece Upcharge", key:"FleeceUpcharge", col3:"print_count", col4:"finishing_fleece"},
-                              ].map(({label,key,col3,col4},idx,arr)=>{
+                              {(()=>{
+                                const pr=PRINTERS[p.printVendor]||{};
+                                const rows=[
+                                  {label:"Packaging",key:"Packaging",col3:"variant",col4:"packaging_variant"},
+                                  ...Object.keys(pr.finishing||{}).map(k=>({label:k,key:k,col3:"blank",col4:"finishing_item"})),
+                                ];
+                                // Add fleece upcharge row automatically if isFleece is on
+                                if(p.isFleece) rows.push({label:"Fleece Upcharge",key:"FleeceUpcharge",col3:"print_count",col4:"finishing_fleece"});
+                                return rows;
+                              })().map(({label,key,col3,col4},idx,arr)=>{
                                 const pr=PRINTERS[p.printVendor];
-                                const active=key==="FleeceUpcharge"?p.isFleece:!!(p.finishingQtys?.[key+"_on"]);
+                                const active=key==="FleeceUpcharge"?true:!!(p.finishingQtys?.[key+"_on"]);
                                 const totalPrints=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length||0;
-                                const fleecePrintCount=p.isFleece?(totalPrints+(p.tagPrint?1:0)):0;
-                                const packagingVariant=p.finishingQtys?.["Packaging_variant"]||"Tee";
-                                const unitCost=col4==="finishing_variant"?(pr?.finishing?.[packagingVariant]||0):col4==="specialty"?(pr?.specialty?.[key]||0):col4==="finishing_fleece"?(pr?.finishing?.Tee||0):0;
+                                const fleecePrintCount=totalPrints+(p.tagPrint?1:0);
+                                const packagingVariant=p.isFleece?"Fleece":(p.finishingQtys?.["Packaging_variant"]||"Tee");
+                                const unitCost=col4==="packaging_variant"?(pr?.packaging?.[packagingVariant]||0):col4==="finishing_item"?(pr?.finishing?.[key]||0):col4==="finishing_fleece"?(pr?.packaging?.Tee||pr?.finishing?.Tee||0):0;
                                 const qty=col3==="print_count"?fleecePrintCount:col3==="blank"?(p.finishingQtys?.[key+"_qty"]||0):col3==="variant"?(p.totalQty||0):totalPrints;
-                                const total=active?(col3==="variant"||col3==="blank"?unitCost:unitCost*(col3==="print_count"?fleecePrintCount:qty)):0;
+                                const total=active?(col3==="variant"||col3==="blank"?unitCost:unitCost*fleecePrintCount):0;
                                 const isLast=idx===arr.length-1;
                                 return(
                                   <tr key={label} style={{borderBottom:isLast?"none":`1px solid ${T.border}22`,background:active?T.accentDim:idx%2===0?T.card:T.surface}}>
                                     <td style={{padding:"7px 14px",fontFamily:font,fontSize:12,fontWeight:600,color:active?T.accent:T.muted,borderRight:`1px solid ${T.border}`,width:"30%"}}>{label}</td>
                                     <td style={{padding:"5px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"20%"}}>
                                       {key==="FleeceUpcharge"?(
-                                        <div style={{display:"flex",borderRadius:5,overflow:"hidden",border:`1px solid ${T.border}`,width:"fit-content",margin:"0 auto",opacity:0.8}}>
-                                          {["Yes","No"].map(opt=>{
-                                            const sel=(p.isFleece?"Yes":"No")===opt;
-                                            return <div key={opt} style={{padding:"3px 10px",fontSize:11,fontFamily:font,fontWeight:600,background:sel?(opt==="Yes"?T.accent:T.surface):T.card,color:sel?(opt==="Yes"?"#fff":T.text):T.faint}}>{opt}</div>;
-                                          })}
-                                        </div>
+                                        <span style={{fontSize:10,color:T.amber,fontFamily:font,fontWeight:600}}>auto</span>
                                       ):(
                                         <div style={{display:"flex",borderRadius:5,overflow:"hidden",border:`1px solid ${T.border}`,width:"fit-content",margin:"0 auto"}}>
                                           {["Yes","No"].map(opt=>{
@@ -762,10 +780,10 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                           disabled={!active}
                                           onChange={e=>updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),Packaging_variant:e.target.value}})}
                                           style={{background:active?T.surface:T.card,border:`1px solid ${active?T.border:T.faint+"44"}`,borderRadius:5,color:active?T.text:T.faint,fontFamily:font,fontSize:11,padding:"3px 6px",outline:"none",cursor:active?"pointer":"default",opacity:active?1:0.5}}>
-                                          {["Tee","Longsleeve","Fleece"].map(v=><option key={v} value={v}>{v}</option>)}
+                                          {Object.keys(pr?.packaging||{Tee:"",Longsleeve:"",Fleece:""}).map(v=><option key={v} value={v}>{v}</option>)}
                                         </select>
                                       ):col3==="print_count"?(
-                                        <span style={{fontSize:12,fontWeight:p.isFleece&&active?700:400,color:p.isFleece&&active?T.text:T.faint,fontFamily:mono}}>{p.isFleece?fleecePrintCount:null}</span>
+                                        <span style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{fleecePrintCount} <span style={{fontSize:9,color:T.faint,fontFamily:font}}>prints</span></span>
                                       ):(
                                         <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
                                           <span style={{fontSize:12,fontWeight:active?700:400,color:active?T.text:T.faint,fontFamily:mono}}>{active?totalPrints:null}</span>
@@ -781,7 +799,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                               })}
                             </tbody>
                           </table>
-                        </div>}
+                        </div>
                       </div>
                       {/* Setup Fees */}
                       <div>
@@ -797,12 +815,28 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                           const pr=PRINTERS[p.printVendor];
                           const autoScreens=[1,2,3,4,5,6].reduce((a,loc)=>a+(parseFloat(p.printLocations?.[loc]?.screens)||0),0);
                           const tagScreenCount=p.tagPrint&&!p.tagRepeat?(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).length:0;
-                          const rows=[
-                            {label:"Screens", qty:autoScreens, auto:true, unitCost:pr?.setup?.Screens||0, field:"screens"},
-                            {label:"Tag Screens", qty:tagScreenCount, auto:p.tagPrint, unitCost:p.tagRepeat?0:(pr?.setup?.TagScreens||0), field:"tagSizes"},
-                            {label:"Seps", qty:p.setupFees?.seps||0, auto:false, unitCost:pr?.setup?.Seps||0, field:"seps"},
-                            {label:"Ink Change", qty:p.setupFees?.inkChanges||0, auto:false, unitCost:pr?.setup?.InkChange||0, field:"inkChanges"},
-                          ];
+                          const setupKeys=Object.keys(pr?.setup||{});
+                          const isScreensKey=(k)=>k==="Screens"||k.toLowerCase()==="screens";
+                          const isTagScreensKey=(k)=>k==="TagScreens"||k==="Tag Screens"||k.toLowerCase().replace(/\s/g,"")==="tagscreens";
+                          // Find specialty keys that have a matching setup fee (e.g. "Puff" specialty → "Puff Screen Up Charge" setup)
+                          const getSpecialtyCount=(setupKey)=>{
+                            const skLower=setupKey.toLowerCase();
+                            const specKeys=Object.keys(p.specialtyQtys||{}).filter(sk=>sk.endsWith("_on")&&p.specialtyQtys[sk]);
+                            for(const sk of specKeys){
+                              const specName=sk.replace("_on","").toLowerCase();
+                              if(skLower.includes(specName)) return p.specialtyQtys?.[sk.replace("_on","_count")]||0;
+                            }
+                            return null;
+                          };
+                          const rows=setupKeys.map(k=>{
+                            if(isScreensKey(k)) return {label:"Screens",qty:autoScreens,auto:true,unitCost:pr.setup[k]||0,field:"screens"};
+                            if(isTagScreensKey(k)) return {label:"Tag Screens",qty:tagScreenCount,auto:p.tagPrint,unitCost:p.tagRepeat?0:(pr.setup[k]||0),field:"tagSizes"};
+                            // Check if this setup fee links to an active specialty
+                            const specCount=getSpecialtyCount(k);
+                            if(specCount!==null) return {label:k,qty:specCount,auto:true,unitCost:pr.setup[k]||0,field:k};
+                            // All other setup fees are manual input
+                            return {label:k,qty:p.setupFees?.[k]||0,auto:false,unitCost:pr.setup[k]||0,field:k};
+                          });
                           return(
                             <div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                               <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
@@ -820,8 +854,9 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                               <span style={{fontSize:9,color:T.faint,fontFamily:font}}>auto</span>
                                             </div>
                                           ):(
-                                            <input type="number" min="0" value={p.setupFees?.[row.field]||""} placeholder="0"
-                                              onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[row.field]:parseInt(e.target.value)||0}})}
+                                            <input type="text" inputMode="decimal" value={p.setupFees?.[row.field]||""} placeholder="0"
+                                              onChange={e=>{const raw=e.target.value;if(raw===""||/^[0-9]*\.?[0-9]*$/.test(raw))updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[row.field]:raw===""?0:raw.endsWith(".")?raw:parseFloat(raw)||0}});}}
+                                              onBlur={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[row.field]:parseFloat(e.target.value)||0}})}
                                               data-costfield onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab")focusNext(e,e.shiftKey);}}
                                               style={{width:60,textAlign:"center",background:"transparent",border:"none",outline:"none",color:row.qty>0?T.text:T.faint,fontSize:13,fontFamily:mono}}/>
                                           )}
@@ -838,7 +873,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                           );
                         })()}
                       </div>
-                      {/* Specialty */}
+                      {/* Specialty — collapsible, dynamic from decorator */}
                       <div>
                         <div onClick={()=>updateProd(i,{...p,_specOpen:!p._specOpen})}
                           style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",padding:"6px 8px",borderRadius:6,background:p._specOpen?T.accentDim:T.surface,border:`1px solid ${p._specOpen?T.accent+"44":T.border}`,marginBottom:p._specOpen?8:0,transition:"all 0.15s"}}>
@@ -848,27 +883,35 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                           </div>
                           <span style={{fontSize:11,color:p._specOpen?T.accent:T.faint,transition:"transform 0.15s",display:"inline-block",transform:p._specOpen?"rotate(180deg)":"rotate(0deg)"}}>v</span>
                         </div>
-                        {p._specOpen&&<div>
+                        {p._specOpen&&(()=>{
+                          const pr=PRINTERS[p.printVendor]||{};
+                          const specKeys=Object.keys(pr.specialty||{});
+                          if(specKeys.length===0) return <div style={{fontSize:11,color:T.faint,fontFamily:font,padding:"4px 8px"}}>No specialty options for this vendor</div>;
+                          return(
                           <div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                             <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
                               <tbody>
-                                {["Water Base","Glow","Shimmer","Metallic","Puff","High Density","Reflective","Foil"].map((label,idx,arr)=>{
-                                  const key=label.replace(/\s+/g,"");
-                                  const pr=PRINTERS[p.printVendor];
-                                  const unitCost=pr?.specialty?.[key]||0;
-                                  const activePrintCount=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length||0;
+                                {specKeys.map((key,idx)=>{
+                                  const label=key.replace(/([A-Z])/g," $1").trim();
+                                  const unitCost=pr.specialty[key]||0;
+                                  const allPrintCount=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length||0;
                                   const active=!!(p.specialtyQtys?.[key+"_on"]);
-                                  const total=active?unitCost*activePrintCount:0;
-                                  const isLast=idx===arr.length-1;
+                                  const printCount=active?(p.specialtyQtys?.[key+"_count"]!==undefined?p.specialtyQtys[key+"_count"]:allPrintCount):0;
+                                  const total=active?unitCost*printCount:0;
+                                  const isLast=idx===specKeys.length-1;
                                   return(
-                                    <tr key={label} style={{borderBottom:isLast?"none":`1px solid ${T.border}22`,background:active?T.accentDim:idx%2===0?T.card:T.surface}}>
+                                    <tr key={key} style={{borderBottom:isLast?"none":`1px solid ${T.border}22`,background:active?T.accentDim:idx%2===0?T.card:T.surface}}>
                                       <td style={{padding:"7px 14px",fontFamily:font,fontSize:12,fontWeight:600,color:active?T.accent:T.muted,borderRight:`1px solid ${T.border}`,width:"30%"}}>{label}</td>
                                       <td style={{padding:"5px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"20%"}}>
                                         <div style={{display:"flex",borderRadius:5,overflow:"hidden",border:`1px solid ${T.border}`,width:"fit-content",margin:"0 auto"}}>
                                           {["Yes","No"].map(opt=>{
                                             const sel=(active?"Yes":"No")===opt;
                                             return(
-                                              <button key={opt} onClick={()=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_on"]:opt==="Yes"?1:0}})}
+                                              <button key={opt} onClick={()=>{
+                                                const updates={...(p.specialtyQtys||{}),[key+"_on"]:opt==="Yes"?1:0};
+                                                if(opt==="Yes"&&!updates[key+"_count"]) updates[key+"_count"]=allPrintCount;
+                                                updateProd(i,{...p,specialtyQtys:updates});
+                                              }}
                                                 style={{padding:"3px 10px",fontSize:11,fontFamily:font,fontWeight:600,border:"none",cursor:"pointer",background:sel?(opt==="Yes"?T.accent:T.surface):T.card,color:sel?(opt==="Yes"?"#fff":T.text):T.faint,transition:"all 0.12s"}}>
                                                 {opt}
                                               </button>
@@ -876,11 +919,15 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                           })}
                                         </div>
                                       </td>
-                                      <td style={{padding:"7px 14px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"25%"}}>
-                                        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-                                          <span style={{fontSize:12,fontWeight:active?700:400,color:active?T.text:T.faint,fontFamily:mono}}>{active?activePrintCount:null}</span>
-                                          {active&&<span style={{fontSize:9,color:T.faint,fontFamily:font}}>prints</span>}
-                                        </div>
+                                      <td style={{padding:"4px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"25%"}}>
+                                        {active?(
+                                          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                                            <input type="text" inputMode="numeric" value={p.specialtyQtys?.[key+"_count"]!==undefined?p.specialtyQtys[key+"_count"]:allPrintCount}
+                                              onChange={e=>{const v=parseInt(e.target.value)||0;updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_count"]:v}});}}
+                                              style={{width:30,textAlign:"center",background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontFamily:mono,fontSize:12,padding:"2px",outline:"none"}}/>
+                                            <span style={{fontSize:9,color:T.faint,fontFamily:font}}>prints</span>
+                                          </div>
+                                        ):null}
                                       </td>
                                       <td style={{padding:"7px 14px",textAlign:"right",fontFamily:mono,fontSize:12,fontWeight:total>0?700:400,color:total>0?T.green:T.faint,width:"25%"}}>
                                         {active&&unitCost>0?fmtD(total):(unitCost>0&&!active?<span style={{fontSize:10,color:T.faint}}>{fmtD(unitCost)} ea</span>:null)}
@@ -890,8 +937,8 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                 })}
                               </tbody>
                             </table>
-                          </div>
-                        </div>}
+                          </div>);
+                        })()}
                       </div>
                       {/* Custom Costs */}
                       <div>
@@ -923,8 +970,9 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                       <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`,width:"25%",textAlign:"center"}}>
                                         <div style={{display:"flex",alignItems:"center",gap:2,justifyContent:"center"}}>
                                           <span style={{fontSize:11,color:T.faint,fontFamily:mono}}>$</span>
-                                          <input type="number" step="0.01" value={cc.amount||""} placeholder="0.00"
-                                            onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],amount:parseFloat(e.target.value)||0};updateProd(i,{...p,customCosts:c});}}
+                                          <input type="text" inputMode="decimal" value={cc.amount||""} placeholder="0.00"
+                                            onChange={e=>{const raw=e.target.value;if(raw===""||/^[0-9]*\.?[0-9]*$/.test(raw)){const c=[...p.customCosts];c[ci]={...c[ci],amount:raw===""?0:raw.endsWith(".")?raw:parseFloat(raw)||0};updateProd(i,{...p,customCosts:c});}}}
+                                            onBlur={e=>{const c=[...p.customCosts];c[ci]={...c[ci],amount:parseFloat(e.target.value)||0};updateProd(i,{...p,customCosts:c});}}
                                             style={{width:70,background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono,textAlign:"center"}}/>
                                         </div>
                                       </td>
@@ -965,7 +1013,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
                 <CInput label="Quote #" value={orderInfo.invoiceNum} onChange={v=>setOrderInfo(o=>({...o,invoiceNum:v}))}/>
                 <CInput label="Client email" value={orderInfo.clientEmail} onChange={v=>setOrderInfo(o=>({...o,clientEmail:v}))} placeholder="client@example.com"/>
-                <CInput label="Valid until" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))} placeholder="Apr 15, 2026"/>
+                <CInput label="Valid until" type="date" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))}/>
                 <CInput label="Ship method" value={orderInfo.shipMethod} onChange={v=>setOrderInfo(o=>({...o,shipMethod:v}))} placeholder="UPS Ground"/>
               </div>
             </div>
@@ -1123,9 +1171,9 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 export { CostingTab };
 
 export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false }) {
-  const [pricingLoaded, setPricingLoaded] = useState(false);
+  const [pricingReady, setPricingReady] = useState(false);
 
-  // Load decorator pricing from DB on mount
+  // Load decorator pricing from DB on mount — must complete before rendering CostingTab
   useEffect(() => {
     async function loadPricing() {
       try {
@@ -1134,7 +1182,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
         const { data } = await supabase.from("decorators").select("name, short_code, pricing_data").order("name");
         if (data) loadPricingFromDecorators(data);
       } catch(e) { console.error("Failed to load decorator pricing", e); }
-      setPricingLoaded(true);
+      setPricingReady(true);
     }
     loadPricing();
   }, []);
@@ -1264,6 +1312,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
     }
   };
   onSaveRef.current = onSave;
+  if (!pricingReady) return <div style={{padding:"2rem",color:"#7a82a0",fontSize:13}}>Loading pricing...</div>;
   return (
     <CostingTab
       project={project} buyItems={buyItems} onUpdateBuyItems={onUpdateBuyItems}
