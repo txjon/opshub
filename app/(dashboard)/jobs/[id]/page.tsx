@@ -102,7 +102,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           sizes, qtys,
           decorator: assignment?.decorators?.name || null,
           decoration_type: assignment?.decoration_type || null,
-          pipeline_stage: assignment?.pipeline_stage || "blanks_ordered",
+          pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || "blanks_ordered",
           decorator_assignment_id: assignment?.id || null,
           blankCosts: it.blank_costs || null,
         };
@@ -138,11 +138,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (artwork_status !== undefined) dbUpdates.artwork_status = artwork_status;
     if (name !== undefined) dbUpdates.name = name;
     if (notes !== undefined) dbUpdates.notes = notes;
+    if (updates.pipeline_stage !== undefined) dbUpdates.pipeline_stage = updates.pipeline_stage;
     if (Object.keys(dbUpdates).length > 0) {
       await supabase.from("items").update(dbUpdates).eq("id", id);
     }
-    if (updates.pipeline_stage !== undefined && updates.decorator_assignment_id) {
-      await supabase.from("decorator_assignments").update({ pipeline_stage: updates.pipeline_stage }).eq("id", updates.decorator_assignment_id);
+    if (updates.pipeline_stage !== undefined && (updates as any).decorator_assignment_id) {
+      await supabase.from("decorator_assignments").update({ pipeline_stage: updates.pipeline_stage }).eq("id", (updates as any).decorator_assignment_id);
     }
     if (updates.qtys) {
       for (const [size, qty] of Object.entries(updates.qtys)) {
