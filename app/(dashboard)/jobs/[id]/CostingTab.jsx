@@ -132,15 +132,22 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
     return (p.blankCostPerUnit||0)*qty*1.035;
   })();
   let printTotal=0;
+  let sharedScreensToSkip=0;
   for(let loc=1;loc<=6;loc++){
     const ld=p.printLocations?.[loc];
     const printer=ld?.printer||p.printVendor;
     if(printer&&ld?.screens>0){
-      const isShared=!!(ld.shared)&&ld.location;
+      const isShared=!!(ld.shared)&&ld.shareGroup;
       const sharedQty=isShared?allProds.reduce((sum,cp)=>{
-        const match=Object.values(cp.printLocations||{}).find(l=>l.location&&l.location.trim().toLowerCase()===ld.location.trim().toLowerCase()&&l.screens>0);
+        const match=Object.values(cp.printLocations||{}).find(l=>l.shared&&l.shareGroup&&l.shareGroup.trim().toLowerCase()===ld.shareGroup.trim().toLowerCase()&&l.screens>0);
         return sum+(match?cp.totalQty||0:0);
       },0):0;
+      // Skip screen fees if not the first item in the share group
+      if(isShared){
+        const firstIdx=allProds.findIndex(cp=>Object.values(cp.printLocations||{}).some(l=>l.shared&&l.shareGroup&&l.shareGroup.trim().toLowerCase()===ld.shareGroup.trim().toLowerCase()&&l.screens>0));
+        const myIdx=allProds.indexOf(p);
+        if(firstIdx>=0&&myIdx>firstIdx) sharedScreensToSkip+=(parseFloat(ld.screens)||0);
+      }
       const effectiveQty=isShared&&sharedQty>0?sharedQty:qty;
       printTotal+=lookupPrintPrice(printer,effectiveQty,ld.screens);
     }
@@ -179,7 +186,7 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
   if(p.setupFees){
     const pr=PRINTERS[p.printVendor||p.setupFees?.printer];
     if(pr){
-      const autoScreens=[1,2,3,4,5,6].reduce((a,loc)=>a+(parseFloat(p.printLocations?.[loc]?.screens)||0),0);
+      const autoScreens=Math.max(0,[1,2,3,4,5,6].reduce((a,loc)=>a+(parseFloat(p.printLocations?.[loc]?.screens)||0),0)-sharedScreensToSkip);
       const activeSizes=(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).length;
       const isScreensKey=(k)=>k==="Screens"||k.toLowerCase()==="screens";
       const isTagScreensKey=(k)=>k==="TagScreens"||k==="Tag Screens"||k.toLowerCase().replace(/\s/g,"")==="tagscreens";
@@ -583,7 +590,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                 <th style={{padding:"6px 10px",textAlign:"left",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"15%"}}/>
                                 <th style={{padding:"6px 10px",textAlign:"left",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"40%"}}>Location</th>
                                 <th style={{padding:"6px 10px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"15%"}}>Screens</th>
-                                <th style={{padding:"6px 10px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"15%"}}>Shared</th>
+                                <th style={{padding:"6px 10px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"15%"}}>Share</th>
                                 <th style={{padding:"6px 10px",textAlign:"center",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",width:"15%"}}>Cost</th>
                               </tr>
                             </thead>
@@ -593,11 +600,14 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                 const effectivePrinter=ld.printer||p.printVendor||"";
                                 const active=effectivePrinter&&ld.screens>0;
                                 const isShared=!!(ld.shared);
-                                const sharedQty=isShared&&ld.location?costProds.reduce((sum,cp)=>{
-                                  const match=Object.values(cp.printLocations||{}).find(l=>l.location&&l.location.trim().toLowerCase()===ld.location.trim().toLowerCase()&&(l.screens>0||l.location));
+                                const shareGroup=ld.shareGroup||"";
+                                const sharedQty=isShared&&shareGroup?costProds.reduce((sum,cp)=>{
+                                  const match=Object.values(cp.printLocations||{}).find(l=>l.shared&&l.shareGroup&&l.shareGroup.trim().toLowerCase()===shareGroup.trim().toLowerCase()&&l.screens>0);
                                   return sum+(match?cp.totalQty||0:0);
                                 },0):0;
-                                const effectiveQty=isShared?sharedQty:(p.totalQty||0);
+                                // Screen fees: only count on first item in the share group
+                                const isFirstInGroup=isShared&&shareGroup?costProds.findIndex(cp=>Object.values(cp.printLocations||{}).some(l=>l.shared&&l.shareGroup&&l.shareGroup.trim().toLowerCase()===shareGroup.trim().toLowerCase()&&l.screens>0))===i:true;
+                                const effectiveQty=isShared&&sharedQty>0?sharedQty:(p.totalQty||0);
                                 const unitCost=active?lookupPrintPrice(effectivePrinter,effectiveQty||p.totalQty||0,ld.screens):0;
                                 const isLast=idx===(p.printCount||4)-1;
                                 return(
@@ -622,17 +632,24 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                         data-costfield onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab")focusNext(e,e.shiftKey);if(e.key==="ArrowDown"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:false},false);}if(e.key==="ArrowUp"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:true},true);}}}
                                         style={{width:50,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono}}/>
                                     </td>
-                                    <td style={{padding:"4px 8px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
-                                      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                                        <div style={{display:"flex",borderRadius:4,overflow:"hidden",border:`1px solid ${isShared?T.accent:T.border}`}}>
-                                          {["Y","N"].map(opt=>{
-                                            const sel=(isShared?"Y":"N")===opt;
-                                            return <button key={opt} onClick={()=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,shared:opt==="Y"}}})}
-                                              style={{padding:"2px 8px",fontSize:10,fontFamily:mono,fontWeight:700,border:"none",cursor:"pointer",background:sel?(opt==="Y"?T.accent:T.surface):T.card,color:sel?(opt==="Y"?"#fff":T.text):T.faint,transition:"all 0.1s"}}>{opt}</button>;
-                                          })}
+                                    <td style={{padding:"4px 6px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
+                                      {isShared?(
+                                        <div style={{display:"flex",alignItems:"center",gap:3}}>
+                                          <input value={shareGroup} onChange={e=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,shareGroup:e.target.value.toUpperCase()}}})}
+                                            placeholder="Grp"
+                                            style={{width:32,textAlign:"center",background:T.surface,border:`1px solid ${T.accent}`,borderRadius:3,color:T.accent,fontFamily:mono,fontSize:10,fontWeight:700,padding:"2px",outline:"none"}}/>
+                                          <button onClick={()=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,shared:false,shareGroup:""}}})}
+                                            style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:9}}
+                                            onMouseEnter={e=>e.currentTarget.style.color=T.red}
+                                            onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                                          {sharedQty>0&&<span style={{fontSize:8,color:T.accent,fontFamily:mono}}>{sharedQty}</span>}
                                         </div>
-                                        {isShared&&sharedQty>0&&<span style={{fontSize:9,color:T.accent,fontFamily:mono}}>{sharedQty} total</span>}
-                                      </div>
+                                      ):(
+                                        <button onClick={()=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,shared:true,shareGroup:""}}})}
+                                          style={{fontSize:9,color:T.faint,fontFamily:font,background:"none",border:`1px solid ${T.border}`,borderRadius:3,padding:"2px 6px",cursor:"pointer"}}
+                                          onMouseEnter={e=>{e.currentTarget.style.color=T.accent;e.currentTarget.style.borderColor=T.accent;}}
+                                          onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border;}}>Share</button>
+                                      )}
                                     </td>
                                     <td style={{padding:"5px 10px",textAlign:"center",fontFamily:mono,fontSize:12,fontWeight:active?700:400,color:active?T.green:T.faint}}>
                                       {active?fmtD(unitCost):null}
@@ -798,7 +815,14 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                         </div>
                         {p._setupOpen&&(()=>{
                           const pr=PRINTERS[p.printVendor];
-                          const autoScreens=[1,2,3,4,5,6].reduce((a,loc)=>a+(parseFloat(p.printLocations?.[loc]?.screens)||0),0);
+                          // Subtract shared screens if this item is not the first in any share group
+                          const sharedSkip=[1,2,3,4,5,6].reduce((a,loc)=>{
+                            const ld2=p.printLocations?.[loc];
+                            if(!ld2?.shared||!ld2?.shareGroup||!ld2?.screens) return a;
+                            const firstIdx=costProds.findIndex(cp=>Object.values(cp.printLocations||{}).some(l=>l.shared&&l.shareGroup&&l.shareGroup.trim().toLowerCase()===ld2.shareGroup.trim().toLowerCase()&&l.screens>0));
+                            return (firstIdx>=0&&costProds.indexOf(p)>firstIdx)?a+(parseFloat(ld2.screens)||0):a;
+                          },0);
+                          const autoScreens=Math.max(0,[1,2,3,4,5,6].reduce((a,loc)=>a+(parseFloat(p.printLocations?.[loc]?.screens)||0),0)-sharedSkip);
                           const tagScreenCount=p.tagPrint&&!p.tagRepeat?(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).length:0;
                           const setupKeys=Object.keys(pr?.setup||{});
                           const isScreensKey=(k)=>k==="Screens"||k.toLowerCase()==="screens";

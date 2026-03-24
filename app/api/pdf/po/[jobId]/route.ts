@@ -42,7 +42,7 @@ function getPrintRate(pr: any, qty: number, colors: number): number {
   return pr.prices[c]?.[idx] || 0;
 }
 
-function calcDecorationLines(p: any): { label: string; qty: number; rate: number; total: number }[] {
+function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty: number; rate: number; total: number }[] {
   const lines: { label: string; qty: number; rate: number; total: number }[] = [];
   const pr = PRINTERS[p.printVendor];
   if (!pr) return lines;
@@ -55,13 +55,26 @@ function calcDecorationLines(p: any): { label: string; qty: number; rate: number
     return ld?.location || ld?.screens > 0;
   });
 
+  let sharedScreensToSkip = 0;
   for (const loc of activeLocs) {
     const ld = p.printLocations[loc];
     if (!ld?.location && !ld?.screens) continue;
     const screens = parseFloat(ld.screens) || 0;
     if (screens === 0) continue;
-    const rate = getPrintRate(pr, qty, screens);
+    // Share group: use combined qty for rate lookup
+    const isShared = !!(ld.shared) && ld.shareGroup;
+    const effectiveQty = isShared ? allProds.reduce((sum: number, cp: any) => {
+      const match = Object.values(cp.printLocations || {}).find((l: any) => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === ld.shareGroup.trim().toLowerCase() && l.screens > 0);
+      return sum + (match ? (cp.totalQty || 0) : 0);
+    }, 0) || qty : qty;
+    const rate = getPrintRate(pr, effectiveQty, screens);
     lines.push({ label: ld.location || `Location ${loc}`, qty, rate, total: rate * qty });
+    // Skip screen fees if not first in group
+    if (isShared) {
+      const firstIdx = allProds.findIndex((cp: any) => Object.values(cp.printLocations || {}).some((l: any) => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === ld.shareGroup.trim().toLowerCase() && l.screens > 0));
+      const myIdx = allProds.indexOf(p);
+      if (firstIdx >= 0 && myIdx > firstIdx) sharedScreensToSkip += screens;
+    }
   }
 
   // Tag print
@@ -110,7 +123,7 @@ function calcDecorationLines(p: any): { label: string; qty: number; rate: number
   if (p.setupFees) {
     const isScreensKey = (k: string) => k === "Screens" || k.toLowerCase() === "screens";
     const isTagScreensKey = (k: string) => k === "TagScreens" || k === "Tag Screens" || k.toLowerCase().replace(/\s/g, "") === "tagscreens";
-    const autoScreens = [1,2,3,4,5,6].reduce((a: number, loc: number) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0);
+    const autoScreens = Math.max(0, [1,2,3,4,5,6].reduce((a: number, loc: number) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0) - sharedScreensToSkip);
     const activeSizes = (p.sizes || []).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
 
     // Check if a setup key links to an active specialty
@@ -338,7 +351,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       const assignment = it.decorator_assignments?.[0];
       const cp = costProds.find((p: any) => p.id === it.id);
       const decorator = assignment?.decorators;
-      const decoLines = cp ? calcDecorationLines({ ...cp, totalQty }) : [];
+      const decoLines = cp ? calcDecorationLines({ ...cp, totalQty }, costProds) : [];
 
       return {
         id: it.id,

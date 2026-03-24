@@ -50,17 +50,24 @@ function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: bool
     return (p.blankCostPerUnit || 0) * qty * 1.035;
   })();
   let printTotal = 0;
+  let sharedScreensToSkip = 0;
   for (let loc = 1; loc <= 6; loc++) {
     const ld = p.printLocations?.[loc];
     const printer = ld?.printer || p.printVendor;
     if (printer && ld?.screens > 0) {
-      const isShared = !!(ld.shared) && ld.location;
+      const isShared = !!(ld.shared) && ld.shareGroup;
       const sharedQty = isShared ? allProds.reduce((sum, cp) => {
-        const match = Object.values(cp.printLocations || {}).find((l: any) => l.location && l.location.trim().toLowerCase() === ld.location.trim().toLowerCase() && l.screens > 0);
+        const match = Object.values(cp.printLocations || {}).find((l: any) => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === ld.shareGroup.trim().toLowerCase() && l.screens > 0);
         return sum + (match ? (cp.totalQty || 0) : 0);
       }, 0) : 0;
       const effectiveQty = isShared && sharedQty > 0 ? sharedQty : qty;
       printTotal += lookupPrintPrice(printer, effectiveQty, ld.screens);
+      // Skip screen fees if not first item in share group
+      if (isShared) {
+        const firstIdx = allProds.findIndex(cp => Object.values(cp.printLocations || {}).some((l: any) => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === ld.shareGroup.trim().toLowerCase() && l.screens > 0));
+        const myIdx = allProds.indexOf(p);
+        if (firstIdx >= 0 && myIdx > firstIdx) sharedScreensToSkip += (parseFloat(ld.screens) || 0);
+      }
     }
   }
   if (p.tagPrint && p.printVendor) printTotal += lookupTagPrice(p.printVendor, qty);
@@ -99,7 +106,7 @@ function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: bool
     if (pr) {
       const isScreensKey = (k: string) => k === "Screens" || k.toLowerCase() === "screens";
       const isTagScreensKey = (k: string) => k === "TagScreens" || k === "Tag Screens" || k.toLowerCase().replace(/\s/g, "") === "tagscreens";
-      const autoScreens = [1,2,3,4,5,6].reduce((a, loc) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0);
+      const autoScreens = Math.max(0, [1,2,3,4,5,6].reduce((a, loc) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0) - sharedScreensToSkip);
       const activeSizes = (p.sizes || []).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
       const getSpecCount = (setupKey: string): number | null => {
         const skLower = setupKey.toLowerCase();
