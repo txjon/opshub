@@ -42,7 +42,7 @@ export function WarehouseTab({ items, job, rxData: initialRxData, shipStage: ini
     setRxData(prev => {
       const next = {...prev, [id]:{...prev[id],...p}};
       if (rxSaveTimer.current) clearTimeout(rxSaveTimer.current);
-      rxSaveTimer.current = setTimeout(() => saveRxToDb(id, next[id]), 1500);
+      rxSaveTimer.current = setTimeout(() => saveRxToDb(id, next[id]), 800);
       if (onRxDataChange) onRxDataChange(next);
       return next;
     });
@@ -51,7 +51,7 @@ export function WarehouseTab({ items, job, rxData: initialRxData, shipStage: ini
     setRxData(prev => {
       const next = {...prev, [id]:{...prev[id],[key]:{...(prev[id]?.[key]||{}),[sz]:val}}};
       if (rxSaveTimer.current) clearTimeout(rxSaveTimer.current);
-      rxSaveTimer.current = setTimeout(() => saveRxToDb(id, next[id]), 1500);
+      rxSaveTimer.current = setTimeout(() => saveRxToDb(id, next[id]), 800);
       if (onRxDataChange) onRxDataChange(next);
       return next;
     });
@@ -190,7 +190,7 @@ export function WarehouseTab({ items, job, rxData: initialRxData, shipStage: ini
             <textarea value={shipNotes} onChange={e=>{
               setShipNotes(e.target.value);
               if (shipSaveTimer.current) clearTimeout(shipSaveTimer.current);
-              shipSaveTimer.current = setTimeout(() => saveShipToDb(shipStage, e.target.value), 1500);
+              shipSaveTimer.current = setTimeout(() => saveShipToDb(shipStage, e.target.value), 800);
             }} placeholder="Internal notes..." style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.5}}/>
           </div>
         </div>

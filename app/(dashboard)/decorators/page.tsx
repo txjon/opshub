@@ -37,6 +37,7 @@ const EMPTY_PRICING: PricingData = {
   qtys: [48, 72, 144, 288, 500, 1000, 2500],
   prices: { 1:[], 2:[], 3:[], 4:[], 5:[], 6:[] },
   tagPrices: [],
+  minimums: { print: 0, tagPrint: 0 },
   packaging: { Tee: 0, Longsleeve: 0, Fleece: 0 },
   finishing: {},
   setup: { Screens: 0, TagScreens: 0, Seps: 0, InkChange: 0 },
@@ -217,6 +218,17 @@ function PricingEditor({ pricing, onChange }: { pricing: PricingData; onChange: 
     <div style={{ display:"flex", gap:20, alignItems:"flex-start" }}>
       {/* Print pricing grid */}
       <div style={{ flexShrink:0 }}>
+        <div style={{ display:"flex", gap:16, alignItems:"flex-end", marginBottom:10 }}>
+          <div>
+            <div style={{ fontSize:9, color:T.muted, fontFamily:font, textTransform:"uppercase" as const, letterSpacing:"0.06em", marginBottom:3 }}>Min charge / print loc</div>
+            <NumCell value={p.minimums?.print||0} onChange={v=>onChange({...p, minimums:{...(p.minimums||{}), print:v}})} width={70} />
+          </div>
+          <div>
+            <div style={{ fontSize:9, color:T.muted, fontFamily:font, textTransform:"uppercase" as const, letterSpacing:"0.06em", marginBottom:3 }}>Min charge / tag print</div>
+            <NumCell value={p.minimums?.tagPrint||0} onChange={v=>onChange({...p, minimums:{...(p.minimums||{}), tagPrint:v}})} width={70} />
+          </div>
+          <div style={{ fontSize:9, color:T.faint, fontFamily:font, paddingBottom:4 }}>Applied when qty is below first tier ({p.qtys[0]||"—"} pcs)</div>
+        </div>
         <SectionHead title="Print Pricing (per unit by color count & qty)" />
         <div style={{ overflowX:"auto" as const }}>
           <table style={{ borderCollapse:"collapse", fontSize:10 }}>
@@ -399,7 +411,7 @@ export default function DecoratorsPage() {
     saveTimers.current[id] = setTimeout(async () => {
       await supabase.from("decorators").update(updates).eq("id", id);
       setSaving(p => ({...p, [id]: false}));
-    }, 1500);
+    }, 800);
   }
 
   async function addDecorator() {

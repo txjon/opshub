@@ -368,7 +368,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
     if (onSaveStatus) onSaveStatus("saving");
     const t = setTimeout(async () => {
       await onSaveRef.current?.();
-    }, 1500);
+    }, 800);
     return () => clearTimeout(t);
   }, [currentSnapshot]);
 
@@ -564,8 +564,6 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
             <button onClick={() => { setShowManual(!showManual); setShowPicker(false); }} style={{ background:T.surface, color:T.muted, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"pointer" }}>
               + Manual
             </button>
-            {isDirty && <span style={{ fontSize:11, color:T.amber, fontFamily:font }}>Saving…</span>}
-            {!isDirty && <span style={{ fontSize:11, color:T.faint, fontFamily:font }}>All saved</span>}
             {grandTotal > 0 && <span style={{ fontSize:12, color:T.green, fontFamily:mono, fontWeight:600 }}>{grandTotal.toLocaleString()} units total</span>}
             <div style={{ marginLeft:"auto", display:"flex", gap:12 }}>
               {[["↑↓←→","Nav"],["Enter","↓"],["Tab","→"]].map(([k,l]) => (

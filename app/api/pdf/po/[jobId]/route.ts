@@ -33,6 +33,8 @@ async function loadPrinters(supabase: any) {
 
 function getPrintRate(pr: any, qty: number, colors: number): number {
   if (!pr?.qtys || !pr?.prices) return 0;
+  const minQty = pr.qtys[0] || 0;
+  if (qty < minQty && pr.minimums?.print > 0) return pr.minimums.print / qty;
   const c = Math.min(Math.max(colors, 1), 12);
   const tiers = pr.qtys;
   let idx = tiers.length - 1;
@@ -64,7 +66,8 @@ function calcDecorationLines(p: any): { label: string; qty: number; rate: number
 
   // Tag print
   if (p.tagPrint) {
-    const tagRate = pr.tagPrices?.[pr.qtys?.findIndex((q: number) => qty < q) - 1 || 0] || 0;
+    const minQty = pr.qtys?.[0] || 0;
+    const tagRate = (qty < minQty && pr.minimums?.tagPrint > 0) ? pr.minimums.tagPrint / qty : (pr.tagPrices?.[pr.qtys?.findIndex((q: number) => qty < q) - 1 || 0] || 0);
     lines.push({ label: "Tag print", qty, rate: tagRate, total: tagRate * qty });
   }
 

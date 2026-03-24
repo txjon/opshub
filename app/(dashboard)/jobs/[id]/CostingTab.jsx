@@ -100,12 +100,22 @@ export function loadPricingFromDecorators(decorators) {
 
 export function lookupPrintPrice(pk,qty,colors){
   const p=PRINTERS[pk]; if(!p||!p.qtys.length)return 0;
+  // Below minimum qty: apply minimum charge per location / qty
+  const minQty=p.qtys[0]||0;
+  if(qty<minQty&&p.minimums?.print>0){
+    return p.minimums.print/qty;
+  }
   let idx=0; for(let i=0;i<p.qtys.length;i++){if(qty>=p.qtys[i])idx=i;}
   const c=Math.min(Math.max(Math.round(colors),1),12);
   return p.prices[c]?.[idx]??0;
 }
 export function lookupTagPrice(pk,qty){
   const p=PRINTERS[pk]; if(!p||!p.tagPrices.length)return 0;
+  // Below minimum qty: apply tag print minimum / qty
+  const minQty=p.qtys[0]||0;
+  if(qty<minQty&&p.minimums?.tagPrint>0){
+    return p.minimums.tagPrint/qty;
+  }
   let idx=0; for(let i=0;i<p.qtys.length;i++){if(qty>=p.qtys[i])idx=i;}
   return p.tagPrices[idx]??0;
 }
@@ -266,26 +276,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
   };
   const toggleCollapse=(id)=>setCollapsed(p=>({...p,[id]:!p[id]}));
 
-  useEffect(()=>{
-    if(!buyItems.length) return;
-    setCostProds(prev=>{
-      const existingIds=new Set(prev.map(p=>p.id));
-      const newItems=buyItems.filter(bi=>!existingIds.has(bi.id)).map(it=>{
-        const styleKey=(it.style||"").split("–")[0].trim().replace(/\s+/g,"");
-        const blankCosts=it.blankCosts&&Object.keys(it.blankCosts).length>0?it.blankCosts:seedBlankCosts(styleKey,it.color||"",it.sizes||[]);
-        return{...EMPTY_COST_PRODUCT(),id:it.id,name:it.name||"",style:it.style||"",color:it.color||"",sizes:it.sizes||[],qtys:it.qtys||{},blankCosts,totalQty:it.totalQty||0};
-      });
-      const updated=prev.map(cp=>{
-        const bi=buyItems.find(b=>b.id===cp.id);
-        if(!bi) return cp;
-        const computedQty=bi.totalQty||Object.values(bi.qtys||{}).reduce((a,v)=>a+v,0)||cp.totalQty||0; return{...cp,qtys:bi.qtys||cp.qtys,totalQty:computedQty,sizes:bi.sizes||cp.sizes,name:bi.name||cp.name||""};
-      });
-      const buyIds=new Set(buyItems.map(b=>b.id));
-      const filtered=updated.filter(cp=>buyIds.has(cp.id));
-      const result=newItems.length>0?[...filtered,...newItems]:filtered;
-      return result;
-    });
-  },[buyItems]);
+  // Note: buyItems sync is handled by CostingTabWrapper (updates both costProds + savedCostProds)
 
   const results=costProds.map(p=>calcCostProduct(p,costMargin,inclShip,inclCC,costProds)).filter(Boolean);
   const totGross=results.reduce((a,r)=>a+r.grossRev,0);
@@ -1173,6 +1164,7 @@ export { CostingTab };
 export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false }) {
   const [pricingReady, setPricingReady] = useState(false);
   const vendorIdMapRef = React.useRef({});
+  const lastBuyItemsRef = React.useRef("");
 
   // Load decorator pricing + IDs from DB on mount
   useEffect(() => {
@@ -1255,14 +1247,34 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
     return () => window.removeEventListener("beforeunload", handler);
   }, [costingDirty]);
 
-  // Sync buy item changes (name, sizes, qtys) into saved snapshot
+  // Sync buy item changes (name, sizes, qtys, adds, removes) into both costProds AND savedCostProds
+  // Only runs when buyItems actually changes (compared by serialized snapshot)
   useEffect(() => {
-    setSavedCostProds(prev => prev.map(sp => {
-      const bi = (buyItems||[]).find(b => b.id === sp.id);
-      if (!bi) return sp;
-      const totalQty = bi.totalQty || Object.values(bi.qtys||{}).reduce((a,v)=>a+v,0) || sp.totalQty || 0;
-      return {...sp, name: bi.name||sp.name, sizes: sortSizes(bi.sizes||[]), qtys: bi.qtys||sp.qtys, totalQty};
-    }));
+    if (!buyItems.length) return;
+    const snapshot = JSON.stringify(buyItems.map(b => ({ id:b.id, name:b.name, sizes:b.sizes, qtys:b.qtys, totalQty:b.totalQty })));
+    if (snapshot === lastBuyItemsRef.current) return;
+    lastBuyItemsRef.current = snapshot;
+
+    const applySync = (prev) => {
+      const existingIds = new Set(prev.map(p => p.id));
+      const buyIds = new Set(buyItems.map(b => b.id));
+      // Add new items
+      const newItems = buyItems.filter(bi => !existingIds.has(bi.id)).map(it => {
+        const styleKey = (it.style || it.blank_vendor || "").split("–")[0].trim().replace(/\s+/g, "");
+        const blankCosts = it.blankCosts && Object.keys(it.blankCosts).length > 0 ? it.blankCosts : seedBlankCosts(styleKey, it.color || it.blank_sku || "", it.sizes || []);
+        return { ...EMPTY_COST_PRODUCT(), id: it.id, name: it.name || "", style: it.blank_vendor || "", color: it.blank_sku || "", sizes: sortSizes(it.sizes || []), qtys: it.qtys || {}, blankCosts, totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a, v) => a + v, 0) };
+      });
+      // Update existing + remove deleted
+      const updated = prev.filter(cp => buyIds.has(cp.id)).map(cp => {
+        const bi = buyItems.find(b => b.id === cp.id);
+        if (!bi) return cp;
+        const totalQty = bi.totalQty || Object.values(bi.qtys || {}).reduce((a, v) => a + v, 0);
+        return { ...cp, name: bi.name || cp.name, sizes: sortSizes(bi.sizes || []), qtys: bi.qtys || cp.qtys, totalQty };
+      });
+      return newItems.length > 0 ? [...updated, ...newItems] : updated;
+    };
+    setCostProds(applySync);
+    setSavedCostProds(applySync);
   }, [buyItems]);
 
   // Debounced auto-save — fires 1.5s after any change
@@ -1273,7 +1285,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
       await onSaveRef.current?.();
       setSaveStatus("saved"); if(onSaveStatus) onSaveStatus("saved");
       if(onSaveStatus) onSaveStatus("saved");
-    }, 1500);
+    }, 800);
     return () => clearTimeout(t);
   }, [costProds, costMargin, inclShip, inclCC, orderInfo]);
 

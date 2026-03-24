@@ -24,12 +24,16 @@ async function loadPrinters(supabase: any) {
 
 function lookupPrintPrice(pk: string, qty: number, colors: number) {
   const p = PRINTERS[pk]; if (!p || !p.qtys.length) return 0;
+  const minQty = p.qtys[0] || 0;
+  if (qty < minQty && p.minimums?.print > 0) return p.minimums.print / qty;
   let idx = 0; for (let i = 0; i < p.qtys.length; i++) { if (qty >= p.qtys[i]) idx = i; }
   const c = Math.min(Math.max(Math.round(colors), 1), 12);
   return p.prices[c]?.[idx] ?? 0;
 }
 function lookupTagPrice(pk: string, qty: number) {
   const p = PRINTERS[pk]; if (!p || !p.tagPrices.length) return 0;
+  const minQty = p.qtys[0] || 0;
+  if (qty < minQty && p.minimums?.tagPrint > 0) return p.minimums.tagPrint / qty;
   let idx = 0; for (let i = 0; i < p.qtys.length; i++) { if (qty >= p.qtys[i]) idx = i; }
   return p.tagPrices[idx] ?? 0;
 }

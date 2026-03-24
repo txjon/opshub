@@ -52,8 +52,17 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [costingSaveStatus, setCostingSaveStatus] = useState("saved");
-  const [buySheetSaveStatus, setBuySheetSaveStatus] = useState("saved");
+  const [saveError, setSaveError] = useState(false);
+  const saveErrorTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const handleSaveStatus = useCallback((s: string) => {
+    if (s === "error") {
+      setSaveError(true);
+      if (saveErrorTimer.current) clearTimeout(saveErrorTimer.current);
+      saveErrorTimer.current = setTimeout(() => setSaveError(false), 5000);
+    } else {
+      setSaveError(false);
+    }
+  }, []);
   const [rxData, setRxData] = useState<Record<string,any>>({});
   const [shipStage, setShipStage] = useState<string|null>(null);
   const [shipNotes, setShipNotes] = useState("");
@@ -260,11 +269,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 {t.label}
               </button>
             ))}
-            {(()=>{
-              const s = tab==="buysheet" ? buySheetSaveStatus : costingSaveStatus;
-              if (tab!=="buysheet"&&tab!=="costing"&&tab!=="quote") return null;
-              return <div style={{padding:"4px 12px",fontSize:11,fontFamily:"IBM Plex Sans,Helvetica Neue,Arial,sans-serif",color:s==="saving"?"#f5a623":s==="saved"?"#34c97a":s==="error"?"#f05353":"#f05353"}}>{s==="saving"?"Saving…":s==="saved"?"Saved ✓":s==="error"?"Save error":"Unsaved"}</div>;
-            })()}
           </div>
         </div>
 
@@ -547,7 +551,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           items={items}
           jobId={params.id}
           onRegisterSave={(fn: () => Promise<void>) => { saveBuySheetRef.current = fn; }}
-          onSaveStatus={(s: string) => setBuySheetSaveStatus(s)}
+          onSaveStatus={(s: string) => handleSaveStatus(s)}
           onSaved={(resolved: any[]) => {
             // Optimistic update — no loadData() call, no flash
             const mapped = resolved.map((it: any) => ({
@@ -569,7 +573,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           buyItems={items}
           onUpdateBuyItems={setItems}
           onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
-          onSaveStatus={(s: string) => setCostingSaveStatus(s)}
+          onSaveStatus={(s: string) => handleSaveStatus(s)}
           onSaved={(data: any) => setJob(j => j ? {...j, ...data} : j)}
           initialTab="calc"
           hideSubTabs={true}
@@ -583,7 +587,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           buyItems={items}
           onUpdateBuyItems={setItems}
           onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
-          onSaveStatus={(s: string) => setCostingSaveStatus(s)}
+          onSaveStatus={(s: string) => handleSaveStatus(s)}
           onSaved={(data: any) => setJob(j => j ? {...j, ...data} : j)}
           initialTab="quote"
           hideSubTabs={true}
@@ -617,6 +621,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
         </div>{/* end tab content */}
       </div>{/* end flex layout */}
+
+      {/* Error-only save indicator */}
+      {saveError && (
+        <div style={{
+          position:"fixed", bottom:20, right:20, zIndex:100,
+          padding:"8px 16px", borderRadius:8,
+          background:T.redDim, border:`1px solid ${T.red}`,
+          color:T.red, fontSize:12, fontWeight:600, fontFamily:font,
+        }}>
+          Save failed — check your connection
+        </div>
+      )}
     </div>
   );
 }
