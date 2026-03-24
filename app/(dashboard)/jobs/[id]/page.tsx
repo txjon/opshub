@@ -237,32 +237,40 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{display:"flex",gap:6,marginBottom:"1.5rem",padding:4,background:"#181c27",borderRadius:8,width:"fit-content",alignItems:"center"}}>
-        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
-          <button key={t.id} onClick={async ()=>{
-            if (tab==="buysheet" && t.id!=="buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
-            if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
-              if (saveCostingRef.current) {
-                try {
-                  await saveCostingRef.current();
-                } catch(e) {
-                  if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return;
+      {/* Layout: vertical tab nav + content */}
+      <div style={{display:"flex",gap:20}}>
+        {/* Vertical tab nav */}
+        <div style={{width:160,flexShrink:0}}>
+          <div style={{position:"sticky",top:16,display:"flex",flexDirection:"column",gap:2,padding:4,background:"#181c27",borderRadius:8}}>
+            {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
+              <button key={t.id} onClick={async ()=>{
+                if (tab==="buysheet" && t.id!=="buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
+                if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
+                  if (saveCostingRef.current) {
+                    try {
+                      await saveCostingRef.current();
+                    } catch(e) {
+                      if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return;
+                    }
+                  }
                 }
-              }
-            }
-            setTab(t.id);
-          }}
-            style={{padding:"7px 16px",fontSize:13,fontWeight:tab===t.id?600:400,background:tab===t.id?"#4f8ef7":"transparent",color:tab===t.id?"#fff":"#7a82a0",border:"none",borderRadius:6,cursor:"pointer",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
-            {t.label}
-          </button>
-        ))}
-        {(()=>{
-          const s = tab==="buysheet" ? buySheetSaveStatus : costingSaveStatus;
-          if (tab!=="buysheet"&&tab!=="costing"&&tab!=="quote") return null;
-          return <span style={{fontSize:11,fontFamily:"IBM Plex Sans,Helvetica Neue,Arial,sans-serif",marginLeft:8,color:s==="saving"?"#f5a623":s==="saved"?"#34c97a":s==="error"?"#f05353":"#f05353"}}>{s==="saving"?"Saving…":s==="saved"?"Saved ✓":s==="error"?"Save error":"Unsaved"}</span>;
-        })()}
-      </div>      {/* OVERVIEW */}
+                setTab(t.id);
+              }}
+                style={{padding:"7px 12px",fontSize:13,fontWeight:tab===t.id?600:400,background:tab===t.id?"#4f8ef7":"transparent",color:tab===t.id?"#fff":"#7a82a0",border:"none",borderRadius:6,cursor:"pointer",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",textAlign:"left",width:"100%"}}>
+                {t.label}
+              </button>
+            ))}
+            {(()=>{
+              const s = tab==="buysheet" ? buySheetSaveStatus : costingSaveStatus;
+              if (tab!=="buysheet"&&tab!=="costing"&&tab!=="quote") return null;
+              return <div style={{padding:"4px 12px",fontSize:11,fontFamily:"IBM Plex Sans,Helvetica Neue,Arial,sans-serif",color:s==="saving"?"#f5a623":s==="saved"?"#34c97a":s==="error"?"#f05353":"#f05353"}}>{s==="saving"?"Saving…":s==="saved"?"Saved ✓":s==="error"?"Save error":"Unsaved"}</div>;
+            })()}
+          </div>
+        </div>
+
+        {/* Tab content */}
+        <div style={{flex:1,minWidth:0}}>
+      {/* OVERVIEW */}
                   {tab==="overview"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
 
@@ -513,6 +521,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           }}
         />
       )}
+        </div>{/* end tab content */}
+      </div>{/* end flex layout */}
     </div>
   );
 }
