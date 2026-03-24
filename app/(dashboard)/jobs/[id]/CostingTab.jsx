@@ -1172,15 +1172,21 @@ export { CostingTab };
 
 export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false }) {
   const [pricingReady, setPricingReady] = useState(false);
+  const vendorIdMapRef = React.useRef({});
 
-  // Load decorator pricing from DB on mount — must complete before rendering CostingTab
+  // Load decorator pricing + IDs from DB on mount
   useEffect(() => {
     async function loadPricing() {
       try {
         const { createClient } = await import("@/lib/supabase/client");
         const supabase = createClient();
-        const { data } = await supabase.from("decorators").select("name, short_code, pricing_data").order("name");
-        if (data) loadPricingFromDecorators(data);
+        const { data } = await supabase.from("decorators").select("id, name, short_code, pricing_data").order("name");
+        if (data) {
+          loadPricingFromDecorators(data);
+          const idMap = {};
+          data.forEach(d => { idMap[d.short_code || d.name] = d.id; });
+          vendorIdMapRef.current = idMap;
+        }
       } catch(e) { console.error("Failed to load decorator pricing", e); }
       setPricingReady(true);
     }
@@ -1297,7 +1303,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
           costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty }
         }).eq("id", project.id);
         if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }, costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty } });
-        // Write refined blank costs back to items table
+        // Write refined blank costs + decorator assignments back to items
         for (const cp of costProds) {
           if (cp.blankCosts && Object.keys(cp.blankCosts).length > 0) {
             const costValues = Object.values(cp.blankCosts).filter(v => v > 0);
@@ -1306,6 +1312,16 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
               blank_costs: cp.blankCosts,
               cost_per_unit: avgCost,
             }).eq("id", cp.id);
+          }
+          // Auto-create/update decorator assignment when vendor is selected
+          if (cp.printVendor && vendorIdMapRef.current[cp.printVendor]) {
+            const decoratorId = vendorIdMapRef.current[cp.printVendor];
+            const { data: existing } = await supabase.from("decorator_assignments").select("id").eq("item_id", cp.id).limit(1).single();
+            if (existing) {
+              await supabase.from("decorator_assignments").update({ decorator_id: decoratorId }).eq("id", existing.id);
+            } else {
+              await supabase.from("decorator_assignments").insert({ item_id: cp.id, decorator_id: decoratorId, decoration_type: "screen_print", pipeline_stage: "blanks_ordered" });
+            }
           }
         }
       } catch(e) { console.error("Failed to save costing data", e); }

@@ -55,10 +55,20 @@ export default async function DashboardPage() {
     .order("target_ship_date", { ascending: true, nullsFirst: false });
 
   const { data: payments } = await supabase
-    .from("payments")
+    .from("payment_records")
     .select("*, jobs(title, clients(name))")
     .neq("status", "paid")
+    .neq("status", "void")
     .order("due_date", { ascending: true })
+    .limit(10);
+
+  // Stuck items: decorator assignments not updated in 7+ days, not shipped
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: stuckItems } = await supabase
+    .from("decorator_assignments")
+    .select("*, items(name, job_id, jobs(title, clients(name))), decorators(name)")
+    .not("pipeline_stage", "eq", "shipped")
+    .lt("updated_at", sevenDaysAgo)
     .limit(10);
 
   const activeJobs = jobs || [];
@@ -129,7 +139,17 @@ export default async function DashboardPage() {
       sub: "Awaiting art approval",
       href: `/jobs/${j.id}`,
     })),
-  ].slice(0, 6);
+    ...(stuckItems||[]).slice(0,3).map((da: any) => {
+      const daysStuck = Math.ceil((now.getTime() - new Date(da.updated_at).getTime()) / (1000*60*60*24));
+      return {
+        type: "stuck", label: "Stalled",
+        bg: T.amberDim, color: T.amber,
+        title: `${da.items?.name || "Item"} — ${da.decorators?.name || "Unknown"}`,
+        sub: `${da.pipeline_stage?.replace(/_/g," ")} · ${daysStuck}d since last update`,
+        href: `/jobs/${da.items?.job_id}`,
+      };
+    }),
+  ].slice(0, 8);
 
   const phaseOrder = ["intake","pre_production","production","receiving","shipping"];
   const phaseMax = Math.max(...phaseOrder.map(p => phaseCounts[p]||0), 1);

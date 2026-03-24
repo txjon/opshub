@@ -29,7 +29,7 @@ export default async function ClientsPage() {
             )}
             {clients?.map(client => (
               <tr key={client.id} className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors">
-                <td className="px-4 py-3 font-semibold">{client.name}</td>
+                <td className="px-4 py-3 font-semibold"><Link href={`/clients/${client.id}`} className="hover:text-primary transition-colors">{client.name}</Link></td>
                 <td className="px-4 py-3 text-muted-foreground capitalize">{client.client_type ?? "-"}</td>
                 <td className="px-4 py-3 text-muted-foreground">{(client.jobs as unknown[]).length}</td>
                 <td className="px-4 py-3 text-muted-foreground capitalize">{client.default_terms?.replace(/_/g, " ") ?? "-"}</td>
