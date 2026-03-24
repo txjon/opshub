@@ -128,12 +128,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     setLoading(false);
   }
 
-  async function saveJob(updates: Partial<Job>) {
+  const jobSaveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
+  function saveJob(updates: Partial<Job>) {
     if (!job) return;
-    setSaving(true);
-    await supabase.from("jobs").update(updates).eq("id", job.id);
-    setJob(j => j ? {...j, ...updates} : j);
-    setSaving(false);
+    // Debounce DB write — local state already updated by upd()
+    if (jobSaveTimer.current) clearTimeout(jobSaveTimer.current);
+    jobSaveTimer.current = setTimeout(async () => {
+      await supabase.from("jobs").update(updates).eq("id", job.id);
+    }, 800);
   }
 
   async function saveItem(id: string, updates: Partial<Item>) {
