@@ -79,6 +79,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [shipStage, setShipStage] = useState<string|null>(null);
   const [shipNotes, setShipNotes] = useState("");
   const [activityNote, setActivityNote] = useState("");
+  const rxSaveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const shipSaveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
 
 
   useEffect(() => {
@@ -89,17 +91,36 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     setLoading(true);
     const [jobRes, itemsRes, paymentsRes, contactsRes] = await Promise.all([
       supabase.from("jobs").select("*, clients(name)").eq("id", params.id).single(),
-      supabase.from("items").select("*, decorator_assignments(pipeline_stage, decoration_type, decorators(name)), buy_sheet_lines(size, qty_ordered)").eq("job_id", params.id).order("sort_order"),
+      supabase.from("items").select("*, decorator_assignments(pipeline_stage, decoration_type, decorators(name)), buy_sheet_lines(size, qty_ordered, qty_shipped_from_vendor, qty_received_at_hpd)").eq("job_id", params.id).order("sort_order"),
       supabase.from("payment_records").select("*").eq("job_id", params.id).order("created_at"),
       supabase.from("job_contacts").select("*, contacts(*)").eq("job_id", params.id),
     ]);
-    if (jobRes.data) setJob(jobRes.data as Job);
+    if (jobRes.data) {
+      setJob(jobRes.data as Job);
+      const meta = jobRes.data.type_meta || {};
+      if (meta.ship_stage) setShipStage(meta.ship_stage);
+      if (meta.ship_notes) setShipNotes(meta.ship_notes);
+    }
     if (itemsRes.data) {
+      const rxInit: Record<string,any> = {};
       const mapped = itemsRes.data.map((it: any) => {
         const lines = it.buy_sheet_lines || [];
         const sizes = sortSizes(lines.map((l: any) => l.size));
         const qtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
         const assignment = it.decorator_assignments?.[0];
+        // Hydrate receiving data from DB
+        if (it.receiving_data) {
+          rxInit[it.id] = it.receiving_data;
+        } else {
+          // Check if any buy_sheet_lines have shipped/received qtys
+          const hasRxData = lines.some((l: any) => (l.qty_shipped_from_vendor || 0) > 0 || (l.qty_received_at_hpd || 0) > 0);
+          if (hasRxData) {
+            rxInit[it.id] = {
+              shipped: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_shipped_from_vendor || 0])),
+              received: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_received_at_hpd || 0])),
+            };
+          }
+        }
         return {
           ...it,
           sizes, qtys,
@@ -111,6 +132,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         };
       });
       setItems(mapped);
+      if (Object.keys(rxInit).length > 0) setRxData(rxInit);
     }
     if (paymentsRes.data) setPayments(paymentsRes.data as Payment[]);
     if (contactsRes.data) {
@@ -155,9 +177,48 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
   const upd = (k: string, v: any) => { if (!job) return; const u = {...job, [k]:v} as Job; setJob(u); saveJob({[k]:v}); };
   const updItem = (id: string, p: Partial<Item>) => saveItem(id, p);
-  const updRx = (id: string, p: any) => setRxData(prev => ({...prev, [id]:{...prev[id],...p}}));
-  const updRxNested = (id: string, key: string, sz: string, val: number) =>
-    setRxData(prev => ({...prev, [id]:{...prev[id],[key]:{...(prev[id]?.[key]||{}),[sz]:val}}}));
+  // ── Receiving: update local state + debounce save to DB ──────────────────
+  const saveRxToDb = useCallback(async (itemId: string, data: any) => {
+    // Save metadata (carrier, tracking, location, condition, receivedAt) to items.receiving_data
+    await supabase.from("items").update({ receiving_data: data }).eq("id", itemId);
+    // Save per-size shipped/received qtys to buy_sheet_lines
+    if (data.shipped) {
+      for (const [size, qty] of Object.entries(data.shipped)) {
+        await supabase.from("buy_sheet_lines").update({ qty_shipped_from_vendor: qty as number }).eq("item_id", itemId).eq("size", size);
+      }
+    }
+    if (data.received) {
+      for (const [size, qty] of Object.entries(data.received)) {
+        await supabase.from("buy_sheet_lines").update({ qty_received_at_hpd: qty as number }).eq("item_id", itemId).eq("size", size);
+      }
+    }
+  }, [supabase]);
+
+  const updRx = (id: string, p: any) => {
+    setRxData(prev => {
+      const next = {...prev, [id]:{...prev[id],...p}};
+      // Debounce save
+      if (rxSaveTimer.current) clearTimeout(rxSaveTimer.current);
+      rxSaveTimer.current = setTimeout(() => saveRxToDb(id, next[id]), 1500);
+      return next;
+    });
+  };
+  const updRxNested = (id: string, key: string, sz: string, val: number) => {
+    setRxData(prev => {
+      const next = {...prev, [id]:{...prev[id],[key]:{...(prev[id]?.[key]||{}),[sz]:val}}};
+      if (rxSaveTimer.current) clearTimeout(rxSaveTimer.current);
+      rxSaveTimer.current = setTimeout(() => saveRxToDb(id, next[id]), 1500);
+      return next;
+    });
+  };
+
+  // ── Shipping: persist stage + notes to job.type_meta ────────────────────
+  const saveShipToDb = useCallback(async (stage: string|null, notes: string) => {
+    if (!job) return;
+    const meta = {...(job.type_meta || {}), ship_stage: stage, ship_notes: notes};
+    await supabase.from("jobs").update({ type_meta: meta }).eq("id", job.id);
+    setJob(j => j ? {...j, type_meta: meta} : j);
+  }, [job, supabase]);
 
   if (loading) return React.createElement("div", {style:{padding:"2rem",color:"#7a82a0",fontSize:13}}, "Loading...");
   if (!job) return React.createElement("div", {style:{padding:"2rem",color:"#7a82a0",fontSize:13}}, "Project not found.");
@@ -665,14 +726,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     const si=SHIP_STAGES.findIndex(s=>s.id===shipStage);
                     const done=si>=idx, active=shipStage===stage.id;
                     return (
-                      <button key={stage.id} onClick={()=>setShipStage(stage.id)} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px",borderRadius:6,fontSize:12,fontWeight:active?500:400,cursor:"pointer",border:"0.5px solid "+(done?stage.color+"88":"var(--color-border-tertiary)"),background:active?stage.color+"22":done?stage.color+"11":"transparent",color:done?stage.color:"#7a82a0"}}>
+                      <button key={stage.id} onClick={()=>{setShipStage(stage.id); saveShipToDb(stage.id, shipNotes);}} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px",borderRadius:6,fontSize:12,fontWeight:active?500:400,cursor:"pointer",border:"0.5px solid "+(done?stage.color+"88":"var(--color-border-tertiary)"),background:active?stage.color+"22":done?stage.color+"11":"transparent",color:done?stage.color:"#7a82a0"}}>
                         <div style={{width:7,height:7,borderRadius:"50%",background:done?stage.color:"var(--color-border-secondary)"}}/>
                         {stage.label}
                       </button>
                     );
                   })}
                 </div>
-                <textarea value={shipNotes} onChange={e=>setShipNotes(e.target.value)} placeholder="Internal notes..." style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.5}}/>
+                <textarea value={shipNotes} onChange={e=>{
+                  setShipNotes(e.target.value);
+                  if (shipSaveTimer.current) clearTimeout(shipSaveTimer.current);
+                  shipSaveTimer.current = setTimeout(() => saveShipToDb(shipStage, e.target.value), 1500);
+                }} placeholder="Internal notes..." style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.5}}/>
               </div>
             </div>
           </div>
