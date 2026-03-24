@@ -35,6 +35,7 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("active");
+  const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState("target_ship_date");
   const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
   const now = new Date();
@@ -80,19 +81,21 @@ export default function JobsPage() {
     on_hold: jobs.filter(j => j.phase === "on_hold").length,
   }), [jobs]);
 
-  const visible = useMemo(() => jobs.filter(j => {
-    if (filter === "active") return !["complete","cancelled","on_hold"].includes(j.phase);
-    if (filter === "intake") return j.phase === "intake";
-    if (filter === "pre_production") return j.phase === "pre_production";
-    if (filter === "production") return j.phase === "production";
-    if (filter === "receiving") return j.phase === "receiving";
-    if (filter === "shipping") return j.phase === "shipping";
-    if (filter === "on_hold") return j.phase === "on_hold";
-    if (filter === "complete") return j.phase === "complete";
-    if (filter === "cancelled") return j.phase === "cancelled";
-    if (filter === "all") return true;
-    return true;
-  }), [jobs, filter]);
+  const visible = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return jobs.filter(j => {
+      // Phase filter
+      if (filter === "active" && ["complete","cancelled","on_hold"].includes(j.phase)) return false;
+      if (filter !== "active" && filter !== "all" && j.phase !== filter) return false;
+      // Text search
+      if (q && !(
+        (j.clients?.name || "").toLowerCase().includes(q) ||
+        j.title.toLowerCase().includes(q) ||
+        j.job_number.toLowerCase().includes(q)
+      )) return false;
+      return true;
+    });
+  }, [jobs, filter, search]);
 
   const sorted = useMemo(() => [...visible].sort((a,b) => {
     let av: any, bv: any;
@@ -134,9 +137,14 @@ export default function JobsPage() {
   return (
     <div style={{ fontFamily: font, color: T.text, display:"flex", flexDirection:"column", gap:14 }}>
       {/* Header */}
-      <div>
-        <h1 style={{ fontSize:22, fontWeight:700, margin:"0 0 10px", letterSpacing:"-0.02em" }}>Projects</h1>
-        <a href="/jobs/new" style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"8px 18px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+        <h1 style={{ fontSize:22, fontWeight:700, margin:0, letterSpacing:"-0.02em" }}>Projects</h1>
+        <input
+          value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search clients, titles, job numbers..."
+          style={{ flex:1, maxWidth:360, padding:"7px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:font, outline:"none" }}
+        />
+        <a href="/jobs/new" style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"8px 18px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none", whiteSpace:"nowrap" }}>
           + New Project
         </a>
       </div>

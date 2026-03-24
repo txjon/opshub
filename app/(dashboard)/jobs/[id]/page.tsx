@@ -270,22 +270,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   {tab==="overview"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
 
-          {/* Stats */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-            {[
-              {label:"Projected revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():"$"+Math.round(totalCost*1.43).toLocaleString(),color:"#4f8ef7"},
-              {label:"Projected cost",value:"$"+Math.round(totalCost).toLocaleString()},
-              {label:"Projected profit",value:totalCost>0?"$"+Math.round((totalRev||totalCost*1.43)-totalCost).toLocaleString():"—",color:"#34c97a"},
-              {label:"Projected margin",value:totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100).toFixed(1)+"%":"—",color:(()=>{const m=totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100):0;return m>=30?"#34c97a":m>=20?"#f5a623":"#f05353";})()},
-            ].map(s=>(
-              <div key={s.label} style={{background:"#1e2333",border:"1px solid #2a3050",borderRadius:8,padding:"8px 12px"}}>
-                <div style={{fontSize:10,color:"#7a82a0",marginBottom:2}}>{s.label}</div>
-                <div style={{fontSize:15,fontWeight:600,color:s.color||"#e8eaf2"}}>{s.value}</div>
-              </div>
-            ))}
-          </div>
-
-
           {/* Two columns */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"start"}}>
 
@@ -374,8 +358,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   if (!window.confirm(`Are you sure you want to delete "${job.title}"? This cannot be undone.`)) return;
                   for (const item of items) {
                     await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
+                    await supabase.from("decorator_assignments").delete().eq("item_id", item.id);
                     await supabase.from("items").delete().eq("id", item.id);
                   }
+                  await supabase.from("payment_records").delete().eq("job_id", params.id);
+                  await supabase.from("job_contacts").delete().eq("job_id", params.id);
                   await supabase.from("jobs").delete().eq("id", params.id);
                   router.push("/jobs");
                 }}
