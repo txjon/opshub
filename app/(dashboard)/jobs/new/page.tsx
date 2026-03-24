@@ -1,7 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+
+type ClientOption = { id: string; name: string; };
 
 export default function NewJobPage() {
   const router = useRouter();
@@ -10,18 +12,101 @@ export default function NewJobPage() {
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     title: "",
-    job_type: "tour" as "tour" | "webstore" | "corporate" | "brand",
-    phase: "intake" as const,
-    priority: "normal" as "normal" | "high" | "urgent",
-    payment_terms: "" as "" | "net_15" | "net_30" | "deposit_balance" | "prepaid",
-    payment_method: "" as "" | "credit_card" | "ach" | "wire" | "check" | "paypal" | "venmo" | "zelle",
+    job_type: "tour",
+    phase: "intake",
+    priority: "normal",
+    payment_terms: "",
+    payment_method: "",
     target_ship_date: "",
     in_hands_date: "",
     notes: "",
     client_name: "",
   });
 
+  // Client typeahead
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [filteredClients, setFilteredClients] = useState<ClientOption[]>([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [showNewClientModal, setShowNewClientModal] = useState(false);
+  const [newClientForm, setNewClientForm] = useState({ name: "", client_type: "", default_terms: "", notes: "", contacts: [] as {name:string,email:string,phone:string,role:string}[] });
+  const [savingClient, setSavingClient] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    supabase.from("clients").select("id, name").order("name").then(({ data }) => {
+      setClients(data || []);
+    });
+  }, []);
+
+  useEffect(() => {
+    const q = form.client_name.trim().toLowerCase();
+    if (q.length === 0) { setFilteredClients([]); return; }
+    setFilteredClients(clients.filter(c => c.name.toLowerCase().includes(q)));
+  }, [form.client_name, clients]);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setShowDropdown(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const selectClient = (c: ClientOption) => {
+    setForm(f => ({ ...f, client_name: c.name }));
+    setSelectedClientId(c.id);
+    setShowDropdown(false);
+  };
+
+  const openNewClientModal = () => {
+    setNewClientForm({ name: form.client_name.trim(), client_type: "", default_terms: "", notes: "", contacts: [] });
+    setShowNewClientModal(true);
+    setShowDropdown(false);
+  };
+
+  const addModalContact = () => {
+    setNewClientForm(f => ({...f, contacts: [...f.contacts, {name:"",email:"",phone:"",role:""}]}));
+  };
+  const updateModalContact = (idx: number, field: string, value: string) => {
+    setNewClientForm(f => ({...f, contacts: f.contacts.map((c,i) => i===idx ? {...c,[field]:value} : c)}));
+  };
+  const removeModalContact = (idx: number) => {
+    setNewClientForm(f => ({...f, contacts: f.contacts.filter((_,i) => i!==idx)}));
+  };
+
+  const saveNewClient = async () => {
+    if (!newClientForm.name.trim()) return;
+    setSavingClient(true);
+    const { data, error: err } = await supabase.from("clients").insert({
+      name: newClientForm.name.trim(),
+      client_type: newClientForm.client_type || null,
+      default_terms: newClientForm.default_terms || null,
+      notes: newClientForm.notes || null,
+    }).select("id, name").single();
+    if (err || !data) { setSavingClient(false); setError(err?.message || "Failed to create client"); return; }
+    // Create contacts
+    const validContacts = newClientForm.contacts.filter(c => c.name.trim() || c.email.trim());
+    if (validContacts.length > 0) {
+      await supabase.from("contacts").insert(validContacts.map((c,i) => ({
+        client_id: data.id,
+        name: c.name.trim() || c.email.trim(),
+        email: c.email.trim() || null,
+        phone: c.phone.trim() || null,
+        role_label: c.role.trim() || null,
+        is_primary: i === 0,
+      })));
+    }
+    setSavingClient(false);
+    // Add to local list and select
+    setClients(prev => [...prev, { id: data.id, name: data.name }].sort((a,b) => a.name.localeCompare(b.name)));
+    setForm(f => ({ ...f, client_name: data.name }));
+    setSelectedClientId(data.id);
+    setShowNewClientModal(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,26 +114,7 @@ export default function NewJobPage() {
     setError("");
 
     try {
-      let clientId: string | null = null;
-      if (form.client_name.trim()) {
-        const { data: existingClient } = await supabase
-          .from("clients")
-          .select("id")
-          .ilike("name", form.client_name.trim())
-          .single();
-
-        if (existingClient) {
-          clientId = existingClient.id;
-        } else {
-          const { data: newClient, error: clientError } = await supabase
-            .from("clients")
-            .insert({ name: form.client_name.trim() })
-            .select("id")
-            .single();
-          if (clientError) throw clientError;
-          clientId = newClient.id;
-        }
-      }
+      const clientId = selectedClientId;
 
       const { data: job, error: jobError } = await supabase
         .from("jobs")
@@ -90,17 +156,34 @@ export default function NewJobPage() {
 
       <form onSubmit={handleSubmit} className="space-y-5">
 
-        {/* Job Details */}
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">
           <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Project Details</h2>
 
-          {/* Client + Title on same line */}
           <div className="grid grid-cols-2 gap-4">
-            <div>
+            <div ref={dropdownRef} className="relative">
               <label className={lc}>Client</label>
-              <input value={form.client_name} onChange={e => set("client_name", e.target.value)}
-                placeholder="Client or band name" className={ic} />
-              <p className="text-xs text-muted-foreground mt-1">Creates a new client if not found</p>
+              <input value={form.client_name}
+                onChange={e => { set("client_name", e.target.value); setSelectedClientId(null); setShowDropdown(true); }}
+                onFocus={() => { if (form.client_name.trim()) setShowDropdown(true); }}
+                placeholder="Start typing to search..."
+                className={ic}
+                autoComplete="off" />
+              {showDropdown && form.client_name.trim() && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+                  {filteredClients.map(c => (
+                    <button key={c.id} type="button" onClick={() => selectClient(c)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors border-b border-border last:border-0">
+                      {c.name}
+                    </button>
+                  ))}
+                  <button type="button" onClick={openNewClientModal}
+                    className="w-full text-left px-3 py-2 text-sm font-semibold text-primary hover:bg-secondary transition-colors">
+                    + Create &quot;{form.client_name.trim()}&quot; as new client
+                  </button>
+                </div>
+              )}
+              {selectedClientId && <p className="text-xs text-primary mt-1">Existing client selected</p>}
+              {!selectedClientId && form.client_name.trim() && <p className="text-xs text-muted-foreground mt-1">Select a client or create new</p>}
             </div>
             <div>
               <label className={lc}>Project Title *</label>
@@ -115,8 +198,7 @@ export default function NewJobPage() {
               <select value={form.job_type} onChange={e => set("job_type", e.target.value)} className={ic}>
                 <option value="tour">Tour</option>
                 <option value="webstore">Webstore</option>
-                <option value="corporate">Corporate</option>
-                <option value="brand">Brand</option>
+                <option value="drop_ship">Drop Ship</option>
               </select>
             </div>
             <div>
@@ -130,11 +212,9 @@ export default function NewJobPage() {
           </div>
         </div>
 
-        {/* Timeline & Payment */}
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">
           <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Timeline & Payment</h2>
 
-          {/* Dates on same line */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={lc}>Target Ship Date</label>
@@ -146,7 +226,6 @@ export default function NewJobPage() {
             </div>
           </div>
 
-          {/* Payment Terms + Method on same line */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={lc}>Payment Terms</label>
@@ -174,7 +253,6 @@ export default function NewJobPage() {
           </div>
         </div>
 
-        {/* Notes */}
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">
           <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Notes</h2>
           <textarea value={form.notes} onChange={e => set("notes", e.target.value)}
@@ -196,6 +274,94 @@ export default function NewJobPage() {
           </button>
         </div>
       </form>
+
+      {/* New Client Modal */}
+      {showNewClientModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100 }}
+          onClick={e => { if (e.target === e.currentTarget) setShowNewClientModal(false); }}>
+          <div style={{ background:"#1e2333", border:"1px solid #2a3050", borderRadius:12, padding:24, width:420, maxWidth:"90vw" }}>
+            <h3 style={{ fontSize:16, fontWeight:700, color:"#e8eaf2", marginBottom:16 }}>New Client</h3>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div>
+                <label style={{ fontSize:12, color:"#7a82a0", marginBottom:4, display:"block" }}>Client Name *</label>
+                <input value={newClientForm.name} onChange={e => setNewClientForm(f => ({...f, name: e.target.value}))}
+                  style={{ width:"100%", padding:"8px 12px", borderRadius:6, border:"1px solid #2a3050", background:"#181c27", color:"#e8eaf2", fontSize:14, outline:"none", boxSizing:"border-box" }} autoFocus />
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <div>
+                  <label style={{ fontSize:12, color:"#7a82a0", marginBottom:4, display:"block" }}>Client Type</label>
+                  <select value={newClientForm.client_type} onChange={e => setNewClientForm(f => ({...f, client_type: e.target.value}))}
+                    style={{ width:"100%", padding:"8px 12px", borderRadius:6, border:"1px solid #2a3050", background:"#181c27", color:"#e8eaf2", fontSize:13, outline:"none", cursor:"pointer" }}>
+                    <option value="">—</option>
+                    <option value="corporate">Corporate</option>
+                    <option value="brand">Brand</option>
+                    <option value="artist">Artist</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize:12, color:"#7a82a0", marginBottom:4, display:"block" }}>Payment Terms</label>
+                  <select value={newClientForm.default_terms} onChange={e => setNewClientForm(f => ({...f, default_terms: e.target.value}))}
+                    style={{ width:"100%", padding:"8px 12px", borderRadius:6, border:"1px solid #2a3050", background:"#181c27", color:"#e8eaf2", fontSize:13, outline:"none", cursor:"pointer" }}>
+                    <option value="">—</option>
+                    <option value="net_15">Net 15</option>
+                    <option value="net_30">Net 30</option>
+                    <option value="deposit_balance">Deposit + Balance</option>
+                    <option value="prepaid">Prepaid</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize:12, color:"#7a82a0", marginBottom:4, display:"block" }}>Notes</label>
+                <textarea value={newClientForm.notes} onChange={e => setNewClientForm(f => ({...f, notes: e.target.value}))}
+                  placeholder="Any notes about this client..."
+                  rows={2}
+                  style={{ width:"100%", padding:"8px 12px", borderRadius:6, border:"1px solid #2a3050", background:"#181c27", color:"#e8eaf2", fontSize:13, outline:"none", resize:"vertical", lineHeight:1.5, boxSizing:"border-box" }} />
+              </div>
+              {/* Contacts */}
+              <div>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+                  <label style={{ fontSize:12, color:"#7a82a0" }}>Contacts</label>
+                  <button type="button" onClick={addModalContact}
+                    style={{ background:"none", border:"1px solid #2a3050", borderRadius:5, color:"#7a82a0", fontSize:11, padding:"2px 8px", cursor:"pointer" }}>+ Add</button>
+                </div>
+                {newClientForm.contacts.length === 0 && (
+                  <div style={{ fontSize:11, color:"#3a4060", padding:"4px 0" }}>No contacts — you can add them later too</div>
+                )}
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {newClientForm.contacts.map((c, idx) => (
+                    <div key={idx} style={{ background:"#181c27", borderRadius:6, padding:"8px 10px", position:"relative" }}>
+                      <button type="button" onClick={() => removeModalContact(idx)}
+                        style={{ position:"absolute", top:6, right:8, background:"none", border:"none", color:"#3a4060", cursor:"pointer", fontSize:12 }}
+                        onMouseEnter={e => e.currentTarget.style.color="#f05353"}
+                        onMouseLeave={e => e.currentTarget.style.color="#3a4060"}>✕</button>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                        <input value={c.name} onChange={e => updateModalContact(idx, "name", e.target.value)} placeholder="Name"
+                          style={{ padding:"5px 8px", borderRadius:4, border:"1px solid #2a3050", background:"#0f1117", color:"#e8eaf2", fontSize:12, outline:"none" }} />
+                        <input value={c.email} onChange={e => updateModalContact(idx, "email", e.target.value)} placeholder="Email"
+                          style={{ padding:"5px 8px", borderRadius:4, border:"1px solid #2a3050", background:"#0f1117", color:"#e8eaf2", fontSize:12, outline:"none" }} />
+                        <input value={c.phone} onChange={e => updateModalContact(idx, "phone", e.target.value)} placeholder="Phone"
+                          style={{ padding:"5px 8px", borderRadius:4, border:"1px solid #2a3050", background:"#0f1117", color:"#e8eaf2", fontSize:12, outline:"none" }} />
+                        <input value={c.role} onChange={e => updateModalContact(idx, "role", e.target.value)} placeholder="Role"
+                          style={{ padding:"5px 8px", borderRadius:4, border:"1px solid #2a3050", background:"#0f1117", color:"#e8eaf2", fontSize:12, outline:"none" }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:16 }}>
+              <button onClick={() => setShowNewClientModal(false)}
+                style={{ padding:"8px 16px", borderRadius:6, border:"1px solid #2a3050", background:"transparent", color:"#7a82a0", fontSize:13, cursor:"pointer" }}>
+                Cancel
+              </button>
+              <button onClick={saveNewClient} disabled={savingClient || !newClientForm.name.trim()}
+                style={{ padding:"8px 20px", borderRadius:6, border:"none", background:"#4f8ef7", color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", opacity: savingClient || !newClientForm.name.trim() ? 0.5 : 1 }}>
+                {savingClient ? "Creating..." : "Create Client"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
