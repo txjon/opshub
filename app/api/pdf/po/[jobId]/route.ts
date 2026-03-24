@@ -68,60 +68,89 @@ function calcDecorationLines(p: any): { label: string; qty: number; rate: number
     lines.push({ label: "Tag print", qty, rate: tagRate, total: tagRate * qty });
   }
 
-  // Finishing
-  if (p.finishingQtys && activeLocs.length > 0) {
-    const locsCount = activeLocs.length + (p.tagPrint ? 1 : 0);
+  // Finishing — dynamic from decorator pricing
+  if (p.finishingQtys) {
+    // Packaging
     if (p.finishingQtys["Packaging_on"]) {
       const variant = p.isFleece ? "Fleece" : (p.finishingQtys["Packaging_variant"] || "Tee");
-      const rate = pr.finishing?.[variant] || 0;
-      lines.push({ label: `Packaging (${variant})`, qty, rate, total: rate * qty });
+      const rate = pr.packaging?.[variant] || pr.finishing?.[variant] || 0;
+      if (rate > 0) lines.push({ label: `Packaging (${variant})`, qty, rate, total: rate * qty });
     }
-    if (p.finishingQtys["HangTag_on"]) {
-      const rate = pr.specialty?.HangTag || 0;
-      lines.push({ label: "Hang tag", qty, rate, total: rate * qty });
+    // Dynamic finishing items
+    for (const fk of Object.keys(p.finishingQtys)) {
+      if (fk.endsWith("_on") && p.finishingQtys[fk] && fk !== "Packaging_on") {
+        const key = fk.replace("_on", "");
+        const rate = pr.finishing?.[key] || pr.specialty?.[key] || 0;
+        if (rate > 0) lines.push({ label: key, qty, rate, total: rate * qty });
+      }
     }
-    if (p.finishingQtys["HemTag_on"]) {
-      const rate = pr.specialty?.HemTag || 0;
-      lines.push({ label: "Hem tag", qty, rate, total: rate * qty });
-    }
-    if (p.finishingQtys["Applique_on"]) {
-      const rate = pr.specialty?.Applique || 0;
-      lines.push({ label: "Appliqué", qty, rate, total: rate * qty });
-    }
+    // Fleece upcharge (automatic when isFleece)
     if (p.isFleece) {
-      const rate = (pr.finishing?.Tee || 0) * locsCount;
-      lines.push({ label: "Fleece upcharge", qty, rate, total: rate * qty });
+      const locsCount = activeLocs.length + (p.tagPrint ? 1 : 0);
+      const rate = (pr.packaging?.Tee || pr.finishing?.Tee || 0) * locsCount;
+      if (rate > 0) lines.push({ label: "Fleece upcharge", qty, rate, total: rate * qty });
     }
   }
 
-  // Specialty
-  if (p.specialtyQtys && activeLocs.length > 0) {
-    const specKeys = ["WaterBase","Glow","Shimmer","Metallic","Puff","HighDensity","Reflective","Foil"];
-    for (const key of specKeys) {
+  // Specialty — dynamic from decorator pricing
+  if (p.specialtyQtys) {
+    for (const key of Object.keys(pr.specialty || {})) {
       if (p.specialtyQtys[key + "_on"]) {
-        const rate = (pr.specialty?.[key] || 0) * activeLocs.length;
-        lines.push({ label: key.replace(/([A-Z])/g, " $1").trim(), qty, rate, total: rate * qty });
+        const count = p.specialtyQtys[key + "_count"] !== undefined ? p.specialtyQtys[key + "_count"] : activeLocs.length;
+        const rate = (pr.specialty[key] || 0) * count;
+        if (rate > 0) lines.push({ label: key.replace(/([A-Z])/g, " $1").trim(), qty, rate, total: rate * qty });
       }
     }
   }
 
-  // Setup fees (one-time)
+  // Setup fees — dynamic from decorator pricing
   if (p.setupFees) {
+    const isScreensKey = (k: string) => k === "Screens" || k.toLowerCase() === "screens";
+    const isTagScreensKey = (k: string) => k === "TagScreens" || k === "Tag Screens" || k.toLowerCase().replace(/\s/g, "") === "tagscreens";
     const autoScreens = [1,2,3,4,5,6].reduce((a: number, loc: number) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0);
-    if (pr.setup.Screens > 0 && autoScreens > 0) {
-      lines.push({ label: `Screen fees (${autoScreens} screens)`, qty: autoScreens, rate: pr.setup.Screens, total: pr.setup.Screens * autoScreens });
+    const activeSizes = (p.sizes || []).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
+
+    // Check if a setup key links to an active specialty
+    const getSpecCount = (setupKey: string): number | null => {
+      const skLower = setupKey.toLowerCase();
+      for (const sk of Object.keys(p.specialtyQtys || {})) {
+        if (sk.endsWith("_on") && p.specialtyQtys[sk]) {
+          const specName = sk.replace("_on", "").toLowerCase();
+          if (skLower.includes(specName)) return p.specialtyQtys[sk.replace("_on", "_count")] || 0;
+        }
+      }
+      return null;
+    };
+
+    for (const k of Object.keys(pr.setup || {})) {
+      const unitCost = pr.setup[k] || 0;
+      if (unitCost === 0) continue;
+      let feeQty = 0;
+      let label = k;
+
+      if (isScreensKey(k)) {
+        feeQty = autoScreens;
+        label = `Screen fees (${autoScreens} screens)`;
+      } else if (isTagScreensKey(k)) {
+        if (p.tagRepeat) continue;
+        feeQty = p.tagPrint ? activeSizes : (p.setupFees.tagSizes || 0);
+        if (feeQty === 0) continue;
+        label = `Tag screen fees (${feeQty} sizes)`;
+      } else {
+        const specCount = getSpecCount(k);
+        if (specCount !== null) {
+          feeQty = specCount;
+          label = `${k} (${feeQty})`;
+        } else {
+          feeQty = p.setupFees[k] || 0;
+          if (feeQty === 0) continue;
+          label = `${k} (${feeQty})`;
+        }
+      }
+
+      if (feeQty > 0) lines.push({ label, qty: feeQty, rate: unitCost, total: unitCost * feeQty });
     }
-    if (!p.tagRepeat && pr.setup.TagScreens > 0 && p.tagPrint) {
-      const activeSizes = (p.sizes || []).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
-      const tagSizes = activeSizes || p.setupFees.tagSizes || 0;
-      if (tagSizes > 0) lines.push({ label: `Tag screen fees (${tagSizes} sizes)`, qty: tagSizes, rate: pr.setup.TagScreens, total: pr.setup.TagScreens * tagSizes });
-    }
-    if (pr.setup.Seps > 0 && p.setupFees.seps > 0) {
-      lines.push({ label: `Separations (${p.setupFees.seps})`, qty: p.setupFees.seps, rate: pr.setup.Seps, total: pr.setup.Seps * p.setupFees.seps });
-    }
-    if (pr.setup.InkChange > 0 && p.setupFees.inkChanges > 0) {
-      lines.push({ label: `Ink changes (${p.setupFees.inkChanges})`, qty: p.setupFees.inkChanges, rate: pr.setup.InkChange, total: pr.setup.InkChange * p.setupFees.inkChanges });
-    }
+
     if (p.setupFees.manualCost > 0) {
       lines.push({ label: "Setup (manual)", qty: 1, rate: p.setupFees.manualCost, total: p.setupFees.manualCost });
     }

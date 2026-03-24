@@ -63,11 +63,17 @@ function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: bool
   let finUnitRate = 0;
   if (p.finishingQtys && p.printVendor) {
     const pr = PRINTERS[p.printVendor];
+    const activeLocs = [1,2,3,4,5,6].filter(loc => { const ld = p.printLocations?.[loc]; return ld?.location || ld?.screens > 0; }).length || 0;
     if (pr) {
-      if (p.finishingQtys["Packaging_on"]) { const variant = p.isFleece ? "Fleece" : (p.finishingQtys["Packaging_variant"] || "Tee"); finUnitRate += (pr.finishing?.[variant] || 0); }
-      if (p.finishingQtys["HangTag_on"]) finUnitRate += (pr.specialty?.HangTag || 0);
-      if (p.finishingQtys["HemTag_on"]) finUnitRate += (pr.specialty?.HemTag || 0);
-      if (p.finishingQtys["Applique_on"]) finUnitRate += (pr.specialty?.Applique || 0);
+      if (p.finishingQtys["Packaging_on"]) { const variant = p.isFleece ? "Fleece" : (p.finishingQtys["Packaging_variant"] || "Tee"); finUnitRate += (pr.packaging?.[variant] || pr.finishing?.[variant] || 0); }
+      // Dynamic finishing items
+      Object.keys(p.finishingQtys || {}).forEach((fk: string) => {
+        if (fk.endsWith("_on") && p.finishingQtys[fk] && fk !== "Packaging_on") {
+          const key = fk.replace("_on", "");
+          finUnitRate += (pr.finishing?.[key] || pr.specialty?.[key] || 0);
+        }
+      });
+      if (p.isFleece) { const locs = activeLocs + (p.tagPrint ? 1 : 0); finUnitRate += (pr.packaging?.Tee || pr.finishing?.Tee || 0) * locs; }
     }
   }
   let specUnitRate = 0;
@@ -75,20 +81,42 @@ function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: bool
     const pr = PRINTERS[p.printVendor];
     if (pr) {
       const activeLocs = [1,2,3,4,5,6].filter(loc => { const ld = p.printLocations?.[loc]; return ld?.location || ld?.screens > 0; }).length || 0;
-      ["WaterBase","Glow","Shimmer","Metallic","Puff","HighDensity","Reflective","Foil"].forEach(key => {
-        if (p.specialtyQtys[key + "_on"]) specUnitRate += (pr.specialty?.[key] || 0) * activeLocs;
+      Object.keys(pr.specialty || {}).forEach((key: string) => {
+        if (p.specialtyQtys[key + "_on"]) {
+          const count = p.specialtyQtys[key + "_count"] !== undefined ? p.specialtyQtys[key + "_count"] : activeLocs;
+          specUnitRate += (pr.specialty[key] || 0) * count;
+        }
       });
     }
   }
   let setupTotal = 0;
   if (p.setupFees) {
     const pr = PRINTERS[p.printVendor || p.setupFees?.printer];
-    const autoScreens = [1,2,3,4,5,6].reduce((a, loc) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0);
-    if (pr) setupTotal += (pr.setup.Screens || 0) * autoScreens;
-    const activeSizes = (p.sizes || []).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
-    if (pr && !p.tagRepeat) setupTotal += (pr.setup.TagScreens || 0) * (p.tagPrint ? activeSizes : (p.setupFees?.tagSizes || 0));
-    if (pr) setupTotal += (pr.setup.Seps || 0) * (p.setupFees.seps || 0);
-    if (pr) setupTotal += (pr.setup.InkChange || 0) * (p.setupFees.inkChanges || 0);
+    if (pr) {
+      const isScreensKey = (k: string) => k === "Screens" || k.toLowerCase() === "screens";
+      const isTagScreensKey = (k: string) => k === "TagScreens" || k === "Tag Screens" || k.toLowerCase().replace(/\s/g, "") === "tagscreens";
+      const autoScreens = [1,2,3,4,5,6].reduce((a, loc) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0);
+      const activeSizes = (p.sizes || []).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
+      const getSpecCount = (setupKey: string): number | null => {
+        const skLower = setupKey.toLowerCase();
+        for (const sk of Object.keys(p.specialtyQtys || {})) {
+          if (sk.endsWith("_on") && p.specialtyQtys[sk]) {
+            const specName = sk.replace("_on", "").toLowerCase();
+            if (skLower.includes(specName)) return p.specialtyQtys[sk.replace("_on", "_count")] || 0;
+          }
+        }
+        return null;
+      };
+      Object.keys(pr.setup || {}).forEach((k: string) => {
+        if (isScreensKey(k)) setupTotal += (pr.setup[k] || 0) * autoScreens;
+        else if (isTagScreensKey(k) && !p.tagRepeat) setupTotal += (pr.setup[k] || 0) * (p.tagPrint ? activeSizes : (p.setupFees?.tagSizes || 0));
+        else {
+          const specCount = getSpecCount(k);
+          if (specCount !== null) setupTotal += (pr.setup[k] || 0) * specCount;
+          else setupTotal += (pr.setup[k] || 0) * (p.setupFees?.[k] || 0);
+        }
+      });
+    }
     if (p.setupFees.manualCost > 0) setupTotal += p.setupFees.manualCost;
   }
   const customTotal = (p.customCosts || []).reduce((a: number, c: any) => a + (c.amount || 0), 0);
