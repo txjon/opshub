@@ -168,7 +168,7 @@ Two-column layout: **Blanks panel** (400px, left) + **Decoration panel** (flex, 
 - **Client list** (`/clients`) — clickable names link to detail page
 - **Client detail** (`/clients/[id]`) — editable info (name, type, terms, notes), contacts CRUD, project history with revenue/units/phase
 - **New project form** — client typeahead (searches as you type), "Create new client" modal with name, type, payment terms, notes, and inline contacts (saved in one action)
-- **Client types**: corporate, brand, artist
+- **Client types**: corporate, brand, artist, tour, webstore
 - **Project types**: tour, webstore, drop_ship
 
 ### Contacts & Payments (Job Overview)
@@ -221,6 +221,8 @@ Server component showing:
 006_decorator_contacts.sql — decorators.contacts_list JSONB
 007_update_job_types.sql  — Updated job_type + client_type constraints
 008_item_files.sql        — item_files table for art file metadata
+009_client_types.sql      — Added tour + webstore client types
+010_pipeline_timestamps.sql — items.pipeline_timestamps JSONB column
 ```
 
 ### JSONB Patterns
@@ -230,6 +232,7 @@ Server component showing:
 - `jobs.type_meta` — misc metadata (ship dates, venue, shipping stage/notes)
 - `items.receiving_data` — warehouse receiving metadata (carrier, tracking, location, condition)
 - `items.blank_costs` — per-size blank costs
+- `items.pipeline_timestamps` — JSONB recording when each pipeline stage was entered (ISO timestamps keyed by stage id)
 - `decorators.pricing_data` — full pricing structure with minimums (see Decorator Pricing above)
 - `decorators.contacts_list` — array of {name, email, phone, role}
 
@@ -278,7 +281,7 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 
 - **Display names**: "Projects" (not "Jobs") in all UI. DB tables/URLs stay as `jobs`.
 - **Project types**: tour, webstore, drop_ship
-- **Client types**: corporate, brand, artist
+- **Client types**: corporate, brand, artist, tour, webstore
 - **Auto-save**: 800ms debounce (1500ms for Buy Sheet), silent (no visible indicator unless error)
 - **Inline styles**: Job detail components use inline styles with the `T` theme object. Layout pages (clients list, new project) use Tailwind.
 - **No hardcoded pricing or options**: All decorator rates and option names come from `decorators.pricing_data`.
@@ -292,6 +295,18 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 - **Browser requests**: Authenticated via Supabase cookie session (`createClient` from `lib/supabase/server`)
 - **Internal server-to-server** (email → PDF): Uses `x-internal-key` header with `SUPABASE_SERVICE_ROLE_KEY`
 - **Google Drive**: Service account with domain-wide delegation impersonating `jon@housepartydistro.com`
+
+### Automation & Workflow Helpers
+
+- **Client defaults on new project**: Selecting a client auto-fills payment terms from `clients.default_terms` and auto-adds all client contacts to the job (primary gets "primary" role, others get "cc")
+- **Print location presets**: Location name inputs show a datalist dropdown with common names (Front, Back, Left Sleeve, Right Sleeve, Left Chest, Right Chest, Neck, Hood, Pocket) — still accepts free text
+- **PO "Copy to all"**: Each PO item field shows "↓ Copy to all" when it has a value and multiple items exist for the current vendor
+- **Contact deduplication**: Adding a contact with an email already on the job shows a warning
+- **In-hands date auto-calc**: Setting ship date auto-suggests in-hands = ship date + 3 days (only when in-hands is empty)
+- **Receiving qty mismatch**: Red alert banner at top of warehouse tab when any item's received qty < ordered qty
+- **Duplicate project**: Button in job detail header copies the job, all items + buy sheet lines, costing data (with remapped IDs), and contacts
+- **Pipeline stage timestamps**: Records ISO timestamp when each stage is entered, displays "Xd in stage" per item (amber at 3+ days, red at 7+)
+- **Art → Production gate**: At strike-off stage, shows warning if proofs aren't uploaded/approved, confirmation when all approved
 
 ### Settings & Team Management
 
@@ -307,6 +322,10 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 - Templates page "Use template" button is not wired up
 - Clients list page uses Tailwind while job detail uses inline styles (inconsistent but functional)
 - Pricing logic duplicated in CostingTab, PO route, and Quote route — working but not DRY
+- Auto-generate invoice numbers — format TBD (deferred)
+- Size curve memory — remember last distribution curve per client/project type (deferred, needs cross-project tracking)
+- Multi-file drag-and-drop upload for Art Files tab (on hold)
+- AS Colour blank catalog CSV import — pricing file ready, import script not yet built
 
 ## Owner
 
