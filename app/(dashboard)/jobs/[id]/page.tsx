@@ -256,7 +256,48 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <span>{totalUnits.toLocaleString()} units</span>
             </div>
           </div>
-          <div style={{textAlign:"right"}}>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
+            <button onClick={async()=>{
+              if(!window.confirm(`Duplicate "${job.title}" with all items and costing?`)) return;
+              const {data:newJob}=await supabase.from("jobs").insert({
+                title:job.title+" (Copy)",job_type:job.job_type,phase:"intake",priority:job.priority,
+                payment_terms:job.payment_terms,target_ship_date:null,
+                type_meta:job.type_meta||{},notes:job.notes,client_id:job.client_id,job_number:"",
+                costing_data:job.costing_data||null,costing_summary:job.costing_summary||null,
+              }).select("id").single();
+              if(!newJob) return;
+              // Copy items + buy sheet lines
+              const idMap:Record<string,string>={};
+              for(const item of items){
+                const {data:ni}=await supabase.from("items").insert({
+                  job_id:newJob.id,name:item.name,blank_vendor:item.blank_vendor,blank_sku:item.blank_sku,
+                  cost_per_unit:item.cost_per_unit,sell_per_unit:item.sell_per_unit,status:"tbd",
+                  artwork_status:"not_started",sort_order:item.sort_order,blank_costs:item.blankCosts||null,
+                }).select("id").single();
+                if(ni){
+                  idMap[item.id]=ni.id;
+                  if(item.sizes?.length){
+                    await supabase.from("buy_sheet_lines").insert(
+                      item.sizes.map((sz:string)=>({item_id:ni.id,size:sz,qty_ordered:item.qtys?.[sz]||0,qty_shipped_from_vendor:0,qty_received_at_hpd:0,qty_shipped_to_customer:0}))
+                    );
+                  }
+                }
+              }
+              // Remap costing_data item IDs
+              if(newJob && job.costing_data?.costProds){
+                const remapped=job.costing_data.costProds.map((cp:any)=>({...cp,id:idMap[cp.id]||cp.id}));
+                await supabase.from("jobs").update({costing_data:{...job.costing_data,costProds:remapped}}).eq("id",newJob.id);
+              }
+              // Copy contacts
+              for(const c of contacts){
+                await supabase.from("job_contacts").insert({job_id:newJob.id,contact_id:c.id,role_on_job:c.role_on_job});
+              }
+              router.push(`/jobs/${newJob.id}`);
+            }} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",padding:"5px 12px",cursor:"pointer"}}
+              onMouseEnter={e=>e.currentTarget.style.color=T.text}
+              onMouseLeave={e=>e.currentTarget.style.color=T.muted}>
+              Duplicate project
+            </button>
             {daysLeft!==null&&(
               <>
                 <div style={{fontSize:22,fontWeight:700,color:daysLeft<0?"#f05353":daysLeft<=3?"#f5a623":T.text,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
@@ -482,6 +523,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         const email=(document.getElementById("ct-email") as HTMLInputElement).value.trim();
                         const phone=(document.getElementById("ct-phone") as HTMLInputElement).value.trim();
                         const role=(document.getElementById("ct-role") as HTMLSelectElement).value;
+                        // Check for duplicate on this job
+                        if(email && contacts.some(c=>c.email?.toLowerCase()===email.toLowerCase())){
+                          alert(`${email} is already on this project.`);
+                          return;
+                        }
                         // Find or create contact
                         let contactId:string;
                         if(email){
@@ -524,7 +570,16 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Target ship date</label><input style={ic} type="date" value={job.target_ship_date||""} onChange={e=>upd("target_ship_date",e.target.value)}/></div>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Target ship date</label><input style={ic} type="date" value={job.target_ship_date||""} onChange={e=>{
+                    upd("target_ship_date",e.target.value);
+                    // Auto-suggest in-hands = ship date + 3 days if not already set
+                    const inHands = job.type_meta?.in_hands_date || job.type_meta?.show_date;
+                    if(!inHands && e.target.value){
+                      const d=new Date(e.target.value); d.setDate(d.getDate()+3);
+                      const ih=d.toISOString().split("T")[0];
+                      upd("type_meta",{...job.type_meta,in_hands_date:ih});
+                    }
+                  }}/></div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>In hands date</label><input style={ic} type="date" value={job.type_meta?.in_hands_date||job.type_meta?.show_date||""} onChange={e=>upd("type_meta",{...job.type_meta,in_hands_date:e.target.value})}/></div>
                   <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Location name</label><input style={ic} value={job.type_meta?.venue_name||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_name:e.target.value})}/></div>
                   <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Delivery address</label><input style={ic} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/></div>

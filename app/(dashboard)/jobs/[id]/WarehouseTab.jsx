@@ -69,6 +69,18 @@ export function WarehouseTab({ items, job, rxData: initialRxData, shipStage: ini
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       <div>
         <div style={{fontSize:11,fontWeight:500,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Receiving</div>
+        {(()=>{
+          const shorts = items.filter(it => rxData[it.id]?.received).map(it => {
+            const ordered = tQty(it.qtys || {});
+            const received = Object.values(rxData[it.id]?.received || {}).reduce((a,v)=>a+v,0);
+            return received < ordered ? { name: it.name, short: ordered - received } : null;
+          }).filter(Boolean);
+          return shorts.length > 0 ? (
+            <div style={{background:"#3d1212",border:"1px solid #f0535344",borderRadius:8,padding:"10px 14px",marginBottom:8,fontSize:12,color:"#f05353"}}>
+              <strong>Qty mismatch:</strong> {shorts.map(s=>`${s.name} (${s.short} short)`).join(", ")}
+            </div>
+          ) : null;
+        })()}
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {items.filter(it=>it.pipeline_stage==="shipped"||rxData[it.id]).length===0&&(
             <div style={{...card,textAlign:"center",fontSize:13,color:T.muted,padding:"2rem"}}>
