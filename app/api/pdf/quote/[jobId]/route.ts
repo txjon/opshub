@@ -275,10 +275,13 @@ function renderQuoteHTML(data: {
 
 // ── Route handler ─────────────────────────────────────────────────────────────
 export async function GET(_req: NextRequest, { params }: { params: { jobId: string } }) {
-  // Auth check — only logged-in users can generate PDFs
-  const authClient = await createAuthClient();
-  const { data: { user } } = await authClient.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Auth check — logged-in users or internal server calls
+  const internal = _req.headers.get("x-internal-key") === process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!internal) {
+    const authClient = await createAuthClient();
+    const { data: { user } } = await authClient.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   try {

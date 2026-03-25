@@ -43,8 +43,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid type. Use 'quote' or 'po'" }, { status: 400 });
     }
 
-    // Generate the PDF by calling our own endpoint
-    const pdfRes = await fetch(pdfUrl);
+    // Generate the PDF by calling our own endpoint (internal call, pass secret key)
+    const pdfRes = await fetch(pdfUrl, {
+      headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "" },
+    });
     if (!pdfRes.ok) {
       const text = await pdfRes.text();
       return NextResponse.json({ error: `PDF generation failed: ${text}` }, { status: 500 });
