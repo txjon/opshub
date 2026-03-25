@@ -11,6 +11,7 @@ Internal operations platform for House Party Distro, a custom apparel company in
 - **Browserless API** for PDF generation (PO + Quote)
 - **Resend** for email delivery (quote to client, PO to decorator)
 - **S&S Activewear API** for blank catalog integration
+- **Google Drive API** for art file storage (service account with domain-wide delegation)
 
 ## Architecture
 
@@ -35,22 +36,25 @@ app/(dashboard)/
 app/api/
   auth/signout/       — Sign out handler
   email/send/         — Send quote/PO PDF via Resend (multi-recipient)
+  files/              — Art file upload/list/delete/approval (Google Drive)
   pdf/po/[jobId]/     — Generate PO PDF via Browserless
   pdf/quote/[jobId]/  — Generate quote PDF via Browserless
   ss/                 — S&S Activewear API proxy
+  team/               — Invite members + edit roles (manager-only)
 ```
 
 ### Project Detail Page (`jobs/[id]/`)
 
-The central hub. Vertical tab nav on the left, content on the right. 7 tabs, each its own component:
+The central hub. Vertical tab nav on the left, content on the right. 8 tabs, each its own component:
 
 | Tab | Component | Owns |
 |---|---|---|
 | Overview | Inline in page.tsx | Project info, contacts CRUD, payments CRUD, shipping details, items summary |
 | Buy Sheet | BuySheetTab.jsx | Item creation, size/qty entry, S&S + manual catalog pickers, drag-to-reorder |
+| Art Files | ArtTab.jsx | Per-item file upload to Google Drive, stages, proof approval workflow |
 | Costing | CostingTab.jsx | Decoration pricing, margin calc, auto-save, share groups |
 | Client Quote | CostingTab.jsx (quote sub-tab) | Quote preview + PDF download/email |
-| Purchase Order | POTab.jsx | PO preview, PDF export/email to multiple decorator contacts, packing notes |
+| Purchase Order | POTab.jsx | PO preview, PDF export/email, per-item drive link + production notes |
 | Production | ProductionTab.jsx | Pipeline stage tracking per item |
 | Warehouse | WarehouseTab.jsx | Receiving (carrier, tracking, per-size qtys) + shipping fulfillment |
 
@@ -72,13 +76,15 @@ The central hub. Vertical tab nav on the left, content on the right. 7 tabs, eac
 Used in Buy Sheet, Costing, Warehouse tabs, and Decorators page:
 1. Local state tracks edits
 2. Dirty detection via JSON snapshot comparison (prevents false triggers from re-renders)
-3. **800ms debounced save** after any change
+3. **800ms debounced save** after any change (1500ms for Buy Sheet to allow fast tabbing)
 4. `onSaveRef` for stable function reference across renders
 5. `onRegisterSave` callback so parent can force-save on tab switch
 6. **Silent saves** — no visible indicator. Only shows red error toast if save fails.
 7. `beforeunload` guard warns if closing with unsaved changes
 
 **Important**: The CostingTabWrapper has a single buyItems sync effect that updates BOTH `costProds` and `savedCostProds` to prevent dirty-detection loops. The inner CostingTab does NOT have its own sync effect — it was removed to prevent the two from fighting.
+
+**Buy Sheet save behavior**: `doSave()` does NOT overwrite `localItems` after saving — it only updates `savedSnapshot`. This prevents saves from resetting values the user is actively typing. The only exception is when new items get real DB IDs (temp → UUID swap).
 
 ### Decorator Pricing
 
@@ -115,6 +121,37 @@ When items share a print location (same art, same position), use share groups:
 4. Multiple groups are independent (Group A ≠ Group B)
 
 Share groups are stored as `shareGroup` on each print location in `costProd.printLocations[loc]`. Logic is applied in CostingTab, PO route, and Quote route.
+
+### Art Files & Google Drive Integration
+
+Per-item file management with automatic Google Drive sync. Files upload from OpsHub directly to Drive.
+
+**Folder structure**: `OpsHub Files / {Client Name} / {Project Title} / {Item Name} /`
+
+**File stages** (in order):
+1. `client_art` — Original art from client
+2. `vector` — Cleaned up vectors
+3. `mockup` — Visual mockup (sent with quote)
+4. `proof` — Print proof (requires client approval)
+5. `print_ready` — Final file for decorator
+
+**Proof approval workflow**: Proofs auto-get `pending` status. Can be marked `approved` or `revision_requested`. Re-submittable after revision.
+
+**Print-ready auto-link**: When a `print_ready` file is uploaded, the item's `drive_link` is automatically updated — this is the link that appears on PO PDFs.
+
+**Google Drive auth**: Service account (`opshub-drive@opshub-491306.iam.gserviceaccount.com`) with domain-wide delegation, impersonating `jon@housepartydistro.com`. Key stored as `GOOGLE_SERVICE_ACCOUNT_KEY` (JSON) or `GOOGLE_SERVICE_ACCOUNT_KEY_B64` (base64).
+
+**API route**: `/api/files` — POST (upload), GET (list by itemId), DELETE, PATCH (approval status).
+
+### PO Tab Item Fields
+
+Each item on the PO tab has four editable fields (save on blur to items table):
+- **Production files link** (`drive_link`) — auto-populated by print-ready upload, also manual
+- **Incoming goods** (`incoming_goods`) — notes about blanks arriving
+- **Production notes** (`production_notes_po`) — special instructions for decorator
+- **Packing / shipping notes** (`packing_notes`) — shipping instructions
+
+**Ship method**: Hardcoded list (UPS, FedEx, USPS, Freight, Will Call, Decorator Drop Ship). No database table.
 
 ### Costing Card Layout
 
@@ -171,6 +208,7 @@ Server component showing:
 | `decorator_assignments` | Links items to decorators with pipeline stage |
 | `payment_records` | Invoice/payment tracking per job |
 | `blank_catalog` | User-maintained blank garment catalog |
+| `item_files` | Art file metadata per item (actual files in Google Drive) |
 
 ### Migrations
 
@@ -182,6 +220,7 @@ Server component showing:
 005_decorator_details.sql — Decorator address, ship-from, pricing_data columns
 006_decorator_contacts.sql — decorators.contacts_list JSONB
 007_update_job_types.sql  — Updated job_type + client_type constraints
+008_item_files.sql        — item_files table for art file metadata
 ```
 
 ### JSONB Patterns
@@ -204,8 +243,17 @@ Single source for colors, fonts, size ordering. Used everywhere via `import { T,
 ### `lib/supabase/client.ts` / `server.ts`
 Shared Supabase clients. Use `createClient()` from the appropriate one — never instantiate directly.
 
+### `lib/google-drive.ts`
+Google Drive API wrapper. Handles folder creation, file upload, deletion, and permissions. Uses service account with domain-wide delegation. Supports both `GOOGLE_SERVICE_ACCOUNT_KEY` (raw JSON) and `GOOGLE_SERVICE_ACCOUNT_KEY_B64` (base64) env var formats.
+
 ### `components/SendEmailDialog.jsx`
 Reusable email dialog. Supports single recipient (quote to client) or multi-recipient with checkboxes (PO to decorator contacts, all selected by default).
+
+### `components/ConfirmDialog.tsx`
+Styled confirmation modal (replaces browser `confirm()`). Dark themed, Escape to close, click backdrop to close. Used across decorators, blank catalog, client detail, and job detail pages.
+
+### `components/Skeleton.tsx`
+Loading skeleton components with shimmer animation. `Skeleton` (single bar), `SkeletonRows` (card-style rows), `SkeletonTable` (table placeholder). Used on job detail and client detail pages for initial load only.
 
 ### `scripts/verify-costing.js`
 CLI tool to verify costing math. Run `node scripts/verify-costing.js` to list jobs, `node scripts/verify-costing.js <jobId>` for full calculation breakdown of every item — compare against Excel.
@@ -221,6 +269,9 @@ BROWSERLESS_API_KEY                — PDF generation
 RESEND_API_KEY                     — Email delivery
 EMAIL_FROM_QUOTES                  — hello@housepartydistro.com
 EMAIL_FROM_PO                      — production@housepartydistro.com
+GOOGLE_SERVICE_ACCOUNT_KEY         — Google service account JSON (Vercel)
+GOOGLE_SERVICE_ACCOUNT_KEY_B64     — Same key, base64-encoded (local dev)
+GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 ```
 
 ## Conventions
@@ -228,20 +279,34 @@ EMAIL_FROM_PO                      — production@housepartydistro.com
 - **Display names**: "Projects" (not "Jobs") in all UI. DB tables/URLs stay as `jobs`.
 - **Project types**: tour, webstore, drop_ship
 - **Client types**: corporate, brand, artist
-- **Auto-save**: 800ms debounce, silent (no visible indicator unless error)
+- **Auto-save**: 800ms debounce (1500ms for Buy Sheet), silent (no visible indicator unless error)
 - **Inline styles**: Job detail components use inline styles with the `T` theme object. Layout pages (clients list, new project) use Tailwind.
-- **No hardcoded pricing or options**: All decorator rates and option names come from `decorators.pricing_data`. The `FALLBACK_PRINTERS` in CostingTab exists only as migration scaffolding and can be removed.
+- **No hardcoded pricing or options**: All decorator rates and option names come from `decorators.pricing_data`.
 - **Decimal inputs**: Use `type="text" inputMode="decimal"` with local string state to avoid parseFloat eating trailing dots. Parse on blur/commit, not on every keystroke.
 - **Numeric inputs**: Auto-select on focus so typing overwrites the existing value.
 - **Date fields**: Use `type="date"` for native calendar picker.
 - **Dirty detection**: Use JSON snapshot comparison with refs to prevent re-render loops. Never have two competing sync effects for the same data.
 
+### API Auth Pattern
+
+- **Browser requests**: Authenticated via Supabase cookie session (`createClient` from `lib/supabase/server`)
+- **Internal server-to-server** (email → PDF): Uses `x-internal-key` header with `SUPABASE_SERVICE_ROLE_KEY`
+- **Google Drive**: Service account with domain-wide delegation impersonating `jon@housepartydistro.com`
+
+### Settings & Team Management
+
+- **Manager-only access**: Server-side role check redirects non-managers
+- **Invite members**: POST to `/api/team` with email, name, role → Supabase admin invite
+- **Edit roles**: Click role in table → dropdown (viewer/staff/manager) → PATCH to `/api/team`
+- **Can't edit own role** (prevents lockout)
+
 ## Known Issues / Future Work
 
-- `FALLBACK_PRINTERS` in CostingTab and `legacy-pricing.ts` can be removed (all pricing in DB now)
 - Standalone Receiving (`/receiving`) and Shipping (`/shipping`) pages may be stale after warehouse tab changes
 - No decoration type selector (defaults to screen_print) — could pull from decorator capabilities
+- Templates page "Use template" button is not wired up
 - Clients list page uses Tailwind while job detail uses inline styles (inconsistent but functional)
+- Pricing logic duplicated in CostingTab, PO route, and Quote route — working but not DRY
 
 ## Owner
 
