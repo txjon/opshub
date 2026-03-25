@@ -18,10 +18,12 @@ export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, type, j
   const [error, setError] = useState("");
 
   const getRecipients = () => {
+    const list = [];
     if (hasContacts) {
-      return contacts.filter((_, i) => selected[i]).map(c => c.email).filter(Boolean);
+      list.push(...contacts.filter((_, i) => selected[i]).map(c => c.email).filter(Boolean));
     }
-    return email.trim() ? [email.trim()] : [];
+    if (email.trim()) list.push(email.trim());
+    return [...new Set(list)]; // dedupe
   };
 
   const handleSend = async () => {
