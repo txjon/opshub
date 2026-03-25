@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
-type ClientOption = { id: string; name: string; };
+type ClientOption = { id: string; name: string; default_terms: string | null; client_type: string | null; };
 
 export default function NewJobPage() {
   const router = useRouter();
@@ -34,7 +34,7 @@ export default function NewJobPage() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    supabase.from("clients").select("id, name").order("name").then(({ data }) => {
+    supabase.from("clients").select("id, name, default_terms, client_type").order("name").then(({ data }) => {
       setClients(data || []);
     });
   }, []);
@@ -57,7 +57,11 @@ export default function NewJobPage() {
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const selectClient = (c: ClientOption) => {
-    setForm(f => ({ ...f, client_name: c.name }));
+    setForm(f => ({
+      ...f,
+      client_name: c.name,
+      payment_terms: c.default_terms || f.payment_terms,
+    }));
     setSelectedClientId(c.id);
     setShowDropdown(false);
   };
@@ -102,8 +106,8 @@ export default function NewJobPage() {
     }
     setSavingClient(false);
     // Add to local list and select
-    setClients(prev => [...prev, { id: data.id, name: data.name }].sort((a,b) => a.name.localeCompare(b.name)));
-    setForm(f => ({ ...f, client_name: data.name }));
+    setClients(prev => [...prev, { id: data.id, name: data.name, default_terms: newClientForm.default_terms || null, client_type: newClientForm.client_type || null }].sort((a,b) => a.name.localeCompare(b.name)));
+    setForm(f => ({ ...f, client_name: data.name, payment_terms: newClientForm.default_terms || f.payment_terms }));
     setSelectedClientId(data.id);
     setShowNewClientModal(false);
   };
@@ -137,6 +141,24 @@ export default function NewJobPage() {
         .single();
 
       if (jobError) throw jobError;
+
+      // Auto-add client's contacts to the new job
+      if (clientId) {
+        const { data: clientContacts } = await supabase
+          .from("contacts")
+          .select("id, is_primary")
+          .eq("client_id", clientId);
+        if (clientContacts?.length) {
+          await supabase.from("job_contacts").insert(
+            clientContacts.map(c => ({
+              job_id: job.id,
+              contact_id: c.id,
+              role_on_job: c.is_primary ? "primary" : "cc",
+            }))
+          );
+        }
+      }
+
       router.push(`/jobs/${job.id}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong");

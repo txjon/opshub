@@ -68,6 +68,7 @@ function seedBlankCosts(styleKey, color, sizes) {
 
 
 // --- PRICING ENGINE ---
+const LOCATION_PRESETS = ["Front","Back","Left Sleeve","Right Sleeve","Left Chest","Right Chest","Neck","Hood","Pocket"];
 const MARGIN_TIERS = {"10%":1.15,"15%":1.26,"20%":1.33,"25%":1.43,"30%":1.53};
 
 // Active pricing map — populated from DB decorators on load
@@ -606,16 +607,20 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                     <td style={{padding:"5px 10px",borderRight:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
                                       <span style={{fontSize:11,fontWeight:700,color:active?T.accent:T.faint,fontFamily:font}}>Print {loc}</span>
                                     </td>
-                                    <td style={{padding:"4px 6px",borderRight:`1px solid ${T.border}`}}>
+                                    <td style={{padding:"4px 6px",borderRight:`1px solid ${T.border}`,position:"relative"}}>
                                       <input value={ld.location||""} onChange={e=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,location:e.target.value,printer:ld.printer||p.printVendor||""}}})}
                                         placeholder="Front / Back / Sleeve…"
+                                        list={`loc-opts-${i}-${loc}`}
                                         data-costfield
                                         onKeyDown={e=>{
                                           if(e.key==="Enter"||e.key==="Tab"){focusNext(e,e.shiftKey);}
-                                          if(e.key==="ArrowDown"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:false},false);}
-                                          if(e.key==="ArrowUp"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:true},true);}
+                                          if(e.key==="ArrowDown"&&!e.target.list){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:false},false);}
+                                          if(e.key==="ArrowUp"&&!e.target.list){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:true},true);}
                                         }}
                                         style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:font,padding:"2px 4px"}}/>
+                                      <datalist id={`loc-opts-${i}-${loc}`}>
+                                        {LOCATION_PRESETS.map(l=><option key={l} value={l}/>)}
+                                      </datalist>
                                     </td>
                                     <td style={{padding:"4px 6px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
                                       <input type="text" inputMode="numeric" pattern="[0-9]*" value={ld.screens||""} placeholder="0"

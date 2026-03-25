@@ -192,6 +192,17 @@ export function POTab({project,items,costingData}) {
     await supabase.from("items").update({[field]:val}).eq("id",itemId);
     setSaving(p=>({...p,[itemId+"_"+field]:false}));
   }
+  async function copyFieldToAll(sourceItemId, field) {
+    const val = itemFields[sourceItemId]?.[field] || "";
+    if (!val) return;
+    const updates = {};
+    for (const it of vItems) {
+      if (it.id === sourceItemId) continue;
+      updates[it.id] = {...(itemFields[it.id]||{}), [field]: val};
+      supabase.from("items").update({[field]:val}).eq("id",it.id);
+    }
+    setItemFields(p=>({...p,...updates}));
+  }
 
   const ready = !!active;
   const allFilled = vItems.every(it=>itemFields[it.id]?.packing_notes?.trim());
@@ -258,7 +269,15 @@ export function POTab({project,items,costingData}) {
             const isSaving = Object.keys(saving).some(k=>k.startsWith(item.id)&&saving[k]);
             const fieldInput = (field, placeholder, opts={}) => (
               <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                <div style={{fontSize:8,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em"}}>{opts.label||field.replace(/_/g," ")}</div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{fontSize:8,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em"}}>{opts.label||field.replace(/_/g," ")}</div>
+                  {vItems.length>1&&(f[field]||"").trim()&&(
+                    <button onClick={()=>copyFieldToAll(item.id,field)}
+                      style={{fontSize:8,color:T.accent,fontFamily:font,background:"none",border:"none",cursor:"pointer",padding:0}}
+                      onMouseEnter={e=>e.currentTarget.style.color=T.green}
+                      onMouseLeave={e=>e.currentTarget.style.color=T.accent}>↓ Copy to all</button>
+                  )}
+                </div>
                 {opts.multiline ? (
                   <textarea value={f[field]||""} placeholder={placeholder}
                     onChange={e=>updateItemField(item.id,field,e.target.value)}
