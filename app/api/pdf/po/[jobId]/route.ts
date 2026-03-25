@@ -273,7 +273,7 @@ function renderPOHTML(data: any): string {
   </div>
 
   <div style="display:flex;gap:0;border:0.5px solid #ccc;margin-bottom:16px">
-    ${[["Date",today],["Ship date",shipDate],["Vendor ID",data.vendor_short_code||data.vendor_name],["Ship method",data.ship_method||"—"],["Ship acct.",data.ship_account||"—"]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
+    ${[["Date",today],["Ship date",shipDate],["Vendor ID",data.vendor_short_code||data.vendor_name],["Terms",data.payment_terms||"—"],["Ship method",data.ship_method||"—"]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;font-size:10px">
@@ -409,8 +409,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       vendor_city: (decoratorRecord as any)?.city || firstDecorator?.city || "",
       vendor_state: (decoratorRecord as any)?.state || firstDecorator?.state || "",
       vendor_zip: (decoratorRecord as any)?.zip || firstDecorator?.zip || "",
+      payment_terms: (job.payment_terms || "").replace(/_/g, " "),
       ship_method: orderInfo.shipMethod || "",
-      ship_account: "",
       items: vendorItems,
     };
 

@@ -141,6 +141,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || "blanks_ordered",
           decorator_assignment_id: assignment?.id || null,
           blankCosts: it.blank_costs || null,
+          pipeline_timestamps: it.pipeline_timestamps || {},
         };
       });
       setItems(mapped);
@@ -177,7 +178,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (artwork_status !== undefined) dbUpdates.artwork_status = artwork_status;
     if (name !== undefined) dbUpdates.name = name;
     if (notes !== undefined) dbUpdates.notes = notes;
-    if (updates.pipeline_stage !== undefined) dbUpdates.pipeline_stage = updates.pipeline_stage;
+    if (updates.pipeline_stage !== undefined) {
+      dbUpdates.pipeline_stage = updates.pipeline_stage;
+      // Record timestamp for this stage transition
+      const existing = items.find(it => it.id === id);
+      const timestamps = (existing as any)?.pipeline_timestamps || {};
+      timestamps[updates.pipeline_stage] = new Date().toISOString();
+      dbUpdates.pipeline_timestamps = timestamps;
+      setItems(prev => prev.map(it => it.id === id ? {...it, pipeline_timestamps: timestamps} : it));
+    }
     if (Object.keys(dbUpdates).length > 0) {
       await supabase.from("items").update(dbUpdates).eq("id", id);
     }

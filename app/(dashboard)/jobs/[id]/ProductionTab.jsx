@@ -1,4 +1,6 @@
 "use client";
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { T } from "@/lib/theme";
 
 const PIPELINE_STAGES = [
@@ -19,7 +21,26 @@ const getPct = (s) => (PIPELINE_STAGES.find(p=>p.id===s)||{pct:0}).pct;
 const tQty = (q) => Object.values(q||{}).reduce((a,v)=>a+v,0);
 
 export function ProductionTab({ items, onUpdateItem }) {
+  const supabase = createClient();
+  const [proofStatus, setProofStatus] = useState({});
   const card = {background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"1rem 1.25rem"};
+
+  useEffect(() => {
+    if (!items.length) return;
+    const ids = items.map(it => it.id);
+    supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids).then(({ data }) => {
+      const status = {};
+      for (const it of items) {
+        const files = (data || []).filter(f => f.item_id === it.id);
+        const proofs = files.filter(f => f.stage === "proof");
+        const hasProof = proofs.length > 0;
+        const allApproved = hasProof && proofs.every(f => f.approval === "approved");
+        const hasPrintReady = files.some(f => f.stage === "print_ready");
+        status[it.id] = { hasProof, allApproved, hasPrintReady };
+      }
+      setProofStatus(status);
+    });
+  }, [items]);
 
   if (items.length===0) {
     return <div style={{...card,textAlign:"center",color:T.muted,padding:"2rem",fontSize:13}}>No items yet.</div>;
@@ -28,6 +49,7 @@ export function ProductionTab({ items, onUpdateItem }) {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
       {items.map(item=>{
+        const ps = proofStatus[item.id] || {};
         const si=PIPELINE_STAGES.findIndex(s=>s.id===item.pipeline_stage);
         const pct=getPct(item.pipeline_stage||"blanks_ordered");
         const dc=DECO_COLORS[item.decoration_type||"screen_print"]||DECO_COLORS.screen_print;
@@ -40,7 +62,13 @@ export function ProductionTab({ items, onUpdateItem }) {
                   {item.decoration_type&&<span style={{padding:"1px 7px",borderRadius:6,fontSize:11,fontWeight:500,background:dc.bg,color:dc.text}}>{item.decoration_type.replace(/_/g," ")}</span>}
                   {item.status==="tbd"&&<span style={{padding:"1px 7px",borderRadius:6,fontSize:11,fontWeight:500,background:"#FAEEDA",color:"#633806"}}>TBD</span>}
                 </div>
-                <div style={{fontSize:11,color:T.muted,marginTop:2}}>{item.decorator||"No decorator"} · {tQty(item.qtys||{}).toLocaleString()} units</div>
+                <div style={{fontSize:11,color:T.muted,marginTop:2}}>
+                  {item.decorator||"No decorator"} · {tQty(item.qtys||{}).toLocaleString()} units
+                  {item.pipeline_timestamps?.[item.pipeline_stage]&&(()=>{
+                    const days=Math.floor((Date.now()-new Date(item.pipeline_timestamps[item.pipeline_stage]).getTime())/(1000*60*60*24));
+                    return days>0?<span style={{marginLeft:6,color:days>=7?T.red:days>=3?T.amber:T.faint}}> · {days}d in stage</span>:null;
+                  })()}
+                </div>
               </div>
               <div style={{fontSize:13,fontWeight:500,color:pct===100?"#3B6D11":"#0C447C"}}>{pct}%</div>
             </div>
@@ -64,6 +92,16 @@ export function ProductionTab({ items, onUpdateItem }) {
                 );
               })}
             </div>
+            {item.pipeline_stage==="strikeoff_approval"&&!ps.allApproved&&(
+              <div style={{margin:"0 14px 10px",padding:"8px 12px",background:"#3d2a08",border:"0.5px solid #f5a62344",borderRadius:6,fontSize:12,color:"#f5a623"}}>
+                {!ps.hasProof?"No proofs uploaded yet — upload in Art Files tab before approving":"Proofs pending approval — approve in Art Files tab"}
+              </div>
+            )}
+            {item.pipeline_stage==="strikeoff_approval"&&ps.allApproved&&(
+              <div style={{margin:"0 14px 10px",padding:"8px 12px",background:"#0e3d24",border:"0.5px solid #34c97a44",borderRadius:6,fontSize:12,color:"#34c97a"}}>
+                All proofs approved — ready to move to production
+              </div>
+            )}
             {item.pipeline_stage==="shipped"&&(
               <div style={{margin:"0 14px 10px",padding:"8px 12px",background:"#EAF3DE",border:"0.5px solid #C0DD97",borderRadius:6,fontSize:12,color:"#27500A"}}>
                 Handed off to Receiving — log inbound details in the Warehouse tab
