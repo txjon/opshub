@@ -1,0 +1,60 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdmin } from "@supabase/supabase-js";
+
+export async function POST(req: NextRequest) {
+  try {
+    // Auth check — only managers can invite
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    if (profile?.role !== "manager") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    const { email, fullName, role } = await req.json();
+    if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 });
+
+    const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+    // Invite user via Supabase auth
+    const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email);
+    if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 });
+
+    // Create/update profile
+    await admin.from("profiles").upsert({
+      id: inviteData.user.id,
+      full_name: fullName || null,
+      role: role || "viewer",
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || "Unknown error" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    // Auth check — only managers can edit roles
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    if (profile?.role !== "manager") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    const { profileId, role, fullName } = await req.json();
+    if (!profileId) return NextResponse.json({ error: "Missing profileId" }, { status: 400 });
+
+    const updates: any = {};
+    if (role) updates.role = role;
+    if (fullName !== undefined) updates.full_name = fullName;
+
+    await supabase.from("profiles").update(updates).eq("id", profileId);
+
+    return NextResponse.json({ success: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || "Unknown error" }, { status: 500 });
+  }
+}

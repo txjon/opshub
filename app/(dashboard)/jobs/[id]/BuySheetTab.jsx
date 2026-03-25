@@ -362,13 +362,12 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
     }
   }, [items]);
 
-  // ── Auto-save: 1.5s debounce after any change ──────────────────────────────
+  // ── Auto-save: 1.5s debounce after any change (longer for fast tabbing) ────
   useEffect(() => {
     if (!isDirty) return;
-    if (onSaveStatus) onSaveStatus("saving");
     const t = setTimeout(async () => {
       await onSaveRef.current?.();
-    }, 800);
+    }, 1500);
     return () => clearTimeout(t);
   }, [currentSnapshot]);
 
@@ -448,17 +447,24 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
         }
       }
 
-      // 4. Remap temp IDs to real DB IDs in local state
-      const resolved = current.map(it => {
-        if (idMap[it.id]) return { ...it, id: idMap[it.id] };
-        return it;
-      });
+      // 4. Remap temp IDs to real DB IDs if new items were added
+      const hasNewIds = Object.keys(idMap).length > 0;
+      if (hasNewIds) {
+        // Only touch localItems when we need to swap temp IDs for real DB IDs
+        setLocalItems(prev => {
+          if (!prev) return prev;
+          return prev.map(it => idMap[it.id] ? { ...it, id: idMap[it.id] } : it);
+        });
+      }
 
-      // 5. Update snapshots and notify parent
-      const newSnapshot = JSON.stringify(resolved);
-      setSavedSnapshot(newSnapshot);
-      setLocalItems(resolved);
-      if (onSaved) onSaved(resolved);
+      // 5. Update snapshot to match what's now in DB (use current local state, not a stale copy)
+      // Read the latest localItems to build an accurate snapshot
+      setLocalItems(prev => {
+        const resolved = (prev || current).map(it => idMap[it.id] ? { ...it, id: idMap[it.id] } : it);
+        setSavedSnapshot(JSON.stringify(resolved));
+        if (onSaved) onSaved(resolved);
+        return prev; // Don't overwrite — keep whatever the user is currently editing
+      });
       if (onSaveStatus) onSaveStatus("saved");
     } catch (e) {
       console.error("Buy sheet save failed", e);

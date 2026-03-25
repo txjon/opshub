@@ -8,6 +8,29 @@ import { BuySheetTab } from "./BuySheetTab";
 import { ProductionTab } from "./ProductionTab";
 import { WarehouseTab } from "./WarehouseTab";
 import { T, font, sortSizes } from "@/lib/theme";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Skeleton } from "@/components/Skeleton";
+
+function JobSkeleton() {
+  return (
+    <div style={{maxWidth:1100,margin:"0 auto",padding:"2rem 0 3rem"}}>
+      <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
+      <Skeleton width={100} height={12} style={{marginBottom:16}} />
+      <Skeleton width="40%" height={24} style={{marginBottom:8}} />
+      <Skeleton width="25%" height={14} style={{marginBottom:32}} />
+      <div style={{display:"flex",gap:24}}>
+        <div style={{width:140,display:"flex",flexDirection:"column",gap:6}}>
+          {Array.from({length:7}).map((_,i)=><Skeleton key={i} height={32} />)}
+        </div>
+        <div style={{flex:1,display:"flex",flexDirection:"column",gap:12}}>
+          <Skeleton height={120} radius={10} />
+          <Skeleton height={180} radius={10} />
+          <Skeleton height={100} radius={10} />
+        </div>
+      </div>
+    </div>
+  );
+}
 const PHASE_COLORS: Record<string,{bg:string,text:string}> = {
   intake:{bg:"var(--color-background-secondary)",text:"var(--color-text-secondary)"},
   pre_production:{bg:"#EEEDFE",text:"#3C3489"},
@@ -51,6 +74,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
+  const initialLoadDone = useRef(false);
+  const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
+  const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const saveErrorTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -126,6 +152,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       })));
     }
     setLoading(false);
+    initialLoadDone.current = true;
   }
 
   const jobSaveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -166,7 +193,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const upd = (k: string, v: any) => { if (!job) return; const u = {...job, [k]:v} as Job; setJob(u); saveJob({[k]:v}); };
   const updItem = (id: string, p: Partial<Item>) => saveItem(id, p);
 
-  if (loading) return React.createElement("div", {style:{padding:"2rem",color:T.muted,fontSize:13}}, "Loading...");
+  if (loading && !initialLoadDone.current) return React.createElement(JobSkeleton, null);
   if (!job) return React.createElement("div", {style:{padding:"2rem",color:T.muted,fontSize:13}}, "Project not found.");
 
   // Use costing_summary if available (set when costing tab is saved), fallback to item calculations
@@ -379,11 +406,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                             color:p.status==="paid"?"#34c97a":p.status==="overdue"?"#f05353":"#f5a623"}}>{p.status}</button>
                         </td>
                         <td style={{padding:"6px"}}>
-                          <button onClick={async()=>{
-                            if(!confirm("Delete this payment?")) return;
-                            await supabase.from("payment_records").delete().eq("id",p.id);
-                            loadData();
-                          }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11}}
+                          <button onClick={()=>setConfirmDeletePayment(p.id)} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11}}
                             onMouseEnter={e=>e.currentTarget.style.color=T.red}
                             onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
                         </td>
@@ -411,18 +434,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
               {/* Delete project */}
               <button
-                onClick={async () => {
-                  if (!window.confirm(`Are you sure you want to delete "${job.title}"? This cannot be undone.`)) return;
-                  for (const item of items) {
-                    await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
-                    await supabase.from("decorator_assignments").delete().eq("item_id", item.id);
-                    await supabase.from("items").delete().eq("id", item.id);
-                  }
-                  await supabase.from("payment_records").delete().eq("job_id", params.id);
-                  await supabase.from("job_contacts").delete().eq("job_id", params.id);
-                  await supabase.from("jobs").delete().eq("id", params.id);
-                  router.push("/jobs");
-                }}
+                onClick={() => setConfirmDeleteProject(true)}
                 style={{width:"100%",padding:"8px",background:"transparent",border:"1px solid #3d1212",borderRadius:8,color:"#f05353",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
                 onMouseEnter={e=>(e.currentTarget.style.background="#3d1212")}
                 onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
@@ -635,6 +647,39 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           Save failed — check your connection
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmDeletePayment}
+        title="Delete payment"
+        message="This will permanently remove this payment record."
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          if (!confirmDeletePayment) return;
+          await supabase.from("payment_records").delete().eq("id", confirmDeletePayment);
+          setConfirmDeletePayment(null);
+          loadData();
+        }}
+        onCancel={() => setConfirmDeletePayment(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteProject}
+        title="Delete project"
+        message={`Are you sure you want to delete "${job?.title}"? This will remove all items, payments, and contacts. This cannot be undone.`}
+        confirmLabel="Delete project"
+        onConfirm={async () => {
+          for (const item of items) {
+            await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
+            await supabase.from("decorator_assignments").delete().eq("item_id", item.id);
+            await supabase.from("items").delete().eq("id", item.id);
+          }
+          await supabase.from("payment_records").delete().eq("job_id", params.id);
+          await supabase.from("job_contacts").delete().eq("job_id", params.id);
+          await supabase.from("jobs").delete().eq("id", params.id);
+          router.push("/jobs");
+        }}
+        onCancel={() => setConfirmDeleteProject(false)}
+      />
     </div>
   );
 }

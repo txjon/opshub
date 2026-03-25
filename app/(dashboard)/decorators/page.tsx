@@ -2,6 +2,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 type PricingData = {
   qtys: number[];
@@ -393,6 +394,8 @@ export default function DecoratorsPage() {
   const [expanded, setExpanded] = useState<string|null>(null);
   const [saving, setSaving] = useState<Record<string,boolean>>({});
   const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<string|null>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   useEffect(() => { load(); }, []);
@@ -423,10 +426,10 @@ export default function DecoratorsPage() {
   }
 
   async function removeDecorator(id: string) {
-    if (!confirm("Delete this decorator and all its assignments?")) return;
     await supabase.from("decorator_assignments").delete().eq("decorator_id", id);
     await supabase.from("decorators").delete().eq("id", id);
     if (expanded === id) setExpanded(null);
+    setConfirmDelete(null);
     load();
   }
 
@@ -442,6 +445,16 @@ export default function DecoratorsPage() {
         </button>
       </div>
 
+      {decorators.length > 0 && (
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search decorators..."
+          style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, color:T.text, fontFamily:font, fontSize:13, padding:"8px 12px", outline:"none", width:260 }}
+        />
+      )}
+
       {decorators.length === 0 && (
         <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:32, textAlign:"center" as const, color:T.muted, fontSize:13 }}>
           No decorators yet. Add your first one to start generating POs.
@@ -449,7 +462,11 @@ export default function DecoratorsPage() {
       )}
 
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {decorators.map(d => {
+        {decorators.filter(d => {
+          if (!search.trim()) return true;
+          const q = search.toLowerCase();
+          return d.name.toLowerCase().includes(q) || (d.short_code || "").toLowerCase().includes(q);
+        }).map(d => {
           const isOpen = expanded === d.id;
           const isSaving = saving[d.id];
           const upd = (updates: Partial<Decorator>) => updateDecorator(d.id, updates);
@@ -529,7 +546,7 @@ export default function DecoratorsPage() {
 
                   {/* Delete */}
                   <div style={{ borderTop:`1px solid ${T.border}`, marginTop:16, paddingTop:12, display:"flex", justifyContent:"flex-end" }}>
-                    <button onClick={() => removeDecorator(d.id)}
+                    <button onClick={() => setConfirmDelete(d.id)}
                       style={{ background:"transparent", border:`1px solid ${T.redDim}`, borderRadius:6, color:T.red, fontSize:11, fontFamily:font, padding:"5px 14px", cursor:"pointer" }}
                       onMouseEnter={e => (e.currentTarget.style.background = T.redDim)}
                       onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
@@ -542,6 +559,15 @@ export default function DecoratorsPage() {
           );
         })}
       </div>
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title="Delete decorator"
+        message="This will permanently delete this decorator and all its project assignments. This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => confirmDelete && removeDecorator(confirmDelete)}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   );
 }

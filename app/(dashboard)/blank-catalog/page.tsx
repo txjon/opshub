@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const supabase = createClient();
 
@@ -29,6 +30,7 @@ export default function BlankCatalogPage() {
   const [fSizes, setFSizes] = useState<string[]>([]);
   const [fCosts, setFCosts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string|null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,8 +105,8 @@ export default function BlankCatalogPage() {
   };
 
   const deleteEntry = async (id: string) => {
-    if (!confirm("Delete this entry?")) return;
     await supabase.from("blank_catalog").delete().eq("id", id);
+    setConfirmDeleteId(null);
     await load();
   };
 
@@ -163,7 +165,7 @@ export default function BlankCatalogPage() {
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{entry.color}</span>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={() => openEdit(entry)} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 5, padding: "3px 10px", fontSize: 11, color: T.muted, cursor: "pointer" }}>Edit</button>
-                  <button onClick={() => deleteEntry(entry.id)} style={{ background: "transparent", border: `1px solid ${T.red}`, borderRadius: 5, padding: "3px 10px", fontSize: 11, color: T.red, cursor: "pointer" }}>Delete</button>
+                  <button onClick={() => setConfirmDeleteId(entry.id)} style={{ background: "transparent", border: `1px solid ${T.red}`, borderRadius: 5, padding: "3px 10px", fontSize: 11, color: T.red, cursor: "pointer" }}>Delete</button>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const }}>
@@ -245,6 +247,15 @@ export default function BlankCatalogPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmDeleteId}
+        title="Delete catalog entry"
+        message="This will permanently remove this entry from the blank catalog."
+        confirmLabel="Delete"
+        onConfirm={() => confirmDeleteId && deleteEntry(confirmDeleteId)}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </div>
   );
 }

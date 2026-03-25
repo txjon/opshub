@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { SkeletonRows } from "@/components/Skeleton";
 import Link from "next/link";
 
 type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; };
@@ -25,6 +27,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [addingContact, setAddingContact] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<Contact|null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
 
   useEffect(() => { load(); }, [params.id]);
@@ -50,7 +53,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     }, 1500);
   }
 
-  if (loading) return <div style={{padding:"2rem",color:T.muted,fontSize:13}}>Loading...</div>;
+  if (loading) return (
+    <div style={{padding:"2rem"}}>
+      <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
+      <SkeletonRows rows={4} />
+    </div>
+  );
   if (!client) return <div style={{padding:"2rem",color:T.muted,fontSize:13}}>Client not found.</div>;
 
   const totalRev = jobs.reduce((a,j) => a + (j.costing_summary?.grossRev || 0), 0);
@@ -146,11 +154,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                     <div style={{fontSize:12,fontWeight:600}}>{c.name} {c.role_label&&<span style={{fontWeight:400,color:T.muted,fontSize:10}}>· {c.role_label}</span>}</div>
                     <div style={{fontSize:10,color:T.muted}}>{[c.email,c.phone].filter(Boolean).join(" · ")}</div>
                   </div>
-                  <button onClick={async()=>{
-                    if(!confirm(`Remove ${c.name}?`)) return;
-                    await supabase.from("contacts").delete().eq("id",c.id);
-                    load();
-                  }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11}}
+                  <button onClick={()=>setConfirmRemove(c)} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11}}
                     onMouseEnter={e=>e.currentTarget.style.color=T.red}
                     onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
                 </div>
@@ -184,6 +188,20 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!confirmRemove}
+        title="Remove contact"
+        message={confirmRemove ? `Remove ${confirmRemove.name} from this client?` : ""}
+        confirmLabel="Remove"
+        onConfirm={async () => {
+          if (!confirmRemove) return;
+          await supabase.from("contacts").delete().eq("id", confirmRemove.id);
+          setConfirmRemove(null);
+          load();
+        }}
+        onCancel={() => setConfirmRemove(null)}
+      />
     </div>
   );
 }
