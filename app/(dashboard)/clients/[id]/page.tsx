@@ -96,7 +96,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Type</label>
                   <select style={ic} value={client.client_type||""} onChange={e=>updateClient({client_type:e.target.value||null})}>
                     <option value="">—</option>
-                    {["corporate","brand","artist"].map(t=><option key={t} value={t}>{t}</option>)}
+                    {["corporate","brand","artist","tour","webstore"].map(t=><option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>

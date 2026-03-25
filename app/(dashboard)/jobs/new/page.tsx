@@ -318,6 +318,8 @@ export default function NewJobPage() {
                     <option value="corporate">Corporate</option>
                     <option value="brand">Brand</option>
                     <option value="artist">Artist</option>
+                    <option value="tour">Tour</option>
+                    <option value="webstore">Webstore</option>
                   </select>
                 </div>
                 <div>
