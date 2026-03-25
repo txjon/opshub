@@ -3,9 +3,15 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
+import { createClient } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
   try {
+    // Auth check — only logged-in users can send emails
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const resend = new Resend(process.env.RESEND_API_KEY);
     const { type, jobId, vendor, recipientEmail, recipientName, subject } = await req.json();
 

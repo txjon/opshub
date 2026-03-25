@@ -4,6 +4,7 @@ export const preferredRegion = "iad1";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 
 // ── Pricing — loaded from decorators.pricing_data at request time ─────────────
@@ -274,6 +275,11 @@ function renderQuoteHTML(data: {
 
 // ── Route handler ─────────────────────────────────────────────────────────────
 export async function GET(_req: NextRequest, { params }: { params: { jobId: string } }) {
+  // Auth check — only logged-in users can generate PDFs
+  const authClient = await createAuthClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   try {
     const { jobId } = params;

@@ -2,7 +2,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
-import { FALLBACK_PRINTERS } from "./legacy-pricing";
 
 type PricingData = {
   qtys: number[];
@@ -523,17 +522,6 @@ export default function DecoratorsPage() {
                             style={{ background:T.accent, border:"none", borderRadius:7, color:"#fff", fontSize:12, fontFamily:font, fontWeight:600, padding:"7px 16px", cursor:"pointer" }}>
                             Start from scratch
                           </button>
-                          {(() => {
-                            const key = d.short_code || d.name;
-                            const legacy = FALLBACK_PRINTERS[key] || FALLBACK_PRINTERS[key.toUpperCase()];
-                            if (!legacy) return null;
-                            return (
-                              <button onClick={() => upd({pricing_data: JSON.parse(JSON.stringify(legacy))} as any)}
-                                style={{ background:T.green, border:"none", borderRadius:7, color:"#fff", fontSize:12, fontFamily:font, fontWeight:600, padding:"7px 16px", cursor:"pointer" }}>
-                                Load existing pricing
-                              </button>
-                            );
-                          })()}
                         </div>
                       </div>
                     )}
