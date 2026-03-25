@@ -127,34 +127,34 @@ function buildLineItems(cp, allProds) {
   return { printLines, finLines, specLines, setupLines };
 }
 
+const SHIP_METHODS = ["UPS Ground","UPS 2-Day","UPS Next Day","FedEx Ground","FedEx Express","USPS Priority","Freight / LTL","Will Call","Decorator Drop Ship"];
+
 export function POTab({project,items,costingData}) {
   const supabase = createClient();
   const [decorators,setDecorators] = useState([]);
-  const [shipMethods,setShipMethods] = useState([]);
   const [selectedShipMethod,setSelectedShipMethod] = useState("");
   const [selectedVendor,setSelectedVendor] = useState("");
-  const [packingNotes,setPackingNotes] = useState({});
+  const [itemFields,setItemFields] = useState({});
   const [saving,setSaving] = useState({});
   const [showPreview,setShowPreview] = useState(false);
   const [showModal,setShowModal] = useState(false);
   const [showSendEmail,setShowSendEmail] = useState(false);
 
   useEffect(()=>{
-    async function load() {
-      const [{data:decs},{data:ships}] = await Promise.all([
-        supabase.from("decorators").select("*").order("name"),
-        supabase.from("ship_methods").select("*").order("name"),
-      ]);
-      setDecorators(decs||[]);
-      setShipMethods(ships||[]);
-    }
-    load();
+    supabase.from("decorators").select("*").order("name").then(({data})=>setDecorators(data||[]));
   },[]);
 
   useEffect(()=>{
-    const notes = {};
-    items.forEach(it=>{ notes[it.id] = it.packing_notes||""; });
-    setPackingNotes(notes);
+    const fields = {};
+    items.forEach(it=>{
+      fields[it.id] = {
+        packing_notes: it.packing_notes||"",
+        drive_link: it.drive_link||"",
+        incoming_goods: it.incoming_goods||"",
+        production_notes_po: it.production_notes_po||"",
+      };
+    });
+    setItemFields(fields);
   },[items]);
 
   const costProds = costingData?.costProds||[];
@@ -179,21 +179,22 @@ export function POTab({project,items,costingData}) {
   const vendors = [...new Set(costProds.map((p)=>p.printVendor).filter(Boolean))];
   const active = selectedVendor||vendors[0]||"";
   const vItems = sorted.filter(it=>getCostProd(it.id)?.printVendor===active);
-  const ship = shipMethods.find(s=>s.id===selectedShipMethod);
-
   const today = new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
   const shipDate = project?.target_ship_date
     ? new Date(project.target_ship_date).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
     : "—";
 
-  async function savePackingNote(itemId, val) {
-    setSaving(p=>({...p,[itemId]:true}));
-    await supabase.from("items").update({packing_notes:val}).eq("id",itemId);
-    setSaving(p=>({...p,[itemId]:false}));
+  function updateItemField(itemId, field, val) {
+    setItemFields(p=>({...p,[itemId]:{...p[itemId],[field]:val}}));
+  }
+  async function saveItemField(itemId, field, val) {
+    setSaving(p=>({...p,[itemId+"_"+field]:true}));
+    await supabase.from("items").update({[field]:val}).eq("id",itemId);
+    setSaving(p=>({...p,[itemId+"_"+field]:false}));
   }
 
-  const ready = selectedShipMethod && active;
-  const allFilled = vItems.every(it=>packingNotes[it.id]?.trim());
+  const ready = !!active;
+  const allFilled = vItems.every(it=>itemFields[it.id]?.packing_notes?.trim());
 
   return (
     <div style={{fontFamily:font,color:T.text,display:"flex",flexDirection:"column",gap:12}}>
@@ -204,14 +205,8 @@ export function POTab({project,items,costingData}) {
           <select value={selectedShipMethod} onChange={e=>setSelectedShipMethod(e.target.value)}
             style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:selectedShipMethod?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
             <option value="">— select —</option>
-            {shipMethods.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+            {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
           </select>
-        </div>
-        <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Acct. no.</div>
-          <div style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:ship?.account_number?T.text:T.faint,fontFamily:mono,fontSize:12,padding:"6px 10px",minWidth:90}}>
-            {ship?.account_number||"—"}
-          </div>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
           <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Vendor</div>
@@ -228,7 +223,7 @@ export function POTab({project,items,costingData}) {
         <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
           {ready&&(
             <div style={{fontSize:11,color:allFilled?T.green:T.amber}}>
-              {vItems.filter(it=>packingNotes[it.id]?.trim()).length}/{vItems.length} items ready
+              {vItems.filter(it=>itemFields[it.id]?.packing_notes?.trim()).length}/{vItems.length} items ready
             </div>
           )}
           <button onClick={()=>{ if(ready) window.open(`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`,"_blank"); }} disabled={!ready}
@@ -257,37 +252,47 @@ export function POTab({project,items,costingData}) {
 
       {active&&(
         <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,overflow:"hidden"}}>
-          <div style={{display:"grid",gridTemplateColumns:"40px 1fr 120px 1fr",background:T.surface,borderBottom:"1px solid "+T.border}}>
-            {["","Item","Vendor","Packing / shipping notes"].map((h,i)=>(
-              <div key={i} style={{padding:"7px 12px",fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",borderRight:i<3?"1px solid "+T.border:"none"}}>{h}</div>
-            ))}
-          </div>
           {vItems.map((item,i)=>{
             const idx = sorted.findIndex(it=>it.id===item.id);
-            const filled = !!packingNotes[item.id]?.trim();
+            const f = itemFields[item.id]||{};
+            const isSaving = Object.keys(saving).some(k=>k.startsWith(item.id)&&saving[k]);
+            const fieldInput = (field, placeholder, opts={}) => (
+              <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                <div style={{fontSize:8,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em"}}>{opts.label||field.replace(/_/g," ")}</div>
+                {opts.multiline ? (
+                  <textarea value={f[field]||""} placeholder={placeholder}
+                    onChange={e=>updateItemField(item.id,field,e.target.value)}
+                    onBlur={e=>saveItemField(item.id,field,e.target.value)}
+                    rows={2}
+                    style={{background:T.surface,border:"1px solid "+T.border,borderRadius:5,color:T.text,fontFamily:font,fontSize:11,padding:"5px 8px",outline:"none",resize:"none",lineHeight:1.4,width:"100%",boxSizing:"border-box"}}
+                  />
+                ) : (
+                  <input type="text" value={f[field]||""} placeholder={placeholder}
+                    onChange={e=>updateItemField(item.id,field,e.target.value)}
+                    onBlur={e=>saveItemField(item.id,field,e.target.value)}
+                    style={{background:T.surface,border:"1px solid "+T.border,borderRadius:5,color:T.text,fontFamily:opts.mono?mono:font,fontSize:11,padding:"5px 8px",outline:"none",width:"100%",boxSizing:"border-box"}}
+                  />
+                )}
+              </div>
+            );
             return (
-              <div key={item.id} style={{display:"grid",gridTemplateColumns:"40px 1fr 120px 1fr",borderBottom:i<vItems.length-1?"1px solid "+T.border:"none",alignItems:"center"}}>
-                <div style={{padding:"10px 12px",display:"flex",alignItems:"center",justifyContent:"center",borderRight:"1px solid "+T.border}}>
-                  <span style={{width:22,height:22,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:T.accent,fontFamily:mono}}>
+              <div key={item.id} style={{borderBottom:i<vItems.length-1?"1px solid "+T.border:"none",padding:"12px 14px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                  <span style={{width:22,height:22,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>
                     {String.fromCharCode(65+idx)}
                   </span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:T.text}}>{item.name}</div>
+                    <div style={{fontSize:10,color:T.muted,marginTop:1}}>{[item.blank_vendor,item.style,item.color].filter(Boolean).join(" · ")} · {totalQty(item.buy_sheet_lines||[])} units</div>
+                  </div>
+                  <div style={{fontSize:11,color:T.muted,fontFamily:mono}}>{getCostProd(item.id)?.printVendor||"—"}</div>
+                  {isSaving&&<div style={{fontSize:9,color:T.amber}}>saving…</div>}
                 </div>
-                <div style={{padding:"10px 12px",borderRight:"1px solid "+T.border}}>
-                  <div style={{fontSize:12,fontWeight:600,color:T.text}}>{item.name}</div>
-                  <div style={{fontSize:10,color:T.muted,marginTop:2}}>{[item.blank_vendor,item.style,item.color].filter(Boolean).join(" · ")} · {totalQty(item.buy_sheet_lines||[])} units</div>
-                </div>
-                <div style={{padding:"10px 12px",borderRight:"1px solid "+T.border,fontSize:11,color:T.muted,fontFamily:mono}}>
-                  {getCostProd(item.id)?.printVendor||"—"}
-                </div>
-                <div style={{padding:"8px 10px",display:"flex",alignItems:"center",gap:8}}>
-                  <textarea value={packingNotes[item.id]||""} placeholder="e.g. Fewest boxes, label all contents"
-                    onChange={e=>setPackingNotes(p=>({...p,[item.id]:e.target.value}))}
-                    onBlur={e=>savePackingNote(item.id,e.target.value)}
-                    rows={2}
-                    style={{flex:1,background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"5px 8px",outline:"none",resize:"none",lineHeight:1.4}}
-                  />
-                  <div style={{width:8,height:8,borderRadius:"50%",background:filled?T.green:T.faint,flexShrink:0}} />
-                  {saving[item.id]&&<div style={{fontSize:9,color:T.muted,flexShrink:0}}>saving</div>}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  {fieldInput("drive_link","https://drive.google.com/...",{label:"Production files link",mono:true})}
+                  {fieldInput("incoming_goods","e.g. Blanks from S&S — PO #12345",{label:"Incoming goods"})}
+                  {fieldInput("production_notes_po","Special instructions for decorator",{label:"Production notes",multiline:true})}
+                  {fieldInput("packing_notes","e.g. Fewest boxes, label all contents",{label:"Packing / shipping notes",multiline:true})}
                 </div>
               </div>
             );
