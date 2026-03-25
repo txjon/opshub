@@ -7,6 +7,7 @@ import { POTab } from "./POTab.jsx";
 import { BuySheetTab } from "./BuySheetTab";
 import { ProductionTab } from "./ProductionTab";
 import { WarehouseTab } from "./WarehouseTab";
+import { ArtTab } from "./ArtTab";
 import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/Skeleton";
@@ -280,7 +281,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         {/* Vertical tab nav */}
         <div style={{width:160,flexShrink:0}}>
           <div style={{position:"sticky",top:16,display:"flex",flexDirection:"column",gap:2,padding:4,background:T.surface,borderRadius:8}}>
-            {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
+            {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"art",label:"Art Files"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
               <button key={t.id} onClick={async ()=>{
                 if (tab==="buysheet" && t.id!=="buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
                 if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
@@ -560,6 +561,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
 
       {/* BUYSHEET */}
+      {tab==="art"&&(
+        <ArtTab project={job} items={items} />
+      )}
       {tab==="buysheet"&&(
         <BuySheetTab
           items={items}
