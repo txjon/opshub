@@ -293,29 +293,36 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
 
     try {
       // Upload mockup PNG (half-size for Drive)
+      const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
       const fd1 = new FormData();
-      fd1.append("file", new File([mockupData.uploadBlob], `${item.name || "Item"} — Mockup.png`, { type: "image/png" }));
+      fd1.append("file", new File([mockupData.uploadBlob], `${safeName} - Mockup.png`, { type: "image/png" }));
       fd1.append("itemId", item.id);
       fd1.append("stage", "mockup");
       fd1.append("clientName", clientName);
       fd1.append("projectTitle", projectTitle);
       fd1.append("itemName", item.name || "");
       const res = await fetch("/api/files", { method: "POST", body: fd1 });
-      if (!res.ok) throw new Error("Failed to save mockup");
+      if (!res.ok) {
+        const errData = await res.text().catch(() => "Unknown error");
+        throw new Error(`Mockup upload failed: ${errData}`);
+      }
 
       // Generate proof PDF client-side
       const doc = buildProofPdf();
       const pdfBlob = doc.output("blob");
 
       const fd2 = new FormData();
-      fd2.append("file", new File([pdfBlob], `${item.name || "Item"} — Print Proof.pdf`, { type: "application/pdf" }));
+      fd2.append("file", new File([pdfBlob], `${safeName} - Print Proof.pdf`, { type: "application/pdf" }));
       fd2.append("itemId", item.id);
       fd2.append("stage", "proof");
       fd2.append("clientName", clientName);
       fd2.append("projectTitle", projectTitle);
       fd2.append("itemName", item.name || "");
       const res2 = await fetch("/api/files", { method: "POST", body: fd2 });
-      if (!res2.ok) throw new Error("Failed to save proof");
+      if (!res2.ok) {
+        const errData = await res2.text().catch(() => "Unknown error");
+        throw new Error(`Proof upload failed: ${errData}`);
+      }
 
       setSaved(true);
       if (onFilesChanged) onFilesChanged();
