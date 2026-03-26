@@ -294,15 +294,8 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
 
     try {
-      // Generate proof PDF client-side as base64
-      const doc = buildProofPdf();
-      const pdfBytes = new Uint8Array(doc.output("arraybuffer"));
-      let pdfBinary = "";
-      for (let i = 0; i < pdfBytes.length; i++) pdfBinary += String.fromCharCode(pdfBytes[i]);
-      const pdfBase64 = btoa(pdfBinary);
-
-      // Single server call: upload both files to Drive + register in DB
-      const res = await fetch("/api/drive/upload-url", {
+      // Request 1: Upload mockup JPEG
+      const res1 = await fetch("/api/drive/upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -311,12 +304,33 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
           itemName: item.name || "",
           files: [
             { fileName: `${safeName} - Mockup.jpg`, mimeType: "image/jpeg", base64: mockupData.uploadBase64, stage: "mockup", itemId: item.id },
+          ],
+        }),
+      });
+      const res1Text = await res1.text();
+      if (!res1.ok) throw new Error(`Mockup: ${res1Text.slice(0, 300)}`);
+
+      // Request 2: Upload proof PDF
+      const doc = buildProofPdf();
+      const pdfBytes = new Uint8Array(doc.output("arraybuffer"));
+      let pdfBinary = "";
+      for (let i = 0; i < pdfBytes.length; i++) pdfBinary += String.fromCharCode(pdfBytes[i]);
+      const pdfBase64 = btoa(pdfBinary);
+
+      const res2 = await fetch("/api/drive/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientName,
+          projectTitle,
+          itemName: item.name || "",
+          files: [
             { fileName: `${safeName} - Print Proof.pdf`, mimeType: "application/pdf", base64: pdfBase64, stage: "proof", itemId: item.id },
           ],
         }),
       });
-      const resText = await res.text();
-      if (!res.ok) throw new Error(resText.slice(0, 300));
+      const res2Text = await res2.text();
+      if (!res2.ok) throw new Error(`Proof: ${res2Text.slice(0, 300)}`);
 
       setSaved(true);
       if (onFilesChanged) onFilesChanged();
