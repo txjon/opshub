@@ -11,7 +11,7 @@ import { ArtTab } from "./ArtTab";
 import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/Skeleton";
-import { JobActivityPanel } from "@/components/JobActivityPanel";
+import { JobActivityPanel, logJobActivity } from "@/components/JobActivityPanel";
 
 function JobSkeleton() {
   return (
@@ -20,15 +20,13 @@ function JobSkeleton() {
       <Skeleton width={100} height={12} style={{marginBottom:16}} />
       <Skeleton width="40%" height={24} style={{marginBottom:8}} />
       <Skeleton width="25%" height={14} style={{marginBottom:32}} />
-      <div style={{display:"flex",gap:24}}>
-        <div style={{width:140,display:"flex",flexDirection:"column",gap:6}}>
-          {Array.from({length:7}).map((_,i)=><Skeleton key={i} height={32} />)}
-        </div>
-        <div style={{flex:1,display:"flex",flexDirection:"column",gap:12}}>
-          <Skeleton height={120} radius={10} />
-          <Skeleton height={180} radius={10} />
-          <Skeleton height={100} radius={10} />
-        </div>
+      <div style={{display:"flex",gap:6,marginBottom:16}}>
+        {Array.from({length:8}).map((_,i)=><Skeleton key={i} width={90} height={32} radius={6} />)}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <Skeleton height={120} radius={10} />
+        <Skeleton height={180} radius={10} />
+        <Skeleton height={100} radius={10} />
       </div>
     </div>
   );
@@ -335,45 +333,39 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      {/* Layout: vertical tab nav + content */}
-      <div style={{display:"flex",gap:20}}>
-        {/* Vertical tab nav */}
-        <div style={{width:160,flexShrink:0}}>
-          <div style={{position:"sticky",top:16,display:"flex",flexDirection:"column",gap:2,padding:4,background:T.surface,borderRadius:8}}>
-            {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"art",label:"Art Files"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
-              <button key={t.id} onClick={async ()=>{
-                if (tab==="buysheet" && t.id!=="buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
-                if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
-                  if (saveCostingRef.current) {
-                    try {
-                      await saveCostingRef.current();
-                    } catch(e) {
-                      if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return;
-                    }
-                  }
+      {/* Horizontal tab nav */}
+      <div style={{display:"flex",gap:4,padding:4,background:T.surface,borderRadius:8,marginBottom:16,flexWrap:"wrap"}}>
+        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"art",label:"Art Files"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
+          <button key={t.id} onClick={async ()=>{
+            if (tab==="buysheet" && t.id!=="buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
+            if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
+              if (saveCostingRef.current) {
+                try {
+                  await saveCostingRef.current();
+                } catch(e) {
+                  if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return;
                 }
-                setTab(t.id);
-              }}
-                style={{padding:"7px 12px",fontSize:13,fontWeight:tab===t.id?600:400,background:tab===t.id?T.accent:"transparent",color:tab===t.id?"#fff":T.muted,border:"none",borderRadius:6,cursor:"pointer",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",textAlign:"left",width:"100%"}}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
+              }
+            }
+            setTab(t.id);
+          }}
+            style={{padding:"7px 14px",fontSize:12,fontWeight:tab===t.id?600:400,background:tab===t.id?T.accent:"transparent",color:tab===t.id?"#fff":T.muted,border:"none",borderRadius:6,cursor:"pointer",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",whiteSpace:"nowrap"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
+      {/* Layout: content + activity panel */}
+      <div style={{display:"flex",gap:20}}>
         {/* Tab content */}
         <div style={{flex:1,minWidth:0}}>
       {/* OVERVIEW */}
                   {tab==="overview"&&(
         <div style={{display:"flex",flexDirection:"column",gap:10,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
 
-          {/* Two columns */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"start"}}>
-
-            {/* Left */}
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-
-              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+          {/* Top row: Project info + Shipping details (matched height) */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project info</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client</label>
@@ -408,6 +400,106 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
 
+              {/* Shipping details */}
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Target ship date</label><input style={ic} type="date" value={job.target_ship_date||""} onChange={e=>{
+                    upd("target_ship_date",e.target.value);
+                    const inHands = job.type_meta?.in_hands_date || job.type_meta?.show_date;
+                    if(!inHands && e.target.value){
+                      const d=new Date(e.target.value); d.setDate(d.getDate()+3);
+                      const ih=d.toISOString().split("T")[0];
+                      upd("type_meta",{...job.type_meta,in_hands_date:ih});
+                    }
+                  }}/></div>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>In hands date</label><input style={ic} type="date" value={job.type_meta?.in_hands_date||job.type_meta?.show_date||""} onChange={e=>upd("type_meta",{...job.type_meta,in_hands_date:e.target.value})}/></div>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:7,flex:1}}>
+                  <div style={{flex:1}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping address</label>
+                    <textarea style={{...ic,flex:1,minHeight:60,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})} placeholder="Venue name, street, city, state, zip..."/>
+                  </div>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
+                    <textarea style={{...ic,minHeight:44,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})} placeholder="Carrier, dock info, on-site contact..."/>
+                  </div>
+                </div>
+              </div>
+          </div>
+
+          {/* Bottom section: two columns */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"start"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+
+              {/* Contacts */}
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
+                  <button onClick={()=>setJob(j=>j?{...j,_addContact:!(j as any)._addContact} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
+                </div>
+                {(job as any)._addContact&&(
+                  <div style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10,marginBottom:8}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+                      <input id="ct-name" placeholder="Name" style={ic}/>
+                      <input id="ct-email" placeholder="Email" style={ic}/>
+                      <input id="ct-phone" placeholder="Phone" style={ic}/>
+                      <select id="ct-role" style={ic}>
+                        <option value="primary">Primary</option>
+                        <option value="billing">Billing</option>
+                        <option value="creative">Creative</option>
+                        <option value="logistics">Logistics</option>
+                        <option value="cc">CC</option>
+                      </select>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={async()=>{
+                        const name=(document.getElementById("ct-name") as HTMLInputElement).value.trim();
+                        if(!name) return;
+                        const email=(document.getElementById("ct-email") as HTMLInputElement).value.trim();
+                        const phone=(document.getElementById("ct-phone") as HTMLInputElement).value.trim();
+                        const role=(document.getElementById("ct-role") as HTMLSelectElement).value;
+                        if(email && contacts.some(c=>c.email?.toLowerCase()===email.toLowerCase())){
+                          alert(`${email} is already on this project.`);
+                          return;
+                        }
+                        let contactId:string;
+                        if(email){
+                          const {data:existing}=await supabase.from("contacts").select("id").eq("email",email).single();
+                          if(existing) contactId=existing.id;
+                          else {const {data:nc}=await supabase.from("contacts").insert({name,email,phone:phone||null,client_id:job.client_id}).select("id").single();contactId=nc!.id;}
+                        } else {
+                          const {data:nc}=await supabase.from("contacts").insert({name,email:null,phone:phone||null,client_id:job.client_id}).select("id").single();contactId=nc!.id;
+                        }
+                        await supabase.from("job_contacts").insert({job_id:job.id,contact_id:contactId,role_on_job:role});
+                        setJob(j=>j?{...j,_addContact:false} as any:j);
+                        loadData();
+                      }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>
+                      <button onClick={()=>setJob(j=>j?{...j,_addContact:false} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:11,padding:"5px 10px",cursor:"pointer"}}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+                {contacts.length===0&&!(job as any)._addContact&&<p style={{fontSize:12,color:T.muted}}>No contacts assigned.</p>}
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {contacts.map((c,i)=>(
+                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,paddingBottom:i<contacts.length-1?6:0,borderBottom:i<contacts.length-1?"1px solid #2a3050":"none"}}>
+                      <div style={{width:26,height:26,borderRadius:"50%",background:"#1e3a6e",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
+                        {c.name.split(" ").map((n:string)=>n[0]).join("").slice(0,2)}
+                      </div>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:12,fontWeight:600}}>{c.name} <span style={{fontWeight:400,color:T.muted,fontSize:11}}>· {c.role_label} · {c.role_on_job}</span></div>
+                        {c.email&&<div style={{fontSize:10,color:T.accent}}>{c.email}</div>}
+                      </div>
+                      <button onClick={async()=>{
+                        await supabase.from("job_contacts").delete().eq("job_id",job.id).eq("contact_id",c.id);
+                        loadData();
+                      }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11,padding:"0 2px"}}
+                        onMouseEnter={e=>e.currentTarget.style.color=T.red}
+                        onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Payment records */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payment records</div>
@@ -476,22 +568,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 )}
               </div>
 
-              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Activity</div>
-                <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                  <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                    <div style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0,marginTop:4}}/>
-                    <div><div style={{fontSize:12}}>Project created</div><div style={{fontSize:10,color:T.muted}}>{new Date(job.created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div></div>
-                  </div>
-                  {items.length>0&&(
-                    <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                      <div style={{width:6,height:6,borderRadius:"50%",background:"#34c97a",flexShrink:0,marginTop:4}}/>
-                      <div><div style={{fontSize:12}}>{items.length} item{items.length!==1?"s":""} on buy sheet</div><div style={{fontSize:10,color:T.muted}}>{totalUnits.toLocaleString()} total units</div></div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
               {/* Delete project */}
               <button
                 onClick={() => setConfirmDeleteProject(true)}
@@ -503,99 +579,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
             </div>
 
-            {/* Right */}
+            {/* Right: Items → Activity */}
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
 
-              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
-                  <button onClick={()=>setJob(j=>j?{...j,_addContact:!(j as any)._addContact} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
-                </div>
-                {(job as any)._addContact&&(
-                  <div style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10,marginBottom:8}}>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-                      <input id="ct-name" placeholder="Name" style={ic}/>
-                      <input id="ct-email" placeholder="Email" style={ic}/>
-                      <input id="ct-phone" placeholder="Phone" style={ic}/>
-                      <select id="ct-role" style={ic}>
-                        <option value="primary">Primary</option>
-                        <option value="billing">Billing</option>
-                        <option value="creative">Creative</option>
-                        <option value="logistics">Logistics</option>
-                        <option value="cc">CC</option>
-                      </select>
-                    </div>
-                    <div style={{display:"flex",gap:6}}>
-                      <button onClick={async()=>{
-                        const name=(document.getElementById("ct-name") as HTMLInputElement).value.trim();
-                        if(!name) return;
-                        const email=(document.getElementById("ct-email") as HTMLInputElement).value.trim();
-                        const phone=(document.getElementById("ct-phone") as HTMLInputElement).value.trim();
-                        const role=(document.getElementById("ct-role") as HTMLSelectElement).value;
-                        // Check for duplicate on this job
-                        if(email && contacts.some(c=>c.email?.toLowerCase()===email.toLowerCase())){
-                          alert(`${email} is already on this project.`);
-                          return;
-                        }
-                        // Find or create contact
-                        let contactId:string;
-                        if(email){
-                          const {data:existing}=await supabase.from("contacts").select("id").eq("email",email).single();
-                          if(existing) contactId=existing.id;
-                          else {const {data:nc}=await supabase.from("contacts").insert({name,email,phone:phone||null,client_id:job.client_id}).select("id").single();contactId=nc!.id;}
-                        } else {
-                          const {data:nc}=await supabase.from("contacts").insert({name,email:null,phone:phone||null,client_id:job.client_id}).select("id").single();contactId=nc!.id;
-                        }
-                        await supabase.from("job_contacts").insert({job_id:job.id,contact_id:contactId,role_on_job:role});
-                        setJob(j=>j?{...j,_addContact:false} as any:j);
-                        loadData();
-                      }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>
-                      <button onClick={()=>setJob(j=>j?{...j,_addContact:false} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:11,padding:"5px 10px",cursor:"pointer"}}>Cancel</button>
-                    </div>
-                  </div>
-                )}
-                {contacts.length===0&&!(job as any)._addContact&&<p style={{fontSize:12,color:T.muted}}>No contacts assigned.</p>}
-                <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                  {contacts.map((c,i)=>(
-                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,paddingBottom:i<contacts.length-1?6:0,borderBottom:i<contacts.length-1?"1px solid #2a3050":"none"}}>
-                      <div style={{width:26,height:26,borderRadius:"50%",background:"#1e3a6e",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
-                        {c.name.split(" ").map((n:string)=>n[0]).join("").slice(0,2)}
-                      </div>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:12,fontWeight:600}}>{c.name} <span style={{fontWeight:400,color:T.muted,fontSize:11}}>· {c.role_label} · {c.role_on_job}</span></div>
-                        {c.email&&<div style={{fontSize:10,color:T.accent}}>{c.email}</div>}
-                      </div>
-                      <button onClick={async()=>{
-                        await supabase.from("job_contacts").delete().eq("job_id",job.id).eq("contact_id",c.id);
-                        loadData();
-                      }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11,padding:"0 2px"}}
-                        onMouseEnter={e=>e.currentTarget.style.color=T.red}
-                        onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Target ship date</label><input style={ic} type="date" value={job.target_ship_date||""} onChange={e=>{
-                    upd("target_ship_date",e.target.value);
-                    // Auto-suggest in-hands = ship date + 3 days if not already set
-                    const inHands = job.type_meta?.in_hands_date || job.type_meta?.show_date;
-                    if(!inHands && e.target.value){
-                      const d=new Date(e.target.value); d.setDate(d.getDate()+3);
-                      const ih=d.toISOString().split("T")[0];
-                      upd("type_meta",{...job.type_meta,in_hands_date:ih});
-                    }
-                  }}/></div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>In hands date</label><input style={ic} type="date" value={job.type_meta?.in_hands_date||job.type_meta?.show_date||""} onChange={e=>upd("type_meta",{...job.type_meta,in_hands_date:e.target.value})}/></div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Location name</label><input style={ic} value={job.type_meta?.venue_name||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_name:e.target.value})}/></div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Delivery address</label><input style={ic} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/></div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label><input style={ic} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})} placeholder="Carrier, dock info, on-site contact..."/></div>
-                </div>
-              </div>
-
+              {/* Items */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Items</div>
@@ -625,6 +612,23 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+
+              {/* Activity */}
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Activity</div>
+                <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                  <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0,marginTop:4}}/>
+                    <div><div style={{fontSize:12}}>Project created</div><div style={{fontSize:10,color:T.muted}}>{new Date(job.created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div></div>
+                  </div>
+                  {items.length>0&&(
+                    <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:"#34c97a",flexShrink:0,marginTop:4}}/>
+                      <div><div style={{fontSize:12}}>{items.length} item{items.length!==1?"s":""} on buy sheet</div><div style={{fontSize:10,color:T.muted}}>{totalUnits.toLocaleString()} total units</div></div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -711,11 +715,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         />
       )}
         </div>{/* end tab content */}
-
-        {/* Activity panel */}
-        {currentUserId && (
-          <JobActivityPanel jobId={params.id} currentUserId={currentUserId} profiles={teamProfiles} />
-        )}
       </div>{/* end flex layout */}
 
       {/* Error-only save indicator */}

@@ -21,7 +21,6 @@ export function JobActivityPanel({ jobId, currentUserId, profiles }: {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -100,40 +99,18 @@ export function JobActivityPanel({ jobId, currentUserId, profiles }: {
     );
   };
 
-  if (collapsed) {
-    return (
-      <button
-        onClick={() => setCollapsed(false)}
-        style={{
-          position: "sticky", top: 16,
-          width: 32, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8,
-          color: T.muted, fontSize: 14, cursor: "pointer", padding: "8px 0",
-          display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-        }}
-      >
-        <span>💬</span>
-        {activities.length > 0 && (
-          <span style={{ fontSize: 9, fontFamily: mono, color: T.accent }}>{activities.length}</span>
-        )}
-      </button>
-    );
-  }
-
   return (
     <div style={{
-      width: 280, flexShrink: 0, position: "sticky", top: 16,
       background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
-      display: "flex", flexDirection: "column", height: "calc(100vh - 120px)",
-      maxHeight: 700,
+      display: "flex", flexDirection: "column",
+      maxHeight: 500,
     }}>
       {/* Header */}
       <div style={{
         padding: "10px 12px", borderBottom: `1px solid ${T.border}`,
         display: "flex", alignItems: "center", justifyContent: "space-between",
       }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>Activity</div>
-        <button onClick={() => setCollapsed(true)}
-          style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 14 }}>◀</button>
+        <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Activity</div>
       </div>
 
       {/* Feed */}
