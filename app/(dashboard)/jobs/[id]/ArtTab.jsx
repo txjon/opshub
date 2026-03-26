@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { buildMockupClient } from "@/lib/mockup-client";
+import { generateProofPdfClient } from "@/lib/proof-client";
 
 const STAGES = [
   { key: "client_art", label: "Client Art", color: T.muted },
@@ -277,7 +278,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const result = await buildMockupClient(arrayBuffer);
-      setMockupData({ mockup: result.mockupBase64, mockupBlob: result.pngBlob, jpegBase64: result.jpegBase64, printInfo: result.printInfo });
+      setMockupData({ mockup: result.mockupBase64, dataUrl: result.dataUrl, uploadBlob: result.uploadBlob, printInfo: result.printInfo });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -291,9 +292,9 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     setError(null);
 
     try {
-      // Upload mockup PNG
+      // Upload mockup PNG (half-size for Drive)
       const fd1 = new FormData();
-      fd1.append("file", new File([mockupData.mockupBlob], `${item.name || "Item"} — Mockup.png`, { type: "image/png" }));
+      fd1.append("file", new File([mockupData.uploadBlob], `${item.name || "Item"} — Mockup.png`, { type: "image/png" }));
       fd1.append("itemId", item.id);
       fd1.append("stage", "mockup");
       fd1.append("clientName", clientName);
@@ -302,10 +303,9 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
       const res = await fetch("/api/files", { method: "POST", body: fd1 });
       if (!res.ok) throw new Error("Failed to save mockup");
 
-      // Generate proof PDF on demand then upload
-      const pdfRes = await fetch("/api/mockup/pdf", { method: "POST", body: buildPdfFormData() });
-      if (!pdfRes.ok) throw new Error("Failed to generate proof PDF");
-      const pdfBlob = await pdfRes.blob();
+      // Generate proof PDF client-side
+      const doc = buildProofPdf();
+      const pdfBlob = doc.output("blob");
 
       const fd2 = new FormData();
       fd2.append("file", new File([pdfBlob], `${item.name || "Item"} — Print Proof.pdf`, { type: "application/pdf" }));
@@ -328,32 +328,25 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
 
   const [downloading, setDownloading] = useState(false);
 
-  function buildPdfFormData() {
-    const fd = new FormData();
-    fd.append("mockupBase64", mockupData.jpegBase64);
-    fd.append("printInfo", JSON.stringify(mockupData.printInfo));
-    fd.append("clientName", clientName);
-    fd.append("itemName", item.name || "");
-    fd.append("blankVendor", item.blank_vendor || "");
-    fd.append("blankStyle", item.sku || "");
-    fd.append("blankColor", item.color || "");
-    fd.append("decoratorName", item.decorator || "");
-    return fd;
+  function buildProofPdf() {
+    return generateProofPdfClient({
+      mockupDataUrl: mockupData.dataUrl,
+      printInfo: mockupData.printInfo,
+      clientName,
+      itemName: item.name || "",
+      blankVendor: item.blank_vendor || "",
+      blankStyle: item.sku || "",
+      blankColor: item.color || "",
+      decoratorName: item.decorator || "",
+    });
   }
 
-  async function downloadPdf() {
+  function downloadPdf() {
     if (!mockupData) return;
     setDownloading(true);
     try {
-      const res = await fetch("/api/mockup/pdf", { method: "POST", body: buildPdfFormData() });
-      if (!res.ok) throw new Error("PDF generation failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${item.name || "Item"} — Print Proof.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const doc = buildProofPdf();
+      doc.save(`${item.name || "Item"} — Print Proof.pdf`);
     } catch (err) {
       setError(err.message);
     } finally {
