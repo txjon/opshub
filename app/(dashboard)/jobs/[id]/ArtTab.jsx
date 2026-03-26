@@ -303,7 +303,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
       const mockupBlob = await mockupRes.blob();
 
       // Step 1: Get resumable upload URLs from server
-      const urlRes = await fetch("/api/mockup/upload-url", {
+      const urlRes = await fetch("/api/drive/upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -343,7 +343,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
       }
 
       // Step 3: Register files in database
-      const regRes = await fetch("/api/mockup/register", {
+      const regRes = await fetch("/api/drive/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files: driveFiles }),

@@ -11,7 +11,6 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { files } = await req.json();
-    // files: [{ driveFileId, itemId, fileName, mimeType, fileSize, stage }]
 
     if (!files?.length) {
       return NextResponse.json({ error: "No files to register" }, { status: 400 });
@@ -19,10 +18,8 @@ export async function POST(req: NextRequest) {
 
     const results = [];
     for (const f of files) {
-      // Set permissions and get links
       const { webViewLink } = await finalizeUpload(f.driveFileId);
 
-      // Create item_files record
       const { data, error } = await supabase.from("item_files").insert({
         item_id: f.itemId,
         file_name: f.fileName,
@@ -42,6 +39,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, files: results });
   } catch (e: any) {
     console.error("Register error:", e);
-    return NextResponse.json({ error: e.message || "Failed to register files" }, { status: 500 });
+    return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
   }
 }
