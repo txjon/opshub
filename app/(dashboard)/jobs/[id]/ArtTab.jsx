@@ -4,7 +4,7 @@ import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { buildMockupClient } from "@/lib/mockup-client";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
-import { generateProofPdfClient } from "@/lib/proof-client";
+import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
 
 const STAGES = [
   { key: "client_art", label: "Client Art", color: T.muted },
@@ -269,6 +269,7 @@ function ItemArtSection({ item, clientName, projectTitle, onFilesChanged }) {
 }
 
 function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
+  useEffect(() => { preloadLogo(); }, []);
   const [mockupData, setMockupData] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -336,7 +337,6 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
       blankVendor: item.blank_vendor || "",
       blankStyle: item.sku || "",
       blankColor: item.color || "",
-      decoratorName: item.decorator || "",
     });
   }
 
