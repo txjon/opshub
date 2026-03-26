@@ -11,6 +11,7 @@ import { ArtTab } from "./ArtTab";
 import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/Skeleton";
+import { JobActivityPanel } from "@/components/JobActivityPanel";
 
 function JobSkeleton() {
   return (
@@ -78,6 +79,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const initialLoadDone = useRef(false);
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
+  const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const saveErrorTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -97,6 +100,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     loadData();
+    supabase.auth.getUser().then(({data:{user}})=>{ if(user) setCurrentUserId(user.id); });
+    supabase.from("profiles").select("id, full_name").then(({data})=>{
+      const map: Record<string,string>={};
+      (data||[]).forEach((p:any)=>{ map[p.id]=p.full_name||"Team"; });
+      setTeamProfiles(map);
+    });
   }, [params.id]);
 
   async function loadData() {
@@ -702,6 +711,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         />
       )}
         </div>{/* end tab content */}
+
+        {/* Activity panel */}
+        {currentUserId && (
+          <JobActivityPanel jobId={params.id} currentUserId={currentUserId} profiles={teamProfiles} />
+        )}
       </div>{/* end flex layout */}
 
       {/* Error-only save indicator */}
