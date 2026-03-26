@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { buildMockupClient } from "@/lib/mockup-client";
 
 const STAGES = [
   { key: "client_art", label: "Client Art", color: T.muted },
@@ -273,14 +274,10 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     setMockupData(null);
     setSaved(false);
 
-    const fd = new FormData();
-    fd.append("psd", file);
-
     try {
-      const res = await fetch("/api/mockup", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Generation failed");
-      setMockupData(data);
+      const arrayBuffer = await file.arrayBuffer();
+      const { mockupBase64, blob, printInfo } = await buildMockupClient(arrayBuffer);
+      setMockupData({ mockup: mockupBase64, mockupBlob: blob, printInfo });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -295,12 +292,8 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
 
     try {
       // Upload mockup PNG
-      const mockupBlob = new Blob(
-        [Uint8Array.from(atob(mockupData.mockup), c => c.charCodeAt(0))],
-        { type: "image/png" }
-      );
       const fd1 = new FormData();
-      fd1.append("file", new File([mockupBlob], `${item.name || "Item"} — Mockup.png`, { type: "image/png" }));
+      fd1.append("file", new File([mockupData.mockupBlob], `${item.name || "Item"} — Mockup.png`, { type: "image/png" }));
       fd1.append("itemId", item.id);
       fd1.append("stage", "mockup");
       fd1.append("clientName", clientName);
