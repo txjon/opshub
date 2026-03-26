@@ -294,8 +294,9 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     try {
       // Upload mockup PNG (half-size for Drive)
       const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
+      if (!mockupData.uploadBlob) throw new Error("Mockup blob is empty");
       const fd1 = new FormData();
-      fd1.append("file", new File([mockupData.uploadBlob], `${safeName} - Mockup.png`, { type: "image/png" }));
+      fd1.append("file", mockupData.uploadBlob, `${safeName} - Mockup.png`);
       fd1.append("itemId", item.id);
       fd1.append("stage", "mockup");
       fd1.append("clientName", clientName);
@@ -312,7 +313,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
       const pdfBlob = doc.output("blob");
 
       const fd2 = new FormData();
-      fd2.append("file", new File([pdfBlob], `${safeName} - Print Proof.pdf`, { type: "application/pdf" }));
+      fd2.append("file", pdfBlob, `${safeName} - Print Proof.pdf`);
       fd2.append("itemId", item.id);
       fd2.append("stage", "proof");
       fd2.append("clientName", clientName);
