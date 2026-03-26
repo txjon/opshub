@@ -294,16 +294,12 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
 
     try {
-      // Generate proof PDF client-side
+      // Generate proof PDF client-side as base64
       const doc = buildProofPdf();
-      const pdfBlob = doc.output("blob");
+      const pdfBase64 = doc.output("datauristring").split(",")[1];
 
-      // Convert mockup canvas to blob
-      const mockupRes = await fetch(mockupData.uploadDataUrl);
-      const mockupBlob = await mockupRes.blob();
-
-      // Step 1: Get resumable upload URLs from server
-      const urlRes = await fetch("/api/drive/upload-url", {
+      // Single server call: upload both files to Drive + register in DB
+      const res = await fetch("/api/drive/upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -311,45 +307,13 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
           projectTitle,
           itemName: item.name || "",
           files: [
-            { key: "mockup", fileName: `${safeName} - Mockup.jpg`, mimeType: "image/jpeg" },
-            { key: "proof", fileName: `${safeName} - Print Proof.pdf`, mimeType: "application/pdf" },
+            { fileName: `${safeName} - Mockup.jpg`, mimeType: "image/jpeg", base64: mockupData.uploadBase64, stage: "mockup", itemId: item.id },
+            { fileName: `${safeName} - Print Proof.pdf`, mimeType: "application/pdf", base64: pdfBase64, stage: "proof", itemId: item.id },
           ],
         }),
       });
-      const urlText = await urlRes.text();
-      if (!urlRes.ok) throw new Error(`[Step 1] ${urlRes.status}: ${urlText.slice(0, 300)}`);
-      const urlData = JSON.parse(urlText);
-
-      // Step 2: Upload files directly to Google Drive from browser
-      const driveFiles = [];
-      for (const upload of urlData.uploads) {
-        const blob = upload.key === "mockup" ? mockupBlob : pdfBlob;
-        const driveRes = await fetch(upload.uploadUrl, {
-          method: "PUT",
-          headers: { "Content-Type": upload.mimeType },
-          body: blob,
-        });
-        const driveText = await driveRes.text();
-        if (!driveRes.ok) throw new Error(`[Step 2 - ${upload.key}] ${driveRes.status}: ${driveText.slice(0, 300)}`);
-        const driveFile = JSON.parse(driveText);
-        driveFiles.push({
-          driveFileId: driveFile.id,
-          itemId: item.id,
-          fileName: upload.fileName,
-          mimeType: upload.mimeType,
-          fileSize: blob.size,
-          stage: upload.key === "mockup" ? "mockup" : "proof",
-        });
-      }
-
-      // Step 3: Register files in database
-      const regRes = await fetch("/api/drive/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files: driveFiles }),
-      });
-      const regText = await regRes.text();
-      if (!regRes.ok) throw new Error(`[Step 3] ${regRes.status}: ${regText.slice(0, 300)}`);
+      const resText = await res.text();
+      if (!res.ok) throw new Error(resText.slice(0, 300));
 
       setSaved(true);
       if (onFilesChanged) onFilesChanged();
