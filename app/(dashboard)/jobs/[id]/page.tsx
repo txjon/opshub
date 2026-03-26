@@ -375,7 +375,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Type</label>
                     <select style={ic} value={job.job_type} onChange={e=>upd("job_type",e.target.value)}>
-                      {["tour","webstore","drop_ship"].map(t=><option key={t} value={t}>{t.replace(/_/g," ")}</option>)}
+                      {["corporate","brand","artist","tour","webstore","drop_ship"].map(t=><option key={t} value={t}>{t.replace(/_/g," ")}</option>)}
                     </select>
                   </div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Priority</label>

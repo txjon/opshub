@@ -12,7 +12,7 @@ export default function NewJobPage() {
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     title: "",
-    job_type: "tour",
+    job_type: "corporate",
     phase: "intake",
     priority: "normal",
     payment_terms: "",
@@ -61,6 +61,7 @@ export default function NewJobPage() {
       ...f,
       client_name: c.name,
       payment_terms: c.default_terms || f.payment_terms,
+      job_type: c.client_type || f.job_type,
     }));
     setSelectedClientId(c.id);
     setShowDropdown(false);
@@ -107,7 +108,7 @@ export default function NewJobPage() {
     setSavingClient(false);
     // Add to local list and select
     setClients(prev => [...prev, { id: data.id, name: data.name, default_terms: newClientForm.default_terms || null, client_type: newClientForm.client_type || null }].sort((a,b) => a.name.localeCompare(b.name)));
-    setForm(f => ({ ...f, client_name: data.name, payment_terms: newClientForm.default_terms || f.payment_terms }));
+    setForm(f => ({ ...f, client_name: data.name, payment_terms: newClientForm.default_terms || f.payment_terms, job_type: newClientForm.client_type || f.job_type }));
     setSelectedClientId(data.id);
     setShowNewClientModal(false);
   };
@@ -218,9 +219,9 @@ export default function NewJobPage() {
             <div>
               <label className={lc}>Project Type *</label>
               <select value={form.job_type} onChange={e => set("job_type", e.target.value)} className={ic}>
-                <option value="tour">Tour</option>
-                <option value="webstore">Webstore</option>
-                <option value="drop_ship">Drop Ship</option>
+                {["corporate","brand","artist","tour","webstore","drop_ship"].map(t=>
+                  <option key={t} value={t}>{t.replace(/_/g," ")}</option>
+                )}
               </select>
             </div>
             <div>
