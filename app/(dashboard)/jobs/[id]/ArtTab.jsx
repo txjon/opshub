@@ -291,27 +291,67 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     setSaving(true);
     setError(null);
 
-    try {
-      // Generate proof PDF client-side and get base64
-      const doc = buildProofPdf();
-      const pdfBase64 = doc.output("datauristring").split(",")[1];
+    const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
 
-      // Send both as base64 JSON to dedicated save endpoint
-      const res = await fetch("/api/mockup/save", {
+    try {
+      // Generate proof PDF client-side
+      const doc = buildProofPdf();
+      const pdfBlob = doc.output("blob");
+
+      // Convert mockup canvas to blob
+      const mockupRes = await fetch(mockupData.uploadDataUrl);
+      const mockupBlob = await mockupRes.blob();
+
+      // Step 1: Get resumable upload URLs from server (small JSON request)
+      const urlRes = await fetch("/api/mockup/upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mockupBase64: mockupData.uploadBase64,
-          pdfBase64,
-          itemId: item.id,
           clientName,
           projectTitle,
           itemName: item.name || "",
+          files: [
+            { key: "mockup", fileName: `${safeName} - Mockup.jpg`, mimeType: "image/jpeg" },
+            { key: "proof", fileName: `${safeName} - Print Proof.pdf`, mimeType: "application/pdf" },
+          ],
         }),
       });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "Unknown error");
-        throw new Error(`Save failed: ${errText}`);
+      if (!urlRes.ok) {
+        const err = await urlRes.json().catch(() => ({ error: "Failed to get upload URLs" }));
+        throw new Error(err.error);
+      }
+      const { uploads } = await urlRes.json();
+
+      // Step 2: Upload files directly to Google Drive from browser
+      const driveFiles = [];
+      for (const upload of uploads) {
+        const blob = upload.key === "mockup" ? mockupBlob : pdfBlob;
+        const driveRes = await fetch(upload.uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": upload.mimeType },
+          body: blob,
+        });
+        if (!driveRes.ok) throw new Error(`Failed to upload ${upload.fileName} to Drive`);
+        const driveFile = await driveRes.json();
+        driveFiles.push({
+          driveFileId: driveFile.id,
+          itemId: item.id,
+          fileName: upload.fileName,
+          mimeType: upload.mimeType,
+          fileSize: blob.size,
+          stage: upload.key === "mockup" ? "mockup" : "proof",
+        });
+      }
+
+      // Step 3: Register files in database (small JSON request)
+      const regRes = await fetch("/api/mockup/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: driveFiles }),
+      });
+      if (!regRes.ok) {
+        const err = await regRes.json().catch(() => ({ error: "Failed to register files" }));
+        throw new Error(err.error);
       }
 
       setSaved(true);

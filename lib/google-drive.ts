@@ -101,6 +101,64 @@ export async function uploadFile(
   };
 }
 
+// Create a resumable upload session — returns the upload URL for direct browser upload
+export async function createResumableUpload(
+  folderId: string,
+  fileName: string,
+  mimeType: string
+): Promise<string> {
+  const auth = getAuth();
+  const token = await (await auth.getClient()).getAccessToken();
+
+  const res = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: fileName,
+        parents: [folderId],
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to create resumable upload: ${res.status} ${text}`);
+  }
+
+  const uploadUrl = res.headers.get("location");
+  if (!uploadUrl) throw new Error("No upload URL returned");
+  return uploadUrl;
+}
+
+// Set file permissions and get links after upload
+export async function finalizeUpload(
+  fileId: string
+): Promise<{ webViewLink: string; webContentLink: string }> {
+  const drive = getDrive();
+
+  // Make viewable by anyone with link
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: "reader", type: "anyone" },
+  });
+
+  // Get links
+  const file = await drive.files.get({
+    fileId,
+    fields: "webViewLink,webContentLink",
+  });
+
+  return {
+    webViewLink: file.data.webViewLink || "",
+    webContentLink: file.data.webContentLink || "",
+  };
+}
+
 // Delete a file from Drive
 export async function deleteFile(fileId: string): Promise<void> {
   const drive = getDrive();
