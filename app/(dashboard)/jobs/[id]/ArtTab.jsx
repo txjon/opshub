@@ -238,12 +238,14 @@ function ItemArtSection({ item, clientName, projectTitle, onFilesChanged }) {
                   <div style={{ fontSize: 9, fontWeight: 700, color: g.color, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
                     {g.label}
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                     {g.files.map(f => (
-                      <FileCard key={f.id} file={f}
-                        onDelete={file => setConfirmDelete(file)}
-                        onApproval={handleApproval}
-                      />
+                      <div key={f.id} style={{ width: "calc(50% - 2px)", minWidth: 200 }}>
+                        <FileCard file={f}
+                          onDelete={file => setConfirmDelete(file)}
+                          onApproval={handleApproval}
+                        />
+                      </div>
                     ))}
                   </div>
                 </div>
