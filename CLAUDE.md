@@ -45,18 +45,22 @@ app/api/
 
 ### Project Detail Page (`jobs/[id]/`)
 
-The central hub. Vertical tab nav on the left, content on the right. 8 tabs, each its own component:
+The central hub. Horizontal pill tabs across the top, content below with optional activity panel. 8 tabs, each its own component:
 
 | Tab | Component | Owns |
 |---|---|---|
-| Overview | Inline in page.tsx | Project info, contacts CRUD, payments CRUD, shipping details, items summary |
+| Overview | Inline in page.tsx | Project info + shipping details (top row), contacts + payments (left), items + activity stats (right) |
 | Buy Sheet | BuySheetTab.jsx | Item creation, size/qty entry, S&S + manual catalog pickers, drag-to-reorder |
-| Art Files | ArtTab.jsx | Per-item file upload to Google Drive, stages, proof approval workflow |
+| Art Files | ArtTab.jsx | Per-item file upload to Google Drive, stages, proof approval workflow, mockup generator |
 | Costing | CostingTab.jsx | Decoration pricing, margin calc, auto-save, share groups |
 | Client Quote | CostingTab.jsx (quote sub-tab) | Quote preview + PDF download/email |
-| Purchase Order | POTab.jsx | PO preview, PDF export/email, per-item drive link + production notes |
-| Production | ProductionTab.jsx | Pipeline stage tracking per item |
-| Warehouse | WarehouseTab.jsx | Receiving (carrier, tracking, per-size qtys) + shipping fulfillment |
+| Purchase Order | POTab.jsx | PO preview, PDF export/email, per-item drive link + production notes + copy-to-all |
+| Production | ProductionTab.jsx | Pipeline stage tracking per item, proof approval gate, stage timestamps |
+| Warehouse | WarehouseTab.jsx | Receiving (carrier, tracking, per-size qtys) + shipping fulfillment + qty mismatch alerts |
+
+**Overview layout**: Top row is a 2-column grid (Project info | Shipping details) matched height. Below is another 2-column grid: left (Contacts → Payment records → Delete) and right (Items → Activity stats).
+
+**Note**: Production and Warehouse tabs are planned to move to standalone pages in a future refactor — warehouse person needs cross-project receiving view, production person needs all-items pipeline board.
 
 ### Data Flow
 
@@ -209,6 +213,9 @@ Server component showing:
 | `payment_records` | Invoice/payment tracking per job |
 | `blank_catalog` | User-maintained blank garment catalog |
 | `item_files` | Art file metadata per item (actual files in Google Drive) |
+| `job_activity` | Per-job activity feed (auto events + manual comments) |
+| `messages` | Party Line global team chat |
+| `notifications` | Per-user notifications (@mentions, alerts) |
 
 ### Migrations
 
@@ -223,6 +230,8 @@ Server component showing:
 008_item_files.sql        — item_files table for art file metadata
 009_client_types.sql      — Added tour + webstore client types
 010_pipeline_timestamps.sql — items.pipeline_timestamps JSONB column
+011_job_type_artist.sql    — Added artist to job_type constraint
+012_messaging.sql          — job_activity, messages, notifications tables
 ```
 
 ### JSONB Patterns
@@ -258,6 +267,15 @@ Styled confirmation modal (replaces browser `confirm()`). Dark themed, Escape to
 ### `components/Skeleton.tsx`
 Loading skeleton components with shimmer animation. `Skeleton` (single bar), `SkeletonRows` (card-style rows), `SkeletonTable` (table placeholder). Used on job detail and client detail pages for initial load only.
 
+### `components/PartyLine.tsx`
+Floating global team chat. Bottom-right button accessible from every page. Messages stored in `messages` table, polls every 5s. Rendered via `DashboardShell` in the dashboard layout.
+
+### `components/NotificationBell.tsx`
+Notification dropdown (built, not yet wired into sidebar). Shows unread count, click to expand. Supports @mention, alert, approval, payment, production notification types.
+
+### `components/JobActivityPanel.tsx`
+Job-level activity feed component. Currently not used in the UI (Overview shows static stats instead). Exports `logJobActivity()` helper for auto-logging events from other components. Can be re-enabled when auto-logging is wired up.
+
 ### `scripts/verify-costing.js`
 CLI tool to verify costing math. Run `node scripts/verify-costing.js` to list jobs, `node scripts/verify-costing.js <jobId>` for full calculation breakdown of every item — compare against Excel.
 
@@ -280,8 +298,9 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 ## Conventions
 
 - **Display names**: "Projects" (not "Jobs") in all UI. DB tables/URLs stay as `jobs`.
-- **Project types**: tour, webstore, drop_ship
+- **Project types**: corporate, brand, artist, tour, webstore, drop_ship (aligned with client types)
 - **Client types**: corporate, brand, artist, tour, webstore
+- **Job type defaults from client type** when creating a new project
 - **Auto-save**: 800ms debounce (1500ms for Buy Sheet), silent (no visible indicator unless error)
 - **Inline styles**: Job detail components use inline styles with the `T` theme object. Layout pages (clients list, new project) use Tailwind.
 - **No hardcoded pricing or options**: All decorator rates and option names come from `decorators.pricing_data`.
@@ -326,6 +345,15 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 - Size curve memory — remember last distribution curve per client/project type (deferred, needs cross-project tracking)
 - Multi-file drag-and-drop upload for Art Files tab (on hold)
 - AS Colour blank catalog CSV import — pricing file ready, import script not yet built
+- **Structural refactor planned**: Pull Production + Warehouse tabs out of project detail into standalone cross-project pages
+- **Permissions refactor planned**: Role-based access enforcement (not just nav hiding), field-level control
+- Job lifecycle auto-advancement (phases should update based on actual item/stage data)
+- Client communication trail (log emails sent to project activity)
+- Decorator portal / two-way status updates
+- Client financial summary across projects
+- Dashboard action buttons (not just passive alerts)
+- NotificationBell not yet wired into sidebar UI
+- Auto-logging to job_activity not yet wired (logJobActivity helper exists but not called)
 
 ## Owner
 
