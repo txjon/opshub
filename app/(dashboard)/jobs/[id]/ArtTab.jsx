@@ -278,7 +278,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const result = await buildMockupClient(arrayBuffer);
-      setMockupData({ mockup: result.mockupBase64, dataUrl: result.dataUrl, uploadBlob: result.uploadBlob, printInfo: result.printInfo });
+      setMockupData({ mockup: result.mockupBase64, dataUrl: result.dataUrl, uploadBase64: result.uploadBase64, printInfo: result.printInfo });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -292,37 +292,26 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     setError(null);
 
     try {
-      // Upload mockup PNG (half-size for Drive)
-      const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
-      if (!mockupData.uploadBlob) throw new Error("Mockup blob is empty");
-      const fd1 = new FormData();
-      fd1.append("file", mockupData.uploadBlob, `${safeName} - Mockup.png`);
-      fd1.append("itemId", item.id);
-      fd1.append("stage", "mockup");
-      fd1.append("clientName", clientName);
-      fd1.append("projectTitle", projectTitle);
-      fd1.append("itemName", item.name || "");
-      const res = await fetch("/api/files", { method: "POST", body: fd1 });
-      if (!res.ok) {
-        const errData = await res.text().catch(() => "Unknown error");
-        throw new Error(`Mockup upload failed: ${errData}`);
-      }
-
-      // Generate proof PDF client-side
+      // Generate proof PDF client-side and get base64
       const doc = buildProofPdf();
-      const pdfBlob = doc.output("blob");
+      const pdfBase64 = doc.output("datauristring").split(",")[1];
 
-      const fd2 = new FormData();
-      fd2.append("file", pdfBlob, `${safeName} - Print Proof.pdf`);
-      fd2.append("itemId", item.id);
-      fd2.append("stage", "proof");
-      fd2.append("clientName", clientName);
-      fd2.append("projectTitle", projectTitle);
-      fd2.append("itemName", item.name || "");
-      const res2 = await fetch("/api/files", { method: "POST", body: fd2 });
-      if (!res2.ok) {
-        const errData = await res2.text().catch(() => "Unknown error");
-        throw new Error(`Proof upload failed: ${errData}`);
+      // Send both as base64 JSON to dedicated save endpoint
+      const res = await fetch("/api/mockup/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mockupBase64: mockupData.uploadBase64,
+          pdfBase64,
+          itemId: item.id,
+          clientName,
+          projectTitle,
+          itemName: item.name || "",
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(errData.error || "Save failed");
       }
 
       setSaved(true);
