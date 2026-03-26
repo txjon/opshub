@@ -98,7 +98,7 @@ function FileCard({ file, onDelete, onApproval }) {
   );
 }
 
-function ItemArtSection({ item, clientName, projectTitle }) {
+function ItemArtSection({ item, clientName, projectTitle, onFilesChanged }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -239,6 +239,9 @@ function ItemArtSection({ item, clientName, projectTitle }) {
               ))}
             </div>
           )}
+
+          {/* Mockup generator */}
+          <MockupDropZone item={item} clientName={clientName} projectTitle={projectTitle} onFilesChanged={loadFiles} />
         </div>
       )}
 
@@ -252,6 +255,238 @@ function ItemArtSection({ item, clientName, projectTitle }) {
       />
     </div>
   );
+}
+
+function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
+  const [mockupData, setMockupData] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(null);
+  const [dragover, setDragover] = useState(false);
+  const mockupInputRef = useRef(null);
+
+  async function processFile(file) {
+    if (!file || !file.name.endsWith(".psd")) return;
+    setGenerating(true);
+    setError(null);
+    setMockupData(null);
+    setSaved(false);
+
+    const fd = new FormData();
+    fd.append("psd", file);
+    fd.append("itemId", item.id);
+    fd.append("clientName", clientName);
+    fd.append("projectTitle", projectTitle);
+    fd.append("itemName", item.name || "");
+    fd.append("blankVendor", item.blank_vendor || "");
+    fd.append("blankStyle", item.sku || "");
+    fd.append("blankColor", item.color || "");
+    fd.append("decoratorName", item.decorator || "");
+
+    try {
+      const res = await fetch("/api/mockup", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Generation failed");
+      setMockupData(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleSaveToDrive() {
+    if (!mockupData) return;
+    setSaving(true);
+    setError(null);
+
+    // Re-generate with saveToDrive flag using the stored PSD
+    // We'll use a different approach — upload the already-generated files
+    const fd = new FormData();
+    // Create a blob from the base64 mockup data to re-send
+    const mockupBlob = new Blob(
+      [Uint8Array.from(atob(mockupData.mockup), c => c.charCodeAt(0))],
+      { type: "image/png" }
+    );
+    const proofBlob = new Blob(
+      [Uint8Array.from(atob(mockupData.proof), c => c.charCodeAt(0))],
+      { type: "application/pdf" }
+    );
+
+    try {
+      const res = await fetch("/api/files", {
+        method: "POST",
+        body: (() => {
+          const fd = new FormData();
+          fd.append("file", new File([mockupBlob], `${item.name || "Item"} — Mockup.png`, { type: "image/png" }));
+          fd.append("itemId", item.id);
+          fd.append("stage", "mockup");
+          fd.append("clientName", clientName);
+          fd.append("projectTitle", projectTitle);
+          fd.append("itemName", item.name || "");
+          return fd;
+        })(),
+      });
+      if (!res.ok) throw new Error("Failed to save mockup");
+
+      const res2 = await fetch("/api/files", {
+        method: "POST",
+        body: (() => {
+          const fd = new FormData();
+          fd.append("file", new File([proofBlob], `${item.name || "Item"} — Print Proof.pdf`, { type: "application/pdf" }));
+          fd.append("itemId", item.id);
+          fd.append("stage", "proof");
+          fd.append("clientName", clientName);
+          fd.append("projectTitle", projectTitle);
+          fd.append("itemName", item.name || "");
+          return fd;
+        })(),
+      });
+      if (!res2.ok) throw new Error("Failed to save proof");
+
+      setSaved(true);
+      if (onFilesChanged) onFilesChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function downloadPdf() {
+    if (!mockupData?.proof) return;
+    const bytes = atob(mockupData.proof);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    const blob = new Blob([arr], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${item.name || "Item"} — Print Proof.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragover(false);
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      {!mockupData && !generating && (
+        <div
+          onDragOver={e => { e.preventDefault(); setDragover(true); }}
+          onDragLeave={() => setDragover(false)}
+          onDrop={handleDrop}
+          onClick={() => mockupInputRef.current?.click()}
+          style={{
+            border: `2px dashed ${dragover ? T.accent : T.border}`,
+            borderRadius: 8, padding: "16px 12px", textAlign: "center", cursor: "pointer",
+            background: dragover ? T.accentDim : "transparent",
+            transition: "all 0.15s",
+          }}
+        >
+          <div style={{ fontSize: 11, color: T.muted }}>Drop .psd to generate mockup & proof</div>
+          <input ref={mockupInputRef} type="file" accept=".psd" onChange={e => { processFile(e.target.files?.[0]); e.target.value = ""; }} style={{ display: "none" }} />
+        </div>
+      )}
+
+      {generating && (
+        <div style={{ textAlign: "center", padding: "14px 0", fontSize: 11, color: T.muted }}>
+          Generating mockup & proof...
+        </div>
+      )}
+
+      {error && (
+        <div style={{ padding: 10, background: T.redDim, borderRadius: 8, fontSize: 11, color: T.red, marginTop: 6 }}>
+          {error}
+        </div>
+      )}
+
+      {mockupData && (
+        <div style={{ marginTop: 4 }}>
+          <div style={{ background: "#ffffff", borderRadius: 8, padding: 12, textAlign: "center", marginBottom: 8 }}>
+            <img
+              src={`data:image/png;base64,${mockupData.mockup}`}
+              alt="Mockup"
+              style={{ maxWidth: "100%", height: "auto", borderRadius: 4 }}
+            />
+          </div>
+
+          {/* Print info */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+            {mockupData.printInfo.map((p, i) => (
+              <div key={i} style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "6px 10px", background: T.surface, borderRadius: 6,
+              }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600 }}>{p.placement}</div>
+                  <div style={{ fontSize: 10, color: T.muted, fontFamily: mono }}>{p.widthInches}" x {p.heightInches}"</div>
+                </div>
+                <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                  {p.colors.map((c, j) => {
+                    const isLight = isLightColor(c.hex);
+                    return (
+                      <span key={j} style={{
+                        fontSize: 9, padding: "2px 8px", borderRadius: 20,
+                        background: c.hex, color: isLight ? "#222" : "#fff",
+                        display: "flex", alignItems: "center", gap: 4,
+                        border: isLight ? "1px solid #ccc" : "none",
+                      }}>
+                        <span style={{
+                          width: 8, height: 8, borderRadius: "50%", background: c.hex,
+                          border: `1.5px solid ${isLight ? "#aaa" : "rgba(255,255,255,0.4)"}`,
+                          flexShrink: 0,
+                        }} />
+                        {c.name}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+            <button onClick={downloadPdf} style={{
+              background: T.accent, border: "none", borderRadius: 6, color: "#fff",
+              fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 14px", cursor: "pointer",
+            }}>
+              Download PDF
+            </button>
+            <button onClick={handleSaveToDrive} disabled={saving || saved} style={{
+              background: saved ? T.greenDim : T.surface, border: `1px solid ${saved ? T.green : T.border}`,
+              borderRadius: 6, color: saved ? T.green : T.text,
+              fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 14px",
+              cursor: saving || saved ? "default" : "pointer", opacity: saving ? 0.6 : 1,
+            }}>
+              {saved ? "Saved to Drive" : saving ? "Saving..." : "Save to Drive"}
+            </button>
+            <button onClick={() => { setMockupData(null); setError(null); setSaved(false); }} style={{
+              background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6,
+              color: T.muted, fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 14px", cursor: "pointer",
+            }}>
+              Reset
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function isLightColor(hex) {
+  if (!hex || hex.length < 7) return false;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150;
 }
 
 export function ArtTab({ project, items }) {
