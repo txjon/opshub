@@ -275,14 +275,6 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
 
     const fd = new FormData();
     fd.append("psd", file);
-    fd.append("itemId", item.id);
-    fd.append("clientName", clientName);
-    fd.append("projectTitle", projectTitle);
-    fd.append("itemName", item.name || "");
-    fd.append("blankVendor", item.blank_vendor || "");
-    fd.append("blankStyle", item.sku || "");
-    fd.append("blankColor", item.color || "");
-    fd.append("decoratorName", item.decorator || "");
 
     try {
       const res = await fetch("/api/mockup", { method: "POST", body: fd });
@@ -301,48 +293,48 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     setSaving(true);
     setError(null);
 
-    // Re-generate with saveToDrive flag using the stored PSD
-    // We'll use a different approach — upload the already-generated files
-    const fd = new FormData();
-    // Create a blob from the base64 mockup data to re-send
-    const mockupBlob = new Blob(
-      [Uint8Array.from(atob(mockupData.mockup), c => c.charCodeAt(0))],
-      { type: "image/png" }
-    );
-    const proofBlob = new Blob(
-      [Uint8Array.from(atob(mockupData.proof), c => c.charCodeAt(0))],
-      { type: "application/pdf" }
-    );
-
     try {
-      const res = await fetch("/api/files", {
-        method: "POST",
-        body: (() => {
-          const fd = new FormData();
-          fd.append("file", new File([mockupBlob], `${item.name || "Item"} — Mockup.png`, { type: "image/png" }));
-          fd.append("itemId", item.id);
-          fd.append("stage", "mockup");
-          fd.append("clientName", clientName);
-          fd.append("projectTitle", projectTitle);
-          fd.append("itemName", item.name || "");
-          return fd;
-        })(),
-      });
+      // Upload mockup PNG
+      const mockupBlob = new Blob(
+        [Uint8Array.from(atob(mockupData.mockup), c => c.charCodeAt(0))],
+        { type: "image/png" }
+      );
+      const fd1 = new FormData();
+      fd1.append("file", new File([mockupBlob], `${item.name || "Item"} — Mockup.png`, { type: "image/png" }));
+      fd1.append("itemId", item.id);
+      fd1.append("stage", "mockup");
+      fd1.append("clientName", clientName);
+      fd1.append("projectTitle", projectTitle);
+      fd1.append("itemName", item.name || "");
+      const res = await fetch("/api/files", { method: "POST", body: fd1 });
       if (!res.ok) throw new Error("Failed to save mockup");
 
-      const res2 = await fetch("/api/files", {
+      // Generate proof PDF on demand then upload
+      const pdfRes = await fetch("/api/mockup/pdf", {
         method: "POST",
-        body: (() => {
-          const fd = new FormData();
-          fd.append("file", new File([proofBlob], `${item.name || "Item"} — Print Proof.pdf`, { type: "application/pdf" }));
-          fd.append("itemId", item.id);
-          fd.append("stage", "proof");
-          fd.append("clientName", clientName);
-          fd.append("projectTitle", projectTitle);
-          fd.append("itemName", item.name || "");
-          return fd;
-        })(),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mockupBase64: mockupData.mockup,
+          printInfo: mockupData.printInfo,
+          clientName,
+          itemName: item.name || "",
+          blankVendor: item.blank_vendor || "",
+          blankStyle: item.sku || "",
+          blankColor: item.color || "",
+          decoratorName: item.decorator || "",
+        }),
       });
+      if (!pdfRes.ok) throw new Error("Failed to generate proof PDF");
+      const pdfBlob = await pdfRes.blob();
+
+      const fd2 = new FormData();
+      fd2.append("file", new File([pdfBlob], `${item.name || "Item"} — Print Proof.pdf`, { type: "application/pdf" }));
+      fd2.append("itemId", item.id);
+      fd2.append("stage", "proof");
+      fd2.append("clientName", clientName);
+      fd2.append("projectTitle", projectTitle);
+      fd2.append("itemName", item.name || "");
+      const res2 = await fetch("/api/files", { method: "POST", body: fd2 });
       if (!res2.ok) throw new Error("Failed to save proof");
 
       setSaved(true);
@@ -354,18 +346,39 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     }
   }
 
-  function downloadPdf() {
-    if (!mockupData?.proof) return;
-    const bytes = atob(mockupData.proof);
-    const arr = new Uint8Array(bytes.length);
-    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-    const blob = new Blob([arr], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${item.name || "Item"} — Print Proof.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const [downloading, setDownloading] = useState(false);
+
+  async function downloadPdf() {
+    if (!mockupData) return;
+    setDownloading(true);
+    try {
+      const res = await fetch("/api/mockup/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mockupBase64: mockupData.mockup,
+          printInfo: mockupData.printInfo,
+          clientName,
+          itemName: item.name || "",
+          blankVendor: item.blank_vendor || "",
+          blankStyle: item.sku || "",
+          blankColor: item.color || "",
+          decoratorName: item.decorator || "",
+        }),
+      });
+      if (!res.ok) throw new Error("PDF generation failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${item.name || "Item"} — Print Proof.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDownloading(false);
+    }
   }
 
   function handleDrop(e) {
@@ -454,11 +467,12 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
 
           {/* Action buttons */}
           <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
-            <button onClick={downloadPdf} style={{
+            <button onClick={downloadPdf} disabled={downloading} style={{
               background: T.accent, border: "none", borderRadius: 6, color: "#fff",
-              fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 14px", cursor: "pointer",
+              fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 14px",
+              cursor: downloading ? "default" : "pointer", opacity: downloading ? 0.6 : 1,
             }}>
-              Download PDF
+              {downloading ? "Generating PDF..." : "Download PDF"}
             </button>
             <button onClick={handleSaveToDrive} disabled={saving || saved} style={{
               background: saved ? T.greenDim : T.surface, border: `1px solid ${saved ? T.green : T.border}`,
