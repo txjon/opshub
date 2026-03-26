@@ -296,7 +296,10 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     try {
       // Generate proof PDF client-side as base64
       const doc = buildProofPdf();
-      const pdfBase64 = doc.output("datauristring").split(",")[1];
+      const pdfBytes = new Uint8Array(doc.output("arraybuffer"));
+      let pdfBinary = "";
+      for (let i = 0; i < pdfBytes.length; i++) pdfBinary += String.fromCharCode(pdfBytes[i]);
+      const pdfBase64 = btoa(pdfBinary);
 
       // Single server call: upload both files to Drive + register in DB
       const res = await fetch("/api/drive/upload-url", {
