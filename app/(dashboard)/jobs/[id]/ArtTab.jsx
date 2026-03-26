@@ -302,7 +302,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
       const mockupRes = await fetch(mockupData.uploadDataUrl);
       const mockupBlob = await mockupRes.blob();
 
-      // Step 1: Get resumable upload URLs from server (small JSON request)
+      // Step 1: Get resumable upload URLs from server
       const urlRes = await fetch("/api/mockup/upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -316,23 +316,22 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
           ],
         }),
       });
-      if (!urlRes.ok) {
-        const err = await urlRes.json().catch(() => ({ error: "Failed to get upload URLs" }));
-        throw new Error(err.error);
-      }
-      const { uploads } = await urlRes.json();
+      const urlText = await urlRes.text();
+      if (!urlRes.ok) throw new Error(`[Step 1] ${urlRes.status}: ${urlText.slice(0, 300)}`);
+      const urlData = JSON.parse(urlText);
 
       // Step 2: Upload files directly to Google Drive from browser
       const driveFiles = [];
-      for (const upload of uploads) {
+      for (const upload of urlData.uploads) {
         const blob = upload.key === "mockup" ? mockupBlob : pdfBlob;
         const driveRes = await fetch(upload.uploadUrl, {
           method: "PUT",
           headers: { "Content-Type": upload.mimeType },
           body: blob,
         });
-        if (!driveRes.ok) throw new Error(`Failed to upload ${upload.fileName} to Drive`);
-        const driveFile = await driveRes.json();
+        const driveText = await driveRes.text();
+        if (!driveRes.ok) throw new Error(`[Step 2 - ${upload.key}] ${driveRes.status}: ${driveText.slice(0, 300)}`);
+        const driveFile = JSON.parse(driveText);
         driveFiles.push({
           driveFileId: driveFile.id,
           itemId: item.id,
@@ -343,16 +342,14 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
         });
       }
 
-      // Step 3: Register files in database (small JSON request)
+      // Step 3: Register files in database
       const regRes = await fetch("/api/mockup/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files: driveFiles }),
       });
-      if (!regRes.ok) {
-        const err = await regRes.json().catch(() => ({ error: "Failed to register files" }));
-        throw new Error(err.error);
-      }
+      const regText = await regRes.text();
+      if (!regRes.ok) throw new Error(`[Step 3] ${regRes.status}: ${regText.slice(0, 300)}`);
 
       setSaved(true);
       if (onFilesChanged) onFilesChanged();
