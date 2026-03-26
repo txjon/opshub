@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { buildMockupClient } from "@/lib/mockup-client";
+import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { generateProofPdfClient } from "@/lib/proof-client";
 
 const STAGES = [
@@ -123,16 +124,24 @@ function ItemArtSection({ item, clientName, projectTitle, onFilesChanged }) {
     if (!fileList?.length) return;
     setUploading(true);
 
-    for (const file of fileList) {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("itemId", item.id);
-      fd.append("stage", uploadStage);
-      fd.append("clientName", clientName);
-      fd.append("projectTitle", projectTitle);
-      fd.append("itemName", item.name);
-
-      await fetch("/api/files", { method: "POST", body: fd });
+    try {
+      for (const file of fileList) {
+        const driveFile = await uploadToDrive({
+          blob: file,
+          fileName: file.name,
+          mimeType: file.type || "application/octet-stream",
+          clientName,
+          projectTitle,
+          itemName: item.name,
+        });
+        await registerFileInDb({
+          ...driveFile,
+          itemId: item.id,
+          stage: uploadStage,
+        });
+      }
+    } catch (err) {
+      console.error("Upload error:", err);
     }
 
     fileInputRef.current.value = "";
@@ -278,7 +287,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const result = await buildMockupClient(arrayBuffer);
-      setMockupData({ mockup: result.mockupBase64, dataUrl: result.dataUrl, uploadBase64: result.uploadBase64, uploadDataUrl: result.uploadDataUrl, printInfo: result.printInfo });
+      setMockupData({ mockup: result.mockupBase64, dataUrl: result.dataUrl, uploadDataUrl: result.uploadDataUrl, printInfo: result.printInfo });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -292,45 +301,20 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     setError(null);
 
     const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
+    const driveCtx = { clientName, projectTitle, itemName: item.name || "" };
 
     try {
-      // Request 1: Upload mockup JPEG
-      const res1 = await fetch("/api/drive/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientName,
-          projectTitle,
-          itemName: item.name || "",
-          files: [
-            { fileName: `${safeName} - Mockup.jpg`, mimeType: "image/jpeg", base64: mockupData.uploadBase64, stage: "mockup", itemId: item.id },
-          ],
-        }),
-      });
-      const res1Text = await res1.text();
-      if (!res1.ok) throw new Error(`Mockup: ${res1Text.slice(0, 300)}`);
+      // Upload mockup (convert data URL to blob)
+      const mockupRes = await fetch(mockupData.uploadDataUrl);
+      const mockupBlob = await mockupRes.blob();
+      const mockupFile = await uploadToDrive({ blob: mockupBlob, fileName: `${safeName} - Mockup.jpg`, mimeType: "image/jpeg", ...driveCtx });
+      await registerFileInDb({ ...mockupFile, itemId: item.id, stage: "mockup" });
 
-      // Request 2: Upload proof PDF
+      // Upload proof PDF
       const doc = buildProofPdf();
-      const pdfBytes = new Uint8Array(doc.output("arraybuffer"));
-      let pdfBinary = "";
-      for (let i = 0; i < pdfBytes.length; i++) pdfBinary += String.fromCharCode(pdfBytes[i]);
-      const pdfBase64 = btoa(pdfBinary);
-
-      const res2 = await fetch("/api/drive/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientName,
-          projectTitle,
-          itemName: item.name || "",
-          files: [
-            { fileName: `${safeName} - Print Proof.pdf`, mimeType: "application/pdf", base64: pdfBase64, stage: "proof", itemId: item.id },
-          ],
-        }),
-      });
-      const res2Text = await res2.text();
-      if (!res2.ok) throw new Error(`Proof: ${res2Text.slice(0, 300)}`);
+      const pdfBlob = doc.output("blob");
+      const proofFile = await uploadToDrive({ blob: pdfBlob, fileName: `${safeName} - Print Proof.pdf`, mimeType: "application/pdf", ...driveCtx });
+      await registerFileInDb({ ...proofFile, itemId: item.id, stage: "proof" });
 
       setSaved(true);
       if (onFilesChanged) onFilesChanged();
