@@ -276,8 +276,8 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
 
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const { mockupBase64, blob, printInfo } = await buildMockupClient(arrayBuffer);
-      setMockupData({ mockup: mockupBase64, mockupBlob: blob, printInfo });
+      const result = await buildMockupClient(arrayBuffer);
+      setMockupData({ mockup: result.mockupBase64, mockupBlob: result.pngBlob, jpegBase64: result.jpegBase64, printInfo: result.printInfo });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -303,20 +303,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
       if (!res.ok) throw new Error("Failed to save mockup");
 
       // Generate proof PDF on demand then upload
-      const pdfRes = await fetch("/api/mockup/pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mockupBase64: mockupData.mockup,
-          printInfo: mockupData.printInfo,
-          clientName,
-          itemName: item.name || "",
-          blankVendor: item.blank_vendor || "",
-          blankStyle: item.sku || "",
-          blankColor: item.color || "",
-          decoratorName: item.decorator || "",
-        }),
-      });
+      const pdfRes = await fetch("/api/mockup/pdf", { method: "POST", body: buildPdfFormData() });
       if (!pdfRes.ok) throw new Error("Failed to generate proof PDF");
       const pdfBlob = await pdfRes.blob();
 
@@ -341,24 +328,24 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
 
   const [downloading, setDownloading] = useState(false);
 
+  function buildPdfFormData() {
+    const fd = new FormData();
+    fd.append("mockupBase64", mockupData.jpegBase64);
+    fd.append("printInfo", JSON.stringify(mockupData.printInfo));
+    fd.append("clientName", clientName);
+    fd.append("itemName", item.name || "");
+    fd.append("blankVendor", item.blank_vendor || "");
+    fd.append("blankStyle", item.sku || "");
+    fd.append("blankColor", item.color || "");
+    fd.append("decoratorName", item.decorator || "");
+    return fd;
+  }
+
   async function downloadPdf() {
     if (!mockupData) return;
     setDownloading(true);
     try {
-      const res = await fetch("/api/mockup/pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mockupBase64: mockupData.mockup,
-          printInfo: mockupData.printInfo,
-          clientName,
-          itemName: item.name || "",
-          blankVendor: item.blank_vendor || "",
-          blankStyle: item.sku || "",
-          blankColor: item.color || "",
-          decoratorName: item.decorator || "",
-        }),
-      });
+      const res = await fetch("/api/mockup/pdf", { method: "POST", body: buildPdfFormData() });
       if (!res.ok) throw new Error("PDF generation failed");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

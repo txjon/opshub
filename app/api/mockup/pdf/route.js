@@ -6,8 +6,15 @@ export const maxDuration = 60;
 
 export async function POST(request) {
   try {
-    const body = await request.json();
-    const { mockupBase64, printInfo, clientName, itemName, blankVendor, blankStyle, blankColor, decoratorName } = body;
+    const formData = await request.formData();
+    const mockupBase64 = formData.get('mockupBase64') || '';
+    const printInfo = JSON.parse(formData.get('printInfo') || '[]');
+    const clientName = formData.get('clientName') || '';
+    const itemName = formData.get('itemName') || '';
+    const blankVendor = formData.get('blankVendor') || '';
+    const blankStyle = formData.get('blankStyle') || '';
+    const blankColor = formData.get('blankColor') || '';
+    const decoratorName = formData.get('decoratorName') || '';
 
     const pdfBuffer = await generateProofPdf({
       mockupBase64,
