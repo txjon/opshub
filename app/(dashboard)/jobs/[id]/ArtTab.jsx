@@ -278,7 +278,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const result = await buildMockupClient(arrayBuffer);
-      setMockupData({ mockup: result.mockupBase64, dataUrl: result.dataUrl, uploadBase64: result.uploadBase64, printInfo: result.printInfo });
+      setMockupData({ mockup: result.mockupBase64, dataUrl: result.dataUrl, uploadBase64: result.uploadBase64, uploadDataUrl: result.uploadDataUrl, printInfo: result.printInfo });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -310,8 +310,8 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
         }),
       });
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(errData.error || "Save failed");
+        const errText = await res.text().catch(() => "Unknown error");
+        throw new Error(`Save failed: ${errText}`);
       }
 
       setSaved(true);
@@ -327,7 +327,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
 
   function buildProofPdf() {
     return generateProofPdfClient({
-      mockupDataUrl: mockupData.dataUrl,
+      mockupDataUrl: mockupData.uploadDataUrl,
       printInfo: mockupData.printInfo,
       clientName,
       itemName: item.name || "",
