@@ -104,7 +104,7 @@ function FileCard({ file, onDelete, onApproval, stageLabel, stageColor }) {
   );
 }
 
-function ItemArtSection({ item, clientName, projectTitle, onFilesChanged }) {
+function ItemArtSection({ item, clientName, projectTitle, onFilesChanged, onUpdateItem }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -249,7 +249,7 @@ function ItemArtSection({ item, clientName, projectTitle, onFilesChanged }) {
           )}
 
           {/* Mockup generator */}
-          <MockupDropZone item={item} clientName={clientName} projectTitle={projectTitle} onFilesChanged={loadFiles} />
+          <MockupDropZone item={item} clientName={clientName} projectTitle={projectTitle} onFilesChanged={loadFiles} onUpdateItem={onUpdateItem} />
         </div>
       )}
 
@@ -265,7 +265,7 @@ function ItemArtSection({ item, clientName, projectTitle, onFilesChanged }) {
   );
 }
 
-function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
+function MockupDropZone({ item, clientName, projectTitle, onFilesChanged, onUpdateItem }) {
   useEffect(() => { preloadLogo(); preloadTemplate(); }, []);
   const [mockupData, setMockupData] = useState(null);
   const [generating, setGenerating] = useState(false);
@@ -342,6 +342,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ itemId: item.id, driveLink: folderLink }),
         });
+        if (onUpdateItem) onUpdateItem(item.id, { drive_link: folderLink });
       }
 
       setSaved(true);
@@ -528,7 +529,7 @@ function isLightColor(hex) {
   return (r * 299 + g * 587 + b * 114) / 1000 > 150;
 }
 
-export function ArtTab({ project, items }) {
+export function ArtTab({ project, items, onUpdateItem }) {
   const clientName = project?.clients?.name || "Unknown Client";
   const projectTitle = project?.title || "Untitled Project";
   const sorted = [...items].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
@@ -547,7 +548,7 @@ export function ArtTab({ project, items }) {
         Files are uploaded to Google Drive: <span style={{ fontFamily: mono, color: T.faint }}>OpsHub Files / {clientName} / {projectTitle}</span>
       </div>
       {sorted.map((item, i) => (
-        <ItemArtSection key={item.id} item={{ ...item, _index: i }} clientName={clientName} projectTitle={projectTitle} />
+        <ItemArtSection key={item.id} item={{ ...item, _index: i }} clientName={clientName} projectTitle={projectTitle} onUpdateItem={onUpdateItem} />
       ))}
     </div>
   );

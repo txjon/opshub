@@ -660,7 +660,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {/* BUYSHEET */}
       {tab==="art"&&(
-        <ArtTab project={job} items={items} />
+        <ArtTab project={job} items={items} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} />
       )}
       {tab==="buysheet"&&(
         <BuySheetTab
