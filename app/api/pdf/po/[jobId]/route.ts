@@ -214,7 +214,12 @@ function renderPOHTML(data: any): string {
         </table>
       </div>` : "";
 
+    const thumbHtml = item.mockupThumb ? `<img src="${item.mockupThumb}" style="width:80px;height:80px;object-fit:contain;border-radius:4px;background:#f7f7f7;flex-shrink:0" crossorigin="anonymous" />` : "";
+
     return `<div style="border-left:3px solid #1a1a1a;padding-left:16px;margin-bottom:24px">
+      <div style="display:flex;gap:14px;align-items:flex-start">
+        ${thumbHtml}
+        <div style="flex:1;min-width:0">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}</div>
         <div style="font-size:10px;color:#888">${item.totalQty.toLocaleString()} units</div>
@@ -246,6 +251,7 @@ function renderPOHTML(data: any): string {
           <div style="font-size:9.5px;color:#444;line-height:1.5;white-space:pre-wrap">${item.packing_notes}</div>
         </div>` : "<div></div>"}
       </div>
+      </div></div>
     </div>`;
   }).join("");
 
@@ -347,6 +353,19 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     if (itemsError) return NextResponse.json({ error: "Failed to fetch items", detail: itemsError?.message }, { status: 500 });
 
+    // Fetch mockup thumbnails for each item
+    const itemIds = (items || []).map((it: any) => it.id);
+    const { data: mockupFiles } = await supabase
+      .from("item_files")
+      .select("item_id, drive_file_id")
+      .in("item_id", itemIds)
+      .eq("stage", "mockup")
+      .order("created_at", { ascending: false });
+    const mockupByItem: Record<string, string> = {};
+    for (const f of (mockupFiles || [])) {
+      if (!mockupByItem[f.item_id]) mockupByItem[f.item_id] = f.drive_file_id;
+    }
+
     const costingData = job.costing_data || {};
     const costProds: any[] = costingData.costProds || [];
 
@@ -362,12 +381,14 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       const decorator = assignment?.decorators;
       const decoLines = cp ? calcDecorationLines({ ...cp, totalQty }, costProds) : [];
 
+      const mockupFileId = mockupByItem[it.id];
       return {
         id: it.id,
         name: it.name,
         blank_vendor: it.blank_vendor,
         blank_sku: it.blank_sku,
         drive_link: it.drive_link,
+        mockupThumb: mockupFileId ? `https://drive.google.com/thumbnail?id=${mockupFileId}&sz=w300` : null,
         incoming_goods: it.incoming_goods,
         production_notes_po: it.production_notes_po,
         packing_notes: it.packing_notes,
