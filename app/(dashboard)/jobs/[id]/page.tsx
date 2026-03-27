@@ -12,6 +12,7 @@ import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/Skeleton";
 import { JobActivityPanel, logJobActivity } from "@/components/JobActivityPanel";
+import { calculatePhase } from "@/lib/lifecycle";
 
 function JobSkeleton() {
   return (
@@ -36,6 +37,7 @@ const PHASE_COLORS: Record<string,{bg:string,text:string}> = {
   pre_production:{bg:"#EEEDFE",text:"#3C3489"},
   production:{bg:"#E6F1FB",text:"#0C447C"},
   receiving:{bg:"#FAEEDA",text:"#633806"},
+  shipped:{bg:"#EAF3DE",text:"#27500A"},
   shipping:{bg:"#EAF3DE",text:"#27500A"},
   complete:{bg:"#EAF3DE",text:"#27500A"},
   on_hold:{bg:"#FCEBEB",text:"#791F1F"},
@@ -185,6 +187,22 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       }
     }
   }
+
+  const recalcPhase = useCallback(async () => {
+    if (!job || job.phase === "on_hold" || job.phase === "cancelled") return;
+    const result = calculatePhase({
+      job: { job_type: job.job_type, payment_terms: job.payment_terms, quote_approved: (job as any).quote_approved || false, phase: job.phase },
+      items: items.map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage || null, blanks_order_number: (it as any).blanks_order_number || null, ship_tracking: (it as any).ship_tracking || null })),
+      payments: payments.map(p => ({ amount: p.amount, status: p.status })),
+      costingData: (job as any).costing_data || null,
+    });
+    if (result.phase !== job.phase) {
+      const timestamps = (job as any).phase_timestamps || {};
+      timestamps[result.phase] = new Date().toISOString();
+      await supabase.from("jobs").update({ phase: result.phase, phase_timestamps: timestamps }).eq("id", job.id);
+      setJob(j => j ? { ...j, phase: result.phase, phase_timestamps: timestamps } as any : j);
+    }
+  }, [job, items, payments, supabase]);
 
   const upd = (k: string, v: any) => { if (!job) return; const u = {...job, [k]:v} as Job; setJob(u); saveJob({[k]:v}); };
   const updItem = (id: string, p: Partial<Item>) => saveItem(id, p);
@@ -364,9 +382,26 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     </select>
                   </div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Phase</label>
-                    <select style={ic} value={job.phase} onChange={e=>upd("phase",e.target.value)}>
-                      {["intake","pre_production","production","receiving","shipping","complete","on_hold","cancelled"].map(p=><option key={p} value={p}>{p.replace(/_/g," ")}</option>)}
-                    </select>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{...ic,background:T.card,display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>{job.phase.replace(/_/g," ")}</span>
+                        {(()=>{
+                          const r=calculatePhase({
+                            job:{job_type:job.job_type,payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase},
+                            items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null})),
+                            payments:payments.map(p=>({amount:p.amount,status:p.status})),
+                            costingData:(job as any).costing_data||null,
+                          });
+                          return r.itemProgress?<span style={{fontSize:10,color:T.muted}}>{r.itemProgress}</span>:null;
+                        })()}
+                      </div>
+                      {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
+                        <button onClick={()=>{upd("phase","on_hold");}} style={{fontSize:9,color:T.amber,background:T.amberDim,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontWeight:600}}>Hold</button>
+                      )}
+                      {job.phase==="on_hold"&&(
+                        <button onClick={()=>{recalcPhase();}} style={{fontSize:9,color:T.green,background:T.greenDim,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontWeight:600}}>Resume</button>
+                      )}
+                    </div>
                   </div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Contract</label>
                     <select style={ic} value={job.contract_status} onChange={e=>upd("contract_status",e.target.value)}>
@@ -659,6 +694,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           key={"quote-"+items.map(i=>i.id).join(',')}
           project={job}
           buyItems={items}
+          contacts={contacts}
           onUpdateBuyItems={setItems}
           onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
           onSaveStatus={(s: string) => handleSaveStatus(s)}
@@ -675,7 +711,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         />
       )}
       {tab==="production"&&(
-        <ProductionTab items={items} onUpdateItem={updItem} />
+        <ProductionTab items={items} onUpdateItem={updItem} onRecalcPhase={recalcPhase} />
       )}
 
         </div>{/* end tab content */}
