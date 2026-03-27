@@ -257,7 +257,7 @@ function renderPOHTML(data: any): string {
 
   const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const shipDate = data.target_ship_date
-    ? new Date(data.target_ship_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+    ? new Date(data.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
     : "—";
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
@@ -279,7 +279,7 @@ function renderPOHTML(data: any): string {
   </div>
 
   <div style="display:flex;gap:0;border:0.5px solid #ccc;margin-bottom:16px">
-    ${[["Date",today],["Ship date",shipDate],["Vendor ID",data.vendor_short_code||data.vendor_name],["Terms",data.payment_terms||"—"],["Ship method",data.ship_method||"—"]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
+    ${[["Date",today],["Ship date",shipDate],["Vendor ID",data.vendor_short_code||data.vendor_name],["Ship method",data.ship_method||"—"]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;font-size:10px">
@@ -288,13 +288,8 @@ function renderPOHTML(data: any): string {
       <div style="line-height:1.7">House Party Distro<br/>jon@housepartydistro.com<br/>3945 W Reno Ave, Ste A<br/>Las Vegas, NV 89118</div>
     </div>
     <div>
-      <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">Ship to / Decorator</div>
-      <div style="line-height:1.7">
-        ${data.vendor_name}
-        ${data.vendor_email ? `<br/>${data.vendor_email}` : ""}
-        ${data.vendor_address ? `<br/>${data.vendor_address}` : ""}
-        ${data.vendor_city ? `<br/>${[data.vendor_city,data.vendor_state,data.vendor_zip].filter(Boolean).join(", ")}` : ""}
-      </div>
+      <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">Ship to</div>
+      <div style="line-height:1.7;white-space:pre-wrap">${data.ship_to_address || "\u2014"}</div>
     </div>
   </div>
 
@@ -444,6 +439,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       vendor_zip: (decoratorRecord as any)?.zip || firstDecorator?.zip || "",
       payment_terms: (job.payment_terms || "").replace(/_/g, " "),
       ship_method: orderInfo.shipMethod || "",
+      ship_to_address: (job.type_meta as any)?.venue_address || "",
       items: vendorItems,
     };
 
