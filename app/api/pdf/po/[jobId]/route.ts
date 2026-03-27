@@ -5,6 +5,7 @@ export const preferredRegion = "iad1";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
+import { getItemFolderId } from "@/lib/google-drive";
 import { generatePDF } from "@/lib/pdf/browser";
 
 const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
@@ -214,12 +215,9 @@ function renderPOHTML(data: any): string {
         </table>
       </div>` : "";
 
-    const thumbHtml = item.mockupThumb ? `<img src="${item.mockupThumb}" style="width:80px;height:80px;object-fit:contain;border-radius:4px;background:#f7f7f7;flex-shrink:0" crossorigin="anonymous" />` : "";
+    const thumbHtml = item.mockupThumb ? `<img src="${item.mockupThumb}" style="width:300px;height:auto;object-fit:contain;border-radius:4px;background:#f7f7f7;flex-shrink:0" crossorigin="anonymous" />` : "";
 
     return `<div style="border-left:3px solid #1a1a1a;padding-left:16px;margin-bottom:24px">
-      <div style="display:flex;gap:14px;align-items:flex-start">
-        ${thumbHtml}
-        <div style="flex:1;min-width:0">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}</div>
         <div style="font-size:10px;color:#888">${item.totalQty.toLocaleString()} units</div>
@@ -233,10 +231,13 @@ function renderPOHTML(data: any): string {
         <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#aaa;margin-right:6px">Sizes</span>${sizeStr}
       </div>` : ""}
       ${item.drive_link ? `<div style="font-size:9.5px;margin-bottom:10px;padding:4px 10px;background:#f0f5ff;border-radius:3px">
-        <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin-right:6px">Production files</span>
+        <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin-right:6px">Production folder</span>
         <a href="${item.drive_link}" style="color:#1a56db">${item.drive_link}</a>
       </div>` : ""}
-      ${decoSection}
+      <div style="display:flex;gap:16px;align-items:flex-start">
+        ${thumbHtml ? `<div style="flex-shrink:0">${thumbHtml}</div>` : ""}
+        <div style="flex:1;min-width:0">${decoSection}</div>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">
         ${incoming ? `<div style="background:#f9f9f9;padding:7px 10px;border-radius:3px">
           <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#bbb;margin-bottom:3px">Incoming goods</div>
@@ -251,7 +252,6 @@ function renderPOHTML(data: any): string {
           <div style="font-size:9.5px;color:#444;line-height:1.5;white-space:pre-wrap">${item.packing_notes}</div>
         </div>` : "<div></div>"}
       </div>
-      </div></div>
     </div>`;
   }).join("");
 
@@ -402,6 +402,18 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         letter: String.fromCharCode(65 + sortedIdx), // letter based on full sorted list
       };
     });
+
+    // Get Drive folder links for each item
+    const clientName = (job.clients as any)?.name || "";
+    const projectTitle = job.title || "";
+    for (const it of allMapped) {
+      if (clientName && projectTitle && it.name) {
+        try {
+          const folderId = await getItemFolderId(clientName, projectTitle, it.name);
+          it.drive_link = `https://drive.google.com/drive/folders/${folderId}`;
+        } catch (e) { /* keep existing drive_link if folder lookup fails */ }
+      }
+    }
 
     const mappedItems = allMapped.filter((it: any) => it.totalQty > 0);
 
