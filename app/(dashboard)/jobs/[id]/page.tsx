@@ -690,6 +690,35 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
 
       {tab==="quote"&&(
+        <>
+        <div style={{marginBottom:12}}>
+          {(job as any).quote_approved ? (
+            <div style={{background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,color:T.green}}>Quote approved</div>
+                {(job as any).quote_approved_at && <div style={{fontSize:10,color:T.muted,marginTop:2}}>Approved {new Date((job as any).quote_approved_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>}
+              </div>
+              <button onClick={async()=>{
+                await supabase.from("jobs").update({quote_approved:false,quote_approved_at:null}).eq("id",job.id);
+                setJob(j=>j?{...j,quote_approved:false,quote_approved_at:null} as any:j);
+                recalcPhase();
+              }} style={{fontSize:10,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer"}}>Revoke</button>
+            </div>
+          ) : (
+            <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,color:T.text}}>Quote pending approval</div>
+                <div style={{fontSize:10,color:T.muted,marginTop:2}}>Approve to advance project to pre-production</div>
+              </div>
+              <button onClick={async()=>{
+                const now=new Date().toISOString();
+                await supabase.from("jobs").update({quote_approved:true,quote_approved_at:now}).eq("id",job.id);
+                setJob(j=>j?{...j,quote_approved:true,quote_approved_at:now} as any:j);
+                recalcPhase();
+              }} style={{fontSize:12,fontWeight:600,color:"#fff",background:T.green,border:"none",borderRadius:7,padding:"7px 20px",cursor:"pointer"}}>Approve Quote</button>
+            </div>
+          )}
+        </div>
         <CostingTabWrapper
           key={"quote-"+items.map(i=>i.id).join(',')}
           project={job}
@@ -702,6 +731,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           initialTab="quote"
           hideSubTabs={true}
         />
+        </>
       )}
       {tab==="po"&&(
         <POTab
