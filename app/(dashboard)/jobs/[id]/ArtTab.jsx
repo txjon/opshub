@@ -28,7 +28,7 @@ function formatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
-function FileCard({ file, onDelete, onApproval }) {
+function FileCard({ file, onDelete, onApproval, stageLabel, stageColor }) {
   const approval = APPROVAL_LABELS[file.approval];
   const isImage = file.mime_type?.startsWith("image/");
   const thumbUrl = isImage ? `https://drive.google.com/thumbnail?id=${file.drive_file_id}&sz=w200` : null;
@@ -40,14 +40,14 @@ function FileCard({ file, onDelete, onApproval }) {
     }}>
       {/* Thumbnail or file type icon */}
       <div style={{
-        width: 40, height: 40, borderRadius: 5, overflow: "hidden", flexShrink: 0,
+        width: 48, height: 48, borderRadius: 6, overflow: "hidden", flexShrink: 0,
         background: T.card, display: "flex", alignItems: "center", justifyContent: "center",
       }}>
         {thumbUrl ? (
           <img src={thumbUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            onError={e => { e.target.style.display = "none"; e.target.parentElement.innerHTML = `<span style="font-size:16px;color:${T.faint}">📄</span>`; }} />
+            onError={e => { e.target.style.display = "none"; e.target.parentElement.innerHTML = `<span style="font-size:18px;color:${T.faint}">📄</span>`; }} />
         ) : (
-          <span style={{ fontSize: 16, color: T.faint }}>📄</span>
+          <span style={{ fontSize: 18, color: T.faint }}>📄</span>
         )}
       </div>
 
@@ -61,8 +61,11 @@ function FileCard({ file, onDelete, onApproval }) {
             <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, flexShrink: 0 }}>{formatSize(file.file_size)}</span>
           )}
         </div>
-        <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-          {new Date(file.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+        <div style={{ fontSize: 10, color: T.muted, marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+          {stageLabel && (
+            <span style={{ fontSize: 8, fontWeight: 700, color: stageColor || T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>{stageLabel}</span>
+          )}
+          <span>{new Date(file.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
           {file.notes && <span> · {file.notes}</span>}
         </div>
         {/* Approval status for proofs */}
@@ -226,28 +229,22 @@ function ItemArtSection({ item, clientName, projectTitle, onFilesChanged }) {
             {uploading && <span style={{ fontSize: 10, color: T.amber }}>Pushing to Google Drive...</span>}
           </div>
 
-          {/* File list by stage */}
+          {/* File list — flat grid, stage badge on each card */}
           {loading ? (
             <div style={{ fontSize: 12, color: T.muted, padding: "12px 0" }}>Loading files...</div>
           ) : totalFiles === 0 ? (
             <div style={{ fontSize: 12, color: T.faint, padding: "12px 0" }}>No files yet — select a stage and upload.</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {grouped.filter(g => g.files.length > 0).map(g => (
-                <div key={g.key}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: g.color, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
-                    {g.label}
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
-                    {g.files.map(f => (
-                      <FileCard key={f.id} file={f}
-                        onDelete={file => setConfirmDelete(file)}
-                        onApproval={handleApproval}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+              {files.map(f => {
+                const stage = STAGES.find(s => s.key === f.stage);
+                return (
+                  <FileCard key={f.id} file={f} stageLabel={stage?.label} stageColor={stage?.color}
+                    onDelete={file => setConfirmDelete(file)}
+                    onApproval={handleApproval}
+                  />
+                );
+              })}
             </div>
           )}
 
