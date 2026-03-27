@@ -45,7 +45,7 @@ app/api/
 
 ### Project Detail Page (`jobs/[id]/`)
 
-The central hub. Horizontal pill tabs across the top, content below with optional activity panel. 8 tabs, each its own component:
+The central hub. Horizontal pill tabs across the top, content below. 7 tabs, each its own component:
 
 | Tab | Component | Owns |
 |---|---|---|
@@ -53,14 +53,15 @@ The central hub. Horizontal pill tabs across the top, content below with optiona
 | Buy Sheet | BuySheetTab.jsx | Item creation, size/qty entry, S&S + manual catalog pickers, drag-to-reorder |
 | Art Files | ArtTab.jsx | Per-item file upload to Google Drive, stages, proof approval workflow, mockup generator |
 | Costing | CostingTab.jsx | Decoration pricing, margin calc, auto-save, share groups |
-| Client Quote | CostingTab.jsx (quote sub-tab) | Quote preview + PDF download/email |
+| Client Quote | CostingTab.jsx (quote sub-tab) | Quote preview + PDF download/email + quote approval button |
 | Purchase Order | POTab.jsx | PO preview, PDF export/email, per-item drive link + production notes + copy-to-all |
-| Production | ProductionTab.jsx | Pipeline stage tracking per item, proof approval gate, stage timestamps |
-| Warehouse | WarehouseTab.jsx | Receiving (carrier, tracking, per-size qtys) + shipping fulfillment + qty mismatch alerts |
+| Production | ProductionTab.jsx | 3-stage pipeline (blanks ordered → in production → shipped), blanks order tracking, shipping data entry |
 
-**Overview layout**: Top row is a 2-column grid (Project info | Shipping details) matched height. Below is another 2-column grid: left (Contacts → Payment records → Delete) and right (Items → Activity stats).
+**Overview layout**: Top row is a 2-column grid (Project info | Shipping details) matched height. Below is another 2-column grid: left (Contacts → Payment records → Delete) and right (Items → Activity stats). Phase is read-only with Hold/Resume buttons.
 
-**Note**: Production and Warehouse tabs are planned to move to standalone pages in a future refactor — warehouse person needs cross-project receiving view, production person needs all-items pipeline board.
+**Warehouse** is a standalone page (`/warehouse`), not a tab on project detail.
+
+**Note**: Standalone Production page rebuild is planned — cross-project pipeline board for production team.
 
 ### Data Flow
 
@@ -157,6 +158,43 @@ Each item on the PO tab has four editable fields (save on blur to items table):
 
 **Ship method**: Hardcoded list (UPS, FedEx, USPS, Freight, Will Call, Decorator Drop Ship). No database table.
 
+### Job Lifecycle (Auto-Advancing)
+
+Phase is **read-only** — calculated automatically from item data. No manual override (system always wins).
+
+| Phase | Trigger |
+|---|---|
+| `intake` | Project created (default) |
+| `pre_production` | Quote approved + payment gate met |
+| `production` | First blanks ordered OR first PO sent |
+| `receiving` | First item tracking entered (warehouse jobs only) |
+| `shipped` | First item tracking entered (drop ship) OR shipped from warehouse |
+| `complete` | All items shipped/delivered |
+
+**Payment gate by terms:**
+- `prepaid` → full payment recorded and marked paid
+- `deposit_balance` → at least one payment recorded
+- `net_15` / `net_30` → auto (quote approval is enough)
+
+**Production stages per item** (simplified from original 6 to 3):
+1. `blanks_ordered` — S&S order # + total cost (compared against calculated cost)
+2. `in_production` — decorator is printing (art approval gate shows warnings)
+3. `shipped` — tracking # + per-size shipped quantities entered
+
+**Routing by job type:**
+- Warehouse jobs (tour, webstore, corporate, brand, artist): shipped → warehouse receiving → ship to client → complete
+- Drop ship: shipped → complete (decorator ships direct to client)
+
+**Phase recalculates on:** quote approval, payment added/status changed, PO sent, production stage advanced, blanks order entered, shipping tracking entered.
+
+**Hold/Resume:** Manual "Hold" button locks phase. "Resume" clears hold and recalculates to correct phase.
+
+**Phase timestamps:** Every transition recorded in `jobs.phase_timestamps` JSONB.
+
+**Item progress displayed:** e.g. `Production · 3/5 items in production`
+
+**Backwards allowed:** If items regress, phase recalculates backwards.
+
 ### Costing Card Layout
 
 Two-column layout: **Blanks panel** (400px, left) + **Decoration panel** (flex, right).
@@ -232,6 +270,7 @@ Server component showing:
 010_pipeline_timestamps.sql — items.pipeline_timestamps JSONB column
 011_job_type_artist.sql    — Added artist to job_type constraint
 012_messaging.sql          — job_activity, messages, notifications tables
+013_lifecycle.sql          — Blanks order fields, shipping fields, phase timestamps, quote approval on jobs
 ```
 
 ### JSONB Patterns
@@ -254,6 +293,9 @@ Single source for colors, fonts, size ordering. Used everywhere via `import { T,
 
 ### `lib/supabase/client.ts` / `server.ts`
 Shared Supabase clients. Use `createClient()` from the appropriate one — never instantiate directly.
+
+### `lib/lifecycle.ts`
+Phase calculation engine. `calculatePhase()` takes job, items, payments, and costing data → returns the correct phase and item progress string. Called from job detail page on every relevant change. Supports payment gate logic, job type routing (warehouse vs drop ship), and hold/cancelled locks.
 
 ### `lib/google-drive.ts`
 Google Drive API wrapper. Handles folder creation, file upload, deletion, and permissions. Uses service account with domain-wide delegation. Supports both `GOOGLE_SERVICE_ACCOUNT_KEY` (raw JSON) and `GOOGLE_SERVICE_ACCOUNT_KEY_B64` (base64) env var formats.
@@ -336,24 +378,32 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 
 ## Known Issues / Future Work
 
-- Standalone Receiving (`/receiving`) and Shipping (`/shipping`) pages may be stale after warehouse tab changes
-- No decoration type selector (defaults to screen_print) — could pull from decorator capabilities
-- Templates page "Use template" button is not wired up
-- Clients list page uses Tailwind while job detail uses inline styles (inconsistent but functional)
-- Pricing logic duplicated in CostingTab, PO route, and Quote route — working but not DRY
-- Auto-generate invoice numbers — format TBD (deferred)
-- Size curve memory — remember last distribution curve per client/project type (deferred, needs cross-project tracking)
+### Next up (queued for next session)
+1. Projects list — show phase progress counts (e.g. "Production · 3/5 items")
+2. Standalone Production page rebuild — cross-project pipeline board
+3. Auto-log events to job_activity (PO sent, quote approved, payment, stage change, file upload)
+4. Invoice PDF generation — deposit, balance, full payment with line items
+5. Notification bell wired into sidebar
+
+### Deferred
+- Auto-generate invoice numbers — format TBD
+- Size curve memory — remember last distribution curve per client/project type (needs cross-project tracking)
+- Client item catalog — searchable library per client for reordering
 - Multi-file drag-and-drop upload for Art Files tab (on hold)
 - AS Colour blank catalog CSV import — pricing file ready, import script not yet built
-- **Structural refactor planned**: Pull Production + Warehouse tabs out of project detail into standalone cross-project pages
-- **Permissions refactor planned**: Role-based access enforcement (not just nav hiding), field-level control
-- Job lifecycle auto-advancement (phases should update based on actual item/stage data)
+
+### Structural / technical
+- **Permissions refactor planned**: Role-based access enforcement (not just nav hiding) — blocked on Jon's team meeting
+- Standalone Receiving (`/receiving`) and Shipping (`/shipping`) pages removed from sidebar (replaced by `/warehouse`)
+- No decoration type selector (defaults to screen_print) — could pull from decorator capabilities
+- Templates page "Use template" button is not wired up
+- Pricing logic duplicated in CostingTab, PO route, and Quote route — working but not DRY
+
+### Future features
 - Client communication trail (log emails sent to project activity)
 - Decorator portal / two-way status updates
 - Client financial summary across projects
 - Dashboard action buttons (not just passive alerts)
-- NotificationBell not yet wired into sidebar UI
-- Auto-logging to job_activity not yet wired (logJobActivity helper exists but not called)
 
 ## Owner
 
