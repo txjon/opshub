@@ -285,7 +285,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const result = await buildMockupClient(arrayBuffer);
-      setMockupData({ mockup: result.mockupBase64, dataUrl: result.dataUrl, uploadDataUrl: result.uploadDataUrl, printInfo: result.printInfo });
+      setMockupData({ mockup: result.mockupBase64, dataUrl: result.dataUrl, uploadDataUrl: result.uploadDataUrl, printInfo: result.printInfo, psdFile: file });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -302,6 +302,12 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     const driveCtx = { clientName, projectTitle, itemName: item.name || "" };
 
     try {
+      // Upload original PSD art file
+      if (mockupData.psdFile) {
+        const psdFile = await uploadToDrive({ blob: mockupData.psdFile, fileName: mockupData.psdFile.name, mimeType: "application/octet-stream", ...driveCtx });
+        await registerFileInDb({ ...psdFile, itemId: item.id, stage: "print_ready" });
+      }
+
       // Upload mockup (convert data URL to blob)
       const mockupRes = await fetch(mockupData.uploadDataUrl);
       const mockupBlob = await mockupRes.blob();
