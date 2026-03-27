@@ -11,7 +11,7 @@ import { ArtTab } from "./ArtTab";
 import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/Skeleton";
-import { JobActivityPanel, logJobActivity } from "@/components/JobActivityPanel";
+import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
 
 function JobSkeleton() {
@@ -589,6 +589,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                             const ns=nextStatus();
                             await supabase.from("payment_records").update({status:ns,paid_date:ns==="paid"?new Date().toISOString().split("T")[0]:null}).eq("id",p.id);
                             logJobActivity(job.id, `Payment ${p.invoice_number||"#"} status → ${ns}${ns==="paid"?" — $"+p.amount.toLocaleString():""}`);
+                            if(ns==="paid") notifyTeam(`Payment received — $${p.amount.toLocaleString()} · ${(job.clients as any)?.name||""} · ${job.title}`, "payment", job.id, "job");
                             loadData();
                             setTimeout(recalcPhase, 500);
                           }} style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
@@ -740,6 +741,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 await supabase.from("jobs").update({quote_approved:true,quote_approved_at:now}).eq("id",job.id);
                 setJob(j=>j?{...j,quote_approved:true,quote_approved_at:now} as any:j);
                 logJobActivity(job.id, "Quote approved");
+                notifyTeam(`Quote approved — ${(job.clients as any)?.name || ""} · ${job.title}`, "approval", job.id, "job");
                 recalcPhase();
               }} style={{fontSize:12,fontWeight:600,color:"#fff",background:T.green,border:"none",borderRadius:7,padding:"7px 20px",cursor:"pointer"}}>Approve Quote</button>
             </div>

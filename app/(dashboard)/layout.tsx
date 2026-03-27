@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { LogOut } from "lucide-react";
-import { DashboardShell } from "@/components/DashboardShell";
+import { DashboardShell, SidebarNotifications } from "@/components/DashboardShell";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -45,6 +45,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             </div>
             <span className="font-bold text-sm tracking-tight">OpsHub</span>
           </div>
+          <SidebarNotifications userId={user.id} />
         </div>
 
         <nav className="flex-1 p-3 space-y-0.5">

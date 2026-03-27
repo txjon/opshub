@@ -186,3 +186,19 @@ export async function logJobActivity(jobId: string, message: string, metadata?: 
     metadata: metadata || {},
   });
 }
+
+// Notify all team members of an important event
+export async function notifyTeam(message: string, type: "alert" | "approval" | "payment" | "production", referenceId?: string, referenceType?: string) {
+  const supabase = createClient();
+  const { data: profiles } = await supabase.from("profiles").select("id");
+  if (!profiles?.length) return;
+  await supabase.from("notifications").insert(
+    profiles.map((p: any) => ({
+      user_id: p.id,
+      type,
+      message,
+      reference_id: referenceId || null,
+      reference_type: referenceType || null,
+    }))
+  );
+}
