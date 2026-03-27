@@ -75,13 +75,12 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
     return { phase: "receiving", itemProgress: `${withTracking}/${total} items incoming` };
   }
 
-  // ── PRODUCTION: at least one item has blanks ordered OR is in_production
-  if (blanksOrdered > 0 || inProduction > 0) {
-    const active = Math.max(blanksOrdered, inProduction);
-    return { phase: "production", itemProgress: `${active}/${total} items in production` };
+  // ── PRODUCTION: at least one item is in_production or shipped (at decorator)
+  if (inProduction > 0) {
+    return { phase: "production", itemProgress: `${inProduction}/${total} items in production` };
   }
 
-  // ── PRE_PRODUCTION: quote approved + payment gate met
+  // ── PRE_PRODUCTION: quote approved + payment gate met (blanks ordering happens here)
   if (job.quote_approved) {
     const terms = job.payment_terms || "";
     let paymentGateMet = false;
@@ -103,7 +102,8 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
     }
 
     if (paymentGateMet) {
-      return { phase: "pre_production", itemProgress: "" };
+      const progress = blanksOrdered > 0 ? `${blanksOrdered}/${total} blanks ordered` : "";
+      return { phase: "pre_production", itemProgress: progress };
     }
   }
 

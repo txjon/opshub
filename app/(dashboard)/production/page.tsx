@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 
 const STAGES = [
-  { id: "blanks_ordered", label: "Blanks Ordered" },
   { id: "in_production", label: "In Production" },
   { id: "shipped", label: "Shipped" },
 ];
@@ -88,7 +87,7 @@ export default function ProductionPage() {
         id: it.id,
         name: it.name,
         job_id: it.job_id,
-        pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || "blanks_ordered",
+        pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || "in_production",
         blanks_order_number: it.blanks_order_number,
         blanks_order_cost: it.blanks_order_cost,
         ship_tracking: it.ship_tracking,
@@ -139,7 +138,7 @@ export default function ProductionPage() {
   }, [items, search, filterDecorator, filterStalled]);
 
   // Stats
-  const needsBlanks = items.filter(it => !it.blanks_order_number && it.pipeline_stage === "blanks_ordered").length;
+  const atDecorator = items.filter(it => it.pipeline_stage === "in_production").length;
   const pendingProofs = items.filter(it => it.pipeline_stage === "in_production" && it.proof_status !== "approved").length;
   const stalled = items.filter(it => {
     const ts = it.pipeline_timestamps?.[it.pipeline_stage || ""];
@@ -183,7 +182,7 @@ export default function ProductionPage() {
       {/* Stats strip */}
       <div style={{ display: "flex", gap: 8 }}>
         {[
-          { label: "Need blanks ordered", count: needsBlanks, color: T.amber },
+          { label: "At decorator", count: atDecorator, color: T.accent },
           { label: "Waiting on proofs", count: pendingProofs, color: T.purple },
           { label: "Stalled 7+ days", count: stalled, color: T.red },
           { label: "Shipping this week", count: shippingThisWeek, color: T.accent },
@@ -238,7 +237,7 @@ export default function ProductionPage() {
               <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
                 {/* Header row */}
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 80px 80px 80px 100px", padding: "6px 14px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-                  {["Item", "Client / Project", "Decorator", "Units", stage.id === "blanks_ordered" ? "S&S Order" : stage.id === "shipped" ? "Tracking" : "Proofs", "In stage", ""].map(h => (
+                  {["Item", "Client / Project", "Decorator", "Units", stage.id === "shipped" ? "Tracking" : "Proofs", "In stage", ""].map(h => (
                     <div key={h} style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>{h}</div>
                   ))}
                 </div>
@@ -286,11 +285,6 @@ export default function ProductionPage() {
 
                       {/* Stage-specific column */}
                       <div>
-                        {stage.id === "blanks_ordered" && (
-                          <span style={{ fontSize: 10, fontFamily: mono, color: item.blanks_order_number ? T.green : T.faint }}>
-                            {item.blanks_order_number || "—"}
-                          </span>
-                        )}
                         {stage.id === "in_production" && (
                           <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 99, background: proof.bg, color: proof.color }}>
                             {proof.label}

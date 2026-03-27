@@ -4,47 +4,24 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
-const PIPELINE_STAGES = [
-  { id: "blanks_ordered", label: "Blanks Ordered", pct: 33 },
-  { id: "in_production", label: "In Production", pct: 66 },
+const STAGES = [
+  { id: "in_production", label: "In Production", pct: 50 },
   { id: "shipped", label: "Shipped", pct: 100 },
 ];
-const getPct = (s) => (PIPELINE_STAGES.find(p => p.id === s) || { pct: 0 }).pct;
+const getPct = (s) => (STAGES.find(p => p.id === s) || { pct: 0 }).pct;
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
-
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
 export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
   const supabase = createClient();
-  const [proofStatus, setProofStatus] = useState({});
   const [localFields, setLocalFields] = useState({});
   const saveTimers = useRef({});
-  const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 0, overflow: "hidden" };
+  const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
 
-  // Load proof status for art gate
-  useEffect(() => {
-    if (!items.length) return;
-    const ids = items.map(it => it.id);
-    supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids).then(({ data }) => {
-      const status = {};
-      for (const it of items) {
-        const files = (data || []).filter(f => f.item_id === it.id);
-        const proofs = files.filter(f => f.stage === "proof");
-        const hasProof = proofs.length > 0;
-        const allApproved = hasProof && proofs.every(f => f.approval === "approved");
-        status[it.id] = { hasProof, allApproved };
-      }
-      setProofStatus(status);
-    });
-  }, [items]);
-
-  // Initialize local fields from items
   useEffect(() => {
     const fields = {};
     items.forEach(it => {
       fields[it.id] = {
-        blanks_order_number: it.blanks_order_number || "",
-        blanks_order_cost: it.blanks_order_cost || "",
         ship_tracking: it.ship_tracking || "",
         ship_qtys: it.ship_qtys || {},
       };
@@ -54,18 +31,13 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
 
   function updateField(itemId, field, value) {
     setLocalFields(p => ({ ...p, [itemId]: { ...p[itemId], [field]: value } }));
-    // Debounce save
     const key = itemId + "_" + field;
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
     saveTimers.current[key] = setTimeout(async () => {
       await supabase.from("items").update({ [field]: value || null }).eq("id", itemId);
-      // Log blanks order and shipping tracking
-      const item = items.find(it => it.id === itemId);
-      if (field === "blanks_order_number" && value && item) {
-        logJobActivity(item.job_id, `Blanks ordered for ${item.name} — S&S #${value}`);
-      }
-      if (field === "ship_tracking" && value && item) {
-        logJobActivity(item.job_id, `${item.name} shipped from decorator — tracking: ${value}`);
+      if (field === "ship_tracking" && value) {
+        const item = items.find(it => it.id === itemId);
+        if (item) logJobActivity(item.job_id, `${item.name} shipped from decorator — tracking: ${value}`);
       }
       if (onRecalcPhase) onRecalcPhase();
     }, 800);
@@ -87,21 +59,28 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
     if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
   }
 
+  // Check if blanks are ordered (gate for production)
+  const blanksNotOrdered = items.filter(it => !it.blanks_order_number);
+
   if (items.length === 0) {
     return <div style={{ ...card, textAlign: "center", color: T.muted, padding: "2rem", fontSize: 13 }}>No items yet.</div>;
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+
+      {blanksNotOrdered.length > 0 && (
+        <div style={{ background: T.amberDim, border: `1px solid ${T.amber}44`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: T.amber }}>
+          {blanksNotOrdered.length} item{blanksNotOrdered.length !== 1 ? "s" : ""} without blanks ordered — complete the Blanks tab first
+        </div>
+      )}
+
       {items.map(item => {
-        const ps = proofStatus[item.id] || {};
         const f = localFields[item.id] || {};
-        const si = PIPELINE_STAGES.findIndex(s => s.id === item.pipeline_stage);
-        const pct = getPct(item.pipeline_stage || "blanks_ordered");
+        const stage = item.pipeline_stage || "in_production";
+        const si = STAGES.findIndex(s => s.id === stage);
+        const pct = getPct(stage);
         const totalUnits = tQty(item.qtys || {});
-        const calcCost = item.cost_per_unit ? (item.cost_per_unit * totalUnits) : null;
-        const actualCost = f.blanks_order_cost ? parseFloat(f.blanks_order_cost) : null;
-        const costDiff = calcCost && actualCost ? actualCost - calcCost : null;
 
         return (
           <div key={item.id} style={card}>
@@ -114,8 +93,8 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
                 </div>
                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                   {item.decorator || "No decorator"} · {totalUnits.toLocaleString()} units
-                  {item.pipeline_timestamps?.[item.pipeline_stage] && (() => {
-                    const days = Math.floor((Date.now() - new Date(item.pipeline_timestamps[item.pipeline_stage]).getTime()) / (1000 * 60 * 60 * 24));
+                  {item.pipeline_timestamps?.[stage] && (() => {
+                    const days = Math.floor((Date.now() - new Date(item.pipeline_timestamps[stage]).getTime()) / (1000 * 60 * 60 * 24));
                     return days > 0 ? <span style={{ marginLeft: 6, color: days >= 7 ? T.red : days >= 3 ? T.amber : T.faint }}> · {days}d in stage</span> : null;
                   })()}
                 </div>
@@ -130,11 +109,10 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
 
             {/* Stage buttons */}
             <div style={{ padding: "10px 14px", display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {PIPELINE_STAGES.map((stage, idx) => {
-                const done = si >= idx, active = item.pipeline_stage === stage.id;
+              {STAGES.map((s, idx) => {
+                const done = si >= idx, active = stage === s.id;
                 return (
-                  <button key={stage.id}
-                    onClick={() => advanceStage(item, stage.id)}
+                  <button key={s.id} onClick={() => advanceStage(item, s.id)}
                     style={{
                       display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 6,
                       fontSize: 11, fontWeight: active ? 600 : 400, cursor: "pointer",
@@ -143,57 +121,15 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
                       color: done ? T.accent : T.muted,
                     }}>
                     <div style={{ width: 6, height: 6, borderRadius: "50%", background: done ? T.accent : T.faint, flexShrink: 0 }} />
-                    {stage.label}
+                    {s.label}
                   </button>
                 );
               })}
             </div>
 
-            {/* Stage-specific content */}
-            <div style={{ padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-
-              {/* Blanks Ordered — order number + cost */}
-              {(item.pipeline_stage === "blanks_ordered" || f.blanks_order_number) && (
-                <div style={{ background: T.surface, borderRadius: 8, padding: "10px 12px" }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Blanks Order</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                    <div>
-                      <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>S&S Order #</label>
-                      <input style={ic} value={f.blanks_order_number || ""} placeholder="e.g. SO-123456"
-                        onChange={e => updateField(item.id, "blanks_order_number", e.target.value)} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Order total</label>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <input style={{ ...ic, fontFamily: mono }} type="text" inputMode="decimal" value={f.blanks_order_cost || ""} placeholder="0.00"
-                          onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
-                          onFocus={e => e.target.select()} />
-                        {calcCost && actualCost && (
-                          <span style={{ fontSize: 10, fontFamily: mono, fontWeight: 600, flexShrink: 0, color: costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.faint }}>
-                            {costDiff === 0 ? "match" : (costDiff > 0 ? "+" : "") + "$" + Math.abs(costDiff).toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-                      {calcCost && <div style={{ fontSize: 9, color: T.faint, marginTop: 2 }}>Calculated: ${calcCost.toFixed(2)}</div>}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Art approval gate */}
-              {item.pipeline_stage === "in_production" && !ps.allApproved && (
-                <div style={{ background: T.amberDim, border: `1px solid ${T.amber}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.amber }}>
-                  {!ps.hasProof ? "No proofs uploaded yet — upload in Art Files tab" : "Proofs pending approval — approve in Art Files tab"}
-                </div>
-              )}
-              {item.pipeline_stage === "in_production" && ps.allApproved && (
-                <div style={{ background: T.greenDim, border: `1px solid ${T.green}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.green }}>
-                  All proofs approved — cleared for production
-                </div>
-              )}
-
-              {/* Shipped — tracking + qtys */}
-              {(item.pipeline_stage === "shipped" || f.ship_tracking) && (
+            {/* Shipped — tracking + qtys */}
+            {(stage === "shipped" || f.ship_tracking) && (
+              <div style={{ padding: "0 14px 14px" }}>
                 <div style={{ background: T.surface, borderRadius: 8, padding: "10px 12px" }}>
                   <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Shipping from Decorator</div>
                   <div style={{ marginBottom: 8 }}>
@@ -224,15 +160,14 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
                     </div>
                   )}
                 </div>
-              )}
 
-              {/* Shipped complete message */}
-              {item.pipeline_stage === "shipped" && f.ship_tracking && (
-                <div style={{ background: T.greenDim, border: `1px solid ${T.green}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.green }}>
-                  Shipped — {item.job_type === "drop_ship" ? "direct to client" : "headed to warehouse for receiving"}
-                </div>
-              )}
-            </div>
+                {f.ship_tracking && (
+                  <div style={{ marginTop: 8, background: T.greenDim, border: `1px solid ${T.green}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.green }}>
+                    Shipped — {item.job_type === "drop_ship" ? "direct to client" : "headed to warehouse for receiving"}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         );
       })}

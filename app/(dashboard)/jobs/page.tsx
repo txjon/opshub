@@ -23,7 +23,7 @@ const PHASE_COLORS: Record<string,{bg:string,text:string,label:string}> = {
 };
 
 const getPct = (stage: string|null) => {
-  const pcts: Record<string,number> = { blanks_ordered:33, in_production:66, shipped:100 };
+  const pcts: Record<string,number> = { blanks_ordered:25, in_production:50, shipped:100 };
   return stage ? (pcts[stage] || 0) : 0;
 };
 

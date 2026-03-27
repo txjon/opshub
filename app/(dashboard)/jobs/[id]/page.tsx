@@ -6,6 +6,7 @@ import { CostingTabWrapper } from "./CostingTab";
 import { POTab } from "./POTab.jsx";
 import { BuySheetTab } from "./BuySheetTab";
 import { ProductionTab } from "./ProductionTab";
+import { BlanksTab } from "./BlanksTab";
 
 import { ArtTab } from "./ArtTab";
 import { T, font, sortSizes } from "@/lib/theme";
@@ -337,7 +338,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {/* Horizontal tab nav */}
       <div style={{display:"flex",gap:4,padding:4,background:T.surface,borderRadius:8,marginBottom:16,flexWrap:"wrap"}}>
-        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"art",label:"Art Files"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"}].map(t=>(
+        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"art",label:"Art Files"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"blanks",label:"Blanks"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"}].map(t=>(
           <button key={t.id} onClick={async ()=>{
             if (tab==="buysheet" && t.id!=="buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
             if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
@@ -777,6 +778,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           hideSubTabs={true}
         />
         </>
+      )}
+      {tab==="blanks"&&(
+        <BlanksTab items={items} job={job} onRecalcPhase={recalcPhase} />
       )}
       {tab==="po"&&(
         <POTab
