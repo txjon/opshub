@@ -34,7 +34,7 @@ app/(dashboard)/
 
 app/api/
   auth/signout/       — Sign out handler
-  email/send/         — Send quote/PO/invoice PDF via Resend (multi-recipient)
+  email/send/         — Send quote/PO/invoice PDF via Resend (multi-recipient, types: quote, po, invoice)
   files/              — Art file upload/list/delete/approval (Google Drive)
   pdf/invoice/[jobId]/ — Generate client invoice PDF via Browserless
   pdf/po/[jobId]/     — Generate PO PDF via Browserless
@@ -208,7 +208,7 @@ Two-column layout: **Blanks panel** (400px, left) + **Decoration panel** (flex, 
 ### Client Management
 
 - **Client list** (`/clients`) — clickable names link to detail page
-- **Client detail** (`/clients/[id]`) — editable info (name, type, terms, notes), contacts CRUD, project history with revenue/units/phase
+- **Client detail** (`/clients/[id]`) — editable info (name, type, terms, notes), contacts CRUD, project history with revenue/units/phase, **financial summary strip** (Total Revenue, Total Paid, Outstanding, Overdue across all projects)
 - **New project form** — client typeahead (searches as you type), "Create new client" modal with name, type, payment terms, notes, and inline contacts (saved in one action)
 - **Client types**: corporate, brand, artist, tour, webstore
 - **Project types**: tour, webstore, drop_ship
@@ -217,6 +217,7 @@ Two-column layout: **Blanks panel** (400px, left) + **Decoration panel** (flex, 
 
 - **Contacts**: "+ Add" inline form, find-or-create by email, role on job (primary/billing/creative/logistics/cc), remove per contact
 - **Payments**: "+ Add" inline form (type, amount, invoice #, due date), click status badge to cycle (draft→sent→viewed→partial→paid→overdue→void), auto-sets paid_date, delete with confirmation
+- **Invoice**: Send Invoice (email with PDF attachment), Preview, Download buttons above payment records. Defaults to billing contact, falls back to primary. Auto-logs send to activity.
 
 ### Decorator Management
 
@@ -338,7 +339,7 @@ Notification dropdown in sidebar header. Shows unread count badge, click to expa
 
 ### `components/JobActivityPanel.tsx`
 Job-level activity feed component + auto-logging helpers:
-- `logJobActivity(jobId, message)` — logs auto events to `job_activity` table. Called from: quote sent/approved, PO sent, payment added/status changed, stage advanced, files uploaded, blanks ordered, shipping tracked.
+- `logJobActivity(jobId, message)` — logs auto events to `job_activity` table. Called from: quote sent/approved, PO sent, invoice sent, payment added/status changed, stage advanced, files uploaded, blanks ordered, shipping tracked.
 - `notifyTeam(message, type, referenceId, referenceType)` — broadcasts notification to all team members. Called on: quote approved, payment received.
 - `JobActivityPanel` component — embeddable feed (used on Overview tab as static stats, full feed available).
 
