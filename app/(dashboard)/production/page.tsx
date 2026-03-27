@@ -1,66 +1,336 @@
-import { createClient } from "@/lib/supabase/server";
-import Link from "next/link";
+"use client";
+import { useState, useEffect, useMemo } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
+import { T, font, mono } from "@/lib/theme";
 
-export default async function ProductionPage() {
-  const supabase = await createClient();
+const STAGES = [
+  { id: "blanks_ordered", label: "Blanks Ordered" },
+  { id: "in_production", label: "In Production" },
+  { id: "shipped", label: "Shipped" },
+];
 
-  const { data: assignments } = await supabase
-    .from("decorator_assignments")
-    .select("*, items(name, status, job_id, jobs(title, job_number, target_ship_date, clients(name))), decorators(name)")
-    .not("pipeline_stage", "eq", "shipped")
-    .order("created_at");
+type ProdItem = {
+  id: string;
+  name: string;
+  job_id: string;
+  pipeline_stage: string | null;
+  blanks_order_number: string | null;
+  blanks_order_cost: number | null;
+  ship_tracking: string | null;
+  pipeline_timestamps: Record<string, string> | null;
+  cost_per_unit: number | null;
+  sort_order: number;
+  blank_vendor: string | null;
+  blank_sku: string | null;
+  job_title: string;
+  job_number: string;
+  client_name: string;
+  decorator_name: string | null;
+  decorator_assignment_id: string | null;
+  target_ship_date: string | null;
+  total_units: number;
+  proof_status: "none" | "pending" | "approved";
+};
 
-  const stageOrder = ["blanks_ordered","blanks_shipped","blanks_received","strikeoff_approval","in_production","shipped"];
-  const stageLabel: Record<string, string> = {
-    blanks_ordered: "Blanks Ordered", blanks_shipped: "Blanks Shipped",
-    blanks_received: "Blanks Received", strikeoff_approval: "Strike-off Approval",
-    in_production: "In Production", shipped: "Shipped",
+export default function ProductionPage() {
+  const supabase = createClient();
+  const router = useRouter();
+  const [items, setItems] = useState<ProdItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [filterDecorator, setFilterDecorator] = useState("");
+  const [filterStalled, setFilterStalled] = useState(false);
+  const now = new Date();
+
+  useEffect(() => { loadAll(); }, []);
+
+  async function loadAll() {
+    setLoading(true);
+
+    // Get all items from active jobs (not complete/cancelled)
+    const { data: jobs } = await supabase
+      .from("jobs")
+      .select("id, title, job_number, target_ship_date, phase, clients(name)")
+      .not("phase", "in", '("complete","cancelled")');
+
+    if (!jobs?.length) { setItems([]); setLoading(false); return; }
+
+    const jobIds = jobs.map(j => j.id);
+    const jobMap: Record<string, any> = {};
+    jobs.forEach(j => { jobMap[j.id] = j; });
+
+    const { data: allItems } = await supabase
+      .from("items")
+      .select("*, buy_sheet_lines(qty_ordered), decorator_assignments(id, pipeline_stage, decorators(name))")
+      .in("job_id", jobIds)
+      .order("sort_order");
+
+    // Get proof status for all items
+    const itemIds = (allItems || []).map(it => it.id);
+    const { data: files } = itemIds.length > 0
+      ? await supabase.from("item_files").select("item_id, stage, approval").in("item_id", itemIds)
+      : { data: [] };
+
+    const proofMap: Record<string, "none" | "pending" | "approved"> = {};
+    for (const it of (allItems || [])) {
+      const proofs = (files || []).filter(f => f.item_id === it.id && f.stage === "proof");
+      if (proofs.length === 0) proofMap[it.id] = "none";
+      else if (proofs.every(f => f.approval === "approved")) proofMap[it.id] = "approved";
+      else proofMap[it.id] = "pending";
+    }
+
+    const mapped: ProdItem[] = (allItems || []).map(it => {
+      const job = jobMap[it.job_id];
+      const assignment = it.decorator_assignments?.[0];
+      const totalUnits = (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
+      return {
+        id: it.id,
+        name: it.name,
+        job_id: it.job_id,
+        pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || "blanks_ordered",
+        blanks_order_number: it.blanks_order_number,
+        blanks_order_cost: it.blanks_order_cost,
+        ship_tracking: it.ship_tracking,
+        pipeline_timestamps: it.pipeline_timestamps || {},
+        cost_per_unit: it.cost_per_unit,
+        sort_order: it.sort_order || 0,
+        blank_vendor: it.blank_vendor,
+        blank_sku: it.blank_sku,
+        job_title: job?.title || "",
+        job_number: job?.job_number || "",
+        client_name: job?.clients?.name || "",
+        decorator_name: assignment?.decorators?.name || null,
+        decorator_assignment_id: assignment?.id || null,
+        target_ship_date: job?.target_ship_date || null,
+        total_units: totalUnits,
+        proof_status: proofMap[it.id] || "none",
+      };
+    });
+
+    setItems(mapped);
+    setLoading(false);
+  }
+
+  async function advanceStage(item: ProdItem, newStage: string) {
+    const timestamps = { ...(item.pipeline_timestamps || {}), [newStage]: new Date().toISOString() };
+    await supabase.from("items").update({ pipeline_stage: newStage, pipeline_timestamps: timestamps }).eq("id", item.id);
+    if (item.decorator_assignment_id) {
+      await supabase.from("decorator_assignments").update({ pipeline_stage: newStage }).eq("id", item.decorator_assignment_id);
+    }
+    setItems(prev => prev.map(it => it.id === item.id ? { ...it, pipeline_stage: newStage, pipeline_timestamps: timestamps } : it));
+  }
+
+  const decorators = useMemo(() => [...new Set(items.map(it => it.decorator_name).filter(Boolean))].sort(), [items]);
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return items.filter(it => {
+      if (q && !(it.name.toLowerCase().includes(q) || it.client_name.toLowerCase().includes(q) || it.job_title.toLowerCase().includes(q) || (it.decorator_name || "").toLowerCase().includes(q))) return false;
+      if (filterDecorator && it.decorator_name !== filterDecorator) return false;
+      if (filterStalled) {
+        const ts = it.pipeline_timestamps?.[it.pipeline_stage || ""];
+        if (!ts) return true;
+        const days = Math.floor((Date.now() - new Date(ts).getTime()) / (1000 * 60 * 60 * 24));
+        return days >= 7;
+      }
+      return true;
+    });
+  }, [items, search, filterDecorator, filterStalled]);
+
+  // Stats
+  const needsBlanks = items.filter(it => !it.blanks_order_number && it.pipeline_stage === "blanks_ordered").length;
+  const pendingProofs = items.filter(it => it.pipeline_stage === "in_production" && it.proof_status !== "approved").length;
+  const stalled = items.filter(it => {
+    const ts = it.pipeline_timestamps?.[it.pipeline_stage || ""];
+    if (!ts) return false;
+    return Math.floor((Date.now() - new Date(ts).getTime()) / (1000 * 60 * 60 * 24)) >= 7;
+  }).length;
+  const shippingThisWeek = items.filter(it => {
+    if (!it.target_ship_date) return false;
+    const d = new Date(it.target_ship_date);
+    const diff = Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return diff >= 0 && diff <= 7;
+  }).length;
+
+  const getDaysInStage = (item: ProdItem) => {
+    const ts = item.pipeline_timestamps?.[item.pipeline_stage || ""];
+    if (!ts) return null;
+    return Math.floor((Date.now() - new Date(ts).getTime()) / (1000 * 60 * 60 * 24));
   };
 
-  const byStage = stageOrder.slice(0, 5).reduce((acc, stage) => {
-    acc[stage] = (assignments ?? []).filter(a => a.pipeline_stage === stage);
-    return acc;
-  }, {} as Record<string, typeof assignments>);
+  const getDaysToShip = (item: ProdItem) => {
+    if (!item.target_ship_date) return null;
+    return Math.ceil((new Date(item.target_ship_date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  const proofBadge = (status: string) => {
+    if (status === "approved") return { label: "Approved", bg: T.greenDim, color: T.green };
+    if (status === "pending") return { label: "Pending", bg: T.amberDim, color: T.amber };
+    return { label: "None", bg: T.surface, color: T.faint };
+  };
+
+  if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading production...</div>;
 
   return (
-    <div className="space-y-6">
+    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Production</h1>
-        <p className="text-muted-foreground text-sm mt-1">{assignments?.length ?? 0} active decorator assignments</p>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Production</h1>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>{items.length} items across {new Set(items.map(it => it.job_id)).size} active projects</div>
       </div>
 
-      <div className="grid grid-cols-5 gap-3">
-        {stageOrder.slice(0, 5).map(stage => (
-          <div key={stage} className="space-y-2">
-            <div className="flex items-center gap-2">
-              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{stageLabel[stage]}</p>
-              <span className="text-xs text-muted-foreground font-mono">{byStage[stage]?.length ?? 0}</span>
-            </div>
-            {byStage[stage]?.map(a => {
-              const item = a.items as {
-                name: string; status: string; job_id: string;
-                jobs: { title: string; job_number: string; target_ship_date: string | null; clients: { name: string } | null } | null;
-              } | null;
-              return (
-                <Link key={a.id} href={`/jobs/${item?.job_id}`}
-                  className="block rounded-lg border border-border bg-card p-3 hover:bg-secondary/50 transition-colors space-y-1.5">
-                  <p className="text-xs font-semibold leading-tight">{item?.name}</p>
-                  <p className="text-xs text-muted-foreground truncate">{item?.jobs?.clients?.name}</p>
-                  <p className="text-xs text-muted-foreground font-mono">{item?.jobs?.job_number}</p>
-                  {(a.decorators as { name: string } | null) && (
-                    <p className="text-xs text-primary truncate">{(a.decorators as { name: string }).name}</p>
-                  )}
-                </Link>
-              );
-            })}
-            {!byStage[stage]?.length && (
-              <div className="rounded-lg border border-dashed border-border p-3 text-center">
-                <p className="text-xs text-muted-foreground">Empty</p>
-              </div>
-            )}
+      {/* Stats strip */}
+      <div style={{ display: "flex", gap: 8 }}>
+        {[
+          { label: "Need blanks ordered", count: needsBlanks, color: T.amber },
+          { label: "Waiting on proofs", count: pendingProofs, color: T.purple },
+          { label: "Stalled 7+ days", count: stalled, color: T.red },
+          { label: "Shipping this week", count: shippingThisWeek, color: T.accent },
+        ].map(s => (
+          <div key={s.label} style={{ flex: 1, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px" }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: s.count > 0 ? s.color : T.faint, fontFamily: mono }}>{s.count}</div>
+            <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{s.label}</div>
           </div>
         ))}
       </div>
+
+      {/* Filters */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items, clients, projects..."
+          style={{ flex: 1, maxWidth: 320, padding: "7px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
+        <select value={filterDecorator} onChange={e => setFilterDecorator(e.target.value)}
+          style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: filterDecorator ? T.text : T.muted, fontSize: 12, fontFamily: font, outline: "none" }}>
+          <option value="">All decorators</option>
+          {decorators.map(d => <option key={d} value={d!}>{d}</option>)}
+        </select>
+        <button onClick={() => setFilterStalled(!filterStalled)}
+          style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${filterStalled ? T.red : T.border}`, background: filterStalled ? T.redDim : T.surface, color: filterStalled ? T.red : T.muted, fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
+          Stalled only
+        </button>
+      </div>
+
+      {/* Stage groups */}
+      {STAGES.map(stage => {
+        const stageItems = filtered.filter(it => it.pipeline_stage === stage.id)
+          .sort((a, b) => {
+            // Sort by ship date (soonest first), then by days in stage (longest first)
+            const aShip = a.target_ship_date ? new Date(a.target_ship_date).getTime() : Infinity;
+            const bShip = b.target_ship_date ? new Date(b.target_ship_date).getTime() : Infinity;
+            if (aShip !== bShip) return aShip - bShip;
+            return (getDaysInStage(b) || 0) - (getDaysInStage(a) || 0);
+          });
+
+        if (stageItems.length === 0 && search) return null;
+
+        return (
+          <div key={stage.id}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>{stage.label}</span>
+              <span style={{ fontSize: 11, fontFamily: mono, color: T.accent, fontWeight: 600 }}>{stageItems.length}</span>
+            </div>
+
+            {stageItems.length === 0 ? (
+              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "16px", textAlign: "center", fontSize: 12, color: T.faint }}>
+                No items at this stage
+              </div>
+            ) : (
+              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                {/* Header row */}
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 80px 80px 80px 100px", padding: "6px 14px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+                  {["Item", "Client / Project", "Decorator", "Units", stage.id === "blanks_ordered" ? "S&S Order" : stage.id === "shipped" ? "Tracking" : "Proofs", "In stage", ""].map(h => (
+                    <div key={h} style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>{h}</div>
+                  ))}
+                </div>
+
+                {stageItems.map((item, i) => {
+                  const days = getDaysInStage(item);
+                  const daysToShip = getDaysToShip(item);
+                  const proof = proofBadge(item.proof_status);
+                  const stageIdx = STAGES.findIndex(s => s.id === item.pipeline_stage);
+                  const nextStage = STAGES[stageIdx + 1];
+                  const prevStage = STAGES[stageIdx - 1];
+
+                  return (
+                    <div key={item.id} style={{
+                      display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 80px 80px 80px 100px",
+                      padding: "8px 14px", alignItems: "center",
+                      borderBottom: i < stageItems.length - 1 ? `1px solid ${T.border}` : "none",
+                    }}>
+                      {/* Item name + blank info */}
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                          onClick={() => router.push(`/jobs/${item.job_id}`)}>
+                          {item.name}
+                        </div>
+                        <div style={{ fontSize: 10, color: T.faint }}>{[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ")}</div>
+                      </div>
+
+                      {/* Client / Project */}
+                      <div>
+                        <div style={{ fontSize: 12, color: T.text }}>{item.client_name}</div>
+                        <div style={{ fontSize: 10, color: T.faint }}>{item.job_title}
+                          {daysToShip !== null && (
+                            <span style={{ marginLeft: 6, color: daysToShip < 0 ? T.red : daysToShip <= 3 ? T.amber : T.faint }}>
+                              {daysToShip < 0 ? `${Math.abs(daysToShip)}d over` : daysToShip === 0 ? "today" : `${daysToShip}d`}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Decorator */}
+                      <div style={{ fontSize: 11, color: item.decorator_name ? T.accent : T.faint }}>{item.decorator_name || "—"}</div>
+
+                      {/* Units */}
+                      <div style={{ fontSize: 12, fontFamily: mono, fontWeight: 600 }}>{item.total_units.toLocaleString()}</div>
+
+                      {/* Stage-specific column */}
+                      <div>
+                        {stage.id === "blanks_ordered" && (
+                          <span style={{ fontSize: 10, fontFamily: mono, color: item.blanks_order_number ? T.green : T.faint }}>
+                            {item.blanks_order_number || "—"}
+                          </span>
+                        )}
+                        {stage.id === "in_production" && (
+                          <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 99, background: proof.bg, color: proof.color }}>
+                            {proof.label}
+                          </span>
+                        )}
+                        {stage.id === "shipped" && (
+                          <span style={{ fontSize: 10, fontFamily: mono, color: item.ship_tracking ? T.green : T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", maxWidth: 70 }}>
+                            {item.ship_tracking || "—"}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Days in stage */}
+                      <div style={{ fontSize: 11, fontFamily: mono, fontWeight: 600, color: days === null ? T.faint : days >= 7 ? T.red : days >= 3 ? T.amber : T.muted }}>
+                        {days === null ? "—" : `${days}d`}
+                      </div>
+
+                      {/* Advance buttons */}
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {prevStage && (
+                          <button onClick={() => advanceStage(item, prevStage.id)}
+                            style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 6px", cursor: "pointer" }}>
+                            ←
+                          </button>
+                        )}
+                        {nextStage && (
+                          <button onClick={() => advanceStage(item, nextStage.id)}
+                            style={{ fontSize: 10, color: "#fff", background: T.accent, border: "none", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontWeight: 600 }}>
+                            {nextStage.label} →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
