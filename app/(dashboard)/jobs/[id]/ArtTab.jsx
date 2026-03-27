@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { buildMockupClient, preloadTemplate } from "@/lib/mockup-client";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
+import { logJobActivity } from "@/components/JobActivityPanel";
 
 const STAGES = [
   { key: "client_art", label: "Client Art", color: T.muted },
@@ -143,6 +144,8 @@ function ItemArtSection({ item, clientName, projectTitle, onFilesChanged, onUpda
           stage: uploadStage,
         });
       }
+      const stageLabel = STAGES.find(s=>s.key===uploadStage)?.label || uploadStage;
+      logJobActivity(item.job_id, `${fileList.length} file${fileList.length>1?"s":""} uploaded to ${item.name} (${stageLabel})`);
     } catch (err) {
       console.error("Upload error:", err);
     }

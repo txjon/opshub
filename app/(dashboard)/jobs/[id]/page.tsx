@@ -174,6 +174,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       timestamps[updates.pipeline_stage] = new Date().toISOString();
       dbUpdates.pipeline_timestamps = timestamps;
       setItems(prev => prev.map(it => it.id === id ? {...it, pipeline_timestamps: timestamps} : it));
+      const stageName = updates.pipeline_stage.replace(/_/g, " ");
+      const itemName = existing?.name || "Item";
+      if (job) logJobActivity(job.id, `${itemName} → ${stageName}`);
     }
     if (Object.keys(dbUpdates).length > 0) {
       await supabase.from("items").update(dbUpdates).eq("id", id);
@@ -545,6 +548,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         const invoice_number=(document.getElementById("pm-invoice") as HTMLInputElement).value.trim()||null;
                         const due_date=(document.getElementById("pm-due") as HTMLInputElement).value||null;
                         await supabase.from("payment_records").insert({job_id:job.id,type,amount,invoice_number,due_date,status:"draft"});
+                        logJobActivity(job.id, `Payment added: ${type.replace(/_/g," ")} — $${amount.toLocaleString()}${invoice_number ? ` (${invoice_number})` : ""}`);
                         setJob(j=>j?{...j,_addPayment:false} as any:j);
                         loadData();
                         setTimeout(recalcPhase, 500);
@@ -572,6 +576,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                           <button onClick={async()=>{
                             const ns=nextStatus();
                             await supabase.from("payment_records").update({status:ns,paid_date:ns==="paid"?new Date().toISOString().split("T")[0]:null}).eq("id",p.id);
+                            logJobActivity(job.id, `Payment ${p.invoice_number||"#"} status → ${ns}${ns==="paid"?" — $"+p.amount.toLocaleString():""}`);
                             loadData();
                             setTimeout(recalcPhase, 500);
                           }} style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
@@ -708,6 +713,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <button onClick={async()=>{
                 await supabase.from("jobs").update({quote_approved:false,quote_approved_at:null}).eq("id",job.id);
                 setJob(j=>j?{...j,quote_approved:false,quote_approved_at:null} as any:j);
+                logJobActivity(job.id, "Quote approval revoked");
                 recalcPhase();
               }} style={{fontSize:10,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer"}}>Revoke</button>
             </div>
@@ -721,6 +727,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 const now=new Date().toISOString();
                 await supabase.from("jobs").update({quote_approved:true,quote_approved_at:now}).eq("id",job.id);
                 setJob(j=>j?{...j,quote_approved:true,quote_approved_at:now} as any:j);
+                logJobActivity(job.id, "Quote approved");
                 recalcPhase();
               }} style={{fontSize:12,fontWeight:600,color:"#fff",background:T.green,border:"none",borderRadius:7,padding:"7px 20px",cursor:"pointer"}}>Approve Quote</button>
             </div>

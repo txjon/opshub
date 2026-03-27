@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import { logJobActivity } from "@/components/JobActivityPanel";
 
 const PIPELINE_STAGES = [
   { id: "blanks_ordered", label: "Blanks Ordered", pct: 33 },
@@ -58,6 +59,14 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
     saveTimers.current[key] = setTimeout(async () => {
       await supabase.from("items").update({ [field]: value || null }).eq("id", itemId);
+      // Log blanks order and shipping tracking
+      const item = items.find(it => it.id === itemId);
+      if (field === "blanks_order_number" && value && item) {
+        logJobActivity(item.job_id, `Blanks ordered for ${item.name} — S&S #${value}`);
+      }
+      if (field === "ship_tracking" && value && item) {
+        logJobActivity(item.job_id, `${item.name} shipped from decorator — tracking: ${value}`);
+      }
       if (onRecalcPhase) onRecalcPhase();
     }, 800);
   }

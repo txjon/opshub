@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
+import { logJobActivity } from "@/components/JobActivityPanel";
 
 function fmtD(n) {
   return "$"+Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -261,7 +262,7 @@ export function POTab({project,items,costingData,onRecalcPhase}) {
           defaultEmail={getDec(active)?.contact_email||""}
           defaultSubject={`PO — ${(project.clients?.name||project.title||"")} — ${active}`}
           onClose={()=>setShowSendEmail(false)}
-          onSent={()=>{ if(onRecalcPhase) onRecalcPhase(); }}
+          onSent={()=>{ logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`); if(onRecalcPhase) onRecalcPhase(); }}
         />
       )}
 

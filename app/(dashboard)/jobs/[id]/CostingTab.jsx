@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
+import { logJobActivity } from "@/components/JobActivityPanel";
 
 const BLANK_COSTS = {
   "NL6210_White":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
@@ -1081,6 +1082,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                   defaultEmail={orderInfo.clientEmail||""}
                   defaultSubject={`Quote${orderInfo.invoiceNum?" #"+orderInfo.invoiceNum:""} — ${project.clients?.name||project.title||"House Party Distro"}`}
                   onClose={()=>setShowSendEmail(false)}
+                  onSent={()=>logJobActivity(project.id, "Quote sent to client")}
                 />
               </div>
             )}
