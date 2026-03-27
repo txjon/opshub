@@ -30,8 +30,8 @@ export async function GET(request: NextRequest) {
         // Search term within a brand: search for "BrandName query"
         url = `${SS_BASE}/styles?search=${encodeURIComponent(brand + " " + query)}`;
       } else if (brand) {
-        // Browse by brand only -- use path filter format
-        url = `${SS_BASE}/styles/${encodeURIComponent(brand)}`;
+        // Browse by brand only
+        url = `${SS_BASE}/styles?search=${encodeURIComponent(brand)}`;
       } else if (query) {
         // Search by keyword or style number
         url = `${SS_BASE}/styles?search=${encodeURIComponent(query)}`;

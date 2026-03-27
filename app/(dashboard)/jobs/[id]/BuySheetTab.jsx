@@ -23,39 +23,50 @@ function distribute(total, sizes, curve) {
 
 function SSPicker({ onAdd, onClose }) {
   const [query, setQuery] = useState("");
-  const [brand, setBrand] = useState("");
   const [brands, setBrands] = useState([]);
+  const [selBrand, setSelBrand] = useState(null);
   const [styles, setStyles] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [selectedStyle, setSelectedStyle] = useState(null);
+  const [selStyle, setSelStyle] = useState(null);
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
-  const [pendingItem, setPendingItem] = useState(null);
+  const [selColor, setSelColor] = useState(null);
+  const [selSizes, setSelSizes] = useState({});
+  const [filteredBrands, setFilteredBrands] = useState(null);
   const [itemName, setItemName] = useState("");
 
   useEffect(() => {
     fetch("/api/ss?endpoint=brands")
       .then(r => r.json())
-      .then(data => setBrands(Array.isArray(data) ? data.map(b => b.name) : []))
+      .then(data => setBrands(Array.isArray(data) ? data.map(b => b.name).sort() : []))
       .catch(() => {});
   }, []);
 
-  const search = useCallback(async () => {
-    if (!query.trim() && !brand) return;
-    setLoading(true); setStyles([]);
+  const searchByBrand = async (brandName) => {
+    setSelBrand(brandName); setStyles([]); setSelStyle(null); setProducts([]); setSelColor(null); setFilteredBrands(null); setLoading(true);
     try {
-      const p = new URLSearchParams({ endpoint: "search" });
-      if (query) p.set("q", query);
-      if (brand) p.set("brand", brand);
-      const res = await fetch(`/api/ss?${p.toString()}`);
+      const res = await fetch(`/api/ss?endpoint=search&brand=${encodeURIComponent(brandName)}`);
       const data = await res.json();
-      setStyles(Array.isArray(data) ? data.slice(0, 40) : []);
+      setStyles(Array.isArray(data) ? data.filter(s => s.brandName === brandName) : []);
     } catch { setStyles([]); }
     finally { setLoading(false); }
-  }, [query, brand]);
+  };
+
+  const searchByQuery = async () => {
+    if (!query.trim()) return;
+    setSelBrand(null); setStyles([]); setSelStyle(null); setProducts([]); setSelColor(null); setLoading(true);
+    try {
+      const res = await fetch(`/api/ss?endpoint=search&q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      const results = Array.isArray(data) ? data : [];
+      setStyles(results);
+      setFilteredBrands([...new Set(results.map(s => s.brandName))].sort());
+    } catch { setStyles([]); setFilteredBrands(null); }
+    finally { setLoading(false); }
+  };
 
   const loadProducts = async (style) => {
-    setSelectedStyle(style); setLoadingProducts(true);
+    setSelStyle(style); setLoadingProducts(true); setSelColor(null);
     try {
       const res = await fetch(`/api/ss?endpoint=products&styleId=${style.styleID}`);
       const data = await res.json();
@@ -65,201 +76,41 @@ function SSPicker({ onAdd, onClose }) {
   };
 
   const colorGroups = products.reduce((acc, p) => {
-    if (!acc[p.colorName]) acc[p.colorName] = [];
-    acc[p.colorName].push(p);
+    if (!acc[p.colorName]) acc[p.colorName] = { items: [], sizes: [], prices: {} };
+    acc[p.colorName].items.push(p);
+    if (!acc[p.colorName].sizes.includes(p.sizeName)) acc[p.colorName].sizes.push(p.sizeName);
+    acc[p.colorName].prices[p.sizeName] = p.customerPrice || p.casePrice || 0;
     return acc;
   }, {});
+  const colorNames = Object.keys(colorGroups).sort();
+  const currentColor = selColor ? colorGroups[selColor] : null;
 
-  const handleColorClick = (colorName) => {
-    const colorProducts = colorGroups[colorName] || [];
-    const sizes = sortSizes([...new Set(colorProducts.map(p => p.sizeName))]);
-    const stock = colorProducts.reduce((a,p) => a+(p.warehouses||[]).reduce((b,w) => b+w.qty,0), 0);
-    const qtys = {}; sizes.forEach(sz => { qtys[sz] = 0; });
-    const blankCosts = {};
-    colorProducts.forEach(p => {
-      const cost = (p.customerPrice && p.customerPrice > 0) ? p.customerPrice : (p.casePrice || 0);
-      blankCosts[p.sizeName] = cost;
-    });
-    const costValues = Object.values(blankCosts).filter(v => v > 0);
-    const avgCost = costValues.length > 0 ? costValues.reduce((a,v) => a+v, 0) / costValues.length : 0;
-    setPendingItem({
-      id: Date.now() + Math.random(),
-      name: "",
-      blank_vendor: `${selectedStyle.brandName} ${selectedStyle.styleName}`,
-      blank_sku: colorName,
-      style: `${selectedStyle.brandName} ${selectedStyle.styleName}`,
-      color: colorName,
-      sizes, qtys, curve: DEFAULT_CURVE, totalQty: 0,
-      stockLevel: stock,
-      cost_per_unit: avgCost,
-      blankCosts,
-    });
-    setItemName("");
-  };
-
-  const confirmAdd = () => {
-    if (!pendingItem) return;
-    onAdd({ ...pendingItem, name: itemName.trim() || `${pendingItem.blank_vendor} - ${pendingItem.blank_sku}` });
-    setPendingItem(null);
-    setItemName("");
-  };
-
-  const inp = { background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, color:T.text, fontFamily:font, fontSize:12, padding:"7px 10px", outline:"none", width:"100%", boxSizing:"border-box" };
-
-  return (
-    <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden", marginBottom:8 }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 14px", borderBottom:`1px solid ${T.border}` }}>
-        <span style={{ fontSize:12, fontWeight:700, color:T.text, fontFamily:font }}>Browse S&amp;S Catalog</span>
-        <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, cursor:"pointer", fontSize:16 }}>✕</button>
-      </div>
-      <div style={{ display:"flex", height:400 }}>
-        <div style={{ width:"50%", borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column" }}>
-          <div style={{ padding:12, display:"flex", flexDirection:"column", gap:8, borderBottom:`1px solid ${T.border}` }}>
-            <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key==="Enter" && search()} placeholder="Style number or keyword..." style={inp} />
-            <select value={brand} onChange={e => setBrand(e.target.value)} style={inp}>
-              <option value="">All brands</option>
-              {brands.map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
-            <button onClick={search} disabled={loading} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:6, padding:"7px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer", opacity:loading?0.6:1 }}>
-              {loading ? "Searching..." : "Search"}
-            </button>
-          </div>
-          <div style={{ flex:1, overflowY:"auto", padding:8 }}>
-            {styles.length === 0 && !loading && <div style={{ padding:24, textAlign:"center", fontSize:12, color:T.muted, fontFamily:font }}>Search to see styles</div>}
-            {styles.map(style => (
-              <button key={style.styleID} onClick={() => loadProducts(style)}
-                style={{ width:"100%", textAlign:"left", padding:"8px 10px", borderRadius:6, border:`1px solid ${selectedStyle?.styleID===style.styleID?T.accent:"transparent"}`, background:selectedStyle?.styleID===style.styleID?T.accentDim:"transparent", cursor:"pointer", marginBottom:2 }}>
-                <div style={{ fontSize:12, fontWeight:600, color:T.text, fontFamily:font }}>{style.brandName} {style.styleName}</div>
-                <div style={{ fontSize:10, color:T.muted, fontFamily:font }}>{style.title||style.baseCategory}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-        <div style={{ width:"50%", display:"flex", flexDirection:"column" }}>
-          {!selectedStyle ? (
-            <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center" }}>
-              <span style={{ fontSize:12, color:T.muted, fontFamily:font }}>Select a style</span>
-            </div>
-          ) : loadingProducts ? (
-            <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center" }}>
-              <span style={{ fontSize:12, color:T.muted, fontFamily:font }}>Loading...</span>
-            </div>
-          ) : (
-            <>
-              <div style={{ padding:"10px 12px", borderBottom:`1px solid ${T.border}`, fontSize:11, fontWeight:700, color:T.muted, fontFamily:font, textTransform:"uppercase", letterSpacing:"0.06em" }}>
-                {selectedStyle.brandName} {selectedStyle.styleName}
-              </div>
-              <div style={{ flex:1, overflowY:"auto", padding:8 }}>
-                {Object.entries(colorGroups).map(([colorName, colorProducts]) => {
-                  const sizes = sortSizes([...new Set(colorProducts.map(p => p.sizeName))]);
-                  const stock = colorProducts.reduce((a,p) => a+(p.warehouses||[]).reduce((b,w) => b+w.qty,0), 0);
-                  const first = colorProducts[0] || {};
-                  const cost = (first.customerPrice && first.customerPrice > 0) ? first.customerPrice : (first.casePrice || 0);
-                  return (
-                    <button key={colorName} onClick={() => handleColorClick(colorName)}
-                      style={{ width:"100%", textAlign:"left", padding:"8px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, cursor:"pointer", marginBottom:4 }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor=T.accent; e.currentTarget.style.background=T.accentDim; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor=T.border; e.currentTarget.style.background=T.surface; }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:3 }}>
-                        <span style={{ fontSize:12, fontWeight:600, color:T.text, fontFamily:font }}>{colorName}</span>
-                        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                          {cost > 0 && <span style={{ fontSize:10, fontFamily:mono, color:T.amber }}>${cost.toFixed(2)}</span>}
-                          <span style={{ fontSize:10, fontFamily:mono, color:stock>100?T.green:stock>0?T.amber:T.red }}>{stock.toLocaleString()} in stock</span>
-                        </div>
-                      </div>
-                      <div style={{ display:"flex", flexWrap:"wrap", gap:3 }}>
-                        {sizes.map(sz => <span key={sz} style={{ fontSize:9, padding:"1px 5px", borderRadius:3, background:T.card, color:T.muted, fontFamily:mono }}>{sz}</span>)}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
-          {pendingItem && (
-            <div style={{ padding:"12px", borderTop:`1px solid ${T.border}`, background:T.surface }}>
-              <div style={{ fontSize:11, color:T.muted, fontFamily:font, marginBottom:6 }}>
-                Name this item — this will be used across all departments
-              </div>
-              <input
-                autoFocus
-                value={itemName}
-                onChange={e => setItemName(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && confirmAdd()}
-                placeholder={`e.g. Tour Tee, Crew Neck, VIP Hoodie...`}
-                style={{ width:"100%", background:T.card, border:`1px solid ${T.accent}`, borderRadius:6, color:T.text, fontFamily:font, fontSize:13, padding:"8px 10px", outline:"none", boxSizing:"border-box", marginBottom:8 }}
-              />
-              <div style={{ display:"flex", gap:6 }}>
-                <button onClick={confirmAdd}
-                  style={{ flex:1, background:T.accent, color:"#fff", border:"none", borderRadius:6, padding:"8px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
-                  Add to buy sheet →
-                </button>
-                <button onClick={() => { setPendingItem(null); setItemName(""); }}
-                  style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, cursor:"pointer", fontSize:12, padding:"8px 12px" }}>
-                  Cancel
-                </button>
-              </div>
-              <div style={{ fontSize:10, color:T.faint, fontFamily:font, marginTop:6 }}>
-                Blank: {pendingItem.blank_vendor} · {pendingItem.blank_sku} · {pendingItem.sizes.length} sizes
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-// ── Manual Picker (pulls from blank_catalog table) ───────────────────────────
-
-function ManualPicker({ onAdd, onClose }) {
-  const [catalog, setCatalog] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [sB, setSB] = useState(null);
-  const [sS, setSS] = useState(null);
-  const [sC, setSC] = useState(null);
-  const [sizes, setSizes] = useState({});
-  const [name, setName] = useState("");
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.from("blank_catalog").select("*").order("brand").order("style").order("color")
-      .then(({ data }) => { setCatalog(data || []); setLoading(false); });
-  }, []);
-
-  const brands = [...new Set(catalog.map(e => e.brand))].sort();
-  const styles = sB ? [...new Set(catalog.filter(e => e.brand === sB).map(e => e.style))].sort() : [];
-  const colors = sB && sS ? catalog.filter(e => e.brand === sB && e.style === sS) : [];
-  const selectedEntry = sC ? colors.find(e => e.color === sC) : null;
-  const szList = selectedEntry ? selectedEntry.sizes : [];
-  const canAdd = sB && sS && sC && Object.keys(sizes).length > 0;
-
-  const toggleSz = (sz) => setSizes(p => { const n={...p}; if(n[sz]!==undefined) delete n[sz]; else n[sz]=1; return n; });
+  const toggleSz = (sz) => setSelSizes(p => { const n={...p}; if(n[sz]!==undefined) delete n[sz]; else n[sz]=1; return n; });
+  const canAdd = selStyle && selColor && currentColor && Object.keys(selSizes).length > 0;
 
   const doAdd = () => {
-    const selectedSizes = sortSizes(Object.keys(sizes));
-    const qtys = {}; selectedSizes.forEach(sz => { qtys[sz] = 0; });
-    const blankCosts = selectedEntry ? selectedEntry.costs : {};
+    if (!canAdd) return;
+    const allSizes = sortSizes(Object.keys(selSizes));
+    const qtys = {}; allSizes.forEach(sz => { qtys[sz] = 0; });
+    const blankCosts = {}; allSizes.forEach(sz => { blankCosts[sz] = currentColor.prices[sz] || 0; });
     onAdd({
-      id: Date.now()+Math.random(),
-      name: name.trim()||`${sB} ${sS} - ${sC}`,
-      blank_vendor: `${sB} ${sS}`,
-      blank_sku: sC,
-      style: `${sB} ${sS}`,
-      color: sC,
-      sizes: selectedSizes,
-      qtys,
-      curve: DEFAULT_CURVE,
-      totalQty: 0,
-      blankCosts: blankCosts,
+      id: Date.now() + Math.random(),
+      name: itemName.trim() || `${selStyle.brandName} ${selStyle.styleName} - ${selColor}`,
+      blank_vendor: `${selStyle.brandName} ${selStyle.styleName}`,
+      blank_sku: selColor,
+      style: `${selStyle.brandName} ${selStyle.styleName}`,
+      color: selColor,
+      sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
     });
-    setSizes({}); setName(""); setSC(null); setSS(null); setSB(null);
+    setItemName(""); setSelColor(null); setSelSizes({});
   };
 
-  const colRow = (label, active, onClick) => (
+  const colRow = (label, active, onClick, sub) => (
     <div onClick={onClick} style={{ padding:"8px 11px", cursor:"pointer", fontSize:11, fontFamily:font, background:active?T.accent:"transparent", color:active?"#fff":T.text, borderBottom:`1px solid ${T.border}`, transition:"background 0.1s" }}
       onMouseEnter={e => { if(!active) e.currentTarget.style.background=T.surface; }}
       onMouseLeave={e => { if(!active) e.currentTarget.style.background="transparent"; }}>
       {label}
+      {sub && <div style={{ fontSize:9, color:active?"rgba(255,255,255,0.7)":T.faint, marginTop:1 }}>{sub}</div>}
     </div>
   );
 
@@ -270,7 +121,174 @@ function ManualPicker({ onAdd, onClose }) {
   return (
     <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden", marginBottom:8 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 14px", borderBottom:`1px solid ${T.border}` }}>
-        <span style={{ fontSize:12, fontWeight:700, color:T.text, fontFamily:font }}>Add Manually</span>
+        <span style={{ fontSize:12, fontWeight:700, color:T.text, fontFamily:font }}>Browse S&amp;S Catalog</span>
+        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+          <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key==="Enter" && searchByQuery()} placeholder="Search style # or keyword..." style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", width:200 }} />
+          <button onClick={searchByQuery} disabled={loading} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:6, padding:"5px 12px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer", opacity:loading?0.6:1 }}>{loading?"…":"Search"}</button>
+          <input value={itemName} onChange={e=>setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", width:180 }} />
+          <button onClick={doAdd} disabled={!canAdd} style={{ background:canAdd?T.accent:T.surface, color:canAdd?"#fff":T.muted, border:"none", borderRadius:6, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:canAdd?"pointer":"default", transition:"all 0.15s" }}>Add to buy sheet →</button>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", lineHeight:1 }}>×</button>
+        </div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1.5fr 1fr", height:300 }}>
+        <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          {colHead("Brand")}
+          <div style={{ flex:1, overflowY:"auto" }}>
+            {(filteredBrands || brands).map(b => colRow(b, selBrand===b, () => { setSelBrand(b); if(filteredBrands){ setSelStyle(null); setSelColor(null); } else { searchByBrand(b); } }))}
+          </div>
+        </div>
+        <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          {colHead("Style")}
+          <div style={{ flex:1, overflowY:"auto" }}>
+            {loading ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>Loading…</div>
+              : styles.length===0 ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Brand or search</div>
+              : (selBrand ? styles.filter(s => s.brandName===selBrand) : styles).map(s => colRow(s.styleName, selStyle?.styleID===s.styleID, () => loadProducts(s), s.title||s.baseCategory))}
+          </div>
+        </div>
+        <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          {colHead("Color")}
+          <div style={{ flex:1, overflowY:"auto" }}>
+            {loadingProducts ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>Loading…</div>
+              : !selStyle ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Style</div>
+              : colorNames.map(c => colRow(c, selColor===c, () => { setSelColor(c); setSelSizes({}); }))}
+          </div>
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          {colHead("Sizes")}
+          <div style={{ flex:1, overflowY:"auto", padding:8 }}>
+            {!selColor ? <div style={{ padding:"6px 2px", fontSize:10, color:T.faint, fontFamily:font }}>← Color</div>
+              : <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                  {sortSizes(currentColor.sizes).map(sz => {
+                    const on = selSizes[sz] !== undefined;
+                    return (
+                      <div key={sz} onClick={() => toggleSz(sz)}
+                        style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"7px 10px", borderRadius:6, cursor:"pointer", border:`1px solid ${on?T.accent:T.border}`, background:on?T.accent:T.surface, transition:"all 0.12s", userSelect:"none" }}>
+                        <span style={{ fontSize:12, fontWeight:700, color:on?"#fff":T.muted, fontFamily:mono }}>{sz}</span>
+                        <span style={{ fontSize:10, color:on?"rgba(255,255,255,0.7)":T.muted }}>${Number(currentColor.prices[sz]||0).toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+            }
+          </div>
+          {selColor && Object.keys(selSizes).length > 0 && (
+            <div style={{ padding:"5px 10px", borderTop:`1px solid ${T.border}`, fontSize:10, fontFamily:font, color:T.muted }}>
+              {Object.keys(selSizes).length} size{Object.keys(selSizes).length!==1?"s":""} selected
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+// ── Manual Picker (pulls from blank_catalog table) ───────────────────────────
+
+const POPULAR_STYLES = [
+  { brand: "Comfort Colors", style: "1717", title: "Garment-Dyed Heavyweight Tee" },
+  { brand: "Next Level", style: "6210", title: "Unisex CVC T-Shirt" },
+];
+
+function ManualPicker({ onAdd, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [styleData, setStyleData] = useState({}); // { "CC-1717": { colors: { "Black": { sizes: [...], prices: {...} } } } }
+  const [selBrand, setSelBrand] = useState(null);
+  const [selStyle, setSelStyle] = useState(null);
+  const [selColor, setSelColor] = useState(null);
+  const [selSizes, setSelSizes] = useState({});
+  const [name, setName] = useState("");
+
+  useEffect(() => {
+    async function loadAll() {
+      const results = {};
+
+      // 1. Load S&S popular styles
+      for (const ps of POPULAR_STYLES) {
+        const key = `${ps.brand}-${ps.style}`;
+        try {
+          const searchRes = await fetch(`/api/ss?endpoint=search&q=${ps.style}&brand=${encodeURIComponent(ps.brand)}`);
+          const searchData = await searchRes.json();
+          const match = (searchData || []).find(s => s.styleName === ps.style);
+          if (!match) continue;
+          const prodRes = await fetch(`/api/ss?endpoint=products&styleId=${match.styleID}`);
+          const products = await prodRes.json();
+          const colors = {};
+          (products || []).forEach(p => {
+            if (!colors[p.colorName]) colors[p.colorName] = { sizes: [], prices: {} };
+            if (!colors[p.colorName].sizes.includes(p.sizeName)) colors[p.colorName].sizes.push(p.sizeName);
+            colors[p.colorName].prices[p.sizeName] = p.customerPrice;
+          });
+          results[key] = { ...ps, source: "ss", colors };
+        } catch (e) { console.error("Failed to load", key, e); }
+      }
+
+      // 2. Load blank catalog entries
+      try {
+        const supabase = createClient();
+        const { data: catalog } = await supabase.from("blank_catalog").select("*").order("brand").order("style").order("color");
+        if (catalog && catalog.length > 0) {
+          const grouped = {};
+          catalog.forEach(entry => {
+            const key = `${entry.brand}-${entry.style}`;
+            if (results[key]) return; // S&S takes priority
+            if (!grouped[key]) grouped[key] = { brand: entry.brand, style: entry.style, title: "", source: "catalog", colors: {} };
+            grouped[key].colors[entry.color] = { sizes: entry.sizes || [], prices: entry.costs || {} };
+          });
+          Object.assign(results, grouped);
+        }
+      } catch (e) { console.error("Failed to load blank catalog", e); }
+
+      setStyleData(results);
+      setLoading(false);
+    }
+    loadAll();
+  }, []);
+
+  const brands = [...new Set(Object.values(styleData).map(sd => sd.brand))].sort();
+  const brandStyles = selBrand ? Object.entries(styleData).filter(([_, sd]) => sd.brand === selBrand) : [];
+  const currentStyle = selStyle ? styleData[selStyle] : null;
+  const colorNames = currentStyle ? Object.keys(currentStyle.colors).sort() : [];
+  const currentColor = currentStyle && selColor ? currentStyle.colors[selColor] : null;
+  const toggleSz = (sz) => setSelSizes(p => { const n={...p}; if(n[sz]!==undefined) delete n[sz]; else n[sz]=1; return n; });
+  const canAdd = currentStyle && currentColor && Object.keys(selSizes).length > 0;
+
+  const doAdd = () => {
+    if (!canAdd) return;
+    const allSizes = sortSizes(Object.keys(selSizes));
+    const qtys = {}; allSizes.forEach(sz => { qtys[sz] = 0; });
+    const blankCosts = {}; allSizes.forEach(sz => { blankCosts[sz] = currentColor.prices[sz] || 0; });
+    onAdd({
+      id: Date.now() + Math.random(),
+      name: name.trim() || `${currentStyle.brand} ${currentStyle.style} - ${selColor}`,
+      blank_vendor: `${currentStyle.brand} ${currentStyle.style}`,
+      blank_sku: selColor,
+      style: `${currentStyle.brand} ${currentStyle.style}`,
+      color: selColor,
+      sizes: allSizes,
+      qtys,
+      curve: DEFAULT_CURVE,
+      totalQty: 0,
+      blankCosts,
+    });
+    setName(""); setSelColor(null); setSelSizes({}); setSelStyle(null); setSelBrand(null);
+  };
+
+  const colRow = (label, active, onClick, sub) => (
+    <div onClick={onClick} style={{ padding:"8px 11px", cursor:"pointer", fontSize:11, fontFamily:font, background:active?T.accent:"transparent", color:active?"#fff":T.text, borderBottom:`1px solid ${T.border}`, transition:"background 0.1s" }}
+      onMouseEnter={e => { if(!active) e.currentTarget.style.background=T.surface; }}
+      onMouseLeave={e => { if(!active) e.currentTarget.style.background="transparent"; }}>
+      {label}
+      {sub && <div style={{ fontSize:9, color:active?"rgba(255,255,255,0.7)":T.faint, marginTop:1 }}>{sub}</div>}
+    </div>
+  );
+
+  const colHead = (title) => (
+    <div style={{ padding:"5px 11px", background:T.surface, borderBottom:`1px solid ${T.border}`, fontSize:9, fontWeight:700, color:T.muted, letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:font }}>{title}</div>
+  );
+
+  return (
+    <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden", marginBottom:8 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 14px", borderBottom:`1px solid ${T.border}` }}>
+        <span style={{ fontSize:12, fontWeight:700, color:T.text, fontFamily:font }}>Popular Styles</span>
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
           <input value={name} onChange={e=>setName(e.target.value)} placeholder="Item display name" style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", width:200 }} />
           <button onClick={doAdd} disabled={!canAdd} style={{ background:canAdd?T.accent:T.surface, color:canAdd?"#fff":T.muted, border:"none", borderRadius:6, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:canAdd?"pointer":"default", transition:"all 0.15s" }}>Add to buy sheet →</button>
@@ -278,57 +296,50 @@ function ManualPicker({ onAdd, onClose }) {
         </div>
       </div>
       {loading ? (
-        <div style={{ padding:20, textAlign:"center", fontSize:12, color:T.muted, fontFamily:font }}>Loading catalog…</div>
-      ) : catalog.length === 0 ? (
-        <div style={{ padding:20, textAlign:"center", fontSize:12, color:T.muted, fontFamily:font }}>
-          No entries in blank catalog yet. <a href="/blank-catalog" target="_blank" style={{ color:T.accent }}>Add some →</a>
-        </div>
+        <div style={{ padding:20, textAlign:"center", fontSize:12, color:T.muted, fontFamily:font }}>Loading popular styles from S&amp;S…</div>
       ) : (
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", height:260 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1.5fr 1fr", height:300 }}>
           <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
             {colHead("Brand")}
             <div style={{ flex:1, overflowY:"auto" }}>
-              {brands.map(b => colRow(b, sB===b, () => { setSB(b); setSS(null); setSC(null); setSizes({}); }))}
+              {brands.map(b => colRow(b, selBrand===b, () => { setSelBrand(b); setSelStyle(null); setSelColor(null); setSelSizes({}); }))}
             </div>
           </div>
           <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
             {colHead("Style")}
             <div style={{ flex:1, overflowY:"auto" }}>
-              {!sB ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Brand</div>
-                : styles.map(s => colRow(s, sS===s, () => { setSS(s); setSC(null); setSizes({}); }))}
+              {!selBrand ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Brand</div>
+                : brandStyles.map(([key, sd]) => colRow(sd.style, selStyle===key, () => { setSelStyle(key); setSelColor(null); setSelSizes({}); }, sd.title))}
             </div>
           </div>
           <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
             {colHead("Color")}
             <div style={{ flex:1, overflowY:"auto" }}>
-              {!sS ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Style</div>
-                : colors.map(e => colRow(e.color, sC===e.color, () => { setSC(e.color); setSizes({}); }))}
+              {!selStyle ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Style</div>
+                : colorNames.map(c => colRow(c, selColor===c, () => { setSelColor(c); setSelSizes({}); }))}
             </div>
           </div>
           <div style={{ display:"flex", flexDirection:"column", overflow:"hidden" }}>
             {colHead("Sizes")}
             <div style={{ flex:1, overflowY:"auto", padding:8 }}>
-              {!sC ? <div style={{ padding:"6px 2px", fontSize:10, color:T.faint, fontFamily:font }}>← Color</div>
+              {!selColor ? <div style={{ padding:"6px 2px", fontSize:10, color:T.faint, fontFamily:font }}>← Color</div>
                 : <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-                    {szList.map(sz => {
-                      const on = sizes[sz] !== undefined;
-                      const cost = selectedEntry?.costs?.[sz];
+                    {sortSizes(currentColor.sizes).map(sz => {
+                      const on = selSizes[sz] !== undefined;
                       return (
                         <div key={sz} onClick={() => toggleSz(sz)}
                           style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"7px 10px", borderRadius:6, cursor:"pointer", border:`1px solid ${on?T.accent:T.border}`, background:on?T.accent:T.surface, transition:"all 0.12s", userSelect:"none" }}>
                           <span style={{ fontSize:12, fontWeight:700, color:on?"#fff":T.muted, fontFamily:mono }}>{sz}</span>
-                          <span style={{ fontSize:10, color:on?"rgba(255,255,255,0.7)":T.muted }}>
-                            {cost ? `$${Number(cost).toFixed(2)}` : ""}
-                          </span>
+                          <span style={{ fontSize:10, color:on?"rgba(255,255,255,0.7)":T.muted }}>${Number(currentColor.prices[sz]||0).toFixed(2)}</span>
                         </div>
                       );
                     })}
                   </div>
               }
             </div>
-            {sC && Object.keys(sizes).length > 0 && (
+            {selColor && Object.keys(selSizes).length > 0 && (
               <div style={{ padding:"5px 10px", borderTop:`1px solid ${T.border}`, fontSize:10, fontFamily:font, color:T.muted }}>
-                {Object.keys(sizes).length} size{Object.keys(sizes).length!==1?"s":""} selected
+                {Object.keys(selSizes).length} size{Object.keys(selSizes).length!==1?"s":""} selected
               </div>
             )}
           </div>
@@ -485,6 +496,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const [distTotal, setDistTotal] = useState("");
   const [showPicker, setShowPicker] = useState(false);
   const [showManual, setShowManual] = useState(false);
+  const [showAddType, setShowAddType] = useState(null); // "apparel" | null
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
   const [localQtys, setLocalQtys] = useState({});
@@ -550,26 +562,53 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
       {isEmpty && !showPicker && !showManual && (
         <div style={{ padding:"20px 0" }}>
           <div style={{ color:T.faint, fontSize:13, fontFamily:font, marginBottom:12 }}>No items yet — add products to start your buy sheet.</div>
-          <div style={{ display:"flex", gap:10 }}>
-            <button onClick={() => setShowPicker(true)} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
-              Browse S&amp;S Catalog
+          <div style={{ display:"flex", gap:10, marginBottom:showAddType==="apparel"?12:0 }}>
+            <button onClick={() => setShowAddType(showAddType==="apparel"?null:"apparel")} style={{ background:showAddType==="apparel"?T.accent:T.surface, color:showAddType==="apparel"?"#fff":T.text, border:`1px solid ${showAddType==="apparel"?T.accent:T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+              + Apparel
             </button>
-            <button onClick={() => setShowManual(true)} style={{ background:T.surface, color:T.text, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, cursor:"pointer" }}>
-              + Add Manually
+            <button disabled style={{ background:T.surface, color:T.faint, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, cursor:"default", opacity:0.6 }}>
+              + Headwear <span style={{ fontSize:10, marginLeft:4 }}>coming soon</span>
+            </button>
+            <button disabled style={{ background:T.surface, color:T.faint, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, cursor:"default", opacity:0.6 }}>
+              + Accessory <span style={{ fontSize:10, marginLeft:4 }}>coming soon</span>
             </button>
           </div>
+          {showAddType==="apparel"&&(
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={() => setShowPicker(true)} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+                Browse S&amp;S Catalog
+              </button>
+              <button onClick={() => setShowManual(true)} style={{ background:T.surface, color:T.text, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, cursor:"pointer" }}>
+                + Popular
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {!isEmpty && (
         <>
           <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
-            <button onClick={() => { setShowPicker(!showPicker); setShowManual(false); }} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
-              Browse S&amp;S
+            <button onClick={() => { setShowAddType(showAddType==="apparel"?null:"apparel"); setShowPicker(false); setShowManual(false); }} style={{ background:showAddType==="apparel"?T.accent:T.surface, color:showAddType==="apparel"?"#fff":T.muted, border:`1px solid ${showAddType==="apparel"?T.accent:T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+              + Apparel
             </button>
-            <button onClick={() => { setShowManual(!showManual); setShowPicker(false); }} style={{ background:T.surface, color:T.muted, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"pointer" }}>
-              + Manual
+            <button disabled style={{ background:T.surface, color:T.faint, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"default", opacity:0.6 }}>
+              + Headwear <span style={{ fontSize:9, marginLeft:3 }}>soon</span>
             </button>
+            <button disabled style={{ background:T.surface, color:T.faint, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"default", opacity:0.6 }}>
+              + Accessory <span style={{ fontSize:9, marginLeft:3 }}>soon</span>
+            </button>
+            {showAddType==="apparel"&&(
+              <>
+                <div style={{ width:1, height:20, background:T.border }}/>
+                <button onClick={() => { setShowPicker(!showPicker); setShowManual(false); }} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+                  Browse S&amp;S
+                </button>
+                <button onClick={() => { setShowManual(!showManual); setShowPicker(false); }} style={{ background:T.surface, color:T.muted, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"pointer" }}>
+                  + Popular
+                </button>
+              </>
+            )}
             {grandTotal > 0 && <span style={{ fontSize:12, color:T.green, fontFamily:mono, fontWeight:600 }}>{grandTotal.toLocaleString()} units total</span>}
             <div style={{ marginLeft:"auto", display:"flex", gap:12 }}>
               {[["↑↓←→","Nav"],["Enter","↓"],["Tab","→"]].map(([k,l]) => (

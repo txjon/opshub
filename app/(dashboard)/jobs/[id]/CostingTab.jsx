@@ -269,7 +269,7 @@ const CToggle=({label,value,onChange})=>(
   </div>
 );
 
-const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave,saveStatus,initialTab,hideSubTabs})=>{
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave,saveStatus,initialTab,hideSubTabs})=>{
   const [costTab,setCostTab]=useState(initialTab||"calc");
   const [showSendEmail,setShowSendEmail]=useState(false);
   const [collapsed,setCollapsed]=useState(()=>{ const c={}; (costProds||[]).forEach(p=>{ c[p.id]=true; }); return c; });
@@ -1058,25 +1058,26 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
         return(
           <div style={{maxWidth:680,margin:"0 auto"}}>
             {/* Quote details */}
-            <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:14}}>
-              <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Quote details</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-                <CInput label="Quote #" value={orderInfo.invoiceNum} onChange={v=>setOrderInfo(o=>({...o,invoiceNum:v}))}/>
-                <CInput label="Client email" value={orderInfo.clientEmail} onChange={v=>setOrderInfo(o=>({...o,clientEmail:v}))} placeholder="client@example.com"/>
-                <CInput label="Valid until" type="date" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))}/>
-                <CInput label="Ship method" value={orderInfo.shipMethod} onChange={v=>setOrderInfo(o=>({...o,shipMethod:v}))} placeholder="UPS Ground"/>
+            <div style={{display:"flex",gap:12,marginBottom:14,alignItems:"flex-start"}}>
+              <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",flex:1}}>
+                <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Quote details</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <CInput label="Quote #" value={orderInfo.invoiceNum} onChange={v=>setOrderInfo(o=>({...o,invoiceNum:v}))}/>
+                  <CInput label="Valid until" type="date" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))}/>
+                </div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <button onClick={()=>setShowSendEmail(!showSendEmail)} style={{background:T.purple,color:"#fff",border:"none",borderRadius:7,padding:"6px 16px",fontSize:12,fontFamily:font,fontWeight:600,cursor:"pointer",width:"100%"}}>Send to Client</button>
+                <button onClick={()=>{const a=document.createElement("a");a.href=`/api/pdf/quote/${project.id}`;a.download="quote.pdf";a.click();}} style={{background:T.accent,color:"#fff",border:"none",borderRadius:7,padding:"6px 16px",fontSize:12,fontFamily:font,fontWeight:600,cursor:"pointer",width:"100%"}}>Download</button>
               </div>
             </div>
-            <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
-              <div style={{fontSize:12,color:T.muted,fontFamily:font,flex:1}}>Preview — this is what your client sees</div>
-              <button onClick={()=>{const a=document.createElement("a");a.href=`/api/pdf/quote/${project.id}`;a.download="quote.pdf";a.click();}} style={{background:T.accent,color:"#fff",border:"none",borderRadius:7,padding:"6px 16px",fontSize:12,fontFamily:font,fontWeight:600,cursor:"pointer"}}>⬇ Download PDF</button>
-              <button onClick={()=>setShowSendEmail(!showSendEmail)} style={{background:T.purple,color:"#fff",border:"none",borderRadius:7,padding:"6px 16px",fontSize:12,fontFamily:font,fontWeight:600,cursor:"pointer"}}>Send to Client</button>
-            </div>
+            <div style={{fontSize:12,color:T.muted,fontFamily:font,marginBottom:10}}>Preview — this is what your client sees</div>
             {showSendEmail&&(
               <div style={{marginBottom:14}}>
                 <SendEmailDialog
                   type="quote"
                   jobId={project.id}
+                  contacts={(contacts||[]).map(c=>({name:c.name||c.full_name||"",email:c.email||""}))}
                   defaultEmail={orderInfo.clientEmail||""}
                   defaultSubject={`Quote${orderInfo.invoiceNum?" #"+orderInfo.invoiceNum:""} — ${project.clients?.name||project.title||"House Party Distro"}`}
                   onClose={()=>setShowSendEmail(false)}
@@ -1220,7 +1221,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
 
 export { CostingTab };
 
-export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false }) {
+export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false }) {
   const [pricingReady, setPricingReady] = useState(false);
   const vendorIdMapRef = React.useRef({});
   const lastBuyItemsRef = React.useRef("");
@@ -1278,18 +1279,19 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
   const [costMargin, setCostMargin] = useState(savedData?.costMargin || "30%");
   const [inclShip, setInclShip] = useState(savedData?.inclShip !== undefined ? savedData.inclShip : true);
   const [inclCC, setInclCC] = useState(savedData?.inclCC !== undefined ? savedData.inclCC : true);
-  const [orderInfo, setOrderInfo] = useState(savedData?.orderInfo || {
+  const defaultValidUntil = (() => { const d = new Date(); d.setDate(d.getDate() + 15); return d.toISOString().split("T")[0]; })();
+  const [orderInfo, setOrderInfo] = useState(savedData?.orderInfo ? { ...savedData.orderInfo, validUntil: savedData.orderInfo.validUntil || defaultValidUntil } : {
     clientEmail: "",
     invoiceNum: project?.job_number || "",
-    validUntil: "",
+    validUntil: defaultValidUntil,
     shipMethod: "",
     vendorId: "",
     productionNotes: "", finishingNotes: "",
   });
-  const [savedOrderInfo, setSavedOrderInfo] = useState(savedData?.orderInfo || {
+  const [savedOrderInfo, setSavedOrderInfo] = useState(savedData?.orderInfo ? { ...savedData.orderInfo, validUntil: savedData.orderInfo.validUntil || defaultValidUntil } : {
     clientEmail: "",
     invoiceNum: project?.job_number || "",
-    validUntil: "",
+    validUntil: defaultValidUntil,
     shipMethod: "",
     vendorId: "",
     productionNotes: "", finishingNotes: "",
@@ -1402,7 +1404,7 @@ export function CostingTabWrapper({ project, buyItems = [], onUpdateBuyItems, on
   if (!pricingReady) return <div style={{padding:"2rem",color:"#7a82a0",fontSize:13}}>Loading pricing...</div>;
   return (
     <CostingTab
-      project={project} buyItems={buyItems} onUpdateBuyItems={onUpdateBuyItems}
+      project={project} buyItems={buyItems} contacts={contacts} onUpdateBuyItems={onUpdateBuyItems}
       costProds={costProds} setCostProds={setCostProds}
       costMargin={costMargin} setCostMargin={setCostMargin}
       inclShip={inclShip} setInclShip={setInclShip}
