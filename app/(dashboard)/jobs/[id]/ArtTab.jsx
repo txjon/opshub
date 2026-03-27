@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { buildMockupClient } from "@/lib/mockup-client";
+import { buildMockupClient, preloadTemplate } from "@/lib/mockup-client";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
 
@@ -266,30 +266,42 @@ function ItemArtSection({ item, clientName, projectTitle, onFilesChanged }) {
 }
 
 function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
-  useEffect(() => { preloadLogo(); }, []);
+  useEffect(() => { preloadLogo(); preloadTemplate(); }, []);
   const [mockupData, setMockupData] = useState(null);
   const [generating, setGenerating] = useState(false);
+  const [genStatus, setGenStatus] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState(null);
   const [dragover, setDragover] = useState(false);
+  const [fileName, setFileName] = useState("");
   const mockupInputRef = useRef(null);
 
   async function processFile(file) {
-    if (!file || !file.name.endsWith(".psd")) return;
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".psd")) {
+      setError("Only .psd files are supported. Drop a Photoshop file.");
+      return;
+    }
+    setFileName(file.name);
     setGenerating(true);
     setError(null);
     setMockupData(null);
     setSaved(false);
 
     try {
+      setGenStatus("Reading PSD...");
       const arrayBuffer = await file.arrayBuffer();
+      setGenStatus("Building mockup...");
       const result = await buildMockupClient(arrayBuffer);
+      setGenStatus("Done");
       setMockupData({ mockup: result.mockupBase64, dataUrl: result.dataUrl, uploadDataUrl: result.uploadDataUrl, printInfo: result.printInfo, psdFile: file });
     } catch (err) {
       setError(err.message);
     } finally {
       setGenerating(false);
+      setGenStatus("");
     }
   }
 
@@ -302,28 +314,28 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     const driveCtx = { clientName, projectTitle, itemName: item.name || "" };
 
     try {
-      // Upload original PSD art file
       let folderLink = null;
+
+      setSaveStatus("Uploading art file...");
       if (mockupData.psdFile) {
         const psdFile = await uploadToDrive({ blob: mockupData.psdFile, fileName: mockupData.psdFile.name, mimeType: "application/octet-stream", ...driveCtx });
         await registerFileInDb({ ...psdFile, itemId: item.id, stage: "print_ready" });
         folderLink = psdFile.folderLink;
       }
 
-      // Upload mockup (convert data URL to blob)
+      setSaveStatus("Uploading mockup...");
       const mockupRes = await fetch(mockupData.uploadDataUrl);
       const mockupBlob = await mockupRes.blob();
       const mockupFile = await uploadToDrive({ blob: mockupBlob, fileName: `${safeName} - Mockup.jpg`, mimeType: "image/jpeg", ...driveCtx });
       await registerFileInDb({ ...mockupFile, itemId: item.id, stage: "mockup" });
       if (!folderLink) folderLink = mockupFile.folderLink;
 
-      // Upload proof PDF
+      setSaveStatus("Uploading proof...");
       const doc = buildProofPdf();
       const pdfBlob = doc.output("blob");
       const proofFile = await uploadToDrive({ blob: pdfBlob, fileName: `${safeName} - Print Proof.pdf`, mimeType: "application/pdf", ...driveCtx });
       await registerFileInDb({ ...proofFile, itemId: item.id, stage: "proof" });
 
-      // Set item's drive_link to the folder URL
       if (folderLink) {
         await fetch("/api/drive/register", {
           method: "PATCH",
@@ -338,6 +350,7 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
       setError(err.message);
     } finally {
       setSaving(false);
+      setSaveStatus("");
     }
   }
 
@@ -368,6 +381,13 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
     }
   }
 
+  function reset() {
+    setMockupData(null);
+    setError(null);
+    setSaved(false);
+    setFileName("");
+  }
+
   function handleDrop(e) {
     e.preventDefault();
     setDragover(false);
@@ -396,14 +416,20 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
       )}
 
       {generating && (
-        <div style={{ textAlign: "center", padding: "14px 0", fontSize: 11, color: T.muted }}>
-          Generating mockup & proof...
+        <div style={{ textAlign: "center", padding: "14px 0" }}>
+          <div style={{ fontSize: 11, color: T.muted, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <span style={{ display: "inline-block", width: 12, height: 12, border: `2px solid ${T.border}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            {genStatus || "Generating..."}
+          </div>
+          {fileName && <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>{fileName}</div>}
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
 
       {error && (
-        <div style={{ padding: 10, background: T.redDim, borderRadius: 8, fontSize: 11, color: T.red, marginTop: 6 }}>
-          {error}
+        <div style={{ padding: 10, background: T.redDim, borderRadius: 8, fontSize: 11, color: T.red, marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>{error}</span>
+          <button onClick={reset} style={{ background: "none", border: "none", color: T.red, cursor: "pointer", fontSize: 11, fontWeight: 600, flexShrink: 0 }}>Dismiss</button>
         </div>
       )}
 
@@ -453,29 +479,41 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
           </div>
 
           {/* Action buttons */}
-          <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
-            <button onClick={downloadPdf} disabled={downloading} style={{
-              background: T.accent, border: "none", borderRadius: 6, color: "#fff",
-              fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 14px",
-              cursor: downloading ? "default" : "pointer", opacity: downloading ? 0.6 : 1,
-            }}>
-              {downloading ? "Generating PDF..." : "Download PDF"}
-            </button>
-            <button onClick={handleSaveToDrive} disabled={saving || saved} style={{
-              background: saved ? T.greenDim : T.surface, border: `1px solid ${saved ? T.green : T.border}`,
-              borderRadius: 6, color: saved ? T.green : T.text,
-              fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 14px",
-              cursor: saving || saved ? "default" : "pointer", opacity: saving ? 0.6 : 1,
-            }}>
-              {saved ? "Saved to Drive" : saving ? "Saving..." : "Save to Drive"}
-            </button>
-            <button onClick={() => { setMockupData(null); setError(null); setSaved(false); }} style={{
-              background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6,
-              color: T.muted, fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 14px", cursor: "pointer",
-            }}>
-              Reset
-            </button>
-          </div>
+          {saved ? (
+            <div style={{ textAlign: "center", padding: "8px 0" }}>
+              <div style={{ fontSize: 11, color: T.green, fontWeight: 600, marginBottom: 8 }}>Saved to Google Drive</div>
+              <button onClick={reset} style={{
+                background: T.accent, border: "none", borderRadius: 6, color: "#fff",
+                fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 18px", cursor: "pointer",
+              }}>
+                Generate Another
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+              <button onClick={downloadPdf} disabled={downloading || saving} style={{
+                background: T.accent, border: "none", borderRadius: 6, color: "#fff",
+                fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 14px",
+                cursor: downloading || saving ? "default" : "pointer", opacity: downloading || saving ? 0.6 : 1,
+              }}>
+                {downloading ? "Generating PDF..." : "Download PDF"}
+              </button>
+              <button onClick={handleSaveToDrive} disabled={saving || downloading} style={{
+                background: T.surface, border: `1px solid ${T.border}`,
+                borderRadius: 6, color: T.text,
+                fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 14px",
+                cursor: saving || downloading ? "default" : "pointer", opacity: saving || downloading ? 0.6 : 1,
+              }}>
+                {saving ? (saveStatus || "Saving...") : "Save to Drive"}
+              </button>
+              <button onClick={reset} style={{
+                background: "none", border: "none",
+                color: T.faint, fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 8px", cursor: "pointer",
+              }}>
+                Reset
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
