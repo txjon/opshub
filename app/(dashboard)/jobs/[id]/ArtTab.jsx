@@ -36,18 +36,18 @@ function FileCard({ file, onDelete, onApproval }) {
   return (
     <div style={{
       background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
-      padding: 10, display: "flex", gap: 10, alignItems: "flex-start",
+      padding: 8, display: "flex", gap: 8, alignItems: "flex-start", overflow: "hidden",
     }}>
       {/* Thumbnail or file type icon */}
       <div style={{
-        width: 56, height: 56, borderRadius: 6, overflow: "hidden", flexShrink: 0,
+        width: 40, height: 40, borderRadius: 5, overflow: "hidden", flexShrink: 0,
         background: T.card, display: "flex", alignItems: "center", justifyContent: "center",
       }}>
         {thumbUrl ? (
           <img src={thumbUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            onError={e => { e.target.style.display = "none"; e.target.parentElement.innerHTML = `<span style="font-size:20px;color:${T.faint}">📄</span>`; }} />
+            onError={e => { e.target.style.display = "none"; e.target.parentElement.innerHTML = `<span style="font-size:16px;color:${T.faint}">📄</span>`; }} />
         ) : (
-          <span style={{ fontSize: 20, color: T.faint }}>📄</span>
+          <span style={{ fontSize: 16, color: T.faint }}>📄</span>
         )}
       </div>
 
