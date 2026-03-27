@@ -20,23 +20,23 @@ Internal operations platform for House Party Distro, a custom apparel company in
 ```
 app/(dashboard)/
   dashboard/          — KPI dashboard with stuck-in-production detection
-  jobs/               — Project list with search + phase filters
+  jobs/               — Project list with search, phase filters, item progress counts
   jobs/new/           — New project form with client typeahead + creation modal
-  jobs/[id]/          — Project detail (main hub, vertical tab nav)
-  clients/            — Client list (clickable → detail page)
+  jobs/[id]/          — Project detail (main hub, horizontal pill tabs)
+  clients/            — Client list with search (clickable → detail page)
   clients/[id]/       — Client detail (editable info, contacts, project history)
-  decorators/         — Decorator list with expandable detail + pricing editor
+  decorators/         — Decorator list with search + expandable detail + pricing editor
   blank-catalog/      — Manual blank catalog manager
-  production/         — Standalone production view
-  receiving/          — Standalone receiving view
-  shipping/           — Standalone shipping view
+  production/         — Cross-project pipeline board (all items, stats, inline stage advance)
+  warehouse/          — Cross-project receiving + shipping (side by side)
   templates/          — Job templates
-  settings/           — Manager settings
+  settings/           — Manager settings (invite/edit team)
 
 app/api/
   auth/signout/       — Sign out handler
-  email/send/         — Send quote/PO PDF via Resend (multi-recipient)
+  email/send/         — Send quote/PO/invoice PDF via Resend (multi-recipient)
   files/              — Art file upload/list/delete/approval (Google Drive)
+  pdf/invoice/[jobId]/ — Generate client invoice PDF via Browserless
   pdf/po/[jobId]/     — Generate PO PDF via Browserless
   pdf/quote/[jobId]/  — Generate quote PDF via Browserless
   ss/                 — S&S Activewear API proxy
@@ -234,6 +234,27 @@ Server component showing:
 - Finance summary
 - All active projects list
 
+### Standalone Production Page (`/production`)
+
+Client component — cross-project pipeline board for production team:
+- **Stats strip**: items needing blanks ordered, waiting on proofs, stalled 7+ days, shipping this week
+- **Grouped by stage**: Blanks Ordered, In Production, Shipped
+- **Per-item row**: name, client/project, decorator, units, stage-specific data (S&S order / proof status / tracking), days in stage, ship date
+- **Inline stage buttons**: advance/retreat items without clicking into project
+- **Filters**: search, decorator dropdown, stalled-only toggle
+- **Sort**: ship date (soonest first), then days in stage (longest first)
+
+### Invoice PDF (`/api/pdf/invoice/[jobId]`)
+
+Client-facing invoice matching PO/quote style:
+- HPD logo + address header
+- Bill to client (primary contact name + email)
+- Info bar: date, terms, ship date, project name
+- Line item table: item name, sizes, qty, unit price, total
+- Subtotal, paid amount, balance due
+- Payment history table
+- Preview + Download buttons on Overview tab above payment records
+
 ## Database
 
 ### Key Tables
@@ -313,10 +334,13 @@ Loading skeleton components with shimmer animation. `Skeleton` (single bar), `Sk
 Floating global team chat. Bottom-right button accessible from every page. Messages stored in `messages` table, polls every 5s. Rendered via `DashboardShell` in the dashboard layout.
 
 ### `components/NotificationBell.tsx`
-Notification dropdown (built, not yet wired into sidebar). Shows unread count, click to expand. Supports @mention, alert, approval, payment, production notification types.
+Notification dropdown in sidebar header. Shows unread count badge, click to expand. Polls every 15s. Click notification to jump to referenced job. Supports @mention, alert, approval, payment, production notification types.
 
 ### `components/JobActivityPanel.tsx`
-Job-level activity feed component. Currently not used in the UI (Overview shows static stats instead). Exports `logJobActivity()` helper for auto-logging events from other components. Can be re-enabled when auto-logging is wired up.
+Job-level activity feed component + auto-logging helpers:
+- `logJobActivity(jobId, message)` — logs auto events to `job_activity` table. Called from: quote sent/approved, PO sent, payment added/status changed, stage advanced, files uploaded, blanks ordered, shipping tracked.
+- `notifyTeam(message, type, referenceId, referenceType)` — broadcasts notification to all team members. Called on: quote approved, payment received.
+- `JobActivityPanel` component — embeddable feed (used on Overview tab as static stats, full feed available).
 
 ### `scripts/verify-costing.js`
 CLI tool to verify costing math. Run `node scripts/verify-costing.js` to list jobs, `node scripts/verify-costing.js <jobId>` for full calculation breakdown of every item — compare against Excel.
@@ -378,32 +402,25 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 
 ## Known Issues / Future Work
 
-### Next up (queued for next session)
-1. Projects list — show phase progress counts (e.g. "Production · 3/5 items")
-2. Standalone Production page rebuild — cross-project pipeline board
-3. Auto-log events to job_activity (PO sent, quote approved, payment, stage change, file upload)
-4. Invoice PDF generation — deposit, balance, full payment with line items
-5. Notification bell wired into sidebar
-
-### Deferred
+### Deferred automation
 - Auto-generate invoice numbers — format TBD
-- Size curve memory — remember last distribution curve per client/project type (needs cross-project tracking)
+- Size curve memory — remember last distribution curve per client/project type
+- Scheduled notifications for overdue payments + stalled items (needs background jobs)
+
+### Deferred features
 - Client item catalog — searchable library per client for reordering
-- Multi-file drag-and-drop upload for Art Files tab (on hold)
-- AS Colour blank catalog CSV import — pricing file ready, import script not yet built
-
-### Structural / technical
-- **Permissions refactor planned**: Role-based access enforcement (not just nav hiding) — blocked on Jon's team meeting
-- Standalone Receiving (`/receiving`) and Shipping (`/shipping`) pages removed from sidebar (replaced by `/warehouse`)
-- No decoration type selector (defaults to screen_print) — could pull from decorator capabilities
-- Templates page "Use template" button is not wired up
-- Pricing logic duplicated in CostingTab, PO route, and Quote route — working but not DRY
-
-### Future features
 - Client communication trail (log emails sent to project activity)
 - Decorator portal / two-way status updates
 - Client financial summary across projects
 - Dashboard action buttons (not just passive alerts)
+- Multi-file drag-and-drop upload for Art Files tab
+- AS Colour blank catalog CSV import
+
+### Structural / technical
+- **Permissions refactor planned**: Role-based access enforcement (not just nav hiding) — blocked on Jon's team meeting
+- No decoration type selector (defaults to screen_print) — could pull from decorator capabilities
+- Templates page "Use template" button is not wired up
+- Pricing logic duplicated in CostingTab, PO route, and Quote route — working but not DRY
 
 ## Owner
 
