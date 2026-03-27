@@ -303,9 +303,11 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
 
     try {
       // Upload original PSD art file
+      let folderLink = null;
       if (mockupData.psdFile) {
         const psdFile = await uploadToDrive({ blob: mockupData.psdFile, fileName: mockupData.psdFile.name, mimeType: "application/octet-stream", ...driveCtx });
         await registerFileInDb({ ...psdFile, itemId: item.id, stage: "print_ready" });
+        folderLink = psdFile.folderLink;
       }
 
       // Upload mockup (convert data URL to blob)
@@ -313,12 +315,22 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged }) {
       const mockupBlob = await mockupRes.blob();
       const mockupFile = await uploadToDrive({ blob: mockupBlob, fileName: `${safeName} - Mockup.jpg`, mimeType: "image/jpeg", ...driveCtx });
       await registerFileInDb({ ...mockupFile, itemId: item.id, stage: "mockup" });
+      if (!folderLink) folderLink = mockupFile.folderLink;
 
       // Upload proof PDF
       const doc = buildProofPdf();
       const pdfBlob = doc.output("blob");
       const proofFile = await uploadToDrive({ blob: pdfBlob, fileName: `${safeName} - Print Proof.pdf`, mimeType: "application/pdf", ...driveCtx });
       await registerFileInDb({ ...proofFile, itemId: item.id, stage: "proof" });
+
+      // Set item's drive_link to the folder URL
+      if (folderLink) {
+        await fetch("/api/drive/register", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemId: item.id, driveLink: folderLink }),
+        });
+      }
 
       setSaved(true);
       if (onFilesChanged) onFilesChanged();

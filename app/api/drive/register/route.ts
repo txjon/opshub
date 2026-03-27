@@ -27,14 +27,26 @@ export async function POST(req: NextRequest) {
 
     if (error) throw new Error(error.message);
 
-    // Auto-update item's drive_link for print-ready files
-    if (stage === "print_ready") {
-      await supabase.from("items").update({ drive_link: webViewLink }).eq("id", itemId);
-    }
-
     return NextResponse.json({ success: true, file: data });
   } catch (e: any) {
     console.error("Register error:", e);
+    return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
+  }
+}
+
+// Update item's drive_link (folder URL)
+export async function PATCH(req: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { itemId, driveLink } = await req.json();
+    if (!itemId || !driveLink) return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+
+    await supabase.from("items").update({ drive_link: driveLink }).eq("id", itemId);
+    return NextResponse.json({ success: true });
+  } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
   }
 }

@@ -5,7 +5,6 @@ export const preferredRegion = "iad1";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
-import { getItemFolderId } from "@/lib/google-drive";
 import { generatePDF } from "@/lib/pdf/browser";
 
 const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
@@ -397,18 +396,6 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         letter: String.fromCharCode(65 + sortedIdx), // letter based on full sorted list
       };
     });
-
-    // Get Drive folder links for each item
-    const clientName = (job.clients as any)?.name || "";
-    const projectTitle = job.title || "";
-    for (const it of allMapped) {
-      if (clientName && projectTitle && it.name) {
-        try {
-          const folderId = await getItemFolderId(clientName, projectTitle, it.name);
-          it.drive_link = `https://drive.google.com/drive/folders/${folderId}`;
-        } catch (e) { /* keep existing drive_link if folder lookup fails */ }
-      }
-    }
 
     const mappedItems = allMapped.filter((it: any) => it.totalQty > 0);
 
