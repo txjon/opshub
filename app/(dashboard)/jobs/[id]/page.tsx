@@ -521,6 +521,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
 
+              {/* Invoice */}
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>window.open(`/api/pdf/invoice/${job.id}`,"_blank")}
+                  style={{flex:1,background:T.accent,border:"none",borderRadius:8,color:"#fff",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:600,padding:"8px",cursor:"pointer",textAlign:"center"}}>
+                  Preview Invoice
+                </button>
+                <button onClick={()=>{const a=document.createElement("a");a.href=`/api/pdf/invoice/${job.id}?download=1`;a.download="invoice.pdf";a.click();}}
+                  style={{background:T.green,border:"none",borderRadius:8,color:"#fff",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:600,padding:"8px 16px",cursor:"pointer"}}>
+                  Download
+                </button>
+              </div>
+
               {/* Payment records */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
