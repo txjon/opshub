@@ -388,7 +388,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         blank_vendor: it.blank_vendor,
         blank_sku: it.blank_sku,
         drive_link: it.drive_link,
-        mockupThumb: mockupFileId ? `https://drive.google.com/thumbnail?id=${mockupFileId}&sz=w300` : null,
+        mockupThumb: mockupFileId ? `https://lh3.googleusercontent.com/d/${mockupFileId}=w300` : null,
         incoming_goods: it.incoming_goods,
         production_notes_po: it.production_notes_po,
         packing_notes: it.packing_notes,
