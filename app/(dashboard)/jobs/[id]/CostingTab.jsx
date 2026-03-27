@@ -144,7 +144,17 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
       printTotal+=lookupPrintPrice(printer,effectiveQty,ld.screens);
     }
   }
-  if(p.tagPrint&&p.printVendor) printTotal+=lookupTagPrice(p.printVendor,qty);
+  if(p.tagPrint&&p.printVendor){
+    const tagGroup=p.tagShareGroup||"";
+    let tagEffQty=qty;
+    if(tagGroup&&allProds){
+      tagEffQty=allProds.reduce((sum,cp)=>{
+        if(cp.tagPrint&&cp.tagShareGroup&&cp.tagShareGroup.trim().toLowerCase()===tagGroup.trim().toLowerCase()) return sum+(cp.totalQty||0);
+        return sum;
+      },0)||qty;
+    }
+    printTotal+=lookupTagPrice(p.printVendor,tagEffQty);
+  }
   let finUnitRate=0;
   if(p.finishingQtys&&p.printVendor){
     const pr=PRINTERS[p.printVendor];
@@ -224,7 +234,7 @@ const fmtP=(n)=>((Number(n||0)*100).toFixed(1)+"%");
 
 
 // --- COSTING COMPONENTS ---
-const EMPTY_COST_PRODUCT=()=>({id:Date.now()+Math.random(),name:"",style:"",color:"",sizes:[],qtys:{},blankCosts:{},totalQty:0,unitPrice:0,sellOverride:null,isFleece:false,printVendor:"",printCount:4,printLocations:{},tagPrint:false,tagRepeat:false,tagPrintPrinter:"",specialtyQtys:{},finishingQtys:{},customCosts:[],finishingType:"",finishingPrinter:"",finishingCostOverride:0,specialties:[],setupFees:{printer:"",screens:0,tagSizes:0,seps:0,inkChanges:0,manualCost:0}});
+const EMPTY_COST_PRODUCT=()=>({id:Date.now()+Math.random(),name:"",style:"",color:"",sizes:[],qtys:{},blankCosts:{},totalQty:0,unitPrice:0,sellOverride:null,isFleece:false,printVendor:"",printCount:4,printLocations:{},tagPrint:false,tagRepeat:false,tagShared:false,tagShareGroup:"",tagPrintPrinter:"",specialtyQtys:{},finishingQtys:{},customCosts:[],finishingType:"",finishingPrinter:"",finishingCostOverride:0,specialties:[],setupFees:{printer:"",screens:0,tagSizes:0,seps:0,inkChanges:0,manualCost:0}});
 
 const CInput=({label,value,onChange,type="text",prefix,suffix,options,placeholder,small})=>{
   const base={background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,fontFamily:type==="number"?mono:font,fontSize:12,padding:small?"6px 10px":"8px 12px",outline:"none",width:"100%",boxSizing:"border-box"};
@@ -459,13 +469,16 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                         </div>
                       </div>
                       {/* Collapsible size grid */}
-                      <div onClick={()=>updateProd(i,{...p,_blankOpen:!p._blankOpen})} style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",padding:"6px 8px",borderRadius:6,background:p._blankOpen?T.accentDim:T.surface,border:"1px solid "+(p._blankOpen?T.accent+"44":T.border),marginBottom:p._blankOpen?8:0,transition:"all 0.15s"}}>
-                        <div style={{fontSize:10,fontWeight:700,color:p._blankOpen?T.accent:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</div>
-                        <div style={{display:"flex",alignItems:"center",gap:12}}>
-                          {!p._blankOpen&&p.totalQty>0&&<span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()} units</span>}
-                          {!p._blankOpen&&Object.keys(p.blankCosts||{}).length>0&&<span style={{fontSize:11,color:T.accent,fontFamily:mono}}>{fmtD(Object.entries(p.blankCosts||{}).reduce((a,[sz,bc])=>a+bc*(p.qtys?.[sz]||0)*1.035,0))}</span>}
+                      <div onClick={()=>updateProd(i,{...p,_blankOpen:!p._blankOpen})} style={{cursor:"pointer",padding:"12px 8px",borderRadius:6,background:p._blankOpen?T.accentDim:T.surface,border:"1px solid "+(p._blankOpen?T.accent+"44":T.border),marginBottom:p._blankOpen?8:0,transition:"all 0.15s"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:!p._blankOpen&&(p.sizes||[]).some(sz=>(p.qtys?.[sz]||0)>0)?6:0}}>
+                          <div style={{fontSize:10,fontWeight:700,color:p._blankOpen?T.accent:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</div>
                           <span style={{fontSize:11,color:p._blankOpen?T.accent:T.faint,display:"inline-block",transform:p._blankOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.15s"}}>v</span>
                         </div>
+                        {!p._blankOpen&&(p.sizes||[]).some(sz=>(p.qtys?.[sz]||0)>0)&&(
+                          <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                            {(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).map(sz=><span key={sz} style={{fontSize:11,color:T.text,fontFamily:mono}}>{sz}: {p.qtys[sz]}</span>)}
+                          </div>
+                        )}
                       </div>
                       {p._blankOpen&&<div style={{borderRadius:8,border:"1px solid "+T.border,overflow:"hidden"}}>
                           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
@@ -520,7 +533,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                       <div>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Item notes</div>
                         <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})} placeholder="Internal notes for this item..."
-                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:52,boxSizing:"border-box"}}/>
+                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:72,boxSizing:"border-box"}}/>
                       </div>
                       {r&&(
                         <div style={{borderRadius:8,border:"1px solid "+T.border,overflow:"hidden",marginTop:4}}>
@@ -548,7 +561,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                     <div style={{display:"flex",flexDirection:"column",gap:12,paddingLeft:16}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:6,borderBottom:"1px solid "+T.border}}>
                         <div style={{fontSize:10,fontWeight:700,color:T.amber,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.1em"}}>Decoration</div>
-                        {i>0&&costProds[i-1]&&<button onClick={()=>{const prev=costProds[i-1];updateProd(i,{...p,printVendor:prev.printVendor,printLocations:JSON.parse(JSON.stringify(prev.printLocations||{})),printCount:prev.printCount||4,tagPrint:prev.tagPrint,tagRepeat:prev.tagRepeat,setupFees:{...prev.setupFees}});}}
+                        {i>0&&costProds[i-1]&&<button onClick={()=>{const prev=costProds[i-1];updateProd(i,{...p,printVendor:prev.printVendor,printLocations:JSON.parse(JSON.stringify(prev.printLocations||{})),printCount:prev.printCount||4,tagPrint:prev.tagPrint,tagRepeat:prev.tagRepeat,tagShared:prev.tagShared,tagShareGroup:prev.tagShareGroup,setupFees:{...prev.setupFees}});}}
                           style={{fontSize:10,color:T.accent,fontFamily:font,background:T.accentDim,border:"1px solid "+T.accent+"44",borderRadius:5,cursor:"pointer",padding:"2px 10px",fontWeight:600}}>⎘ Copy from previous</button>}
                       </div>
                       {/* Print Locations */}
@@ -603,7 +616,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                 const unitCost=active?lookupPrintPrice(effectivePrinter,effectiveQty||p.totalQty||0,ld.screens):0;
                                 const isLast=idx===(p.printCount||4)-1;
                                 return(
-                                  <tr key={loc} style={{borderBottom:isLast?"none":`1px solid ${T.border}22`,background:active?T.accentDim:T.card}}>
+                                  <tr key={loc} style={{borderBottom:isLast?"none":`1px solid ${T.border}`,background:active?T.accentDim:T.card}}>
                                     <td style={{padding:"5px 10px",borderRight:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>
                                       <span style={{fontSize:11,fontWeight:700,color:active?T.accent:T.faint,fontFamily:font}}>Print {loc}</span>
                                     </td>
@@ -612,6 +625,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                         placeholder="Front / Back / Sleeve…"
                                         list={`loc-opts-${i}-${loc}`}
                                         data-costfield
+                                        onFocus={e=>e.target.select()}
                                         onKeyDown={e=>{
                                           if(e.key==="Enter"||e.key==="Tab"){focusNext(e,e.shiftKey);}
                                           if(e.key==="ArrowDown"&&!e.target.list){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:false},false);}
@@ -622,29 +636,33 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                         {LOCATION_PRESETS.map(l=><option key={l} value={l}/>)}
                                       </datalist>
                                     </td>
-                                    <td style={{padding:"4px 6px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
+                                    <td style={{padding:"4px 6px",borderRight:`1px solid ${T.border}`,textAlign:"center",cursor:"text"}} onClick={e=>{const input=e.currentTarget.querySelector("input");if(input){input.focus();input.select();}}}>
                                       <input type="text" inputMode="numeric" pattern="[0-9]*" value={ld.screens||""} placeholder="0"
                                         onChange={e=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,screens:parseFloat(e.target.value)||0,printer:ld.printer||p.printVendor||""}}})}
+                                        onFocus={e=>e.target.select()}
                                         data-costfield onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab")focusNext(e,e.shiftKey);if(e.key==="ArrowDown"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:false},false);}if(e.key==="ArrowUp"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:true},true);}}}
-                                        style={{width:50,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono}}/>
+                                        style={{width:"100%",textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono}}/>
                                     </td>
                                     <td style={{padding:"4px 6px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
                                       {isShared?(
-                                        <div style={{display:"flex",alignItems:"center",gap:3}}>
-                                          <input value={shareGroup} onChange={e=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,shareGroup:e.target.value.toUpperCase()}}})}
-                                            placeholder="Grp"
-                                            style={{width:32,textAlign:"center",background:T.surface,border:`1px solid ${T.accent}`,borderRadius:3,color:T.accent,fontFamily:mono,fontSize:10,fontWeight:700,padding:"2px",outline:"none"}}/>
+                                        <div style={{display:"flex",alignItems:"center",gap:2,justifyContent:"center"}}>
+                                          <div style={{display:"inline-flex",borderRadius:4,overflow:"hidden"}}>
+                                            {["A","B","C","D"].map((g,gi)=>{
+                                              const sel=shareGroup===g;
+                                              return <button key={g} onClick={()=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,shareGroup:g}}})}
+                                                style={{padding:"2px 6px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${sel?T.accent:T.text}`,marginLeft:gi>0?-1:0,cursor:"pointer",background:sel?T.accent:"transparent",color:sel?"#fff":T.text,borderRadius:gi===0?"4px 0 0 4px":gi===3?"0 4px 4px 0":"0",position:"relative",zIndex:sel?1:0}}>{g}</button>;
+                                            })}
+                                          </div>
                                           <button onClick={()=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,shared:false,shareGroup:""}}})}
-                                            style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:9}}
+                                            style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:9,marginLeft:2}}
                                             onMouseEnter={e=>e.currentTarget.style.color=T.red}
                                             onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
-                                          {sharedQty>0&&<span style={{fontSize:8,color:T.accent,fontFamily:mono}}>{sharedQty}</span>}
                                         </div>
                                       ):(
                                         <button onClick={()=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,shared:true,shareGroup:""}}})}
-                                          style={{fontSize:9,color:T.faint,fontFamily:font,background:"none",border:`1px solid ${T.border}`,borderRadius:3,padding:"2px 6px",cursor:"pointer"}}
-                                          onMouseEnter={e=>{e.currentTarget.style.color=T.accent;e.currentTarget.style.borderColor=T.accent;}}
-                                          onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border;}}>Share</button>
+                                          style={{fontSize:9,color:T.text,fontFamily:font,background:"none",border:`1px solid ${T.text}`,borderRadius:3,padding:"2px 6px",cursor:"pointer",opacity:0.7}}
+                                          onMouseEnter={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.color=T.accent;e.currentTarget.style.borderColor=T.accent;}}
+                                          onMouseLeave={e=>{e.currentTarget.style.opacity="0.7";e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.text;}}>Share</button>
                                       )}
                                     </td>
                                     <td style={{padding:"5px 10px",textAlign:"center",fontFamily:mono,fontSize:12,fontWeight:active?700:400,color:active?T.green:T.faint}}>
@@ -654,62 +672,76 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                 );
                               })}
                               {/* Tag Print row */}
-                              <tr style={{background:p.tagPrint?T.accentDim:T.card,verticalAlign:"top",borderTop:`2px solid ${T.border}`}}>
+                              <tr style={{background:p.tagPrint?T.accentDim:T.card,verticalAlign:"middle",borderTop:`2px solid ${T.border}`}}>
                                 <td style={{padding:"8px 10px",borderRight:`1px solid ${T.border}`,width:"15%"}}>
                                   <span style={{fontSize:11,fontWeight:700,color:p.tagPrint?T.accent:T.faint,fontFamily:font}}>Tag</span>
                                 </td>
                                 <td style={{padding:"6px 6px",borderRight:`1px solid ${T.border}`,width:"40%"}}>
-                                  <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"flex-start"}}>
-                                    <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${p.tagPrint?T.accent:T.border}`}}>
-                                      {["Yes","No"].map(opt=>{
-                                        const sel=(p.tagPrint?"Yes":"No")===opt;
+                                  {(()=>{
+                                    const opts=["No","Yes","Repeat"];
+                                    return <div style={{display:"inline-flex",borderRadius:6,overflow:"hidden"}}>
+                                      {opts.map((opt,oi)=>{
+                                        const active=opt==="No"?!p.tagPrint:opt==="Yes"?(p.tagPrint&&!p.tagRepeat):(p.tagPrint&&p.tagRepeat);
+                                        const bg=active?(opt==="Repeat"?T.amber:opt==="Yes"?T.accent:T.surface):T.card;
+                                        const fg=active?(opt==="No"?T.text:"#fff"):T.faint;
+                                        const borderColor=p.tagPrint?(p.tagRepeat?T.amber:T.accent):T.border;
                                         return(
                                           <button key={opt} onClick={()=>{
-                                            const isYes=opt==="Yes";
                                             const sizeCount=(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).length;
-                                            updateProd(i,{...p,tagPrint:isYes,tagRepeat:false,setupFees:{...(p.setupFees||{}),tagSizes:isYes?sizeCount:0}});
+                                            if(opt==="No") updateProd(i,{...p,tagPrint:false,tagRepeat:false,setupFees:{...(p.setupFees||{}),tagSizes:0}});
+                                            else if(opt==="Yes") updateProd(i,{...p,tagPrint:true,tagRepeat:false,setupFees:{...(p.setupFees||{}),tagSizes:sizeCount}});
+                                            else updateProd(i,{...p,tagPrint:true,tagRepeat:true,setupFees:{...(p.setupFees||{}),tagSizes:sizeCount}});
                                           }}
-                                            style={{padding:"5px 16px",fontSize:12,fontFamily:font,fontWeight:600,border:"none",cursor:"pointer",background:sel?(opt==="Yes"?T.accent:T.surface):T.card,color:sel?(opt==="Yes"?"#fff":T.text):T.faint,transition:"all 0.12s"}}>
+                                            style={{padding:"5px 14px",fontSize:12,fontFamily:font,fontWeight:600,border:`1px solid ${borderColor}`,borderRight:oi<opts.length-1?`1px solid ${borderColor}`:`1px solid ${borderColor}`,marginLeft:oi>0?-1:0,cursor:"pointer",background:bg,color:fg,transition:"all 0.12s",borderRadius:oi===0?"6px 0 0 6px":oi===opts.length-1?"0 6px 6px 0":"0",position:"relative",zIndex:active?1:0}}>
                                             {opt}
                                           </button>
                                         );
                                       })}
-                                    </div>
-                                    {p.tagPrint&&(
-                                      <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${p.tagRepeat?T.amber:T.border}`}}>
-                                        {["New","Repeat"].map(opt=>{
-                                          const sel=p.tagRepeat?(opt==="Repeat"):(opt==="New");
-                                          return(
-                                            <button key={opt} onClick={()=>updateProd(i,{...p,tagRepeat:opt==="Repeat"})}
-                                              style={{padding:"4px 14px",fontSize:11,fontFamily:font,fontWeight:600,border:"none",cursor:"pointer",background:sel?(opt==="Repeat"?T.amber:T.surface):T.card,color:sel?(opt==="Repeat"?"#fff":T.text):T.faint,transition:"all 0.12s"}}>
-                                              {opt}
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
+                                    </div>;
+                                  })()}
                                 </td>
                                 <td style={{padding:"6px 6px",borderRight:`1px solid ${T.border}`,textAlign:"center",width:"15%"}}>
                                   {p.tagPrint&&(
-                                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                                      <span style={{fontSize:13,fontWeight:700,color:p.tagRepeat?T.faint:T.text,fontFamily:mono,textDecoration:p.tagRepeat?"line-through":"none"}}>
-                                        {(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).length}
-                                      </span>
-                                      {p.tagRepeat&&<span style={{fontSize:11,fontWeight:700,color:T.amber,fontFamily:mono}}>0</span>}
-                                    </div>
+                                    <span style={{fontSize:13,fontWeight:700,color:p.tagRepeat?T.amber:T.text,fontFamily:mono}}>
+                                      {p.tagRepeat?0:(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).length}
+                                    </span>
                                   )}
                                 </td>
-                                <td style={{padding:"6px 6px",borderRight:`1px solid ${T.border}`,textAlign:"center",width:"15%"}}/>
-                                <td style={{padding:"6px 10px",textAlign:"center",width:"15%"}}>
+                                <td style={{padding:"6px 6px",borderRight:`1px solid ${T.border}`,textAlign:"center",width:"15%"}}>
                                   {p.tagPrint&&(
-                                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-                                      <span style={{fontSize:13,fontWeight:700,color:T.green,fontFamily:mono}}>
-                                        {fmtD(lookupTagPrice(p.printVendor||"",p.totalQty||0))}
-                                      </span>
-                                      {p.tagRepeat&&<span style={{fontSize:9,color:T.amber,fontFamily:font}}>screens $0</span>}
-                                    </div>
+                                    p.tagShared?(
+                                      <div style={{display:"flex",alignItems:"center",gap:3,justifyContent:"center"}}>
+                                        <input value={p.tagShareGroup||""} onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value.toUpperCase()})}
+                                          placeholder="Grp"
+                                          style={{width:32,textAlign:"center",background:T.surface,border:`1px solid ${T.accent}`,borderRadius:3,color:T.accent,fontFamily:mono,fontSize:10,fontWeight:700,padding:"2px",outline:"none"}}/>
+                                        <button onClick={()=>updateProd(i,{...p,tagShared:false,tagShareGroup:""})}
+                                          style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:9}}
+                                          onMouseEnter={e=>e.currentTarget.style.color=T.red}
+                                          onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                                        {(()=>{const g=p.tagShareGroup||"";if(!g)return null;const sq=costProds.reduce((sum,cp)=>cp.tagPrint&&cp.tagShared&&cp.tagShareGroup&&cp.tagShareGroup.trim().toLowerCase()===g.trim().toLowerCase()?sum+(cp.totalQty||0):sum,0);return sq>0?<span style={{fontSize:8,color:T.accent,fontFamily:mono}}>{sq}</span>:null;})()}
+                                      </div>
+                                    ):(
+                                      <button onClick={()=>{
+                                        const updated=costProds.map((cp,ci)=>cp.tagPrint?{...cp,tagShared:true,tagShareGroup:"Tag"}:cp);
+                                        updated.forEach((cp,ci)=>{if(cp.tagPrint)updateProd(ci,cp);});
+                                      }}
+                                        style={{fontSize:9,color:T.faint,fontFamily:font,background:"none",border:`1px solid ${T.border}`,borderRadius:3,padding:"2px 6px",cursor:"pointer"}}
+                                        onMouseEnter={e=>{e.currentTarget.style.color=T.accent;e.currentTarget.style.borderColor=T.accent;}}
+                                        onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border;}}>Share</button>
+                                    )
                                   )}
+                                </td>
+                                <td style={{padding:"6px 10px",textAlign:"center",width:"15%"}}>
+                                  {p.tagPrint&&(()=>{
+                                    const tagGroup=p.tagShareGroup||"";
+                                    let tagEffQty=p.totalQty||0;
+                                    if(p.tagShared&&tagGroup){
+                                      tagEffQty=costProds.reduce((sum,cp)=>cp.tagPrint&&cp.tagShared&&cp.tagShareGroup&&cp.tagShareGroup.trim().toLowerCase()===tagGroup.trim().toLowerCase()?sum+(cp.totalQty||0):sum,0)||tagEffQty;
+                                    }
+                                    return <span style={{fontSize:13,fontWeight:700,color:T.green,fontFamily:mono}}>
+                                      {fmtD(lookupTagPrice(p.printVendor||"",tagEffQty))}
+                                    </span>;
+                                  })()}
                                 </td>
                               </tr>
                             </tbody>
@@ -726,9 +758,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                       </div>
                       {/* Finishing & Packaging — always visible */}
                       <div>
-                        <div style={{padding:"6px 8px",borderRadius:6,background:T.surface,border:`1px solid ${T.border}`,marginBottom:8}}>
-                          <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Finishing & Packaging</div>
-                        </div>
+                        <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Finishing & Packaging</div>
                         <div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
                             <tbody>
@@ -757,13 +787,34 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                     <td style={{padding:"5px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"28%"}}>
                                       {key==="FleeceUpcharge"?(
                                         <span style={{fontSize:10,color:T.amber,fontFamily:font,fontWeight:600}}>auto</span>
+                                      ):key==="Packaging"?(
+                                        (()=>{
+                                          const pkgOpts=["No",...Object.keys(pr?.packaging||{Tee:"",Longsleeve:"",Fleece:""})];
+                                          const currentVariant=p.isFleece?"Fleece":(p.finishingQtys?.["Packaging_variant"]||"Tee");
+                                          return <div style={{display:"inline-flex",borderRadius:6,overflow:"hidden"}}>
+                                            {pkgOpts.map((opt,oi)=>{
+                                              const isActive=opt==="No"?!active:(active&&currentVariant===opt);
+                                              const borderColor=active?T.accent:T.border;
+                                              return(
+                                                <button key={opt} onClick={()=>{
+                                                  if(opt==="No") updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),Packaging_on:0}});
+                                                  else updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),Packaging_on:1,Packaging_variant:opt}});
+                                                }}
+                                                  style={{padding:"3px 10px",fontSize:11,fontFamily:font,fontWeight:600,border:`1px solid ${borderColor}`,marginLeft:oi>0?-1:0,cursor:"pointer",background:isActive?(opt==="No"?T.surface:T.accent):T.card,color:isActive?(opt==="No"?T.text:"#fff"):T.faint,transition:"all 0.12s",borderRadius:oi===0?"6px 0 0 6px":oi===pkgOpts.length-1?"0 6px 6px 0":"0",position:"relative",zIndex:isActive?1:0}}>
+                                                  {opt}
+                                                </button>
+                                              );
+                                            })}
+                                          </div>;
+                                        })()
                                       ):(
-                                        <div style={{display:"flex",borderRadius:5,overflow:"hidden",border:`1px solid ${T.border}`,width:"fit-content",margin:"0 auto"}}>
-                                          {["Yes","No"].map(opt=>{
+                                        <div style={{display:"flex",borderRadius:6,overflow:"hidden"}}>
+                                          {["Yes","No"].map((opt,oi)=>{
                                             const sel=(active?"Yes":"No")===opt;
+                                            const borderColor=active?T.accent:T.border;
                                             return(
                                               <button key={opt} onClick={()=>updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),[key+"_on"]:opt==="Yes"?1:0}})}
-                                                style={{padding:"3px 10px",fontSize:11,fontFamily:font,fontWeight:600,border:"none",cursor:"pointer",background:sel?(opt==="Yes"?T.accent:T.surface):T.card,color:sel?(opt==="Yes"?"#fff":T.text):T.faint,transition:"all 0.12s"}}>
+                                                style={{flex:1,padding:"3px 10px",fontSize:11,fontFamily:font,fontWeight:600,border:`1px solid ${borderColor}`,marginLeft:oi>0?-1:0,cursor:"pointer",background:sel?(opt==="Yes"?T.accent:T.surface):T.card,color:sel?(opt==="Yes"?"#fff":T.text):T.faint,transition:"all 0.12s",borderRadius:oi===0?"6px 0 0 6px":"0 6px 6px 0",position:"relative",zIndex:sel?1:0}}>
                                                 {opt}
                                               </button>
                                             );
@@ -772,15 +823,7 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                       )}
                                     </td>
                                     <td style={{padding:"5px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"29%"}}>
-                                      {col3==="blank"?null:col3==="variant"?(
-                                        <select
-                                          value={p.isFleece?"Fleece":(p.finishingQtys?.["Packaging_variant"]||"Tee")}
-                                          disabled={!active}
-                                          onChange={e=>updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),Packaging_variant:e.target.value}})}
-                                          style={{background:active?T.surface:T.card,border:`1px solid ${active?T.border:T.faint+"44"}`,borderRadius:5,color:active?T.text:T.faint,fontFamily:font,fontSize:11,padding:"3px 6px",outline:"none",cursor:active?"pointer":"default",opacity:active?1:0.5}}>
-                                          {Object.keys(pr?.packaging||{Tee:"",Longsleeve:"",Fleece:""}).map(v=><option key={v} value={v}>{v}</option>)}
-                                        </select>
-                                      ):col3==="print_count"?(
+                                      {col3==="blank"?null:col3==="variant"?null:col3==="print_count"?(
                                         <span style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{fleecePrintCount} <span style={{fontSize:9,color:T.faint,fontFamily:font}}>prints</span></span>
                                       ):(
                                         <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
@@ -852,22 +895,24 @@ const CostingTab=({project,buyItems=[],onUpdateBuyItems,costProds,setCostProds,c
                                     return(
                                       <tr key={row.label} style={{borderBottom:isLast?"none":`1px solid ${T.border}22`,background:row.qty>0?T.surface:T.card}}>
                                         <td style={{padding:"7px 12px",fontSize:12,fontWeight:600,color:T.muted,fontFamily:font,borderRight:`1px solid ${T.border}`,width:"35%"}}>{row.label}</td>
-                                        <td style={{padding:"4px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"30%"}}>
+                                        <td style={{padding:"4px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"30%",position:"relative"}}>
                                           {row.auto?(
-                                            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
-                                              <span style={{fontSize:13,fontWeight:700,color:row.qty>0?T.text:T.faint,fontFamily:mono}}>{row.qty||null}</span>
-                                              <span style={{fontSize:9,color:T.faint,fontFamily:font}}>auto</span>
+                                            <div style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                              <span style={{fontSize:13,fontWeight:700,color:row.qty>0?T.text:T.faint,fontFamily:mono,textAlign:"center",width:"100%"}}>{row.qty||null}</span>
+                                              <span style={{fontSize:9,color:T.faint,fontFamily:font,position:"absolute",right:8}}>auto</span>
                                             </div>
                                           ):(
                                             <input type="text" inputMode="decimal" value={p.setupFees?.[row.field]||""} placeholder="0"
                                               onChange={e=>{const raw=e.target.value;if(raw===""||/^[0-9]*\.?[0-9]*$/.test(raw))updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[row.field]:raw===""?0:raw.endsWith(".")?raw:parseFloat(raw)||0}});}}
                                               onBlur={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[row.field]:parseFloat(e.target.value)||0}})}
                                               data-costfield onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab")focusNext(e,e.shiftKey);}}
-                                              style={{width:60,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontFamily:mono}}/>
+                                              style={{width:"100%",textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontFamily:mono}}/>
                                           )}
                                         </td>
                                         <td style={{padding:"7px 12px",textAlign:"right",fontFamily:mono,fontSize:12,fontWeight:total>0?700:400,color:total>0?T.green:T.faint,width:"35%"}}>
-                                          {row.unitCost>0?(total>0?fmtD(total):(fmtD(row.unitCost)+" ea")):null}
+                                          {row.label==="Tag Screens"&&p.tagRepeat?(
+                                            <span style={{fontSize:11,fontWeight:700,color:T.amber,fontFamily:font}}>$0 (repeat)</span>
+                                          ):row.unitCost>0?(total>0?fmtD(total):(fmtD(row.unitCost)+" ea")):null}
                                         </td>
                                       </tr>
                                     );

@@ -6,7 +6,7 @@ import { CostingTabWrapper } from "./CostingTab";
 import { POTab } from "./POTab.jsx";
 import { BuySheetTab } from "./BuySheetTab";
 import { ProductionTab } from "./ProductionTab";
-import { WarehouseTab } from "./WarehouseTab";
+
 import { ArtTab } from "./ArtTab";
 import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -91,9 +91,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       setSaveError(false);
     }
   }, []);
-  const [rxData, setRxData] = useState<Record<string,any>>({});
-  const [shipStage, setShipStage] = useState<string|null>(null);
-  const [shipNotes, setShipNotes] = useState("");
 
 
   useEffect(() => {
@@ -116,30 +113,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     ]);
     if (jobRes.data) {
       setJob(jobRes.data as Job);
-      const meta = jobRes.data.type_meta || {};
-      if (meta.ship_stage) setShipStage(meta.ship_stage);
-      if (meta.ship_notes) setShipNotes(meta.ship_notes);
     }
     if (itemsRes.data) {
-      const rxInit: Record<string,any> = {};
       const mapped = itemsRes.data.map((it: any) => {
         const lines = it.buy_sheet_lines || [];
         const sizes = sortSizes(lines.map((l: any) => l.size));
         const qtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
         const assignment = it.decorator_assignments?.[0];
-        // Hydrate receiving data from DB
-        if (it.receiving_data) {
-          rxInit[it.id] = it.receiving_data;
-        } else {
-          // Check if any buy_sheet_lines have shipped/received qtys
-          const hasRxData = lines.some((l: any) => (l.qty_shipped_from_vendor || 0) > 0 || (l.qty_received_at_hpd || 0) > 0);
-          if (hasRxData) {
-            rxInit[it.id] = {
-              shipped: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_shipped_from_vendor || 0])),
-              received: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_received_at_hpd || 0])),
-            };
-          }
-        }
         return {
           ...it,
           sizes, qtys,
@@ -152,7 +132,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         };
       });
       setItems(mapped);
-      if (Object.keys(rxInit).length > 0) setRxData(rxInit);
     }
     if (paymentsRes.data) setPayments(paymentsRes.data as Payment[]);
     if (contactsRes.data) {
@@ -335,7 +314,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {/* Horizontal tab nav */}
       <div style={{display:"flex",gap:4,padding:4,background:T.surface,borderRadius:8,marginBottom:16,flexWrap:"wrap"}}>
-        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"art",label:"Art Files"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"},{id:"warehouse",label:"Warehouse"}].map(t=>(
+        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"art",label:"Art Files"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"}].map(t=>(
           <button key={t.id} onClick={async ()=>{
             if (tab==="buysheet" && t.id!=="buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
             if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
@@ -699,21 +678,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         <ProductionTab items={items} onUpdateItem={updItem} />
       )}
 
-      {tab==="warehouse"&&(
-        <WarehouseTab
-          items={items}
-          job={job}
-          rxData={rxData}
-          shipStage={shipStage}
-          shipNotes={shipNotes}
-          onRxDataChange={(next: Record<string,any>) => setRxData(next)}
-          onShipChange={(stage: string|null, notes: string) => {
-            setShipStage(stage);
-            setShipNotes(notes);
-            setJob(j => j ? {...j, type_meta: {...(j.type_meta||{}), ship_stage: stage, ship_notes: notes}} : j);
-          }}
-        />
-      )}
         </div>{/* end tab content */}
       </div>{/* end flex layout */}
 
