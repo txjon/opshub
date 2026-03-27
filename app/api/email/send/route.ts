@@ -39,8 +39,13 @@ export async function POST(req: NextRequest) {
       fromAddress = process.env.EMAIL_FROM_PO || "onboarding@resend.dev";
       defaultSubject = subject || "Purchase Order from House Party Distro";
       filename = `po-${jobId.slice(0, 8)}.pdf`;
+    } else if (type === "invoice") {
+      pdfUrl = `${baseUrl}/api/pdf/invoice/${jobId}?download=1`;
+      fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
+      defaultSubject = subject || "Invoice from House Party Distro";
+      filename = `invoice-${jobId.slice(0, 8)}.pdf`;
     } else {
-      return NextResponse.json({ error: "Invalid type. Use 'quote' or 'po'" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid type. Use 'quote', 'po', or 'invoice'" }, { status: 400 });
     }
 
     // Generate the PDF by calling our own endpoint (internal call, pass secret key)

@@ -10,6 +10,7 @@ import { ProductionTab } from "./ProductionTab";
 import { ArtTab } from "./ArtTab";
 import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { Skeleton } from "@/components/Skeleton";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
@@ -79,6 +80,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const initialLoadDone = useRef(false);
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
+  const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
   const [saving, setSaving] = useState(false);
@@ -523,15 +525,30 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
               {/* Invoice */}
               <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setShowInvoiceEmail(!showInvoiceEmail)}
+                  style={{flex:1,background:T.purple,border:"none",borderRadius:8,color:"#fff",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:600,padding:"8px",cursor:"pointer",textAlign:"center"}}>
+                  Send Invoice
+                </button>
                 <button onClick={()=>window.open(`/api/pdf/invoice/${job.id}`,"_blank")}
-                  style={{flex:1,background:T.accent,border:"none",borderRadius:8,color:"#fff",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:600,padding:"8px",cursor:"pointer",textAlign:"center"}}>
-                  Preview Invoice
+                  style={{background:T.accent,border:"none",borderRadius:8,color:"#fff",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:600,padding:"8px 16px",cursor:"pointer"}}>
+                  Preview
                 </button>
                 <button onClick={()=>{const a=document.createElement("a");a.href=`/api/pdf/invoice/${job.id}?download=1`;a.download="invoice.pdf";a.click();}}
                   style={{background:T.green,border:"none",borderRadius:8,color:"#fff",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:600,padding:"8px 16px",cursor:"pointer"}}>
                   Download
                 </button>
               </div>
+              {showInvoiceEmail&&(
+                <SendEmailDialog
+                  type="invoice"
+                  jobId={job.id}
+                  contacts={contacts.map(c=>({name:c.name,email:c.email||""}))}
+                  defaultEmail={contacts.find(c=>c.role_on_job==="billing")?.email||contacts.find(c=>c.role_on_job==="primary")?.email||""}
+                  defaultSubject={`Invoice — ${(job.clients as any)?.name||""} · ${job.title}`}
+                  onClose={()=>setShowInvoiceEmail(false)}
+                  onSent={()=>logJobActivity(job.id,"Invoice sent to client")}
+                />
+              )}
 
               {/* Payment records */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>

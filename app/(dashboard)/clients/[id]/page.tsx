@@ -9,7 +9,7 @@ import Link from "next/link";
 
 type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
-type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; };
+type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; payment_records:any[]; };
 
 const PHASE_COLORS: Record<string,{bg:string,text:string}> = {
   intake:{bg:T.faint,text:T.muted}, pre_production:{bg:"#2d1f5e",text:"#a78bfa"},
@@ -37,7 +37,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const [cRes, ctRes, jRes] = await Promise.all([
       supabase.from("clients").select("*").eq("id", params.id).single(),
       supabase.from("contacts").select("*").eq("client_id", params.id).order("name"),
-      supabase.from("jobs").select("*, costing_summary, items(id, buy_sheet_lines(qty_ordered))").eq("client_id", params.id).order("created_at", { ascending: false }),
+      supabase.from("jobs").select("*, costing_summary, items(id, buy_sheet_lines(qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
     ]);
     if (cRes.data) setClient(cRes.data);
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
@@ -65,6 +65,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const totalUnits = jobs.reduce((a,j) => a + (j.items||[]).reduce((b: number,it: any) => b + (it.buy_sheet_lines||[]).reduce((c: number,l: any) => c + (l.qty_ordered||0), 0), 0), 0);
   const activeJobs = jobs.filter(j => !["complete","cancelled"].includes(j.phase));
 
+  // Financial summary across all projects
+  const allPayments = jobs.flatMap(j => (j.payment_records || []).map((p: any) => ({ ...p, job_title: j.title })));
+  const totalInvoiced = allPayments.reduce((a: number, p: any) => a + (p.amount || 0), 0);
+  const totalPaid = allPayments.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (p.amount || 0), 0);
+  const totalOutstanding = allPayments.filter((p: any) => !["paid","void"].includes(p.status)).reduce((a: number, p: any) => a + (p.amount || 0), 0);
+  const now = new Date();
+  const overdue = allPayments.filter((p: any) => p.due_date && new Date(p.due_date) < now && !["paid","void"].includes(p.status));
+  const totalOverdue = overdue.reduce((a: number, p: any) => a + (p.amount || 0), 0);
+
   return (
     <div style={{fontFamily:font,color:T.text,maxWidth:900,margin:"0 auto",paddingBottom:"3rem"}}>
       <button onClick={()=>router.push("/clients")} style={{background:"none",border:"none",color:T.muted,fontSize:12,cursor:"pointer",marginBottom:12,padding:0,fontFamily:font}}>
@@ -72,13 +81,28 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       </button>
 
       {/* Header */}
-      <div style={{marginBottom:24}}>
+      <div style={{marginBottom:16}}>
         <h1 style={{fontSize:24,fontWeight:700,margin:"0 0 6px",letterSpacing:"-0.02em"}}>{client.name}</h1>
         <div style={{display:"flex",gap:16,fontSize:12,color:T.muted}}>
           <span>{jobs.length} project{jobs.length!==1?"s":""}</span>
+          <span>{activeJobs.length} active</span>
           <span>{totalUnits.toLocaleString()} total units</span>
-          {totalRev > 0 && <span style={{color:T.accent}}>${Math.round(totalRev).toLocaleString()} revenue</span>}
         </div>
+      </div>
+
+      {/* Financial summary */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
+        {[
+          {label:"Total Revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():"—",color:T.accent},
+          {label:"Total Paid",value:totalPaid>0?"$"+Math.round(totalPaid).toLocaleString():"—",color:T.green},
+          {label:"Outstanding",value:totalOutstanding>0?"$"+Math.round(totalOutstanding).toLocaleString():"$0",color:totalOutstanding>0?T.amber:T.faint},
+          {label:"Overdue",value:totalOverdue>0?"$"+Math.round(totalOverdue).toLocaleString():"$0",color:totalOverdue>0?T.red:T.faint},
+        ].map(s=>(
+          <div key={s.label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 14px"}}>
+            <div style={{fontSize:18,fontWeight:700,color:s.color,fontFamily:mono}}>{s.value}</div>
+            <div style={{fontSize:10,color:T.muted,marginTop:2}}>{s.label}</div>
+          </div>
+        ))}
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,alignItems:"start"}}>
