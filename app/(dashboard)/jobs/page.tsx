@@ -15,17 +15,32 @@ const PHASE_COLORS: Record<string,{bg:string,text:string,label:string}> = {
   pre_production:{ bg:"#2d1f5e", text:"#a78bfa", label:"Pre-Production" },
   production:    { bg:"#1e3a6e", text:"#4f8ef7", label:"Production" },
   receiving:     { bg:"#3d2a08", text:"#f5a623", label:"Receiving" },
+  shipped:       { bg:"#0e3d24", text:"#34c97a", label:"Shipped" },
   shipping:      { bg:"#0e3d24", text:"#34c97a", label:"Shipping" },
   complete:      { bg:"#0e3d24", text:"#34c97a", label:"Complete" },
   on_hold:       { bg:"#3d1212", text:"#f05353", label:"On Hold" },
   cancelled:     { bg:"#2a3050", text:"#7a82a0", label:"Cancelled" },
 };
 
-const PIPELINE_STAGES = ["blanks_ordered","blanks_shipped","blanks_received","strikeoff_approval","in_production","shipped"];
 const getPct = (stage: string|null) => {
-  const pcts: Record<string,number> = { blanks_ordered:10, blanks_shipped:25, blanks_received:40, strikeoff_approval:55, in_production:75, shipped:100 };
+  const pcts: Record<string,number> = { blanks_ordered:33, in_production:66, shipped:100 };
   return stage ? (pcts[stage] || 0) : 0;
 };
+
+function getItemProgress(job: any): string {
+  const items = job.items || [];
+  if (!items.length) return "";
+  const total = items.length;
+  const phase = job.phase;
+  if (phase === "complete") return `${total}/${total} complete`;
+  const shipped = items.filter((it: any) => it.pipeline_stage === "shipped" && it.ship_tracking).length;
+  if (shipped > 0) return `${shipped}/${total} shipped`;
+  const inProd = items.filter((it: any) => it.pipeline_stage === "in_production" || it.pipeline_stage === "shipped").length;
+  if (inProd > 0) return `${inProd}/${total} in production`;
+  const ordered = items.filter((it: any) => it.blanks_order_number).length;
+  if (ordered > 0) return `${ordered}/${total} blanks ordered`;
+  return `${total} items`;
+}
 
 import { T, font, mono } from "@/lib/theme";
 
@@ -46,7 +61,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), costing_summary, items(id, sell_per_unit, cost_per_unit, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -55,8 +70,7 @@ export default function JobsPage() {
   const getJobPct = (job: Job) => {
     const items = job.items || [];
     if (!items.length) return 0;
-    const stages = items.map((it: any) => it.decorator_assignments?.[0]?.pipeline_stage || null);
-    const pcts = stages.map(s => getPct(s));
+    const pcts = items.map((it: any) => getPct(it.pipeline_stage || it.decorator_assignments?.[0]?.pipeline_stage || null));
     return Math.round(pcts.reduce((a,p) => a+p, 0) / pcts.length);
   };
 
@@ -75,6 +89,7 @@ export default function JobsPage() {
     pre_production: jobs.filter(j => j.phase === "pre_production").length,
     production: jobs.filter(j => j.phase === "production").length,
     receiving: jobs.filter(j => j.phase === "receiving").length,
+    shipped: jobs.filter(j => j.phase === "shipped").length,
     shipping: jobs.filter(j => j.phase === "shipping").length,
     complete: jobs.filter(j => j.phase === "complete").length,
     cancelled: jobs.filter(j => j.phase === "cancelled").length,
@@ -158,6 +173,7 @@ export default function JobsPage() {
             ["pre_production","Pre-Production",phaseCounts.pre_production],
             ["production","Production",phaseCounts.production],
             ["receiving","Receiving",phaseCounts.receiving],
+            ["shipped","Shipped",phaseCounts.shipped],
             ["shipping","Shipping",phaseCounts.shipping],
             ["on_hold","On Hold",phaseCounts.on_hold],
             ["complete","Complete",phaseCounts.complete],
@@ -239,9 +255,10 @@ export default function JobsPage() {
                 <span style={{ padding:"2px 9px", borderRadius:99, fontSize:11, fontWeight:600, background:pri.bg, color:pri.text, whiteSpace:"nowrap" }}>{pri.label}</span>
               </div>
 
-              {/* Phase - fixed width */}
-              <div style={{ width:120, flexShrink:0, display:"flex", justifyContent:"center" }}>
+              {/* Phase + progress */}
+              <div style={{ width:160, flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
                 <span style={{ padding:"2px 9px", borderRadius:99, fontSize:11, fontWeight:600, background:phase.bg, color:phase.text, whiteSpace:"nowrap" }}>{phase.label}</span>
+                {getItemProgress(job) && <span style={{ fontSize:9, color:T.muted, fontFamily:mono }}>{getItemProgress(job)}</span>}
               </div>
 
               {/* Progress */}
