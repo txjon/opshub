@@ -399,7 +399,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         <button onClick={()=>{upd("phase","on_hold");}} style={{fontSize:9,color:T.amber,background:T.amberDim,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontWeight:600}}>Hold</button>
                       )}
                       {job.phase==="on_hold"&&(
-                        <button onClick={()=>{recalcPhase();}} style={{fontSize:9,color:T.green,background:T.greenDim,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontWeight:600}}>Resume</button>
+                        <button onClick={async()=>{
+                          // Clear hold, set to intake temporarily, then recalc
+                          await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
+                          setJob(j=>j?{...j,phase:"intake"} as any:j);
+                          setTimeout(recalcPhase, 300);
+                        }} style={{fontSize:9,color:T.green,background:T.greenDim,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontWeight:600}}>Resume</button>
                       )}
                     </div>
                   </div>
