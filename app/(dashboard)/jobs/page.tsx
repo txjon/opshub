@@ -85,7 +85,7 @@ export default function JobsPage() {
     const q = search.toLowerCase().trim();
     return jobs.filter(j => {
       // Phase filter
-      if (filter === "active" && ["complete","cancelled","on_hold"].includes(j.phase)) return false;
+      if (filter === "active" && ["complete","cancelled"].includes(j.phase)) return false;
       if (filter !== "active" && filter !== "all" && j.phase !== filter) return false;
       // Text search
       if (q && !(
@@ -153,7 +153,7 @@ export default function JobsPage() {
       <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
         <div style={{ display:"flex", gap:3, background:T.surface, padding:3, borderRadius:8 }}>
           {[
-            ["active","All Active",jobs.filter(j => !["complete","cancelled","on_hold"].includes(j.phase)).length],
+            ["active","All Active",jobs.filter(j => !["complete","cancelled"].includes(j.phase)).length],
             ["intake","Intake",phaseCounts.intake],
             ["pre_production","Pre-Production",phaseCounts.pre_production],
             ["production","Production",phaseCounts.production],
