@@ -542,6 +542,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         await supabase.from("payment_records").insert({job_id:job.id,type,amount,invoice_number,due_date,status:"draft"});
                         setJob(j=>j?{...j,_addPayment:false} as any:j);
                         loadData();
+                        setTimeout(recalcPhase, 500);
                       }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>
                       <button onClick={()=>setJob(j=>j?{...j,_addPayment:false} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:11,padding:"5px 10px",cursor:"pointer"}}>Cancel</button>
                     </div>
@@ -567,6 +568,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                             const ns=nextStatus();
                             await supabase.from("payment_records").update({status:ns,paid_date:ns==="paid"?new Date().toISOString().split("T")[0]:null}).eq("id",p.id);
                             loadData();
+                            setTimeout(recalcPhase, 500);
                           }} style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
                             background:p.status==="paid"?"#0e3d24":p.status==="overdue"?"#3d1212":"#3d2a08",
                             color:p.status==="paid"?"#34c97a":p.status==="overdue"?"#f05353":"#f5a623"}}>{p.status}</button>
@@ -738,6 +740,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           project={job}
           items={items}
           costingData={job.costing_data}
+          onRecalcPhase={recalcPhase}
         />
       )}
       {tab==="production"&&(

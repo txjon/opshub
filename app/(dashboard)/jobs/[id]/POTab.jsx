@@ -129,7 +129,7 @@ function buildLineItems(cp, allProds) {
 
 const SHIP_METHODS = ["UPS Ground","UPS 2-Day","UPS Next Day","FedEx Ground","FedEx Express","USPS Priority","Freight / LTL","Will Call","Decorator Drop Ship"];
 
-export function POTab({project,items,costingData}) {
+export function POTab({project,items,costingData,onRecalcPhase}) {
   const supabase = createClient();
   const [decorators,setDecorators] = useState([]);
   const [selectedShipMethod,setSelectedShipMethod] = useState("");
@@ -210,43 +210,46 @@ export function POTab({project,items,costingData}) {
   return (
     <div style={{fontFamily:font,color:T.text,display:"flex",flexDirection:"column",gap:12}}>
 
-      <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,padding:"12px 14px",display:"flex",gap:12,alignItems:"flex-end",flexWrap:"wrap"}}>
-        <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180}}>
-          <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
-          <select value={selectedShipMethod} onChange={e=>setSelectedShipMethod(e.target.value)}
-            style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:selectedShipMethod?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
-            <option value="">— select —</option>
-            {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
-          </select>
-        </div>
-        <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Vendor</div>
-          <div style={{display:"flex",gap:6}}>
-            {vendors.length===0&&<div style={{fontSize:11,color:T.faint,padding:"6px 0"}}>No vendors assigned in costing</div>}
-            {vendors.map(v=>(
-              <button key={v} onClick={()=>setSelectedVendor(v)}
-                style={{background:active===v?T.accent:T.surface,border:"1px solid "+(active===v?T.accent:T.border),borderRadius:6,color:active===v?"#fff":T.muted,fontFamily:font,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>
-                {v}
-              </button>
-            ))}
+      <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,padding:"12px 14px",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Vendor</div>
+            <div style={{display:"flex",gap:6}}>
+              {vendors.length===0&&<div style={{fontSize:11,color:T.faint,padding:"6px 0"}}>No vendors assigned in costing</div>}
+              {vendors.map(v=>(
+                <button key={v} onClick={()=>setSelectedVendor(v)}
+                  style={{background:active===v?T.accent:T.surface,border:"1px solid "+(active===v?T.accent:T.border),borderRadius:6,color:active===v?"#fff":T.muted,fontFamily:font,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180}}>
+            <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
+            <select value={selectedShipMethod} onChange={e=>setSelectedShipMethod(e.target.value)}
+              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:selectedShipMethod?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
+              <option value="">— select —</option>
+              {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
+            </select>
           </div>
         </div>
-        <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
-          {ready&&(
-            <div style={{fontSize:11,color:allFilled?T.green:T.amber}}>
+        {ready&&(
+          <div style={{flex:1,display:"flex",justifyContent:"center",alignItems:"center"}}>
+            <div style={{fontSize:14,fontWeight:600,color:allFilled?T.green:T.amber}}>
               {vItems.filter(it=>itemFields[it.id]?.packing_notes?.trim()).length}/{vItems.length} items ready
             </div>
-          )}
-          <button onClick={()=>{ if(ready) window.open(`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`,"_blank"); }} disabled={!ready}
-            style={{background:ready?T.accent:T.surface,border:"1px solid "+(ready?T.accent:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5}}>
-            Preview PO
-          </button>
-          <button onClick={()=>{const a=document.createElement("a");a.href=`/api/pdf/po/${project.id}?download=1${active?"\&vendor="+encodeURIComponent(active):""}`;a.download="po.pdf";a.click();}} disabled={!ready} style={{background:ready?T.green:T.surface,border:"1px solid "+(ready?T.green:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5}}>
-            Export PDF
-          </button>
-          <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.purple:T.surface,border:"1px solid "+(ready?T.purple:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5}}>
-            Send to Decorator
-          </button>
+          </div>
+        )}
+        <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.purple:T.surface,border:"1px solid "+(ready?T.purple:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
+              Send to Decorator
+            </button>
+            <button onClick={()=>{ if(ready) window.open(`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`,"_blank"); }} disabled={!ready}
+              style={{background:ready?T.accent:T.surface,border:"1px solid "+(ready?T.accent:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
+              Preview
+            </button>
+          </div>
         </div>
       </div>
       {showSendEmail&&(
@@ -258,6 +261,7 @@ export function POTab({project,items,costingData}) {
           defaultEmail={getDec(active)?.contact_email||""}
           defaultSubject={`PO — ${(project.clients?.name||project.title||"")} — ${active}`}
           onClose={()=>setShowSendEmail(false)}
+          onSent={()=>{ if(onRecalcPhase) onRecalcPhase(); }}
         />
       )}
 
