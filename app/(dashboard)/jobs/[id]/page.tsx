@@ -13,6 +13,7 @@ import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { Skeleton } from "@/components/Skeleton";
+import { ProjectProgress } from "@/components/ProjectProgress";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
 
@@ -365,6 +366,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           ))}
         </div>
       </div>
+
+      {/* Progress checklist */}
+      {job.phase !== "complete" && job.phase !== "cancelled" && (
+        <ProjectProgress job={job} items={items} payments={payments} proofStatus={proofStatus} onTabClick={setTab} />
+      )}
 
       {/* Horizontal tab nav */}
       <div style={{display:"flex",gap:4,padding:4,background:T.surface,borderRadius:8,marginBottom:16,flexWrap:"wrap"}}>
