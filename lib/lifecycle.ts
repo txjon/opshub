@@ -49,7 +49,7 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
 
   // Count item states
   const atDecorator = items.filter(it => it.pipeline_stage === "in_production").length;
-  const shippedFromDecorator = items.filter(it => it.pipeline_stage === "shipped" && it.ship_tracking).length;
+  const shippedFromDecorator = items.filter(it => it.pipeline_stage === "shipped").length;
   const receivedAtHpd = items.filter(it => it.received_at_hpd).length;
   const blanksOrdered = items.filter(it => it.blanks_order_number).length;
   const allProofsApproved = items.every(it => proofStatus[it.id]?.allApproved);

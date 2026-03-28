@@ -389,12 +389,17 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
     }
   }, [currentSnapshot]);
 
-  // Warn on page close if unsaved
+  // Save on unmount if dirty
+  const isDirtyRef = useRef(false);
+  isDirtyRef.current = isDirty;
   useEffect(() => {
-    const handler = (e) => { if (isDirty) { e.preventDefault(); e.returnValue = ""; } };
+    const handler = (e) => { if (isDirtyRef.current) { e.preventDefault(); e.returnValue = ""; } };
     window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+    return () => {
+      window.removeEventListener("beforeunload", handler);
+      if (isDirtyRef.current && onSaveRef.current) onSaveRef.current();
+    };
+  }, []);
 
   // ── Save function: diffs against DB, writes changes, updates parent ────────
   const doSave = async () => {

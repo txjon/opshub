@@ -605,8 +605,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
                         <td style={{padding:"6px"}}>
                           <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
-                            background:p.status==="paid"?"#0e3d24":p.status==="overdue"?"#3d1212":"#3d2a08",
-                            color:p.status==="paid"?"#34c97a":p.status==="overdue"?"#f05353":"#f5a623"}}>{p.status}</span>
+                            background:p.status==="paid"?"#0e3d24":p.status==="void"?"#3d1212":T.amberDim,
+                            color:p.status==="paid"?"#34c97a":p.status==="void"?"#f05353":T.amber}}>{p.status}</span>
                         </td>
                       </tr>
                     ))}</tbody>
@@ -789,7 +789,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </>
       )}
       {tab==="blanks"&&(
-        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} />
+        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={setTab} />
       )}
       {tab==="po"&&(
         <POTab

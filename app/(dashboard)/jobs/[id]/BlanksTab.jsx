@@ -7,7 +7,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
-export function BlanksTab({ items, job, payments, onRecalcPhase, onUpdateItem }) {
+export function BlanksTab({ items, job, payments, onRecalcPhase, onUpdateItem, onTabClick }) {
   const supabase = createClient();
   const [localFields, setLocalFields] = useState({});
   const [proofStatus, setProofStatus] = useState({});
@@ -99,7 +99,10 @@ export function BlanksTab({ items, job, payments, onRecalcPhase, onUpdateItem })
             {!isNetTerms && (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ color: paymentGateMet ? T.green : T.red }}>{paymentGateMet ? "✓" : "✕"}</span>
-                <span style={{ color: paymentGateMet ? T.muted : T.text }}>{terms === "prepaid" ? "Full payment received" : "Deposit received"}{paymentGateMet ? "" : " (add on Overview tab)"}</span>
+                <span style={{ color: paymentGateMet ? T.muted : T.text }}>
+                  {terms === "prepaid" ? "Full payment received" : "Deposit received"}
+                  {!paymentGateMet && <> (add on <a onClick={e=>{e.preventDefault();if(onTabClick)onTabClick("approvals");}} style={{color:T.accent,cursor:"pointer",textDecoration:"underline"}}>Approvals &amp; Payment</a> tab)</>}
+                </span>
               </div>
             )}
             {isNetTerms && (

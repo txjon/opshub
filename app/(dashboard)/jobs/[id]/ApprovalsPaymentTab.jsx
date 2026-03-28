@@ -9,6 +9,10 @@ export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatu
   const supabase = createClient();
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
   const [addingPayment, setAddingPayment] = useState(false);
+  const [pmType, setPmType] = useState("deposit");
+  const [pmAmount, setPmAmount] = useState("");
+  const [pmInvoice, setPmInvoice] = useState("");
+  const [pmDue, setPmDue] = useState(new Date().toISOString().split("T")[0]);
 
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" };
   const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
@@ -100,36 +104,39 @@ export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatu
       <div style={card}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Payment Records</div>
-          <button onClick={() => setAddingPayment(!addingPayment)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 5, color: T.muted, fontSize: 10, padding: "2px 8px", cursor: "pointer" }}>+ Add</button>
+          <button onClick={() => setAddingPayment(!addingPayment)} style={{ background: T.accent, border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 600, padding: "5px 14px", cursor: "pointer" }}>+ Add Payment</button>
         </div>
 
         {addingPayment && (
           <div style={{ background: T.surface, border: `1px solid ${T.accent}44`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 6 }}>
-              <select id="apt-pm-type" style={ic}>
+              <select value={pmType} onChange={e => setPmType(e.target.value)} style={ic}>
                 <option value="deposit">Deposit</option>
                 <option value="balance">Balance</option>
                 <option value="full_payment">Full Payment</option>
                 <option value="refund">Refund</option>
               </select>
-              <input id="apt-pm-amount" type="text" inputMode="decimal" placeholder="Amount" style={ic} />
-              <input id="apt-pm-invoice" placeholder="Invoice #" style={ic} />
-              <input id="apt-pm-due" type="date" style={ic} />
+              <div style={{ position: "relative" }}>
+                <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: T.faint, fontFamily: mono, pointerEvents: "none" }}>$</span>
+                <input type="text" inputMode="decimal" placeholder="0.00" value={pmAmount} onChange={e => setPmAmount(e.target.value)} style={{ ...ic, paddingLeft: 22, fontFamily: mono }} />
+              </div>
+              <input placeholder="Invoice #" value={pmInvoice} onChange={e => setPmInvoice(e.target.value)} style={ic} />
+              <input type="date" value={pmDue} onChange={e => setPmDue(e.target.value)} style={ic} />
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={async () => {
-                const type = document.getElementById("apt-pm-type").value;
-                const amount = parseFloat(document.getElementById("apt-pm-amount").value) || 0;
+                const amount = parseFloat(pmAmount) || 0;
                 if (!amount) return;
-                const invoice_number = document.getElementById("apt-pm-invoice").value.trim() || null;
-                const due_date = document.getElementById("apt-pm-due").value || null;
-                await supabase.from("payment_records").insert({ job_id: job.id, type, amount, invoice_number, due_date, status: "draft" });
-                logJobActivity(job.id, `Payment added: ${type.replace(/_/g, " ")} — $${amount.toLocaleString()}${invoice_number ? ` (${invoice_number})` : ""}`);
+                const invoice_number = pmInvoice.trim() || null;
+                const due_date = pmDue || null;
+                await supabase.from("payment_records").insert({ job_id: job.id, type: pmType, amount, invoice_number, due_date, status: "pending" });
+                logJobActivity(job.id, `Payment added: ${pmType.replace(/_/g, " ")} — $${amount.toLocaleString()}${invoice_number ? ` (${invoice_number})` : ""}`);
+                setPmType("deposit"); setPmAmount(""); setPmInvoice(""); setPmDue(new Date().toISOString().split("T")[0]);
                 setAddingPayment(false);
                 if (onReload) onReload();
                 if (onRecalcPhase) setTimeout(onRecalcPhase, 500);
               }} style={{ background: T.green, border: "none", borderRadius: 5, color: "#fff", fontSize: 11, fontWeight: 600, padding: "5px 12px", cursor: "pointer" }}>Save</button>
-              <button onClick={() => setAddingPayment(false)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 5, color: T.muted, fontSize: 11, padding: "5px 10px", cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => { setAddingPayment(false); setPmType("deposit"); setPmAmount(""); setPmInvoice(""); setPmDue(new Date().toISOString().split("T")[0]); }} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 5, color: T.muted, fontSize: 11, padding: "5px 10px", cursor: "pointer" }}>Cancel</button>
             </div>
           </div>
         )}
@@ -141,7 +148,9 @@ export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatu
               {["Invoice", "Type", "Amount", "Due", "Status", ""].map(h => <th key={h} style={{ textAlign: "left", padding: "3px 6px", color: T.muted, fontWeight: 500 }}>{h}</th>)}
             </tr></thead>
             <tbody>{payments.map(p => {
-              const statuses = ["draft", "sent", "viewed", "partial", "paid", "overdue", "void"];
+              const statuses = ["pending", "paid", "void"];
+              const statusStyle = { pending: { bg: T.amberDim, color: T.amber }, paid: { bg: "#0e3d24", color: "#34c97a" }, void: { bg: "#3d1212", color: "#f05353" } };
+              const display = statusStyle[p.status] || statusStyle.pending;
               const nextStatus = () => { const idx = statuses.indexOf(p.status); return statuses[(idx + 1) % statuses.length]; };
               return (
                 <tr key={p.id} style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -159,9 +168,8 @@ export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatu
                       if (onRecalcPhase) setTimeout(onRecalcPhase, 500);
                     }} style={{
                       padding: "1px 7px", borderRadius: 99, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer",
-                      background: p.status === "paid" ? "#0e3d24" : p.status === "overdue" ? "#3d1212" : "#3d2a08",
-                      color: p.status === "paid" ? "#34c97a" : p.status === "overdue" ? "#f05353" : "#f5a623",
-                    }}>{p.status}</button>
+                      background: display.bg, color: display.color,
+                    }}>{p.status === "pending" ? "pending" : p.status === "paid" ? "paid" : "void"}</button>
                   </td>
                   <td style={{ padding: "6px" }}>
                     <button onClick={async () => {

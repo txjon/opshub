@@ -218,7 +218,7 @@ function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, onFil
         </span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
-          <div style={{ fontSize: 10, color: T.muted }}>{[item.blank_vendor, item.color].filter(Boolean).join(" · ")}</div>
+          <div style={{ fontSize: 10, color: T.muted }}>{[item.blank_vendor, item.blank_sku || item.color].filter(Boolean).join(" · ")}</div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {totalFiles > 0 && (

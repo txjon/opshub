@@ -544,6 +544,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 ["Revenue",        fmtD(r.grossRev),        T.accent],
                                 ["Blanks Cost",    fmtD(r.blankCost),       T.text],
                                 ["PO Total",       fmtD(r.poTotal),         T.text],
+                                ["Shipping",       fmtD(r.shipping),        T.text],
                                 ["Net Profit",     fmtD(r.netProfit),       mc2],
                                 ["Margin",         fmtP(r.margin_pct),      mc2],
                                 ["Profit / Piece", fmtD(r.profitPerPiece),  mc2],
@@ -1328,12 +1329,17 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) ||
     JSON.stringify(orderInfo) !== JSON.stringify(savedOrderInfo);
 
-  // Warn on page close if unsaved
+  // Save on unmount if dirty
+  const costingDirtyRef = React.useRef(false);
+  costingDirtyRef.current = costingDirty;
   useEffect(() => {
-    const handler = (e) => { if (costingDirty) { e.preventDefault(); e.returnValue = ""; } };
+    const handler = (e) => { if (costingDirtyRef.current) { e.preventDefault(); e.returnValue = ""; } };
     window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [costingDirty]);
+    return () => {
+      window.removeEventListener("beforeunload", handler);
+      if (costingDirtyRef.current && onSaveRef.current) onSaveRef.current();
+    };
+  }, []);
 
   // Sync buy item changes (name, sizes, qtys, adds, removes) into both costProds AND savedCostProds
   // Only runs when buyItems actually changes (compared by serialized snapshot)
