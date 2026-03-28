@@ -1,6 +1,6 @@
 # OpsHub — House Party Distro
 
-Internal operations platform for House Party Distro, a custom apparel company in Las Vegas. Built iteratively — started in Claude.ai, continued in Claude Code.
+Internal operations platform for House Party Distro, a custom apparel company in Las Vegas. Built iteratively — started in Claude.ai, continued in Claude Code. Will also be used by Jon's second company (touring artists/bands) — ~90% feature overlap, same codebase.
 
 ## Stack
 
@@ -523,6 +523,18 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 - **No console.log**: production code is clean
 - **Theme compliance**: all colors use T object (except POTab NoteBox)
 - **Build**: compiles with zero errors
+
+## Roadmap
+
+**Current: Week 1 — Go live** with real projects. Taylor (setup/art) and Drake (costing/ordering/production) start using it. Collect feedback.
+
+**Week 2**: Fix everything from Week 1 feedback.
+
+**Week 3**: QuickBooks integration — push invoices and payments to QB via API. OpsHub owns invoicing/AR, QB owns bookkeeping/expenses/tax.
+
+**Week 4**: Client-facing features — proof approval via magic links (no login), Stripe payment links on invoices.
+
+**Future**: Permissions refactor, templates, decorator portal, multi-company support, scheduled notifications.
 
 ## Owner
 
