@@ -238,6 +238,22 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       timestamps[result.phase] = new Date().toISOString();
       await supabase.from("jobs").update({ phase: result.phase, phase_timestamps: timestamps }).eq("id", job.id);
       setJob(j => j ? { ...j, phase: result.phase, phase_timestamps: timestamps } as any : j);
+
+      // Handoff notifications on phase transitions
+      const clientName = (job.clients as any)?.name || "";
+      const label = `${clientName} — ${job.title}`;
+      const handoffs: Record<string, string> = {
+        pending: `${label} → Waiting on client (payment/proofs)`,
+        ready: `${label} → Ready to order blanks & send POs`,
+        production: `${label} → Items at decorator`,
+        receiving: `${label} → Items incoming to warehouse`,
+        fulfillment: `${label} → All items received — ready for fulfillment`,
+        complete: `${label} → Project complete`,
+      };
+      if (handoffs[result.phase]) {
+        notifyTeam(handoffs[result.phase], result.phase === "complete" ? "alert" : "production", job.id, "job");
+        logJobActivity(job.id, `Phase → ${result.phase.replace(/_/g, " ")}`);
+      }
     }
   }, [job, items, payments, proofStatus, supabase]);
 
