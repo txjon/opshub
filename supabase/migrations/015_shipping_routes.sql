@@ -8,3 +8,4 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS fulfillment_tracking text;
 -- Item received at HPD flag
 ALTER TABLE items ADD COLUMN IF NOT EXISTS received_at_hpd boolean DEFAULT false;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS received_at_hpd_at timestamptz;
+ALTER TABLE items ADD COLUMN IF NOT EXISTS received_qtys jsonb DEFAULT '{}';

@@ -99,6 +99,7 @@ export default function WarehousePage() {
             sizes: sortSizes(lines.map((l: any) => l.size)),
             qtys: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered])),
             ship_qtys: it.ship_qtys || {},
+            received_qtys: it.received_qtys || {},
           };
         }),
       });
@@ -106,6 +107,22 @@ export default function WarehousePage() {
 
     setJobs(mapped);
     setLoading(false);
+  }
+
+  async function updateReceivedQty(item: WarehouseItem, size: string, qty: number) {
+    const current = (item as any).received_qtys || {};
+    const updated = { ...current, [size]: qty };
+    // Update local state
+    setJobs(prev => prev.map(j => ({
+      ...j,
+      items: j.items.map(it => it.id === item.id ? { ...it, received_qtys: updated } as any : it),
+    })));
+    // Debounce save
+    const key = `rx_${item.id}`;
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(async () => {
+      await supabase.from("items").update({ received_qtys: updated }).eq("id", item.id);
+    }, 800);
   }
 
   async function markReceived(item: WarehouseItem) {
@@ -183,7 +200,7 @@ export default function WarehousePage() {
               <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                    {["Item", "Tracking", "Expected Qty", "Status", ""].map(h =>
+                    {["Item", "Tracking", "Shipped → Received", "Status", ""].map(h =>
                       <th key={h} style={{ padding: "5px 8px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
                     )}
                   </tr>
@@ -192,17 +209,43 @@ export default function WarehousePage() {
                   {job.items.map((item, i) => {
                     const totalQty = tQty(item.qtys);
                     const shippedQty = tQty(item.ship_qtys);
+                    const receivedQtys = (item as any).received_qtys || {};
+                    const receivedTotal = tQty(receivedQtys);
+                    const hasVariance = item.received_at_hpd && receivedTotal > 0 && receivedTotal !== (shippedQty || totalQty);
                     return (
-                      <tr key={item.id} style={{ borderBottom: i < job.items.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                      <tr key={item.id} style={{ borderBottom: i < job.items.length - 1 ? `1px solid ${T.border}` : "none", verticalAlign: "top" }}>
                         <td style={{ padding: "8px", fontWeight: 600 }}>
                           {item.name}
                           <div style={{ fontSize: 10, color: T.faint, fontWeight: 400 }}>{[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ")}</div>
                         </td>
                         <td style={{ padding: "8px", fontFamily: mono, fontSize: 11, color: T.muted }}>{item.ship_tracking || "—"}</td>
-                        <td style={{ padding: "8px", fontFamily: mono, fontWeight: 600 }}>{(shippedQty || totalQty).toLocaleString()}</td>
+                        <td style={{ padding: "8px" }}>
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            {item.sizes.map(sz => {
+                              const shipped = item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0;
+                              const received = receivedQtys[sz] ?? shipped;
+                              const mismatch = item.received_at_hpd && received !== shipped;
+                              return (
+                                <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                                  <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{sz}</span>
+                                  <span style={{ fontSize: 10, color: T.muted, fontFamily: mono }}>{shipped}</span>
+                                  <input type="number" min="0" value={received}
+                                    onChange={e => updateReceivedQty(item, sz, parseInt(e.target.value) || 0)}
+                                    onFocus={e => e.target.select()}
+                                    style={{ width: 36, textAlign: "center", padding: "2px", border: `1px solid ${mismatch ? T.red : T.border}`, borderRadius: 3, background: T.surface, color: mismatch ? T.red : T.text, fontSize: 10, fontFamily: mono, outline: "none" }} />
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {hasVariance && (
+                            <div style={{ fontSize: 9, color: T.red, marginTop: 4 }}>
+                              Variance: {receivedTotal - (shippedQty || totalQty)} units
+                            </div>
+                          )}
+                        </td>
                         <td style={{ padding: "8px" }}>
                           {item.received_at_hpd ? (
-                            <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>Received</span>
+                            <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: hasVariance ? T.amberDim : T.greenDim, color: hasVariance ? T.amber : T.green }}>{hasVariance ? "Variance" : "Received"}</span>
                           ) : (
                             <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.surface, color: T.muted }}>Pending</span>
                           )}
@@ -211,7 +254,7 @@ export default function WarehousePage() {
                           {item.received_at_hpd ? (
                             <button onClick={() => undoReceived(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>Undo</button>
                           ) : (
-                            <button onClick={() => markReceived(item)} style={{ fontSize: 10, fontWeight: 600, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Confirm Received</button>
+                            <button onClick={() => markReceived(item)} style={{ fontSize: 10, fontWeight: 600, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Confirm</button>
                           )}
                         </td>
                       </tr>
