@@ -218,16 +218,18 @@ function PricingEditor({ pricing, onChange }: { pricing: PricingData; onChange: 
     <div style={{ display:"flex", gap:20, alignItems:"flex-start" }}>
       {/* Print pricing grid */}
       <div style={{ flexShrink:0 }}>
-        <div style={{ display:"flex", gap:16, alignItems:"flex-end", marginBottom:10 }}>
-          <div>
-            <div style={{ fontSize:9, color:T.muted, fontFamily:font, textTransform:"uppercase" as const, letterSpacing:"0.06em", marginBottom:3 }}>Min charge / print loc</div>
-            <NumCell value={p.minimums?.print||0} onChange={v=>onChange({...p, minimums:{...(p.minimums||{}), print:v}})} width={70} />
+        <div style={{ marginBottom:10 }}>
+          <div style={{ display:"flex", gap:16, alignItems:"flex-end" }}>
+            <div>
+              <div style={{ fontSize:9, color:T.muted, fontFamily:font, textTransform:"uppercase" as const, letterSpacing:"0.06em", marginBottom:3 }}>Min charge / print loc</div>
+              <NumCell value={p.minimums?.print||0} onChange={v=>onChange({...p, minimums:{...(p.minimums||{}), print:v}})} width={70} />
+            </div>
+            <div>
+              <div style={{ fontSize:9, color:T.muted, fontFamily:font, textTransform:"uppercase" as const, letterSpacing:"0.06em", marginBottom:3 }}>Min charge / tag print</div>
+              <NumCell value={p.minimums?.tagPrint||0} onChange={v=>onChange({...p, minimums:{...(p.minimums||{}), tagPrint:v}})} width={70} />
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize:9, color:T.muted, fontFamily:font, textTransform:"uppercase" as const, letterSpacing:"0.06em", marginBottom:3 }}>Min charge / tag print</div>
-            <NumCell value={p.minimums?.tagPrint||0} onChange={v=>onChange({...p, minimums:{...(p.minimums||{}), tagPrint:v}})} width={70} />
-          </div>
-          <div style={{ fontSize:9, color:T.faint, fontFamily:font, paddingBottom:4 }}>Applied when qty is below first tier ({p.qtys[0]||"—"} pcs)</div>
+          <div style={{ fontSize:9, color:T.faint, fontFamily:font, marginTop:4 }}>Applied when qty is below first tier ({p.qtys[0]||"—"} pcs)</div>
         </div>
         <SectionHead title="Print Pricing (per unit by color count & qty)" />
         <div style={{ overflowX:"auto" as const }}>
@@ -249,7 +251,12 @@ function PricingEditor({ pricing, onChange }: { pricing: PricingData; onChange: 
             <tbody>
               {colorCounts.map((c, rowIdx) => (
                 <tr key={c}>
-                  <td style={{ ...tdStyle, textAlign:"left" as const, fontWeight:600, fontFamily:mono, color:T.accent, fontSize:10, padding:"1px 4px" }}>{c}c</td>
+                  <td style={{ ...tdStyle, textAlign:"left" as const, fontWeight:600, fontFamily:mono, color:T.accent, fontSize:10, padding:"1px 4px", whiteSpace:"nowrap" }}>
+                    {c}c
+                    <button onClick={()=>{const newPrices={...p.prices};delete newPrices[c];onChange({...p,prices:newPrices});}}
+                      style={{ background:"none", border:"none", color:T.faint, cursor:"pointer", fontSize:8, marginLeft:2, verticalAlign:"middle" }}
+                      onMouseEnter={e=>(e.currentTarget.style.color=T.red)} onMouseLeave={e=>(e.currentTarget.style.color=T.faint)}>✕</button>
+                  </td>
                   {p.qtys.map((_,i) => (
                     <td key={i} style={tdStyle}>
                       <NumCell value={(p.prices[c]||[])[i]||0} onChange={v=>updatePrice(c,i,v)} width={44} gridId={gid} row={rowIdx} col={i} />
@@ -278,14 +285,16 @@ function PricingEditor({ pricing, onChange }: { pricing: PricingData; onChange: 
         </div>
       </div>
 
-      {/* Packaging, Finishing, Setup, Specialty on the right */}
-      <div style={{ flex:1, minWidth:0, display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:12, alignItems:"flex-start" }}>
-        <KeyValueSection title="Packaging (per unit)" data={p.packaging||{}}
-          onUpdate={packaging => onChange({...p, packaging})} />
-        <KeyValueSection title="Finishing (per unit)" data={p.finishing}
-          onUpdate={finishing => onChange({...p, finishing})} />
-        <KeyValueSection title="Setup Fees" data={p.setup}
-          onUpdate={setup => onChange({...p, setup})} />
+      {/* Packaging, Finishing, Setup, Specialty */}
+      <div style={{ flex:1, minWidth:0, display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, alignItems:"flex-start" }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          <KeyValueSection title="Packaging (per unit)" data={p.packaging||{}}
+            onUpdate={packaging => onChange({...p, packaging})} />
+          <KeyValueSection title="Finishing (per unit)" data={p.finishing}
+            onUpdate={finishing => onChange({...p, finishing})} />
+          <KeyValueSection title="Setup Fees" data={p.setup}
+            onUpdate={setup => onChange({...p, setup})} />
+        </div>
         <KeyValueSection title="Specialty (per unit upcost)" data={p.specialty}
           onUpdate={specialty => onChange({...p, specialty})} />
       </div>
@@ -392,6 +401,7 @@ export default function DecoratorsPage() {
   const supabase = createClient();
   const [decorators, setDecorators] = useState<Decorator[]>([]);
   const [expanded, setExpanded] = useState<string|null>(null);
+  const [pricingOpen, setPricingOpen] = useState<Record<string,boolean>>({});
   const [saving, setSaving] = useState<Record<string,boolean>>({});
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState("");
@@ -527,9 +537,14 @@ export default function DecoratorsPage() {
                     </div>
                   </div>
 
-                  {/* Pricing */}
-                  <div style={{ borderTop:`1px solid ${T.border}`, paddingTop:16 }}>
-                    {d.pricing_data ? (
+                  {/* Pricing — collapsible */}
+                  <div style={{ borderTop:`1px solid ${T.border}`, paddingTop:0 }}>
+                    <div onClick={() => setPricingOpen(prev => ({...prev, [d.id]: !prev[d.id]}))}
+                      style={{ display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer", padding:"12px 0" }}>
+                      <div style={{ fontSize:12, fontWeight:700, color:pricingOpen[d.id]?T.accent:T.muted, fontFamily:font, letterSpacing:"0.02em" }}>Pricing</div>
+                      <span style={{ fontSize:11, color:pricingOpen[d.id]?T.accent:T.faint, display:"inline-block", transform:pricingOpen[d.id]?"rotate(180deg)":"rotate(0deg)", transition:"transform 0.15s" }}>v</span>
+                    </div>
+                    {pricingOpen[d.id] && (d.pricing_data ? (
                       <PricingEditor pricing={d.pricing_data} onChange={pd => upd({pricing_data:pd} as any)} />
                     ) : (
                       <div style={{ textAlign:"center" as const, padding:"20px 0" }}>
@@ -541,7 +556,7 @@ export default function DecoratorsPage() {
                           </button>
                         </div>
                       </div>
-                    )}
+                    ))}
                   </div>
 
                   {/* Delete */}
