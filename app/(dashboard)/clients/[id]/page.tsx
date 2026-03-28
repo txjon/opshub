@@ -173,8 +173,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         ))}
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,alignItems:"start"}}>
-        {/* Left — Client info */}
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {/* Client info */}
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
             <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Client Info</div>
@@ -255,7 +255,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           </div>
         </div>
 
-        {/* Right — History */}
+        {/* History */}
         <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
             <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
