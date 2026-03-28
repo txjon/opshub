@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/Skeleton";
 import { ProjectProgress } from "@/components/ProjectProgress";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
+import { calculateMilestones, calculatePriority, businessDaysFromNow } from "@/lib/dates";
 
 function JobSkeleton() {
   return (
@@ -230,6 +231,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         blanks_order_number: (it as any).blanks_order_number || null,
         ship_tracking: (it as any).ship_tracking || null,
         received_at_hpd: (it as any).received_at_hpd || false,
+        artwork_status: (it as any).artwork_status || null,
       })),
       payments: payments.map(p => ({ amount: p.amount, status: p.status })),
       proofStatus,
@@ -258,6 +260,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       }
     }
   }, [job, items, payments, proofStatus, supabase]);
+
+  // Run lifecycle recalc after data loads and on state changes
+  useEffect(() => {
+    if (initialLoadDone.current && job && items.length > 0) {
+      recalcPhase();
+    }
+  }, [job?.quote_approved, items.length, payments.length, proofStatus, recalcPhase]);
 
   const upd = (k: string, v: any) => { if (!job) return; const u = {...job, [k]:v} as Job; setJob(u); saveJob({[k]:v}); };
   const updItem = (id: string, p: Partial<Item>) => saveItem(id, p);
@@ -303,8 +312,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>
                 {job.phase.replace(/_/g," ")}
               </span>
-              {job.priority==="high"&&<span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:"#3d2a08",color:"#f5a623"}}>High priority</span>}
-              {job.priority==="urgent"&&<span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:"#3d1212",color:"#f05353"}}>Urgent</span>}
+              {job.priority==="rush"&&<span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:T.amberDim,color:T.amber}}>Rush</span>}
+              {job.priority==="hot"&&<span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:T.redDim,color:T.red}}>Hot</span>}
               {saving&&<span style={{fontSize:11,color:T.muted}}>Saving...</span>}
             </div>
             <h1 style={{fontSize:26,fontWeight:700,margin:"0 0 3px",letterSpacing:"-0.02em",color:T.text,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>{(job.clients as any)?.name||"No client"}</h1>
@@ -437,9 +446,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     </select>
                   </div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Priority</label>
-                    <select style={ic} value={job.priority} onChange={e=>upd("priority",e.target.value)}>
-                      {["normal","high","urgent"].map(p=><option key={p} value={p}>{p}</option>)}
-                    </select>
+                    <div style={{padding:"6px 10px",borderRadius:6,fontSize:12,fontWeight:600,textAlign:"center",
+                      background:job.priority==="hot"?T.redDim:job.priority==="rush"?T.amberDim:T.greenDim,
+                      color:job.priority==="hot"?T.red:job.priority==="rush"?T.amber:T.green}}>
+                      {(job.priority||"normal").toUpperCase()}
+                    </div>
                   </div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Phase</label>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -448,7 +459,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         {(()=>{
                           const r=calculatePhase({
                             job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
-                            items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false})),
+                            items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null})),
                             payments:payments.map(p=>({amount:p.amount,status:p.status})),
                             proofStatus,
                             poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
@@ -491,17 +502,42 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Target ship date</label><input style={ic} type="date" value={job.target_ship_date||""} onChange={e=>{
-                    upd("target_ship_date",e.target.value);
-                    const inHands = job.type_meta?.in_hands_date || job.type_meta?.show_date;
-                    if(!inHands && e.target.value){
-                      const d=new Date(e.target.value); d.setDate(d.getDate()+3);
-                      const ih=d.toISOString().split("T")[0];
-                      upd("type_meta",{...job.type_meta,in_hands_date:ih});
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>In-hands date</label><input style={ic} type="date" value={job.type_meta?.in_hands_date||job.type_meta?.show_date||""} onChange={e=>{
+                    const ih = e.target.value;
+                    upd("type_meta",{...job.type_meta,in_hands_date:ih});
+                    if(ih){
+                      const ms = calculateMilestones(ih);
+                      upd("target_ship_date",ms.shipFromWarehouse);
+                      upd("priority",calculatePriority(ih));
                     }
                   }}/></div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>In hands date</label><input style={ic} type="date" value={job.type_meta?.in_hands_date||job.type_meta?.show_date||""} onChange={e=>upd("type_meta",{...job.type_meta,in_hands_date:e.target.value})}/></div>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Priority</label>
+                    <div style={{padding:"6px 10px",borderRadius:6,fontSize:12,fontWeight:600,textAlign:"center",
+                      background:job.priority==="hot"?T.redDim:job.priority==="rush"?T.amberDim:T.greenDim,
+                      color:job.priority==="hot"?T.red:job.priority==="rush"?T.amber:T.green}}>
+                      {(job.priority||"normal").toUpperCase()}
+                    </div>
+                  </div>
                 </div>
+                {(job.type_meta?.in_hands_date||job.type_meta?.show_date)&&(()=>{
+                  const ms=calculateMilestones(job.type_meta?.in_hands_date||job.type_meta?.show_date);
+                  const fmt=(d:string)=>new Date(d+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
+                  return(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginTop:8}}>
+                      {[
+                        {label:"Decorator order by",date:ms.decoratorOrderDeadline},
+                        {label:"Decorator ships",date:ms.decoratorShips},
+                        {label:"Arrive warehouse",date:ms.arriveAtWarehouse},
+                        {label:"Ship to client",date:ms.shipFromWarehouse},
+                      ].map(m=>(
+                        <div key={m.label} style={{background:T.surface,borderRadius:6,padding:"5px 8px"}}>
+                          <div style={{fontSize:8,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{m.label}</div>
+                          <div style={{fontSize:11,fontWeight:600,color:T.muted,fontFamily:"var(--font-mono)"}}>{fmt(m.date)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:7,flex:1}}>
                   <div style={{flex:1}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping address</label>
                     <textarea style={{...ic,flex:1,minHeight:60,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})} placeholder="Venue name, street, city, state, zip..."/>
@@ -797,6 +833,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           items={items}
           costingData={job.costing_data}
           onRecalcPhase={recalcPhase}
+          onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
         />
       )}
       {tab==="production"&&(

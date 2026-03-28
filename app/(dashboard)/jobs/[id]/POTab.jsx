@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { calculateMilestones } from "@/lib/dates";
 
 function fmtD(n) {
   return "$"+Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -130,10 +131,10 @@ function buildLineItems(cp, allProds) {
 
 const SHIP_METHODS = ["UPS Ground","UPS 2-Day","UPS Next Day","FedEx Ground","FedEx Express","USPS Priority","Freight / LTL","Will Call","Decorator Drop Ship"];
 
-export function POTab({project,items,costingData,onRecalcPhase}) {
+export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
   const supabase = createClient();
   const [decorators,setDecorators] = useState([]);
-  const [selectedShipMethod,setSelectedShipMethod] = useState("");
+  const [shipMethods,setShipMethods] = useState(project?.type_meta?.po_ship_methods || {});
   const [selectedVendor,setSelectedVendor] = useState("");
   const [itemFields,setItemFields] = useState({});
   const [saving,setSaving] = useState({});
@@ -181,8 +182,10 @@ export function POTab({project,items,costingData,onRecalcPhase}) {
   const active = selectedVendor||vendors[0]||"";
   const vItems = sorted.filter(it=>getCostProd(it.id)?.printVendor===active);
   const today = new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
-  const shipDate = project?.target_ship_date
-    ? new Date(project.target_ship_date).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
+  const inHands = project?.type_meta?.in_hands_date || project?.type_meta?.show_date;
+  const decoratorShipDate = inHands ? calculateMilestones(inHands).decoratorShips : project?.target_ship_date;
+  const shipDate = decoratorShipDate
+    ? new Date(decoratorShipDate+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
     : "—";
 
   function updateItemField(itemId, field, val) {
@@ -235,8 +238,15 @@ export function POTab({project,items,costingData,onRecalcPhase}) {
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180}}>
             <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
-            <select value={selectedShipMethod} onChange={e=>setSelectedShipMethod(e.target.value)}
-              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:selectedShipMethod?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
+            <select value={shipMethods[active]||""} onChange={e=>{
+              const val=e.target.value;
+              const updated={...shipMethods,[active]:val};
+              setShipMethods(updated);
+              const meta={...(project.type_meta||{}),po_ship_methods:updated};
+              supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
+              if(onUpdateJob) onUpdateJob({type_meta:meta});
+            }}
+              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
               <option value="">— select —</option>
               {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
@@ -273,9 +283,11 @@ export function POTab({project,items,costingData,onRecalcPhase}) {
           onSent={async()=>{
             logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`);
             // Track which vendors have received POs
-            const updated = [...new Set([...(project.type_meta?.po_sent_vendors||[]), active])];
-            await supabase.from("jobs").update({type_meta:{...(project.type_meta||{}), po_sent_vendors: updated}}).eq("id",project.id);
-            if(onRecalcPhase) onRecalcPhase();
+            const updatedVendors = [...new Set([...(project.type_meta?.po_sent_vendors||[]), active])];
+            const meta = {...(project.type_meta||{}), po_sent_vendors: updatedVendors, po_ship_methods: shipMethods};
+            await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
+            if(onUpdateJob) onUpdateJob({type_meta:meta});
+            if(onRecalcPhase) setTimeout(onRecalcPhase, 300);
           }}
         />
       )}

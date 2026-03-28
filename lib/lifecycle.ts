@@ -18,6 +18,7 @@ export type LifecycleInput = {
     blanks_order_number: string | null;
     ship_tracking: string | null;
     received_at_hpd: boolean;
+    artwork_status?: string | null;
   }[];
   payments: {
     amount: number;
@@ -52,7 +53,7 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   const shippedFromDecorator = items.filter(it => it.pipeline_stage === "shipped").length;
   const receivedAtHpd = items.filter(it => it.received_at_hpd).length;
   const blanksOrdered = items.filter(it => it.blanks_order_number).length;
-  const allProofsApproved = items.every(it => proofStatus[it.id]?.allApproved);
+  const allProofsApproved = items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
 
   // ── COMPLETE
   if (route === "drop_ship") {
@@ -86,10 +87,19 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
     }
   }
 
-  // ── PRODUCTION (any item at decorator or shipped from decorator)
+  // ── PRODUCTION (any item at decorator or shipped from decorator, OR all POs sent + blanks ordered)
   if (atDecorator > 0 || shippedFromDecorator > 0) {
     const inProd = atDecorator + shippedFromDecorator;
     return { phase: "production", itemProgress: `${inProd}/${total} at decorator` };
+  }
+
+  // POs sent + blanks ordered = production (waiting on decorator)
+  const costProds = (job as any).costing_data?.costProds || [];
+  const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))];
+  const allPosSent = vendors.length > 0 && vendors.every((v: string) => (poSentVendors || []).includes(v));
+  const allBlanksOrdered = total > 0 && blanksOrdered === total;
+  if (allPosSent && allBlanksOrdered) {
+    return { phase: "production", itemProgress: "At decorator — awaiting completion" };
   }
 
   // ── READY (all gates met, need to order blanks / send POs)

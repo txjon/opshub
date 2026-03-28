@@ -162,6 +162,7 @@ export default function WarehousePage() {
     }, 800);
   }
 
+  const [activeTab, setActiveTab] = useState("incoming");
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
   const ic: React.CSSProperties = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
@@ -170,23 +171,48 @@ export default function WarehousePage() {
   const shipThrough = jobs.filter(j => j.shipping_route === "ship_through" && j.items.every(it => it.received_at_hpd));
   const fulfillment = jobs.filter(j => j.shipping_route === "stage" && j.items.every(it => it.received_at_hpd));
 
+  const incomingItemCount = incoming.reduce((a, j) => a + j.items.filter(it => !it.received_at_hpd).length, 0);
+  const shipThroughItemCount = shipThrough.reduce((a, j) => a + j.items.length, 0);
+  const fulfillmentItemCount = fulfillment.reduce((a, j) => a + j.items.length, 0);
+
   if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading warehouse...</div>;
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Warehouse</h1>
-        <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
-          {incoming.length} incoming · {shipThrough.length} ship-through · {fulfillment.length} fulfillment
-        </div>
       </div>
 
-      {/* ── INCOMING: items shipped from decorator, not yet received ── */}
-      <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Incoming</div>
-        {incoming.length === 0 ? (
-          <div style={{ ...card, padding: "24px", textAlign: "center", fontSize: 12, color: T.faint }}>No incoming items</div>
-        ) : incoming.map(job => (
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, padding: 4, background: T.surface, borderRadius: 8 }}>
+        {[
+          { id: "incoming", label: "Incoming", count: incomingItemCount },
+          { id: "shipping", label: "Shipping", count: shipThroughItemCount },
+          { id: "fulfillment", label: "Fulfillment", count: fulfillmentItemCount },
+        ].map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              background: activeTab === tab.id ? T.accent : "transparent",
+              color: activeTab === tab.id ? "#fff" : T.muted,
+              transition: "all 0.15s",
+            }}>
+            {tab.label}
+            {tab.count > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, padding: "1px 6px", borderRadius: 99,
+                background: activeTab === tab.id ? "rgba(255,255,255,0.2)" : T.card,
+                color: activeTab === tab.id ? "#fff" : T.accent,
+              }}>{tab.count}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ── INCOMING ── */}
+      {activeTab === "incoming" && (incoming.length === 0 ? (
+        <div style={{ ...card, padding: "24px", textAlign: "center", fontSize: 12, color: T.faint }}>No incoming items</div>
+      ) : (
+        <div>
+        {incoming.map(job => (
           <div key={job.id} style={{ ...card, marginBottom: 8 }}>
             <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
               <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
@@ -265,12 +291,13 @@ export default function WarehousePage() {
             </div>
           </div>
         ))}
-      </div>
+      </div>))}
 
-      {/* ── SHIP-THROUGH: all received, needs outbound shipping ── */}
-      {shipThrough.length > 0 && (
+      {/* ── SHIPPING ── */}
+      {activeTab === "shipping" && (shipThrough.length === 0 ? (
+        <div style={{ ...card, padding: "24px", textAlign: "center", fontSize: 12, color: T.faint }}>No orders ready to ship</div>
+      ) : (
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Ship-Through — Ready to Forward</div>
           {shipThrough.map(job => (
             <div key={job.id} style={{ ...card, marginBottom: 8 }}>
               <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
@@ -313,13 +340,13 @@ export default function WarehousePage() {
               </div>
             </div>
           ))}
-        </div>
-      )}
+        </div>))}
 
-      {/* ── FULFILLMENT: staged jobs, all items received ── */}
-      {fulfillment.length > 0 && (
+      {/* ── FULFILLMENT ── */}
+      {activeTab === "fulfillment" && (fulfillment.length === 0 ? (
+        <div style={{ ...card, padding: "24px", textAlign: "center", fontSize: 12, color: T.faint }}>No orders in fulfillment</div>
+      ) : (
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Fulfillment</div>
           {fulfillment.map(job => {
             const si = FULFILLMENT_STAGES.findIndex(s => s.id === job.fulfillment_status);
             return (
@@ -376,8 +403,7 @@ export default function WarehousePage() {
               </div>
             );
           })}
-        </div>
-      )}
+        </div>))}
 
       {jobs.length === 0 && (
         <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.faint }}>

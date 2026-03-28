@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
+import { calculateMilestones } from "@/lib/dates";
 
 const STAGES = [
   { id: "in_production", label: "In Production" },
@@ -26,6 +27,7 @@ type ProdItem = {
   job_number: string;
   client_name: string;
   decorator_name: string | null;
+  decorator_short_code: string | null;
   decorator_assignment_id: string | null;
   target_ship_date: string | null;
   total_units: number;
@@ -40,6 +42,10 @@ export default function ProductionPage() {
   const [search, setSearch] = useState("");
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterStalled, setFilterStalled] = useState(false);
+  const [sortState, setSortState] = useState<Record<string, { col: string; dir: "asc"|"desc" }>>({
+    in_production: { col: "client", dir: "asc" },
+    shipped: { col: "client", dir: "asc" },
+  });
   const now = new Date();
 
   useEffect(() => { loadAll(); }, []);
@@ -50,8 +56,8 @@ export default function ProductionPage() {
     // Get all items from active jobs (not complete/cancelled)
     const { data: jobs } = await supabase
       .from("jobs")
-      .select("id, title, job_number, target_ship_date, phase, clients(name)")
-      .not("phase", "in", '("complete","cancelled")');
+      .select("id, title, job_number, target_ship_date, type_meta, phase, clients(name)")
+      .in("phase", ["production", "receiving", "fulfillment"]);
 
     if (!jobs?.length) { setItems([]); setLoading(false); return; }
 
@@ -61,7 +67,7 @@ export default function ProductionPage() {
 
     const { data: allItems } = await supabase
       .from("items")
-      .select("*, buy_sheet_lines(qty_ordered), decorator_assignments(id, pipeline_stage, decorators(name))")
+      .select("*, buy_sheet_lines(qty_ordered), decorator_assignments(id, pipeline_stage, decorators(name, short_code))")
       .in("job_id", jobIds)
       .order("sort_order");
 
@@ -87,7 +93,7 @@ export default function ProductionPage() {
         id: it.id,
         name: it.name,
         job_id: it.job_id,
-        pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || "in_production",
+        pipeline_stage: it.pipeline_stage === "shipped" ? "shipped" : "in_production",
         blanks_order_number: it.blanks_order_number,
         blanks_order_cost: it.blanks_order_cost,
         ship_tracking: it.ship_tracking,
@@ -100,8 +106,13 @@ export default function ProductionPage() {
         job_number: job?.job_number || "",
         client_name: job?.clients?.name || "",
         decorator_name: assignment?.decorators?.name || null,
+        decorator_short_code: assignment?.decorators?.short_code || null,
         decorator_assignment_id: assignment?.id || null,
-        target_ship_date: job?.target_ship_date || null,
+        target_ship_date: (() => {
+          const ih = job?.type_meta?.in_hands_date || job?.type_meta?.show_date;
+          if (ih) return calculateMilestones(ih).decoratorShips;
+          return job?.target_ship_date || null;
+        })(),
         total_units: totalUnits,
         proof_status: proofMap[it.id] || "none",
       };
@@ -139,7 +150,7 @@ export default function ProductionPage() {
 
   // Stats
   const atDecorator = items.filter(it => it.pipeline_stage === "in_production").length;
-  const pendingProofs = items.filter(it => it.pipeline_stage === "in_production" && it.proof_status !== "approved").length;
+  const pendingProofs = items.filter(it => it.proof_status !== "approved").length;
   const stalled = items.filter(it => {
     const ts = it.pipeline_timestamps?.[it.pipeline_stage || ""];
     if (!ts) return false;
@@ -163,6 +174,33 @@ export default function ProductionPage() {
     return Math.ceil((new Date(item.target_ship_date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   };
 
+  const toggleSort = (stageId: string, col: string) => {
+    setSortState(prev => {
+      const cur = prev[stageId] || { col: "client", dir: "asc" };
+      if (cur.col === col) return { ...prev, [stageId]: { col, dir: cur.dir === "asc" ? "desc" : "asc" } };
+      return { ...prev, [stageId]: { col, dir: "asc" } };
+    });
+  };
+
+  const sortItems = (list: ProdItem[], stageId: string) => {
+    const { col: sortCol, dir: sortDir } = sortState[stageId] || { col: "client", dir: "asc" };
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...list].sort((a, b) => {
+      let av: any, bv: any;
+      switch (sortCol) {
+        case "client": av = a.client_name; bv = b.client_name; break;
+        case "project": av = a.job_title; bv = b.job_title; break;
+        case "item": av = a.name; bv = b.name; break;
+        case "decorator": av = a.decorator_short_code || a.decorator_name || ""; bv = b.decorator_short_code || b.decorator_name || ""; break;
+        case "units": return (a.total_units - b.total_units) * dir;
+        case "shipdate": return ((getDaysToShip(a) ?? 999) - (getDaysToShip(b) ?? 999)) * dir;
+        case "instage": return ((getDaysInStage(a) ?? 0) - (getDaysInStage(b) ?? 0)) * dir;
+        default: av = a.client_name; bv = b.client_name;
+      }
+      return (av || "").localeCompare(bv || "") * dir;
+    });
+  };
+
   const proofBadge = (status: string) => {
     if (status === "approved") return { label: "Approved", bg: T.greenDim, color: T.green };
     if (status === "pending") return { label: "Pending", bg: T.amberDim, color: T.amber };
@@ -182,8 +220,7 @@ export default function ProductionPage() {
       {/* Stats strip */}
       <div style={{ display: "flex", gap: 8 }}>
         {[
-          { label: "At decorator", count: atDecorator, color: T.accent },
-          { label: "Waiting on proofs", count: pendingProofs, color: T.purple },
+          { label: "In production", count: atDecorator, color: T.accent },
           { label: "Stalled 7+ days", count: stalled, color: T.red },
           { label: "Shipping this week", count: shippingThisWeek, color: T.accent },
         ].map(s => (
@@ -211,14 +248,7 @@ export default function ProductionPage() {
 
       {/* Stage groups */}
       {STAGES.map(stage => {
-        const stageItems = filtered.filter(it => it.pipeline_stage === stage.id)
-          .sort((a, b) => {
-            // Sort by ship date (soonest first), then by days in stage (longest first)
-            const aShip = a.target_ship_date ? new Date(a.target_ship_date).getTime() : Infinity;
-            const bShip = b.target_ship_date ? new Date(b.target_ship_date).getTime() : Infinity;
-            if (aShip !== bShip) return aShip - bShip;
-            return (getDaysInStage(b) || 0) - (getDaysInStage(a) || 0);
-          });
+        const stageItems = sortItems(filtered.filter(it => it.pipeline_stage === stage.id), stage.id);
 
         if (stageItems.length === 0 && search) return null;
 
@@ -236,10 +266,25 @@ export default function ProductionPage() {
             ) : (
               <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
                 {/* Header row */}
-                <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 80px 80px 80px 100px", padding: "6px 14px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-                  {["Item", "Client / Project", "Decorator", "Units", stage.id === "shipped" ? "Tracking" : "Proofs", "In stage", ""].map(h => (
-                    <div key={h} style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>{h}</div>
-                  ))}
+                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1.5fr 1fr 70px 70px 70px 90px", padding: "6px 14px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+                  {[
+                    { label: "Client", key: "client" },
+                    { label: "Project", key: "project" },
+                    { label: "Item", key: "item" },
+                    { label: "Decorator", key: "decorator" },
+                    { label: "Units", key: "units" },
+                    { label: stage.id === "shipped" ? "Tracking" : "Ship date", key: "shipdate" },
+                    { label: "In stage", key: "instage" },
+                    { label: "", key: "" },
+                  ].map(h => {
+                    const ss = sortState[stage.id] || { col: "client", dir: "asc" };
+                    return (
+                      <div key={h.label||"actions"} onClick={() => h.key && toggleSort(stage.id, h.key)}
+                        style={{ fontSize: 9, fontWeight: 700, color: ss.col === h.key ? T.accent : T.muted, textTransform: "uppercase", letterSpacing: "0.07em", cursor: h.key ? "pointer" : "default", userSelect: "none" }}>
+                        {h.label}{ss.col === h.key ? (ss.dir === "asc" ? " ↑" : " ↓") : ""}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {stageItems.map((item, i) => {
@@ -252,43 +297,38 @@ export default function ProductionPage() {
 
                   return (
                     <div key={item.id} style={{
-                      display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 80px 80px 80px 100px",
+                      display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1.5fr 1fr 70px 70px 70px 90px",
                       padding: "8px 14px", alignItems: "center",
                       borderBottom: i < stageItems.length - 1 ? `1px solid ${T.border}` : "none",
                     }}>
-                      {/* Item name + blank info */}
+                      {/* Client */}
+                      <div style={{ fontSize: 12, color: T.text }}>{item.client_name}</div>
+
+                      {/* Project */}
+                      <div style={{ fontSize: 12, color: T.muted, cursor: "pointer" }} onClick={() => router.push(`/jobs/${item.job_id}`)}>
+                        {item.job_title}
+                      </div>
+
+                      {/* Item */}
                       <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                          onClick={() => router.push(`/jobs/${item.job_id}`)}>
-                          {item.name}
-                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{item.name}</div>
                         <div style={{ fontSize: 10, color: T.faint }}>{[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ")}</div>
                       </div>
 
-                      {/* Client / Project */}
-                      <div>
-                        <div style={{ fontSize: 12, color: T.text }}>{item.client_name}</div>
-                        <div style={{ fontSize: 10, color: T.faint }}>{item.job_title}
-                          {daysToShip !== null && (
-                            <span style={{ marginLeft: 6, color: daysToShip < 0 ? T.red : daysToShip <= 3 ? T.amber : T.faint }}>
-                              {daysToShip < 0 ? `${Math.abs(daysToShip)}d over` : daysToShip === 0 ? "today" : `${daysToShip}d`}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Decorator */}
-                      <div style={{ fontSize: 11, color: item.decorator_name ? T.accent : T.faint }}>{item.decorator_name || "—"}</div>
+                      {/* Decorator (short code) */}
+                      <div style={{ fontSize: 11, color: item.decorator_short_code || item.decorator_name ? T.accent : T.faint }}>{item.decorator_short_code || item.decorator_name || "—"}</div>
 
                       {/* Units */}
                       <div style={{ fontSize: 12, fontFamily: mono, fontWeight: 600 }}>{item.total_units.toLocaleString()}</div>
 
-                      {/* Stage-specific column */}
+                      {/* Ship date / Tracking */}
                       <div>
                         {stage.id === "in_production" && (
-                          <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 99, background: proof.bg, color: proof.color }}>
-                            {proof.label}
-                          </span>
+                          daysToShip !== null ? (
+                            <span style={{ fontSize: 11, fontFamily: mono, fontWeight: 600, color: daysToShip < 0 ? T.red : daysToShip <= 3 ? T.amber : daysToShip <= 7 ? T.text : T.muted }}>
+                              {daysToShip < 0 ? `${Math.abs(daysToShip)}d over` : daysToShip === 0 ? "today" : `${daysToShip}d`}
+                            </span>
+                          ) : <span style={{ fontSize: 10, color: T.faint }}>—</span>
                         )}
                         {stage.id === "shipped" && (
                           <span style={{ fontSize: 10, fontFamily: mono, color: item.ship_tracking ? T.green : T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", maxWidth: 70 }}>

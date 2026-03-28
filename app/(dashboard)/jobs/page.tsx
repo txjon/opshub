@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 type Job = {
   id: string; title: string; job_type: string; phase: string; priority: string;
   target_ship_date: string|null; job_number: string; created_at: string;
+  type_meta?: Record<string, any>|null;
   clients?: { name: string }|null;
   items?: { id: string; pipeline_stage: string|null }[];
 };
@@ -62,7 +63,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), costing_summary, items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, type_meta, items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -75,13 +76,16 @@ export default function JobsPage() {
     return Math.round(pcts.reduce((a,p) => a+p, 0) / pcts.length);
   };
 
+  const getInHandsDate = (job: Job) => job.type_meta?.in_hands_date || job.type_meta?.show_date || null;
+
   const getFlags = (job: Job) => {
     const flags: { label: string; color: string }[] = [];
-    if (job.target_ship_date && new Date(job.target_ship_date) < now && !["complete","cancelled"].includes(job.phase)) {
+    const ih = getInHandsDate(job);
+    if (ih && new Date(ih) < now && !["complete","cancelled"].includes(job.phase)) {
       flags.push({ label: "Overdue", color: T.red });
     }
-    if (job.priority === "urgent") flags.push({ label: "Urgent", color: T.red });
-    if (job.priority === "high") flags.push({ label: "High Priority", color: T.amber });
+    if (job.priority === "hot") flags.push({ label: "Hot", color: T.red });
+    if (job.priority === "rush") flags.push({ label: "Rush", color: T.amber });
     return flags;
   };
 
@@ -122,7 +126,7 @@ export default function JobsPage() {
       av = (a.clients?.name || "").toLowerCase();
       bv = (b.clients?.name || "").toLowerCase();
     } else if (sortKey === "priority") {
-      const order: Record<string,number> = { urgent:0, high:1, normal:2 };
+      const order: Record<string,number> = { hot:0, rush:1, normal:2 };
       av = order[a.priority] ?? 3; bv = order[b.priority] ?? 3;
     } else if (sortKey === "phase") {
       const order: Record<string,number> = { intake:0, pending:1, ready:2, production:3, receiving:4, fulfillment:5, complete:6 };
@@ -207,16 +211,17 @@ export default function JobsPage() {
           const flags = getFlags(job);
           const pct = getJobPct(job);
           const pctColor = pct === 100 ? T.green : pct >= 60 ? T.accent : pct >= 30 ? T.amber : T.muted;
-          const daysLeft = job.target_ship_date ? Math.ceil((new Date(job.target_ship_date).getTime() - now.getTime()) / (1000*60*60*24)) : null;
+          const ih = getInHandsDate(job);
+          const daysLeft = ih ? Math.ceil((new Date(ih).getTime() - now.getTime()) / (1000*60*60*24)) : null;
           const itemCount = job.items?.length || 0;
 
           const priorityStyle: Record<string,{bg:string,text:string,label:string}> = {
-            urgent: { bg:"#3d1212", text:"#f05353", label:"Urgent" },
-            high:   { bg:"#3d2a08", text:"#f5a623", label:"High priority" },
+            hot:    { bg:"#3d1212", text:"#f05353", label:"Hot" },
+            rush:   { bg:"#3d2a08", text:"#f5a623", label:"Rush" },
             normal: { bg:"#2a3050", text:"#7a82a0", label:"Normal" },
           };
           const pri = priorityStyle[job.priority] || priorityStyle.normal;
-          const borderColor = job.priority==="urgent" ? T.red+"44" : job.priority==="high" ? T.amber+"44" : daysLeft!==null&&daysLeft<0 ? T.red+"44" : T.border;
+          const borderColor = job.priority==="hot" ? T.red+"44" : job.priority==="rush" ? T.amber+"44" : daysLeft!==null&&daysLeft<0 ? T.red+"44" : T.border;
           const totalUnits = (job.items||[]).reduce((a:number,it:any) =>
             a + (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0), 0);
           const totalRevenue = (job as any).costing_summary?.grossRev ||
