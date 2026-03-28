@@ -428,6 +428,9 @@ Job-level activity feed component + auto-logging helpers:
 - `notifyTeam(message, type, referenceId, referenceType)` — broadcasts notification to all team members. Called on: quote approved, payment received, items shipped from decorator (warehouse incoming).
 - `JobActivityPanel` component — embeddable feed (used on Overview tab as static stats, full feed available).
 
+### `components/GlobalSearch.tsx`
+Global search modal. Triggered by search bar in sidebar or Cmd+K. Searches across projects (title, job number, client name), clients (name), decorators (name, short code), and items (name). 200ms debounce, keyboard navigation (↑↓ Enter Esc), color-coded result types.
+
 ### `components/ProjectProgress.tsx`
 Progress checklist bar shown at top of every active project. Shows completion state of each workflow step. Clicking a step navigates to the corresponding tab. Calculates from: items, costing, quote_approved, proof status, payments, blanks_order_number, PO sent vendors.
 
