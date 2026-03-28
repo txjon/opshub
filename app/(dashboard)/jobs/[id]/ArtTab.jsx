@@ -296,6 +296,7 @@ function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, onFil
 
 function MockupDropZone({ item, clientName, projectTitle, onFilesChanged, onUpdateItem }) {
   useEffect(() => { preloadLogo(); preloadTemplate(); }, []);
+  const [mode, setMode] = useState(null); // null | "auto" | "manual"
   const [mockupData, setMockupData] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [genStatus, setGenStatus] = useState("");
@@ -306,13 +307,21 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged, onUpda
   const [dragover, setDragover] = useState(false);
   const [fileName, setFileName] = useState("");
   const mockupInputRef = useRef(null);
+  const manualMockupRef = useRef(null);
+  const manualPsdRef = useRef(null);
+  const [manualMockupFile, setManualMockupFile] = useState(null);
+  const [manualMockupPreview, setManualMockupPreview] = useState(null);
+  const [manualPsdFile, setManualPsdFile] = useState(null);
+  const [manualPrintInfo, setManualPrintInfo] = useState(null);
 
+  // ── Auto mode: PSD → mockup + proof ──────────────────────────
   async function processFile(file) {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith(".psd")) {
       setError("Only .psd files are supported. Drop a Photoshop file.");
       return;
     }
+    setMode("auto");
     setFileName(file.name);
     setGenerating(true);
     setError(null);
@@ -332,6 +341,94 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged, onUpda
       setGenerating(false);
       setGenStatus("");
     }
+  }
+
+  // ── Manual mode: upload mockup image + PSD separately ────────
+  function handleManualMockup(file) {
+    if (!file || !file.type.startsWith("image/")) { setError("Please upload an image file (JPG, PNG)"); return; }
+    setManualMockupFile(file);
+    const reader = new FileReader();
+    reader.onload = e => setManualMockupPreview(e.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  async function handleManualPsd(file) {
+    if (!file || !file.name.toLowerCase().endsWith(".psd")) { setError("Please upload a .psd file"); return; }
+    setManualPsdFile(file);
+    setError(null);
+    try {
+      setGenStatus("Reading PSD print data...");
+      setGenerating(true);
+      const { readPsd } = await import("ag-psd");
+      const arrayBuffer = await file.arrayBuffer();
+      const psd = readPsd(new Uint8Array(arrayBuffer));
+      // Extract print info from PSD groups (same logic as mockup-client)
+      const PLACEMENT_MAP = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest' };
+      const printInfo = [];
+      const groups = [...(psd.children || [])].reverse();
+      for (const group of groups) {
+        if (!group.children) continue;
+        const zoneName = PLACEMENT_MAP[group.name];
+        if (!zoneName) continue;
+        const colors = [];
+        let minL=Infinity, minT=Infinity, maxR=-Infinity, maxB=-Infinity;
+        for (const layer of group.children) {
+          minL=Math.min(minL,layer.left); minT=Math.min(minT,layer.top);
+          maxR=Math.max(maxR,layer.right); maxB=Math.max(maxB,layer.bottom);
+          // Sample color from layer
+          let hex = "#888888";
+          if (layer.canvas) {
+            const ctx = layer.canvas.getContext("2d");
+            const data = ctx.getImageData(0,0,layer.canvas.width,layer.canvas.height).data;
+            let rS=0,gS=0,bS=0,cnt=0;
+            for (let i=0;i<data.length;i+=40) { if(data[i+3]>128){rS+=data[i];gS+=data[i+1];bS+=data[i+2];cnt++;} }
+            if (cnt>0) hex="#"+[rS,gS,bS].map(v=>Math.round(v/cnt).toString(16).padStart(2,"0")).join("");
+          }
+          colors.push({ name: layer.name, hex });
+        }
+        printInfo.push({
+          placement: zoneName,
+          groupName: group.name,
+          widthInches: ((maxR-minL)/300).toFixed(2),
+          heightInches: ((maxB-minT)/300).toFixed(2),
+          colors,
+        });
+      }
+      setManualPrintInfo(printInfo);
+    } catch (err) {
+      setError("Failed to read PSD: " + err.message);
+    } finally {
+      setGenerating(false);
+      setGenStatus("");
+    }
+  }
+
+  function finalizeManual() {
+    if (!manualMockupFile || !manualMockupPreview) return;
+    // Build mockup data in the same shape as auto mode
+    // Convert mockup image to JPEG upload format
+    const canvas = document.createElement("canvas");
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      const uploadDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      const pngDataUrl = canvas.toDataURL("image/png");
+      const base64 = pngDataUrl.split(",")[1];
+      setMockupData({
+        mockup: base64,
+        dataUrl: pngDataUrl,
+        uploadDataUrl,
+        printInfo: manualPrintInfo || [],
+        psdFile: manualPsdFile,
+      });
+      setMode("manual");
+    };
+    img.src = manualMockupPreview;
   }
 
   async function handleSaveToDrive() {
@@ -416,6 +513,11 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged, onUpda
     setError(null);
     setSaved(false);
     setFileName("");
+    setMode(null);
+    setManualMockupFile(null);
+    setManualMockupPreview(null);
+    setManualPsdFile(null);
+    setManualPrintInfo(null);
   }
 
   function handleDrop(e) {
@@ -427,21 +529,119 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged, onUpda
 
   return (
     <div style={{ marginTop: 8 }}>
-      {!mockupData && !generating && (
-        <div
-          onDragOver={e => { e.preventDefault(); setDragover(true); }}
-          onDragLeave={() => setDragover(false)}
-          onDrop={handleDrop}
-          onClick={() => mockupInputRef.current?.click()}
-          style={{
-            border: `2px dashed ${dragover ? T.accent : T.border}`,
-            borderRadius: 8, padding: "16px 12px", textAlign: "center", cursor: "pointer",
-            background: dragover ? T.accentDim : "transparent",
-            transition: "all 0.15s",
-          }}
-        >
-          <div style={{ fontSize: 11, color: T.muted }}>Drop .psd to generate mockup & proof</div>
-          <input ref={mockupInputRef} type="file" accept=".psd" onChange={e => { processFile(e.target.files?.[0]); e.target.value = ""; }} style={{ display: "none" }} />
+      {!mockupData && !generating && !mode && (
+        <div style={{ display: "flex", gap: 8 }}>
+          {/* Auto: PSD drop */}
+          <div
+            onDragOver={e => { e.preventDefault(); setDragover(true); }}
+            onDragLeave={() => setDragover(false)}
+            onDrop={handleDrop}
+            onClick={() => mockupInputRef.current?.click()}
+            style={{
+              flex: 1, border: `2px dashed ${dragover ? T.accent : T.border}`,
+              borderRadius: 8, padding: "16px 12px", textAlign: "center", cursor: "pointer",
+              background: dragover ? T.accentDim : "transparent", transition: "all 0.15s",
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 600, color: T.accent, marginBottom: 4 }}>Auto Mockup</div>
+            <div style={{ fontSize: 10, color: T.muted }}>Drop .psd — generates tee mockup + proof</div>
+            <input ref={mockupInputRef} type="file" accept=".psd" onChange={e => { processFile(e.target.files?.[0]); e.target.value = ""; }} style={{ display: "none" }} />
+          </div>
+          {/* Manual: upload mockup + PSD — supports drag-and-drop of both at once */}
+          <div
+            onClick={() => setMode("manual-setup")}
+            onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.purple; e.currentTarget.style.background = T.purple + "11"; }}
+            onDragLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}
+            onDrop={e => {
+              e.preventDefault();
+              e.currentTarget.style.borderColor = T.border;
+              e.currentTarget.style.background = "transparent";
+              const files = Array.from(e.dataTransfer.files);
+              const imageFile = files.find(f => f.type.startsWith("image/"));
+              const psdFile = files.find(f => f.name.toLowerCase().endsWith(".psd"));
+              if (imageFile) handleManualMockup(imageFile);
+              if (psdFile) handleManualPsd(psdFile);
+              if (imageFile || psdFile) setMode("manual-setup");
+            }}
+            style={{
+              flex: 1, border: `2px dashed ${T.border}`,
+              borderRadius: 8, padding: "16px 12px", textAlign: "center", cursor: "pointer",
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = T.purple; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 600, color: T.purple, marginBottom: 4 }}>Custom Mockup</div>
+            <div style={{ fontSize: 10, color: T.muted }}>Drop mockup + .psd together, or click to upload</div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual setup: two upload slots */}
+      {mode === "manual-setup" && !mockupData && !generating && (
+        <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: 14, background: T.surface }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: T.purple }}>Custom Mockup</div>
+            <button onClick={() => { setMode(null); setManualMockupFile(null); setManualMockupPreview(null); setManualPsdFile(null); setManualPrintInfo(null); }}
+              style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 14 }}>×</button>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            {/* Mockup image upload */}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>1. Mockup Image</div>
+              {manualMockupPreview ? (
+                <div style={{ position: "relative" }}>
+                  <img src={manualMockupPreview} style={{ width: "100%", borderRadius: 6, border: `1px solid ${T.border}` }} />
+                  <button onClick={() => { setManualMockupFile(null); setManualMockupPreview(null); }}
+                    style={{ position: "absolute", top: 4, right: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 4, color: T.muted, cursor: "pointer", fontSize: 10, padding: "2px 6px" }}>×</button>
+                </div>
+              ) : (
+                <div onClick={() => manualMockupRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={e => { e.preventDefault(); e.stopPropagation(); const f = Array.from(e.dataTransfer.files).find(f => f.type.startsWith("image/")); if (f) handleManualMockup(f); }}
+                  style={{ border: `2px dashed ${T.border}`, borderRadius: 6, padding: "20px 10px", textAlign: "center", cursor: "pointer" }}>
+                  <div style={{ fontSize: 11, color: T.muted }}>Drop or click — JPG/PNG</div>
+                  <input ref={manualMockupRef} type="file" accept="image/*" onChange={e => { handleManualMockup(e.target.files?.[0]); e.target.value = ""; }} style={{ display: "none" }} />
+                </div>
+              )}
+            </div>
+            {/* PSD art file upload */}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>2. Art File (.psd)</div>
+              {manualPsdFile ? (
+                <div style={{ padding: "10px", background: T.card, borderRadius: 6, border: `1px solid ${T.green}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: T.green, marginBottom: 4 }}>{manualPsdFile.name}</div>
+                  {manualPrintInfo && manualPrintInfo.length > 0 && (
+                    <div style={{ fontSize: 10, color: T.muted }}>
+                      {manualPrintInfo.map(p => `${p.placement}: ${p.colors.length} color${p.colors.length !== 1 ? "s" : ""}`).join(" · ")}
+                    </div>
+                  )}
+                  <button onClick={() => { setManualPsdFile(null); setManualPrintInfo(null); }}
+                    style={{ fontSize: 9, color: T.faint, background: "none", border: "none", cursor: "pointer", marginTop: 4 }}>Remove</button>
+                </div>
+              ) : (
+                <div onClick={() => manualPsdRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={e => { e.preventDefault(); e.stopPropagation(); const f = Array.from(e.dataTransfer.files).find(f => f.name.toLowerCase().endsWith(".psd")); if (f) handleManualPsd(f); }}
+                  style={{ border: `2px dashed ${T.border}`, borderRadius: 6, padding: "20px 10px", textAlign: "center", cursor: "pointer" }}>
+                  <div style={{ fontSize: 11, color: T.muted }}>Drop or click — .psd file</div>
+                  <div style={{ fontSize: 9, color: T.faint, marginTop: 2 }}>Optional — extracts print data</div>
+                  <input ref={manualPsdRef} type="file" accept=".psd" onChange={e => { handleManualPsd(e.target.files?.[0]); e.target.value = ""; }} style={{ display: "none" }} />
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Generate button */}
+          <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={finalizeManual} disabled={!manualMockupFile}
+              style={{
+                background: manualMockupFile ? T.purple : T.surface, color: manualMockupFile ? "#fff" : T.faint,
+                border: "none", borderRadius: 6, padding: "8px 20px", fontSize: 12, fontWeight: 600,
+                cursor: manualMockupFile ? "pointer" : "default", opacity: manualMockupFile ? 1 : 0.5,
+              }}>
+              Generate Proof →
+            </button>
+          </div>
         </div>
       )}
 
