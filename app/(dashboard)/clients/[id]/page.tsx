@@ -12,10 +12,11 @@ type Contact = { id:string; name:string; email:string|null; phone:string|null; r
 type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; payment_records:any[]; };
 
 const PHASE_COLORS: Record<string,{bg:string,text:string}> = {
-  intake:{bg:T.faint,text:T.muted}, pre_production:{bg:"#2d1f5e",text:"#a78bfa"},
-  production:{bg:T.accentDim,text:T.accent}, receiving:{bg:T.amberDim,text:T.amber},
-  shipping:{bg:T.greenDim,text:T.green}, complete:{bg:T.greenDim,text:T.green},
-  on_hold:{bg:T.redDim,text:T.red}, cancelled:{bg:T.faint,text:T.muted},
+  intake:{bg:T.faint,text:T.muted}, pending:{bg:"#2d1f5e",text:"#a78bfa"},
+  ready:{bg:T.amberDim,text:T.amber}, production:{bg:T.accentDim,text:T.accent},
+  receiving:{bg:T.amberDim,text:T.amber}, fulfillment:{bg:"#2d1f5e",text:"#a78bfa"},
+  complete:{bg:T.greenDim,text:T.green}, on_hold:{bg:T.redDim,text:T.red},
+  cancelled:{bg:T.faint,text:T.muted},
 };
 const ic = {width:"100%",padding:"6px 10px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:"13px",fontFamily:font,boxSizing:"border-box" as const,outline:"none"};
 

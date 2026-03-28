@@ -144,7 +144,7 @@ export default async function DashboardPage() {
     }
 
     // Proofs pending
-    if (j.phase === "pre_production" || j.phase === "intake") {
+    if (j.phase === "pending" || j.phase === "ready" || j.phase === "intake") {
       const pendingProofs = items.filter((it: any) => !proofMap[it.id]?.allApproved);
       if (pendingProofs.length > 0 && (j as any).quote_approved) {
         needsAction.push({
@@ -156,8 +156,8 @@ export default async function DashboardPage() {
       }
     }
 
-    // Blanks not ordered (pre_production with all proofs approved)
-    if (j.phase === "pre_production") {
+    // Blanks not ordered (ready phase with all proofs approved)
+    if (j.phase === "ready") {
       const needsBlanks = items.filter((it: any) => !it.blanks_order_number);
       const allApproved = items.every((it: any) => proofMap[it.id]?.allApproved);
       if (needsBlanks.length > 0 && allApproved) {
@@ -171,7 +171,7 @@ export default async function DashboardPage() {
     }
 
     // POs not sent
-    if (j.phase === "pre_production" || j.phase === "production") {
+    if (j.phase === "ready" || j.phase === "production") {
       const poSent = (j as any).type_meta?.po_sent_vendors || [];
       const costProds = (j as any).costing_data?.costProds || [];
       const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))] as string[];

@@ -125,7 +125,7 @@ export default function JobsPage() {
       const order: Record<string,number> = { urgent:0, high:1, normal:2 };
       av = order[a.priority] ?? 3; bv = order[b.priority] ?? 3;
     } else if (sortKey === "phase") {
-      const order: Record<string,number> = { intake:0, pre_production:1, production:2, receiving:3, shipping:4, complete:5 };
+      const order: Record<string,number> = { intake:0, pending:1, ready:2, production:3, receiving:4, fulfillment:5, complete:6 };
       av = order[a.phase] ?? 9; bv = order[b.phase] ?? 9;
     } else if (sortKey === "pct") {
       av = getJobPct(a); bv = getJobPct(b);

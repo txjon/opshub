@@ -42,7 +42,7 @@ export type Database = {
           job_number: string;
           job_type: "tour" | "webstore" | "corporate" | "brand";
           title: string;
-          phase: "intake" | "pre_production" | "production" | "receiving" | "shipping" | "complete" | "on_hold" | "cancelled";
+          phase: "intake" | "pending" | "ready" | "production" | "receiving" | "fulfillment" | "complete" | "on_hold" | "cancelled";
           priority: "normal" | "high" | "urgent";
           payment_terms: "net_15" | "net_30" | "deposit_balance" | "prepaid" | null;
           contract_status: "not_sent" | "sent" | "signed" | "waived";
@@ -113,7 +113,7 @@ export type Database = {
           item_id: string;
           decorator_id: string;
           decoration_type: "screen_print" | "embroidery" | "patch" | "cut_sew" | "dtg" | "sublimation" | "heat_transfer";
-          pipeline_stage: "blanks_ordered" | "blanks_shipped" | "blanks_received" | "strikeoff_approval" | "in_production" | "shipped";
+          pipeline_stage: "blanks_ordered" | "in_production" | "shipped";
           strikeoff_status: "not_needed" | "pending" | "approved" | "revision_requested";
           sent_to_decorator_date: string | null;
           est_completion_date: string | null;
