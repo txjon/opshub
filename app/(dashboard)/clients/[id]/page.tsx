@@ -175,82 +175,86 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {/* Client info */}
-        <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
-            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Client Info</div>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <div>
-                <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Name</label>
-                <input style={ic} value={client.name} onChange={e=>updateClient({name:e.target.value})}/>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        {/* Client info + Contacts — single card, 2 columns */}
+        <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start"}}>
+            {/* Left — Client info */}
+            <div>
+              <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Client Info</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 <div>
-                  <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Type</label>
-                  <select style={ic} value={client.client_type||""} onChange={e=>updateClient({client_type:e.target.value||null})}>
-                    <option value="">—</option>
-                    {["corporate","brand","artist","tour","webstore"].map(t=><option key={t} value={t}>{t}</option>)}
-                  </select>
+                  <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Name</label>
+                  <input style={ic} value={client.name} onChange={e=>updateClient({name:e.target.value})}/>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div>
+                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Type</label>
+                    <select style={ic} value={client.client_type||""} onChange={e=>updateClient({client_type:e.target.value||null})}>
+                      <option value="">—</option>
+                      {["corporate","brand","artist","tour","webstore"].map(t=><option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
+                    <select style={ic} value={client.default_terms||""} onChange={e=>updateClient({default_terms:e.target.value||null})}>
+                      <option value="">—</option>
+                      {["net_15","net_30","deposit_balance","prepaid"].map(t=><option key={t} value={t}>{t.replace(/_/g," ")}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div>
-                  <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
-                  <select style={ic} value={client.default_terms||""} onChange={e=>updateClient({default_terms:e.target.value||null})}>
-                    <option value="">—</option>
-                    {["net_15","net_30","deposit_balance","prepaid"].map(t=><option key={t} value={t}>{t.replace(/_/g," ")}</option>)}
-                  </select>
+                  <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Notes</label>
+                  <textarea style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.4}} value={client.notes||""} onChange={e=>updateClient({notes:e.target.value})}/>
                 </div>
-              </div>
-              <div>
-                <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Notes</label>
-                <textarea style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.4}} value={client.notes||""} onChange={e=>updateClient({notes:e.target.value})}/>
               </div>
             </div>
-          </div>
 
-          {/* Contacts */}
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-              <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
-              <button onClick={()=>setAddingContact(!addingContact)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
-            </div>
-            {addingContact&&(
-              <div style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10,marginBottom:8}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-                  <input id="cc-name" placeholder="Name" style={ic}/>
-                  <input id="cc-email" placeholder="Email" style={ic}/>
-                  <input id="cc-phone" placeholder="Phone" style={ic}/>
-                  <input id="cc-role" placeholder="Role (e.g. Manager)" style={ic}/>
-                </div>
-                <div style={{display:"flex",gap:6}}>
-                  <button onClick={async()=>{
-                    const name=(document.getElementById("cc-name") as HTMLInputElement).value.trim();
-                    if(!name) return;
-                    const email=(document.getElementById("cc-email") as HTMLInputElement).value.trim()||null;
-                    const phone=(document.getElementById("cc-phone") as HTMLInputElement).value.trim()||null;
-                    const role_label=(document.getElementById("cc-role") as HTMLInputElement).value.trim()||null;
-                    await supabase.from("contacts").insert({name,email,phone,role_label,client_id:params.id});
-                    setAddingContact(false);
-                    load();
-                  }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>
-                  <button onClick={()=>setAddingContact(false)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:11,padding:"5px 10px",cursor:"pointer"}}>Cancel</button>
-                </div>
+            {/* Right — Contacts */}
+            <div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
+                <button onClick={()=>setAddingContact(!addingContact)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
               </div>
-            )}
-            {contacts.length===0&&!addingContact&&<p style={{fontSize:12,color:T.muted}}>No contacts yet.</p>}
-            <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {contacts.map(c=>(
-                <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:T.surface,borderRadius:6}}>
-                  <div style={{width:26,height:26,borderRadius:"50%",background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
-                    {c.name.split(" ").map(n=>n[0]).join("").slice(0,2)}
+              {addingContact&&(
+                <div style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10,marginBottom:8}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+                    <input id="cc-name" placeholder="Name" style={ic}/>
+                    <input id="cc-email" placeholder="Email" style={ic}/>
+                    <input id="cc-phone" placeholder="Phone" style={ic}/>
+                    <input id="cc-role" placeholder="Role (e.g. Manager)" style={ic}/>
                   </div>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:12,fontWeight:600}}>{c.name} {c.role_label&&<span style={{fontWeight:400,color:T.muted,fontSize:10}}>· {c.role_label}</span>}</div>
-                    <div style={{fontSize:10,color:T.muted}}>{[c.email,c.phone].filter(Boolean).join(" · ")}</div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={async()=>{
+                      const name=(document.getElementById("cc-name") as HTMLInputElement).value.trim();
+                      if(!name) return;
+                      const email=(document.getElementById("cc-email") as HTMLInputElement).value.trim()||null;
+                      const phone=(document.getElementById("cc-phone") as HTMLInputElement).value.trim()||null;
+                      const role_label=(document.getElementById("cc-role") as HTMLInputElement).value.trim()||null;
+                      await supabase.from("contacts").insert({name,email,phone,role_label,client_id:params.id});
+                      setAddingContact(false);
+                      load();
+                    }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>
+                    <button onClick={()=>setAddingContact(false)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:11,padding:"5px 10px",cursor:"pointer"}}>Cancel</button>
                   </div>
-                  <button onClick={()=>setConfirmRemove(c)} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11}}
-                    onMouseEnter={e=>e.currentTarget.style.color=T.red}
-                    onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
                 </div>
-              ))}
+              )}
+              {contacts.length===0&&!addingContact&&<p style={{fontSize:12,color:T.muted}}>No contacts yet.</p>}
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {contacts.map(c=>(
+                  <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:T.surface,borderRadius:6}}>
+                    <div style={{width:26,height:26,borderRadius:"50%",background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
+                      {c.name.split(" ").map(n=>n[0]).join("").slice(0,2)}
+                    </div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:12,fontWeight:600}}>{c.name} {c.role_label&&<span style={{fontWeight:400,color:T.muted,fontSize:10}}>· {c.role_label}</span>}</div>
+                      <div style={{fontSize:10,color:T.muted}}>{[c.email,c.phone].filter(Boolean).join(" · ")}</div>
+                    </div>
+                    <button onClick={()=>setConfirmRemove(c)} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11}}
+                      onMouseEnter={e=>e.currentTarget.style.color=T.red}
+                      onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
