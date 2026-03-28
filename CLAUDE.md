@@ -171,46 +171,75 @@ Each item on the PO tab has four editable fields (save on blur to items table):
 
 **Ship method**: Hardcoded list (UPS, FedEx, USPS, Freight, Will Call, Decorator Drop Ship). No database table.
 
-### Job Lifecycle (Auto-Advancing)
+### Shipping Routes (per job)
 
-Phase is **read-only** — calculated automatically from item data. No manual override (system always wins).
+Set on Overview tab by Drake during setup. Determines post-decorator flow:
 
-| Phase | Trigger |
+| Route | Meaning |
 |---|---|
-| `intake` | Project created (default) |
-| `pre_production` | Quote approved + payment gate met |
-| `production` | First item at decorator (in_production stage) |
-| `receiving` | First item tracking entered (warehouse jobs only) |
-| `shipped` | First item tracking entered (drop ship) OR shipped from warehouse |
-| `complete` | All items shipped/delivered |
+| `drop_ship` | Decorator ships direct to client, never touches HPD |
+| `ship_through` | Comes to HPD, receiver confirms qty, ships right back out to client |
+| `stage` | Comes to HPD, stored, fulfillment team ships as a batch later |
+
+Job type (tour/brand/artist/etc.) is independent from route. If items have different destinations, they go in separate jobs.
+
+### Job Lifecycle v2 (Auto-Advancing)
+
+Phase is **read-only** — calculated automatically from item data + proof status + payment status. No manual override (system always wins).
+
+| Phase | Meaning | Calculated when |
+|---|---|---|
+| `intake` | Setting up | Default, items being added/costed |
+| `pending` | Waiting on client | Quote approved but waiting on payment and/or proofs |
+| `ready` | Team needs to act | All gates met — order blanks, send POs |
+| `production` | At decorator | Any item in_production |
+| `receiving` | Coming to HPD | Items shipped from decorator, not all received (ship_through/stage) |
+| `fulfillment` | Fulfillment team owns it | All items received at HPD (stage route only) |
+| `complete` | Done | All items delivered |
+| `on_hold` | Manual lock | Hold button pressed |
 
 **Payment gate by terms:**
-- `prepaid` → full payment recorded and marked paid
+- `prepaid` → payment recorded and marked paid
 - `deposit_balance` → at least one payment recorded
 - `net_15` / `net_30` → auto (quote approval is enough)
 
-**Blanks ordering** (Blanks tab, pre-production):
+**Blanks ordering** (Blanks tab, during ready phase):
 - Per-item S&S order # + total cost (compared against calculated blank cost)
-- Gated: requires quote approved + all proofs approved
-- Blanks progress shown in pre_production phase display
+- 3-gate checklist: quote approved + payment gate met + all proofs approved
+- Blanks progress shown in ready phase display
 
 **Production stages per item** (Production tab, 2 stages):
 1. `in_production` — item at decorator, printing
 2. `shipped` — tracking # + per-size shipped quantities entered
 
-**Routing by job type:**
-- Warehouse jobs (tour, webstore, corporate, brand, artist): shipped → warehouse receiving → ship to client → complete
-- Drop ship: shipped → complete (decorator ships direct to client)
+**Routing by shipping route (not job type):**
+- `drop_ship`: decorator ships → item complete when tracking assigned
+- `ship_through`: decorator ships → HPD receives (confirms qty) → forwards to client → complete
+- `stage`: decorator ships → HPD receives (confirms qty) → fulfillment team (staged → packing → shipped) → complete
 
-**Phase recalculates on:** quote approval, payment added/status changed, PO sent, production stage advanced, blanks order entered, shipping tracking entered.
+**Fulfillment** (stage route, job-level):
+- Triggered when all items received at HPD
+- Fulfillment team controls: Staged → Packing → Shipped
+- Fulfillment tracking field on job
+- `fulfillment_status` = "shipped" → project complete
 
-**Hold/Resume:** Manual "Hold" button locks phase. "Resume" clears hold and recalculates to correct phase.
+**Phase recalculates on:** quote approval, payment added/status changed, PO sent, production stage advanced, blanks order entered, shipping tracking entered, item received at HPD.
+
+**Hold/Resume:** Manual "Hold" button locks phase. "Resume" clears hold and recalculates.
 
 **Phase timestamps:** Every transition recorded in `jobs.phase_timestamps` JSONB.
 
-**Item progress displayed:** e.g. `Production · 3/5 items in production`
+**Item progress displayed:** e.g. `Ready · 3/5 blanks ordered` or `Receiving · 2/4 received`
 
-**Backwards allowed:** If items regress, phase recalculates backwards.
+### Warehouse Page (`/warehouse`)
+
+Three sections based on shipping route and item state:
+
+**Incoming**: Items shipped from decorator, not yet received. Shows per-size shipped quantities. Receiver adjusts received quantities per size (defaults to shipped qty). Variance flagged automatically. "Confirm Received" button per item.
+
+**Ship-through**: All items received on ship_through jobs. Ready to forward to client.
+
+**Fulfillment**: Staged jobs with all items received. Fulfillment team controls: Staged → Packing → Shipped. Outbound tracking field. Auto-logs and notifies on ship.
 
 ### Costing Card Layout
 
@@ -310,6 +339,8 @@ Client-facing invoice matching PO/quote style:
 011_job_type_artist.sql    — Added artist to job_type constraint
 012_messaging.sql          — job_activity, messages, notifications tables
 013_lifecycle.sql          — Blanks order fields, shipping fields, phase timestamps, quote approval on jobs
+014_cleanup_stages.sql     — Map old pipeline stages to new simplified stages
+015_shipping_routes.sql    — shipping_route, fulfillment fields on jobs; received_at_hpd, received_qtys on items
 ```
 
 ### JSONB Patterns
@@ -320,6 +351,8 @@ Client-facing invoice matching PO/quote style:
 - `items.receiving_data` — warehouse receiving metadata (carrier, tracking, location, condition)
 - `items.blank_costs` — per-size blank costs
 - `items.pipeline_timestamps` — JSONB recording when each pipeline stage was entered (ISO timestamps keyed by stage id)
+- `items.ship_qtys` — per-size quantities shipped from decorator
+- `items.received_qtys` — per-size quantities confirmed received at HPD
 - `decorators.pricing_data` — full pricing structure with minimums (see Decorator Pricing above)
 - `decorators.contacts_list` — array of {name, email, phone, role}
 
@@ -429,16 +462,17 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 - Client item catalog — searchable library per client for reordering
 - Client communication trail (log emails sent to project activity)
 - Decorator portal / two-way status updates
-- Client financial summary across projects
 - Dashboard action buttons (not just passive alerts)
 - Multi-file drag-and-drop upload for Art Files tab
 - AS Colour blank catalog CSV import
+- Templates page "Use template" functionality
 
 ### Structural / technical
 - **Permissions refactor planned**: Role-based access enforcement (not just nav hiding) — blocked on Jon's team meeting
 - No decoration type selector (defaults to screen_print) — could pull from decorator capabilities
-- Templates page "Use template" button is not wired up
 - Pricing logic duplicated in CostingTab, PO route, and Quote route — working but not DRY
+- Old `receiving_data` JSONB on items is superseded by `received_at_hpd` + `received_qtys` — can be cleaned up
+- Ship-through complete flow needs outbound tracking per item (currently marks complete on receive)
 
 ## Owner
 
