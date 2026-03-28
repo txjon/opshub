@@ -4,9 +4,12 @@ import { T, font, mono } from "@/lib/theme";
 
 const PHASE_STYLES: Record<string,{bg:string,text:string,label:string}> = {
   intake:         { bg:T.surface,    text:T.muted,   label:"Intake" },
+  pending:        { bg:T.purpleDim,  text:T.purple,  label:"Pending" },
+  ready:          { bg:T.amberDim,   text:T.amber,   label:"Ready" },
   pre_production: { bg:T.purpleDim,  text:T.purple,  label:"Pre-Production" },
   production:     { bg:T.accentDim,  text:T.accent,  label:"Production" },
   receiving:      { bg:T.amberDim,   text:T.amber,   label:"Receiving" },
+  fulfillment:    { bg:T.purpleDim,  text:T.purple,  label:"Fulfillment" },
   shipped:        { bg:T.greenDim,   text:T.green,   label:"Shipped" },
   complete:       { bg:T.greenDim,   text:T.green,   label:"Complete" },
   on_hold:        { bg:T.redDim,     text:T.red,     label:"On Hold" },
@@ -187,7 +190,7 @@ export default async function DashboardPage() {
   // Limit and dedupe
   const actionItems = needsAction.slice(0, 10);
 
-  const phaseOrder = ["intake","pre_production","production","receiving","shipped"];
+  const phaseOrder = ["intake","pending","ready","production","receiving","fulfillment"];
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:10, fontFamily:font, color:T.text }}>

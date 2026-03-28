@@ -36,11 +36,13 @@ function JobSkeleton() {
 }
 const PHASE_COLORS: Record<string,{bg:string,text:string}> = {
   intake:{bg:"var(--color-background-secondary)",text:"var(--color-text-secondary)"},
+  pending:{bg:"#EEEDFE",text:"#3C3489"},
+  ready:{bg:T.amberDim,text:T.amber},
   pre_production:{bg:"#EEEDFE",text:"#3C3489"},
   production:{bg:"#E6F1FB",text:"#0C447C"},
   receiving:{bg:"#FAEEDA",text:"#633806"},
+  fulfillment:{bg:T.purpleDim,text:T.purple},
   shipped:{bg:"#EAF3DE",text:"#27500A"},
-  shipping:{bg:"#EAF3DE",text:"#27500A"},
   complete:{bg:"#EAF3DE",text:"#27500A"},
   on_hold:{bg:"#FCEBEB",text:"#791F1F"},
   cancelled:{bg:"var(--color-background-secondary)",text:"var(--color-text-secondary)"},
@@ -84,6 +86,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
+  const [proofStatus, setProofStatus] = useState<Record<string,{allApproved:boolean}>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const saveErrorTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -144,6 +147,19 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         ...jc.contacts, role_on_job: jc.role_on_job,
       })));
     }
+    // Load proof status for lifecycle
+    if (itemsRes.data) {
+      const ids = itemsRes.data.map((it: any) => it.id);
+      if (ids.length > 0) {
+        const { data: proofFiles } = await supabase.from("item_files").select("item_id, approval").eq("stage", "proof").in("item_id", ids);
+        const ps: Record<string, { allApproved: boolean }> = {};
+        for (const id of ids) {
+          const proofs = (proofFiles || []).filter((f: any) => f.item_id === id);
+          ps[id] = { allApproved: proofs.length > 0 && proofs.every((f: any) => f.approval === "approved") };
+        }
+        setProofStatus(ps);
+      }
+    }
     setLoading(false);
     initialLoadDone.current = true;
   }
@@ -197,10 +213,24 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const recalcPhase = useCallback(async () => {
     if (!job || job.phase === "on_hold" || job.phase === "cancelled") return;
     const result = calculatePhase({
-      job: { job_type: job.job_type, payment_terms: job.payment_terms, quote_approved: (job as any).quote_approved || false, phase: job.phase },
-      items: items.map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage || null, blanks_order_number: (it as any).blanks_order_number || null, ship_tracking: (it as any).ship_tracking || null })),
+      job: {
+        job_type: job.job_type,
+        shipping_route: (job as any).shipping_route || "ship_through",
+        payment_terms: job.payment_terms,
+        quote_approved: (job as any).quote_approved || false,
+        phase: job.phase,
+        fulfillment_status: (job as any).fulfillment_status || null,
+      },
+      items: items.map(it => ({
+        id: it.id,
+        pipeline_stage: it.pipeline_stage || null,
+        blanks_order_number: (it as any).blanks_order_number || null,
+        ship_tracking: (it as any).ship_tracking || null,
+        received_at_hpd: (it as any).received_at_hpd || false,
+      })),
       payments: payments.map(p => ({ amount: p.amount, status: p.status })),
-      costingData: (job as any).costing_data || null,
+      proofStatus,
+      poSentVendors: (job as any).type_meta?.po_sent_vendors || [],
     });
     if (result.phase !== job.phase) {
       const timestamps = (job as any).phase_timestamps || {};
@@ -208,7 +238,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       await supabase.from("jobs").update({ phase: result.phase, phase_timestamps: timestamps }).eq("id", job.id);
       setJob(j => j ? { ...j, phase: result.phase, phase_timestamps: timestamps } as any : j);
     }
-  }, [job, items, payments, supabase]);
+  }, [job, items, payments, proofStatus, supabase]);
 
   const upd = (k: string, v: any) => { if (!job) return; const u = {...job, [k]:v} as Job; setJob(u); saveJob({[k]:v}); };
   const updItem = (id: string, p: Partial<Item>) => saveItem(id, p);
@@ -393,10 +423,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>{job.phase.replace(/_/g," ")}</span>
                         {(()=>{
                           const r=calculatePhase({
-                            job:{job_type:job.job_type,payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase},
-                            items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null})),
+                            job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
+                            items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false})),
                             payments:payments.map(p=>({amount:p.amount,status:p.status})),
-                            costingData:(job as any).costing_data||null,
+                            proofStatus,
+                            poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
                           });
                           return r.itemProgress?<span style={{fontSize:10,color:T.muted}}>{r.itemProgress}</span>:null;
                         })()}
@@ -417,6 +448,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Contract</label>
                     <select style={ic} value={job.contract_status} onChange={e=>upd("contract_status",e.target.value)}>
                       {["not_sent","sent","signed","waived"].map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
+                    </select>
+                  </div>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
+                    <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
+                      <option value="drop_ship">Drop ship (direct to client)</option>
+                      <option value="ship_through">Ship-through (forward from HPD)</option>
+                      <option value="stage">Stage (fulfillment from HPD)</option>
                     </select>
                   </div>
                   <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
