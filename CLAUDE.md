@@ -534,7 +534,27 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 
 **Week 4**: Client-facing features — proof approval via magic links (no login), Stripe payment links on invoices.
 
-**Future**: Permissions refactor, templates, decorator portal, multi-company support, scheduled notifications.
+**Future**: God Mode (owner dashboard), permissions refactor, templates, decorator portal, multi-company support, scheduled notifications.
+
+## Team Roles
+
+| Person | Role | Primary Pages |
+|---|---|---|
+| **Jon** | Owner/operator, hands-on + oversight | Dashboard, Projects, Reports, Clients, Settings, everything |
+| **Taylor** | Project setup & design | Projects list → Overview, Buy Sheet, Art Files |
+| **Drake** | Pricing, ordering & production | Costing, Client Quote, Blanks, PO, Production page |
+| **Receiver** | Warehouse receiving (1 dedicated person) | Warehouse — incoming section |
+| **Fulfillment** | Packing & shipping | Warehouse — fulfillment section |
+
+Taylor picks up projects from the list (not assigned). Taylor and Drake work together on every job initially. Receiver only confirms quantities — routing is set by Drake during project setup.
+
+## Multi-Company
+
+Jon has a second company (touring artists/bands). Same decorators, same blank suppliers, different team, different clients, different pricing/invoicing. Touring company uses HPD as a vendor for warehousing and fulfillment.
+
+**Architecture**: Two separate OpsHub deployments (same code, different DB). Only crossover is warehouse — touring company creates fulfillment requests that appear on HPD's warehouse page via API handoff.
+
+**God Mode**: Future owner dashboard for Jon — financial (revenue, margins, AR aging, cash flow) + operational (capacity, bottlenecks, team workload, timelines). Everything an owner-operator needs to make decisions, all in one view.
 
 ## Owner
 
