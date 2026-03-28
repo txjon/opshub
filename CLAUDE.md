@@ -513,6 +513,16 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 - No decoration type selector (defaults to screen_print) — could pull from decorator capabilities
 - Pricing logic duplicated in CostingTab, PO route, and Quote route — working but not DRY
 - Old `receiving_data` JSONB on items is superseded by `received_at_hpd` + `received_qtys` — can be cleaned up
+- POTab NoteBox has a few hardcoded colors (#f9f9f9, #bbb) — cosmetic, should use T theme
+
+### Codebase health (audited 2026-03-27)
+- **Types**: `types/database.ts` updated to match all migrations (001-018)
+- **No stale references**: all phase/stage values match v2 lifecycle
+- **No broken imports**: all imports resolve
+- **No dead imports**: all imports used
+- **No console.log**: production code is clean
+- **Theme compliance**: all colors use T object (except POTab NoteBox)
+- **Build**: compiles with zero errors
 
 ## Owner
 
