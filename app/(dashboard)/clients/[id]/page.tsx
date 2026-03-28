@@ -29,6 +29,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [loading, setLoading] = useState(true);
   const [addingContact, setAddingContact] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<Contact|null>(null);
+  const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
 
   useEffect(() => { load(); }, [params.id]);
@@ -38,7 +39,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const [cRes, ctRes, jRes] = await Promise.all([
       supabase.from("clients").select("*").eq("id", params.id).single(),
       supabase.from("contacts").select("*").eq("client_id", params.id).order("name"),
-      supabase.from("jobs").select("*, costing_summary, items(id, buy_sheet_lines(qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
+      supabase.from("jobs").select("*, costing_summary, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
     ]);
     if (cRes.data) setClient(cRes.data);
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
@@ -74,6 +75,72 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const now = new Date();
   const overdue = allPayments.filter((p: any) => p.due_date && new Date(p.due_date) < now && !["paid","void"].includes(p.status));
   const totalOverdue = overdue.reduce((a: number, p: any) => a + (p.amount || 0), 0);
+
+  // Item history — flatten all items across all jobs
+  const allItems = jobs.flatMap(j => (j.items || []).map((it: any) => ({
+    ...it,
+    jobId: j.id,
+    jobTitle: j.title,
+    jobNumber: j.job_number,
+    jobDate: j.target_ship_date || j.created_at,
+    totalQty: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0),
+    sizes: (it.buy_sheet_lines || []).map((l: any) => l.size),
+    qtys: Object.fromEntries((it.buy_sheet_lines || []).map((l: any) => [l.size, l.qty_ordered])),
+  })));
+
+  // Group by item identity (name + blank_vendor + blank_sku)
+  const itemGroups: Record<string, any[]> = {};
+  for (const it of allItems) {
+    const key = `${it.name}||${it.blank_vendor || ""}||${it.blank_sku || ""}`;
+    if (!itemGroups[key]) itemGroups[key] = [];
+    itemGroups[key].push(it);
+  }
+  const sortedItemGroups = Object.entries(itemGroups).sort((a, b) => b[1].length - a[1].length);
+
+  async function reorderItem(item: any) {
+    // Create a new job with this item pre-filled
+    const { data: newJob } = await supabase.from("jobs").insert({
+      title: `${client!.name} — Reorder`,
+      job_type: client!.client_type || "corporate",
+      phase: "intake",
+      priority: "normal",
+      shipping_route: "ship_through",
+      payment_terms: client!.default_terms || null,
+      client_id: client!.id,
+      job_number: "",
+    }).select("id").single();
+    if (!newJob) return;
+
+    // Create the item
+    const { data: newItem } = await supabase.from("items").insert({
+      job_id: newJob.id,
+      name: item.name,
+      blank_vendor: item.blank_vendor || null,
+      blank_sku: item.blank_sku || null,
+      cost_per_unit: item.cost_per_unit || null,
+      blank_costs: item.blank_costs || null,
+      status: "tbd",
+      artwork_status: "not_started",
+      sort_order: 0,
+    }).select("id").single();
+
+    // Copy sizes with zero qtys
+    if (newItem && item.sizes?.length > 0) {
+      await supabase.from("buy_sheet_lines").insert(
+        item.sizes.map((sz: string) => ({ item_id: newItem.id, size: sz, qty_ordered: 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }))
+      );
+    }
+
+    // Add client contacts
+    const { data: clientContacts } = await supabase.from("contacts").select("id, is_primary").eq("client_id", client!.id);
+    if (clientContacts?.length) {
+      await supabase.from("job_contacts").insert(
+        clientContacts.map((c: any) => ({ job_id: newJob.id, contact_id: c.id, role_on_job: c.is_primary ? "primary" : "cc" }))
+      );
+    }
+
+    router.push(`/jobs/${newJob.id}`);
+  }
 
   return (
     <div style={{fontFamily:font,color:T.text,maxWidth:900,margin:"0 auto",paddingBottom:"3rem"}}>
@@ -188,29 +255,95 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           </div>
         </div>
 
-        {/* Right — Job history */}
+        {/* Right — History */}
         <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
-          <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project History</div>
-          {jobs.length===0&&<p style={{fontSize:12,color:T.muted}}>No projects yet.</p>}
-          <div style={{display:"flex",flexDirection:"column",gap:4}}>
-            {jobs.map(j=>{
-              const phase = PHASE_COLORS[j.phase]||PHASE_COLORS.intake;
-              const rev = j.costing_summary?.grossRev || 0;
-              const units = (j.items||[]).reduce((a: number,it: any) => a + (it.buy_sheet_lines||[]).reduce((b: number,l: any) => b + (l.qty_ordered||0), 0), 0);
-              return(
-                <Link key={j.id} href={`/jobs/${j.id}`} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:T.surface,borderRadius:6,textDecoration:"none",color:T.text,transition:"background 0.1s"}}
-                  onMouseEnter={(e:any)=>e.currentTarget.style.background=T.accentDim}
-                  onMouseLeave={(e:any)=>e.currentTarget.style.background=T.surface}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{j.title}</div>
-                    <div style={{fontSize:10,color:T.muted,marginTop:1}}>{j.job_number} {units>0&&`· ${units.toLocaleString()} units`} {rev>0&&`· $${Math.round(rev).toLocaleString()}`}</div>
-                  </div>
-                  <span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:phase.bg,color:phase.text,whiteSpace:"nowrap",flexShrink:0}}>{j.phase.replace(/_/g," ")}</span>
-                  {j.target_ship_date&&<span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0}}>{new Date(j.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>}
-                </Link>
-              );
-            })}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+            <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
+              {(["projects","items"] as const).map(v=>(
+                <button key={v} onClick={()=>setHistoryView(v)}
+                  style={{padding:"3px 10px",borderRadius:4,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
+                    background:historyView===v?T.accent:"transparent",color:historyView===v?"#fff":T.muted}}>
+                  {v==="projects"?"Projects":"Items"}
+                </button>
+              ))}
+            </div>
+            <span style={{fontSize:10,color:T.faint}}>{historyView==="projects"?`${jobs.length} projects`:`${allItems.length} items`}</span>
           </div>
+
+          {historyView==="projects"&&(
+            <>
+              {jobs.length===0&&<p style={{fontSize:12,color:T.muted}}>No projects yet.</p>}
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {jobs.map(j=>{
+                  const phase = PHASE_COLORS[j.phase]||PHASE_COLORS.intake;
+                  const rev = j.costing_summary?.grossRev || 0;
+                  const units = (j.items||[]).reduce((a: number,it: any) => a + (it.buy_sheet_lines||[]).reduce((b: number,l: any) => b + (l.qty_ordered||0), 0), 0);
+                  return(
+                    <Link key={j.id} href={`/jobs/${j.id}`} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:T.surface,borderRadius:6,textDecoration:"none",color:T.text,transition:"background 0.1s"}}
+                      onMouseEnter={(e:any)=>e.currentTarget.style.background=T.accentDim}
+                      onMouseLeave={(e:any)=>e.currentTarget.style.background=T.surface}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{j.title}</div>
+                        <div style={{fontSize:10,color:T.muted,marginTop:1}}>{j.job_number} {units>0&&`· ${units.toLocaleString()} units`} {rev>0&&`· $${Math.round(rev).toLocaleString()}`}</div>
+                      </div>
+                      <span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:phase.bg,color:phase.text,whiteSpace:"nowrap",flexShrink:0}}>{j.phase.replace(/_/g," ")}</span>
+                      {j.target_ship_date&&<span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0}}>{new Date(j.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>}
+                    </Link>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {historyView==="items"&&(
+            <>
+              {sortedItemGroups.length===0&&<p style={{fontSize:12,color:T.muted}}>No items yet.</p>}
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {sortedItemGroups.map(([key, instances])=>{
+                  const first = instances[0];
+                  const isRepeat = instances.length > 1;
+                  return(
+                    <div key={key} style={{background:T.surface,borderRadius:8,padding:"8px 10px",border:isRepeat?`1px solid ${T.accent}33`:`1px solid transparent`}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:isRepeat?6:0}}>
+                        <div style={{flex:1}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontSize:12,fontWeight:600}}>{first.name}</span>
+                            {isRepeat&&<span style={{fontSize:9,fontWeight:600,padding:"1px 6px",borderRadius:99,background:T.accentDim,color:T.accent}}>{instances.length}x</span>}
+                          </div>
+                          <div style={{fontSize:10,color:T.muted,marginTop:1}}>{[first.blank_vendor,first.blank_sku].filter(Boolean).join(" · ")}</div>
+                        </div>
+                        <button onClick={()=>reorderItem(first)}
+                          style={{fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:6,background:T.accent,color:"#fff",border:"none",cursor:"pointer"}}>
+                          Reorder
+                        </button>
+                      </div>
+                      {isRepeat&&(
+                        <div style={{display:"flex",flexDirection:"column",gap:2,marginTop:4}}>
+                          {instances.map((inst: any,i: number)=>(
+                            <Link key={inst.id+i} href={`/jobs/${inst.jobId}`} style={{display:"flex",alignItems:"center",gap:8,fontSize:10,color:T.muted,textDecoration:"none",padding:"2px 0"}}
+                              onMouseEnter={(e:any)=>e.currentTarget.style.color=T.accent}
+                              onMouseLeave={(e:any)=>e.currentTarget.style.color=T.muted}>
+                              <span style={{fontFamily:mono}}>{inst.jobNumber}</span>
+                              <span>{inst.jobTitle}</span>
+                              <span style={{fontFamily:mono}}>{inst.totalQty} units</span>
+                              <span style={{marginLeft:"auto"}}>{new Date(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                      {!isRepeat&&(
+                        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:10,color:T.faint,marginTop:2}}>
+                          <span style={{fontFamily:mono}}>{first.jobNumber}</span>
+                          <span>{first.jobTitle}</span>
+                          <span style={{fontFamily:mono}}>{first.totalQty} units</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
