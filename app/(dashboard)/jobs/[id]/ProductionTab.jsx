@@ -4,11 +4,10 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 
-const STAGES = [
-  { id: "in_production", label: "In Production", pct: 50 },
-  { id: "shipped", label: "Shipped", pct: 100 },
-];
-const getPct = (s) => (STAGES.find(p => p.id === s) || { pct: 0 }).pct;
+const getPct = (s) => {
+  if (s === "shipped") return 100;
+  return 50; // in_production
+};
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
@@ -36,10 +35,16 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
     saveTimers.current[key] = setTimeout(async () => {
       await supabase.from("items").update({ [field]: value || null }).eq("id", itemId);
       if (field === "ship_tracking" && value) {
+        // Auto-advance to shipped when tracking is entered
+        await supabase.from("items").update({ pipeline_stage: "shipped" }).eq("id", itemId);
         const item = items.find(it => it.id === itemId);
         if (item) {
           logJobActivity(item.job_id, `${item.name} shipped from decorator — tracking: ${value}`);
           notifyTeam(`${item.name} shipped from decorator — incoming to warehouse`, "production", item.job_id, "job");
+          if (item.decorator_assignment_id) {
+            await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
+          }
+          onUpdateItem(itemId, { pipeline_stage: "shipped", decorator_assignment_id: item.decorator_assignment_id });
         }
       }
       if (onRecalcPhase) onRecalcPhase();
@@ -57,26 +62,12 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
     }, 800);
   }
 
-  function advanceStage(item, stageId) {
-    onUpdateItem(item.id, { pipeline_stage: stageId, decorator_assignment_id: item.decorator_assignment_id });
-    if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
-  }
-
-  // Check if blanks are ordered (gate for production)
-  const blanksNotOrdered = items.filter(it => !it.blanks_order_number);
-
   if (items.length === 0) {
     return <div style={{ ...card, textAlign: "center", color: T.muted, padding: "2rem", fontSize: 13 }}>No items yet.</div>;
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-
-      {blanksNotOrdered.length > 0 && (
-        <div style={{ background: T.amberDim, border: `1px solid ${T.amber}44`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: T.amber }}>
-          {blanksNotOrdered.length} item{blanksNotOrdered.length !== 1 ? "s" : ""} without blanks ordered — complete the Blanks tab first
-        </div>
-      )}
 
       {items.map(item => {
         const f = localFields[item.id] || {};
@@ -110,29 +101,8 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
               <div style={{ height: "100%", width: pct + "%", background: pct === 100 ? T.green : T.accent, transition: "width 0.3s" }} />
             </div>
 
-            {/* Stage buttons */}
-            <div style={{ padding: "10px 14px", display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {STAGES.map((s, idx) => {
-                const done = si >= idx, active = stage === s.id;
-                return (
-                  <button key={s.id} onClick={() => advanceStage(item, s.id)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 6,
-                      fontSize: 11, fontWeight: active ? 600 : 400, cursor: "pointer",
-                      border: `1px solid ${done ? T.accent + "66" : T.border}`,
-                      background: active ? T.accentDim : done ? T.accentDim + "44" : "transparent",
-                      color: done ? T.accent : T.muted,
-                    }}>
-                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: done ? T.accent : T.faint, flexShrink: 0 }} />
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Shipped — tracking + qtys */}
-            {(stage === "shipped" || f.ship_tracking) && (
-              <div style={{ padding: "0 14px 14px" }}>
+            {/* Tracking + qtys — always visible, entering tracking auto-advances to shipped */}
+              <div style={{ padding: "10px 14px" }}>
                 <div style={{ background: T.surface, borderRadius: 8, padding: "10px 12px" }}>
                   <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Shipping from Decorator</div>
                   <div style={{ marginBottom: 8 }}>
@@ -166,11 +136,10 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
 
                 {f.ship_tracking && (
                   <div style={{ marginTop: 8, background: T.greenDim, border: `1px solid ${T.green}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.green }}>
-                    Shipped — {item.job_type === "drop_ship" ? "direct to client" : "headed to warehouse for receiving"}
+                    Shipped — headed to warehouse for receiving
                   </div>
                 )}
               </div>
-            )}
           </div>
         );
       })}
