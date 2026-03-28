@@ -259,7 +259,7 @@ Two-column layout: **Blanks panel** (400px, left) + **Decoration panel** (flex, 
 ### Client Management
 
 - **Client list** (`/clients`) — clickable names link to detail page
-- **Client detail** (`/clients/[id]`) — editable info (name, type, terms, notes), contacts CRUD, project history with revenue/units/phase, **financial summary strip** (Total Revenue, Total Paid, Outstanding, Overdue across all projects)
+- **Client detail** (`/clients/[id]`) — financial summary strip → client info + contacts (single card, side by side) → history with Projects | Items toggle. Item history groups repeats with count badge, shows all instances across projects. **Reorder button** creates new project pre-filled with item details + client contacts.
 - **New project form** — client typeahead (searches as you type), "Create new client" modal with name, type, payment terms, notes, and inline contacts (saved in one action). Includes shipping route selection (drop ship / ship-through / stage).
 - **Client types**: corporate, brand, artist, tour, webstore
 - **Project types**: tour, webstore, drop_ship
