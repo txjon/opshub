@@ -56,9 +56,13 @@ The central hub. Horizontal pill tabs across the top, content below. 8 tabs orde
 | Client Quote | CostingTab.jsx (quote sub-tab) | Quote preview + PDF download/email + quote approval + post-approval next-step links |
 | Blanks | BlanksTab.jsx | Per-item S&S order # + cost entry with 3-gate checklist |
 | Purchase Order | POTab.jsx | PO preview, PDF export/email, per-item fields + copy-to-all, blanks warning, PO sent tracker |
-| Production | ProductionTab.jsx | 2-stage pipeline (in production → shipped), decorator tracking + shipped quantities + ship notifications |
+| Production | ProductionTab.jsx | Tracking entry (auto-advances to shipped), per-size shipped quantities, ship notifications |
 
 **Tab order matches workflow**: Taylor sets up (Overview → Buy Sheet → Art Files) → Drake costs and sells (Costing → Client Quote) → Drake orders and sends (Blanks → PO → Production).
+
+**Progress checklist**: Shown at top of every active project (hidden on complete/cancelled). Shows ✓/→/○ for each step: Buy Sheet, Art Files, Costing, Quote Approved, Proofs Approved, Payment, Blanks Ordered, POs Sent, Production. Clicking a step navigates to that tab. Progress bar shows overall percentage.
+
+**Job numbers**: Auto-generated on insert via DB trigger. Format: `HPD-YYMM-NNN` (e.g. HPD-2603-001). Shown on all PDFs (quote, PO, invoice).
 
 **Post-quote-approval flow**: After clicking "Approve Quote", shows "Next: Send Invoice · Send Proofs" links that navigate to the correct tabs.
 
@@ -208,9 +212,10 @@ Phase is **read-only** — calculated automatically from item data + proof statu
 - 3-gate checklist: quote approved + payment gate met + all proofs approved
 - Blanks progress shown in ready phase display
 
-**Production stages per item** (Production tab, 2 stages):
-1. `in_production` — item at decorator, printing
-2. `shipped` — tracking # + per-size shipped quantities entered
+**Production stages per item** (Production tab):
+- `in_production` — item at decorator, printing (default when PO sent)
+- `shipped` — auto-set when tracking number is entered (no manual stage buttons)
+- Entering tracking is the trigger — no buttons to click
 
 **Routing by shipping route (not job type):**
 - `drop_ship`: decorator ships → item complete when tracking assigned
@@ -285,9 +290,9 @@ Server component showing:
 
 Client component — cross-project pipeline board for production team:
 - **Stats strip**: items needing blanks ordered, waiting on proofs, stalled 7+ days, shipping this week
-- **Grouped by stage**: Blanks Ordered, In Production, Shipped
-- **Per-item row**: name, client/project, decorator, units, stage-specific data (S&S order / proof status / tracking), days in stage, ship date
-- **Inline stage buttons**: advance/retreat items without clicking into project
+- **Grouped by stage**: In Production, Shipped
+- **Per-item row**: name, client/project, decorator, units, stage-specific data (proof status / tracking), days in stage, ship date
+- **Inline stage buttons**: advance/retreat items without clicking into project (Production tab itself has no buttons — tracking entry is the trigger)
 - **Filters**: search, decorator dropdown, stalled-only toggle
 - **Sort**: ship date (soonest first), then days in stage (longest first)
 
@@ -341,6 +346,9 @@ Client-facing invoice matching PO/quote style:
 013_lifecycle.sql          — Blanks order fields, shipping fields, phase timestamps, quote approval on jobs
 014_cleanup_stages.sql     — Map old pipeline stages to new simplified stages
 015_shipping_routes.sql    — shipping_route, fulfillment fields on jobs; received_at_hpd, received_qtys on items
+016_phase_constraint.sql   — Update phase constraint for v2 lifecycle, map old phases
+017_job_number_auto.sql    — Auto-generate job numbers (HPD-YYMM-NNN) via trigger + backfill
+018_fix_rls_phases.sql     — Fix RLS policies for production/shipping roles with new phases
 ```
 
 ### JSONB Patterns
@@ -392,6 +400,9 @@ Job-level activity feed component + auto-logging helpers:
 - `logJobActivity(jobId, message)` — logs auto events to `job_activity` table. Called from: quote sent/approved, PO sent, invoice sent, proof/mockup sent to client, payment added/status changed, stage advanced, files uploaded, blanks ordered, shipping tracked.
 - `notifyTeam(message, type, referenceId, referenceType)` — broadcasts notification to all team members. Called on: quote approved, payment received, items shipped from decorator (warehouse incoming).
 - `JobActivityPanel` component — embeddable feed (used on Overview tab as static stats, full feed available).
+
+### `components/ProjectProgress.tsx`
+Progress checklist bar shown at top of every active project. Shows completion state of each workflow step. Clicking a step navigates to the corresponding tab. Calculates from: items, costing, quote_approved, proof status, payments, blanks_order_number, PO sent vendors.
 
 ### `scripts/verify-costing.js`
 CLI tool to verify costing math. Run `node scripts/verify-costing.js` to list jobs, `node scripts/verify-costing.js <jobId>` for full calculation breakdown of every item — compare against Excel.
