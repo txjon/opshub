@@ -7,7 +7,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
-export function BlanksTab({ items, job, onRecalcPhase }) {
+export function BlanksTab({ items, job, payments, onRecalcPhase }) {
   const supabase = createClient();
   const [localFields, setLocalFields] = useState({});
   const [proofStatus, setProofStatus] = useState({});
@@ -61,8 +61,19 @@ export function BlanksTab({ items, job, onRecalcPhase }) {
   const terms = job?.payment_terms || "";
   const isNetTerms = terms === "net_15" || terms === "net_30";
 
+  let paymentGateMet = false;
+  if (isNetTerms) {
+    paymentGateMet = true;
+  } else if (terms === "prepaid") {
+    paymentGateMet = (payments || []).filter(p => p.status === "paid").reduce((a, p) => a + p.amount, 0) > 0;
+  } else if (terms === "deposit_balance") {
+    paymentGateMet = (payments || []).some(p => p.status === "paid" || p.status === "partial");
+  } else {
+    paymentGateMet = true; // Permissive default
+  }
+
   const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved);
-  const gatesMet = quoteApproved && allProofsApproved;
+  const gatesMet = quoteApproved && paymentGateMet && allProofsApproved;
 
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
 
@@ -84,8 +95,14 @@ export function BlanksTab({ items, job, onRecalcPhase }) {
             </div>
             {!isNetTerms && (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ color: T.muted }}>—</span>
-                <span style={{ color: T.muted }}>Payment received (check Overview tab)</span>
+                <span style={{ color: paymentGateMet ? T.green : T.red }}>{paymentGateMet ? "✓" : "✕"}</span>
+                <span style={{ color: paymentGateMet ? T.muted : T.text }}>{terms === "prepaid" ? "Full payment received" : "Deposit received"}{paymentGateMet ? "" : " (add on Overview tab)"}</span>
+              </div>
+            )}
+            {isNetTerms && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ color: T.green }}>✓</span>
+                <span style={{ color: T.muted }}>Net terms — no payment required</span>
               </div>
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

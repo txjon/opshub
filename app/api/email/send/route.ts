@@ -13,10 +13,26 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const resend = new Resend(process.env.RESEND_API_KEY);
-    const { type, jobId, vendor, recipientEmail, recipientName, subject } = await req.json();
+    const { type, jobId, vendor, recipientEmail, recipientName, subject, customBody } = await req.json();
 
-    if (!recipientEmail || !jobId || !type) {
+    if (!recipientEmail || !type) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    // Simple HTML email (no attachment) — used for proof/mockup links
+    if (type === "proof_link" && customBody) {
+      const { data, error } = await resend.emails.send({
+        from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
+        to: recipientEmail,
+        subject: subject || "File for Review — House Party Distro",
+        html: customBody,
+      });
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ success: true, id: data?.id });
+    }
+
+    if (!jobId) {
+      return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
     }
 
     // Build the internal PDF URL

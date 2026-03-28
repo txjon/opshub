@@ -6,6 +6,7 @@ import { buildMockupClient, preloadTemplate } from "@/lib/mockup-client";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { SendEmailDialog } from "@/components/SendEmailDialog";
 
 const STAGES = [
   { key: "client_art", label: "Client Art", color: T.muted },
@@ -29,7 +30,7 @@ function formatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
-function FileCard({ file, onDelete, onApproval, stageLabel, stageColor }) {
+function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabel, stageColor }) {
   const approval = APPROVAL_LABELS[file.approval];
   const isImage = file.mime_type?.startsWith("image/");
   const thumbUrl = isImage ? `https://drive.google.com/thumbnail?id=${file.drive_file_id}&sz=w200` : null;
@@ -97,16 +98,25 @@ function FileCard({ file, onDelete, onApproval, stageLabel, stageColor }) {
         )}
       </div>
 
-      <button onClick={() => onDelete(file)}
-        style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 11, flexShrink: 0 }}
-        onMouseEnter={e => e.currentTarget.style.color = T.red}
-        onMouseLeave={e => e.currentTarget.style.color = T.faint}>✕</button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+        {(file.stage === "proof" || file.stage === "mockup") && onSendToClient && (
+          <button onClick={() => onSendToClient(file)}
+            style={{ fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.purpleDim || "#2d1f5e", color: T.purple, border: "none", cursor: "pointer" }}>
+            Send
+          </button>
+        )}
+        <button onClick={() => onDelete(file)}
+          style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 11 }}
+          onMouseEnter={e => e.currentTarget.style.color = T.red}
+          onMouseLeave={e => e.currentTarget.style.color = T.faint}>✕</button>
+      </div>
     </div>
   );
 }
 
-function ItemArtSection({ item, clientName, projectTitle, onFilesChanged, onUpdateItem }) {
+function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, onFilesChanged, onUpdateItem }) {
   const [files, setFiles] = useState([]);
+  const [sendingFile, setSendingFile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadStage, setUploadStage] = useState("client_art");
@@ -245,6 +255,7 @@ function ItemArtSection({ item, clientName, projectTitle, onFilesChanged, onUpda
                   <FileCard key={f.id} file={f} stageLabel={stage?.label} stageColor={stage?.color}
                     onDelete={file => setConfirmDelete(file)}
                     onApproval={handleApproval}
+                    onSendToClient={file => setSendingFile(file)}
                   />
                 );
               })}
@@ -264,6 +275,21 @@ function ItemArtSection({ item, clientName, projectTitle, onFilesChanged, onUpda
         onConfirm={() => confirmDelete && handleDelete(confirmDelete)}
         onCancel={() => setConfirmDelete(null)}
       />
+
+      {sendingFile && (
+        <div style={{ marginTop: 8 }}>
+          <SendEmailDialog
+            type="proof_link"
+            jobId={item.job_id}
+            contacts={(contacts || []).map(c => ({ name: c.name || "", email: c.email || "" }))}
+            defaultEmail={(contacts || []).find(c => c.role_on_job === "primary")?.email || ""}
+            defaultSubject={`${sendingFile.stage === "proof" ? "Proof" : "Mockup"} for Review — ${item.name} · ${clientName}`}
+            customBody={`<p>Please review the attached ${sendingFile.stage === "proof" ? "proof" : "mockup"} for <strong>${item.name}</strong>.</p><p><a href="${sendingFile.drive_link}">View file in Google Drive</a></p><p>Let us know if you'd like any revisions.</p><p>Best,<br/>House Party Distro</p>`}
+            onClose={() => setSendingFile(null)}
+            onSent={() => { logJobActivity(item.job_id, `${sendingFile.stage === "proof" ? "Proof" : "Mockup"} sent to client for ${item.name}`); setSendingFile(null); }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -532,7 +558,7 @@ function isLightColor(hex) {
   return (r * 299 + g * 587 + b * 114) / 1000 > 150;
 }
 
-export function ArtTab({ project, items, onUpdateItem }) {
+export function ArtTab({ project, items, contacts, onUpdateItem }) {
   const clientName = project?.clients?.name || "Unknown Client";
   const projectTitle = project?.title || "Untitled Project";
   const sorted = [...items].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
@@ -551,7 +577,7 @@ export function ArtTab({ project, items, onUpdateItem }) {
         Files are uploaded to Google Drive: <span style={{ fontFamily: mono, color: T.faint }}>OpsHub Files / {clientName} / {projectTitle}</span>
       </div>
       {sorted.map((item, i) => (
-        <ItemArtSection key={item.id} item={{ ...item, _index: i }} clientName={clientName} projectTitle={projectTitle} onUpdateItem={onUpdateItem} />
+        <ItemArtSection key={item.id} item={{ ...item, _index: i }} clientName={clientName} projectTitle={projectTitle} contacts={contacts} jobId={project.id} onUpdateItem={onUpdateItem} />
       ))}
     </div>
   );

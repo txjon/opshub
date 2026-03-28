@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { T, font } from "@/lib/theme";
 
-export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, onSent, type, jobId, vendor, contacts }) {
+export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, onSent, type, jobId, vendor, contacts, customBody }) {
   // contacts: [{name, email}] — optional, for multi-recipient (PO to decorator)
   const hasContacts = contacts && contacts.length > 0;
   const [selected, setSelected] = useState(() => {
@@ -44,6 +44,7 @@ export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, onSent,
             recipientEmail,
             recipientName: "",
             subject: subject.trim(),
+            customBody: customBody || undefined,
           }),
         });
         const data = await res.json();
