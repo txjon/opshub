@@ -53,16 +53,24 @@ The central hub. Horizontal pill tabs across the top, content below. 8 tabs orde
 | Buy Sheet | BuySheetTab.jsx | Item creation, size/qty entry, S&S + manual catalog pickers, drag-to-reorder |
 | Art Files | ArtTab.jsx | Per-item file upload to Google Drive, stages, proof approval workflow, mockup generator |
 | Costing | CostingTab.jsx | Decoration pricing, margin calc, auto-save, share groups |
-| Client Quote | CostingTab.jsx (quote sub-tab) | Quote preview + PDF download/email + quote approval button |
-| Blanks | BlanksTab.jsx | Per-item S&S order # + cost entry with gate checks (quote + proofs required) |
-| Purchase Order | POTab.jsx | PO preview, PDF export/email, per-item drive link + production notes + copy-to-all |
-| Production | ProductionTab.jsx | 2-stage pipeline (in production → shipped), decorator tracking + shipped quantities |
+| Client Quote | CostingTab.jsx (quote sub-tab) | Quote preview + PDF download/email + quote approval + post-approval next-step links |
+| Blanks | BlanksTab.jsx | Per-item S&S order # + cost entry with 3-gate checklist |
+| Purchase Order | POTab.jsx | PO preview, PDF export/email, per-item fields + copy-to-all, blanks warning, PO sent tracker |
+| Production | ProductionTab.jsx | 2-stage pipeline (in production → shipped), decorator tracking + shipped quantities + ship notifications |
 
 **Tab order matches workflow**: Taylor sets up (Overview → Buy Sheet → Art Files) → Drake costs and sells (Costing → Client Quote) → Drake orders and sends (Blanks → PO → Production).
 
+**Post-quote-approval flow**: After clicking "Approve Quote", shows "Next: Send Invoice · Send Proofs" links that navigate to the correct tabs.
+
 **Overview layout**: Top row is a 2-column grid (Project info | Shipping details) matched height. Below is another 2-column grid: left (Contacts → Invoice send/preview/download → Payment records → Delete) and right (Items → Activity stats). Phase is read-only with Hold/Resume buttons.
 
-**Blanks tab gates**: Cannot order blanks until quote is approved AND all proofs are approved. Payment gate checked by lifecycle separately.
+**Blanks tab gates**: 3-gate checklist with ✓/✕ — quote approved, payment received (terms-specific: deposit/prepaid/net), all proofs approved. All must be met before ordering.
+
+**PO tab gates**: Warning if items don't have blanks ordered. Per-vendor PO sent tracker (✓ Sent / — Not sent), auto-recorded when email is sent, persisted in `jobs.type_meta.po_sent_vendors`.
+
+**Art Files — Send Proof**: "Send" button on proof/mockup files emails Drive link to client contacts. Auto-logs to activity.
+
+**Ship notifications**: Team notified via notification bell when tracking is entered on Production tab (warehouse incoming alert).
 
 **Warehouse** is a standalone page (`/warehouse`), not a tab on project detail.
 
@@ -348,8 +356,8 @@ Notification dropdown in sidebar header. Shows unread count badge, click to expa
 
 ### `components/JobActivityPanel.tsx`
 Job-level activity feed component + auto-logging helpers:
-- `logJobActivity(jobId, message)` — logs auto events to `job_activity` table. Called from: quote sent/approved, PO sent, invoice sent, payment added/status changed, stage advanced, files uploaded, blanks ordered, shipping tracked.
-- `notifyTeam(message, type, referenceId, referenceType)` — broadcasts notification to all team members. Called on: quote approved, payment received.
+- `logJobActivity(jobId, message)` — logs auto events to `job_activity` table. Called from: quote sent/approved, PO sent, invoice sent, proof/mockup sent to client, payment added/status changed, stage advanced, files uploaded, blanks ordered, shipping tracked.
+- `notifyTeam(message, type, referenceId, referenceType)` — broadcasts notification to all team members. Called on: quote approved, payment received, items shipped from decorator (warehouse incoming).
 - `JobActivityPanel` component — embeddable feed (used on Overview tab as static stats, full feed available).
 
 ### `scripts/verify-costing.js`
