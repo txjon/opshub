@@ -72,7 +72,6 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
       {items.map(item => {
         const f = localFields[item.id] || {};
         const stage = item.pipeline_stage || "in_production";
-        const si = STAGES.findIndex(s => s.id === stage);
         const pct = getPct(stage);
         const totalUnits = tQty(item.qtys || {});
 
