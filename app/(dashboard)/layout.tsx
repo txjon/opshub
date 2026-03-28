@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { LogOut } from "lucide-react";
 import { DashboardShell, SidebarNotifications } from "@/components/DashboardShell";
+import { GlobalSearch } from "@/components/GlobalSearch";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -48,6 +49,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <SidebarNotifications userId={user.id} />
         </div>
 
+        <div className="px-3 pt-3 pb-1">
+          <GlobalSearch />
+        </div>
         <nav className="flex-1 p-3 space-y-0.5">
           {navItems.map(item => (
             <Link
