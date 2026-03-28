@@ -28,8 +28,8 @@ app/(dashboard)/
   decorators/         — Decorator list with search + expandable detail + pricing editor
   blank-catalog/      — Manual blank catalog manager
   production/         — Cross-project pipeline board (all items, stats, inline stage advance)
-  warehouse/          — Cross-project receiving + shipping (side by side)
-  templates/          — Job templates
+  warehouse/          — Incoming receiving + ship-through + fulfillment
+  reports/            — Revenue, margins, turnaround, CSV exports (manager only)
   settings/           — Manager settings (invite/edit team)
 
 app/api/
@@ -305,7 +305,34 @@ Client-facing invoice matching PO/quote style:
 - Line item table: item name, sizes, qty, unit price, total
 - Subtotal, paid amount, balance due
 - Payment history table
-- Preview + Download buttons on Overview tab above payment records
+- Preview + Download + Send Invoice buttons on Overview tab above payment records
+
+### Reports Page (`/reports`)
+
+Manager-only reporting dashboard:
+- **KPI strip**: total revenue, total cost, avg margin, total units, total paid
+- **Revenue by month**: horizontal bar chart with margin % per month
+- **Units by month**: monthly volume breakdown
+- **Average turnaround**: avg/fastest/slowest days from intake to complete
+- **Revenue by client**: table — revenue, cost, margin, units, projects, paid
+- **Margins by project**: table sorted by revenue — per-project profitability
+
+**CSV exports** (3 buttons at top of page):
+- **Export Projects**: all jobs with job #, client, title, type, phase, revenue, cost, margin, units, paid
+- **Export Clients**: aggregated financials per client
+- **Export Payments**: all payment records across all projects with job context
+
+### Handoff Notifications
+
+Every phase transition triggers a team notification via the notification bell:
+- → Pending: "Waiting on client (payment/proofs)"
+- → Ready: "Ready to order blanks & send POs"
+- → Production: "Items at decorator"
+- → Receiving: "Items incoming to warehouse"
+- → Fulfillment: "All items received — ready for fulfillment"
+- → Complete: "Project complete"
+
+Phase transitions also auto-log to job activity feed.
 
 ## Database
 
@@ -473,10 +500,10 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 - Client item catalog — searchable library per client for reordering
 - Client communication trail (log emails sent to project activity)
 - Decorator portal / two-way status updates
-- Dashboard action buttons (not just passive alerts)
+- Dashboard action buttons (beyond phase-transition notifications)
 - Multi-file drag-and-drop upload for Art Files tab
 - AS Colour blank catalog CSV import
-- Templates page "Use template" functionality
+- Templates — save/load project templates for repeat clients
 
 ### Structural / technical
 - **Permissions refactor planned**: Role-based access enforcement (not just nav hiding) — blocked on Jon's team meeting
