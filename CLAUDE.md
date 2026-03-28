@@ -219,7 +219,7 @@ Phase is **read-only** — calculated automatically from item data + proof statu
 
 **Routing by shipping route (not job type):**
 - `drop_ship`: decorator ships → item complete when tracking assigned
-- `ship_through`: decorator ships → HPD receives (confirms qty) → forwards to client → complete
+- `ship_through`: decorator ships → HPD receives (confirms qty) → outbound tracking entered on warehouse page → "Mark Shipped" → complete
 - `stage`: decorator ships → HPD receives (confirms qty) → fulfillment team (staged → packing → shipped) → complete
 
 **Fulfillment** (stage route, job-level):
@@ -242,7 +242,7 @@ Three sections based on shipping route and item state:
 
 **Incoming**: Items shipped from decorator, not yet received. Shows per-size shipped quantities. Receiver adjusts received quantities per size (defaults to shipped qty). Variance flagged automatically. "Confirm Received" button per item.
 
-**Ship-through**: All items received on ship_through jobs. Ready to forward to client.
+**Ship-through**: All items received on ship_through jobs. Shows outbound tracking input + "Mark Shipped" button. Enter tracking → click ship → job moves to complete. Logs activity.
 
 **Fulfillment**: Staged jobs with all items received. Fulfillment team controls: Staged → Packing → Shipped. Outbound tracking field. Auto-logs and notifies on ship.
 
@@ -260,7 +260,7 @@ Two-column layout: **Blanks panel** (400px, left) + **Decoration panel** (flex, 
 
 - **Client list** (`/clients`) — clickable names link to detail page
 - **Client detail** (`/clients/[id]`) — editable info (name, type, terms, notes), contacts CRUD, project history with revenue/units/phase, **financial summary strip** (Total Revenue, Total Paid, Outstanding, Overdue across all projects)
-- **New project form** — client typeahead (searches as you type), "Create new client" modal with name, type, payment terms, notes, and inline contacts (saved in one action)
+- **New project form** — client typeahead (searches as you type), "Create new client" modal with name, type, payment terms, notes, and inline contacts (saved in one action). Includes shipping route selection (drop ship / ship-through / stage).
 - **Client types**: corporate, brand, artist, tour, webstore
 - **Project types**: tour, webstore, drop_ship
 
@@ -510,7 +510,6 @@ GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
 - No decoration type selector (defaults to screen_print) — could pull from decorator capabilities
 - Pricing logic duplicated in CostingTab, PO route, and Quote route — working but not DRY
 - Old `receiving_data` JSONB on items is superseded by `received_at_hpd` + `received_qtys` — can be cleaned up
-- Ship-through complete flow needs outbound tracking per item (currently marks complete on receive)
 
 ## Owner
 
