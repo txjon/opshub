@@ -45,27 +45,32 @@ app/api/
 
 ### Project Detail Page (`jobs/[id]/`)
 
-The central hub. Horizontal pill tabs across the top, content below. 7 tabs, each its own component:
+The central hub. Horizontal pill tabs across the top, content below. 8 tabs ordered to match the actual workflow:
 
 | Tab | Component | Owns |
 |---|---|---|
-| Overview | Inline in page.tsx | Project info + shipping details (top row), contacts + payments (left), items + activity stats (right) |
+| Overview | Inline in page.tsx | Project info + shipping details (top row), contacts + invoice/payments (left), items + activity stats (right) |
 | Buy Sheet | BuySheetTab.jsx | Item creation, size/qty entry, S&S + manual catalog pickers, drag-to-reorder |
 | Art Files | ArtTab.jsx | Per-item file upload to Google Drive, stages, proof approval workflow, mockup generator |
 | Costing | CostingTab.jsx | Decoration pricing, margin calc, auto-save, share groups |
 | Client Quote | CostingTab.jsx (quote sub-tab) | Quote preview + PDF download/email + quote approval button |
+| Blanks | BlanksTab.jsx | Per-item S&S order # + cost entry with gate checks (quote + proofs required) |
 | Purchase Order | POTab.jsx | PO preview, PDF export/email, per-item drive link + production notes + copy-to-all |
-| Production | ProductionTab.jsx | 3-stage pipeline (blanks ordered → in production → shipped), blanks order tracking, shipping data entry |
+| Production | ProductionTab.jsx | 2-stage pipeline (in production → shipped), decorator tracking + shipped quantities |
 
-**Overview layout**: Top row is a 2-column grid (Project info | Shipping details) matched height. Below is another 2-column grid: left (Contacts → Payment records → Delete) and right (Items → Activity stats). Phase is read-only with Hold/Resume buttons.
+**Tab order matches workflow**: Taylor sets up (Overview → Buy Sheet → Art Files) → Drake costs and sells (Costing → Client Quote) → Drake orders and sends (Blanks → PO → Production).
+
+**Overview layout**: Top row is a 2-column grid (Project info | Shipping details) matched height. Below is another 2-column grid: left (Contacts → Invoice send/preview/download → Payment records → Delete) and right (Items → Activity stats). Phase is read-only with Hold/Resume buttons.
+
+**Blanks tab gates**: Cannot order blanks until quote is approved AND all proofs are approved. Payment gate checked by lifecycle separately.
 
 **Warehouse** is a standalone page (`/warehouse`), not a tab on project detail.
 
-**Note**: Standalone Production page rebuild is planned — cross-project pipeline board for production team.
+**Standalone Production page** (`/production`): Cross-project pipeline board — all items from all active projects, grouped by stage (In Production, Shipped), with stats, filters, and inline stage advancement.
 
 ### Data Flow
 
-**Items** are created in Buy Sheet → enriched in Costing (decoration, pricing) → tracked in Production (pipeline stages) → received in Warehouse.
+**Items** are created in Buy Sheet → art uploaded → enriched in Costing (decoration, pricing) → quote sent/approved → blanks ordered → POs sent to decorators → tracked in Production (in_production → shipped) → received in Warehouse.
 
 **Key ownership rules (enforced in code):**
 - **Client name, ship date, notes** — owned by the job record (Overview tab). Quote reads from `project` props, not separate copies.
@@ -166,7 +171,7 @@ Phase is **read-only** — calculated automatically from item data. No manual ov
 |---|---|
 | `intake` | Project created (default) |
 | `pre_production` | Quote approved + payment gate met |
-| `production` | First blanks ordered OR first PO sent |
+| `production` | First item at decorator (in_production stage) |
 | `receiving` | First item tracking entered (warehouse jobs only) |
 | `shipped` | First item tracking entered (drop ship) OR shipped from warehouse |
 | `complete` | All items shipped/delivered |
@@ -176,10 +181,14 @@ Phase is **read-only** — calculated automatically from item data. No manual ov
 - `deposit_balance` → at least one payment recorded
 - `net_15` / `net_30` → auto (quote approval is enough)
 
-**Production stages per item** (simplified from original 6 to 3):
-1. `blanks_ordered` — S&S order # + total cost (compared against calculated cost)
-2. `in_production` — decorator is printing (art approval gate shows warnings)
-3. `shipped` — tracking # + per-size shipped quantities entered
+**Blanks ordering** (Blanks tab, pre-production):
+- Per-item S&S order # + total cost (compared against calculated blank cost)
+- Gated: requires quote approved + all proofs approved
+- Blanks progress shown in pre_production phase display
+
+**Production stages per item** (Production tab, 2 stages):
+1. `in_production` — item at decorator, printing
+2. `shipped` — tracking # + per-size shipped quantities entered
 
 **Routing by job type:**
 - Warehouse jobs (tour, webstore, corporate, brand, artist): shipped → warehouse receiving → ship to client → complete
