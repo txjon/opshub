@@ -15,6 +15,7 @@ export default function NewJobPage() {
     job_type: "corporate",
     phase: "intake",
     priority: "normal",
+    shipping_route: "ship_through",
     payment_terms: "",
     payment_method: "",
     target_ship_date: "",
@@ -128,6 +129,7 @@ export default function NewJobPage() {
           job_type: form.job_type,
           phase: form.phase,
           priority: form.priority,
+          shipping_route: form.shipping_route,
           payment_terms: form.payment_terms || null,
           target_ship_date: form.target_ship_date || null,
           type_meta: {
@@ -232,6 +234,15 @@ export default function NewJobPage() {
                 <option value="urgent">Urgent</option>
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className={lc}>Shipping Route</label>
+            <select value={form.shipping_route} onChange={e => set("shipping_route", e.target.value)} className={ic}>
+              <option value="ship_through">Ship-through (forward from HPD)</option>
+              <option value="stage">Stage (fulfillment from HPD)</option>
+              <option value="drop_ship">Drop ship (direct to client)</option>
+            </select>
           </div>
         </div>
 

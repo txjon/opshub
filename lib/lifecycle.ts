@@ -66,10 +66,8 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
       return { phase: "complete", itemProgress: `${total}/${total} complete` };
     }
   } else {
-    // ship_through: all items have outbound tracking (shipped from HPD)
-    // For now, use received_at_hpd as proxy — items are "done" when received and forwarded
-    // TODO: add outbound tracking per item for ship_through
-    if (receivedAtHpd === total) {
+    // ship_through: complete when fulfillment_status = "shipped" (outbound tracking entered on warehouse page)
+    if (job.fulfillment_status === "shipped") {
       return { phase: "complete", itemProgress: `${total}/${total} complete` };
     }
   }
