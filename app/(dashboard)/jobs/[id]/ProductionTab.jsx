@@ -34,21 +34,23 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
     saveTimers.current[key] = setTimeout(async () => {
       await supabase.from("items").update({ [field]: value || null }).eq("id", itemId);
-      if (field === "ship_tracking" && value) {
-        // Auto-advance to shipped when tracking is entered
-        await supabase.from("items").update({ pipeline_stage: "shipped" }).eq("id", itemId);
-        const item = items.find(it => it.id === itemId);
-        if (item) {
-          logJobActivity(item.job_id, `${item.name} shipped from decorator — tracking: ${value}`);
-          notifyTeam(`${item.name} shipped from decorator — incoming to warehouse`, "production", item.job_id, "job");
-          if (item.decorator_assignment_id) {
-            await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
-          }
-          onUpdateItem(itemId, { pipeline_stage: "shipped", decorator_assignment_id: item.decorator_assignment_id });
-        }
-      }
-      if (onRecalcPhase) onRecalcPhase();
     }, 800);
+  }
+
+  async function markShipped(itemId) {
+    const f = localFields[itemId] || {};
+    const tracking = f.ship_tracking || "";
+    await supabase.from("items").update({ ship_tracking: tracking || null, pipeline_stage: "shipped" }).eq("id", itemId);
+    const item = items.find(it => it.id === itemId);
+    if (item) {
+      logJobActivity(item.job_id, `${item.name} shipped from decorator${tracking ? " — tracking: " + tracking : ""}`);
+      notifyTeam(`${item.name} shipped from decorator — incoming to warehouse`, "production", item.job_id, "job");
+      if (item.decorator_assignment_id) {
+        await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
+      }
+      onUpdateItem(itemId, { pipeline_stage: "shipped", decorator_assignment_id: item.decorator_assignment_id });
+    }
+    if (onRecalcPhase) onRecalcPhase();
   }
 
   function updateShipQty(itemId, size, qty) {
@@ -83,6 +85,18 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</span>
                   {item.decoration_type && <span style={{ padding: "1px 7px", borderRadius: 6, fontSize: 10, fontWeight: 500, background: T.accentDim, color: T.accent }}>{item.decoration_type.replace(/_/g, " ")}</span>}
+                  <button onClick={async (e) => {
+                    e.stopPropagation();
+                    const newStatus = item.artwork_status === "approved" ? "not_started" : "approved";
+                    await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
+                    onUpdateItem(item.id, { artwork_status: newStatus });
+                    if (newStatus === "approved") logJobActivity(item.job_id, `${item.name} proof manually approved`);
+                  }}
+                    style={{ padding: "1px 8px", borderRadius: 6, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer",
+                      background: item.artwork_status === "approved" ? T.greenDim : T.surface,
+                      color: item.artwork_status === "approved" ? T.green : T.muted }}>
+                    {item.artwork_status === "approved" ? "Proof Approved" : "Approve Proof"}
+                  </button>
                 </div>
                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                   {item.decorator || "No decorator"} · {totalUnits.toLocaleString()} units
@@ -133,9 +147,16 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
                   )}
                 </div>
 
-                {f.ship_tracking && (
+                {item.pipeline_stage === "shipped" ? (
                   <div style={{ marginTop: 8, background: T.greenDim, border: `1px solid ${T.green}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.green }}>
                     Shipped — headed to warehouse for receiving
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
+                    <button onClick={() => markShipped(item.id)}
+                      style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                      Mark Shipped
+                    </button>
                   </div>
                 )}
               </div>

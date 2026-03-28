@@ -169,7 +169,7 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
           if(key!=="Packaging"){finUnitRate+=(pr.specialty?.[key]||pr.finishing?.[key]||0);}
         }
       });
-      if(p.isFleece){const locs=activeLocs+(p.tagPrint?1:0);finUnitRate+=(pr.packaging?.Tee||pr.finishing?.Tee||0)*locs;}
+      if(p.isFleece){const locs=activeLocs+(p.tagPrint?1:0);finUnitRate+=(pr.finishing?.Fleece||0)*locs;}
     }
   }
   let specUnitRate=0;
@@ -214,7 +214,7 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
     }
     if(p.setupFees.manualCost>0) setupTotal+=p.setupFees.manualCost;
   }
-  const customTotal=(p.customCosts||[]).reduce((a,c)=>a+(c.amount||0),0);
+  const customTotal=(p.customCosts||[]).reduce((a,c)=>{const v=c.perUnit||c.amount||0;return a+(c.flat?v:v*qty);},0);
   const perUnitPORate=printTotal+finUnitRate+specUnitRate;
   const poTotal=perUnitPORate*qty+setupTotal+customTotal;
   const shipping=inclShip?qty*(p.isFleece?1.50:0.65):0;
@@ -778,7 +778,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 const totalPrints=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length||0;
                                 const fleecePrintCount=totalPrints+(p.tagPrint?1:0);
                                 const packagingVariant=p.isFleece?"Fleece":(p.finishingQtys?.["Packaging_variant"]||"Tee");
-                                const unitCost=col4==="packaging_variant"?(pr?.packaging?.[packagingVariant]||0):col4==="finishing_item"?(pr?.finishing?.[key]||0):col4==="finishing_fleece"?(pr?.packaging?.Tee||pr?.finishing?.Tee||0):0;
+                                const unitCost=col4==="packaging_variant"?(pr?.packaging?.[packagingVariant]||0):col4==="finishing_item"?(pr?.finishing?.[key]||0):col4==="finishing_fleece"?(pr?.finishing?.Fleece||0):0;
                                 const qty=col3==="print_count"?fleecePrintCount:col3==="blank"?(p.finishingQtys?.[key+"_qty"]||0):col3==="variant"?(p.totalQty||0):totalPrints;
                                 const total=active?(col3==="variant"||col3==="blank"?unitCost:unitCost*fleecePrintCount):0;
                                 const isLast=idx===arr.length-1;
@@ -997,44 +997,69 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           style={{display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",padding:"6px 8px",borderRadius:6,background:p._customOpen?T.accentDim:T.surface,border:`1px solid ${p._customOpen?T.accent+"44":T.border}`,marginBottom:p._customOpen?8:0,transition:"all 0.15s"}}>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
                             <div style={{fontSize:10,fontWeight:700,color:p._customOpen?T.accent:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Custom Costs</div>
-                            {!p._customOpen&&(p.customCosts||[]).some(c=>c.amount>0||c.desc)&&<span style={{fontSize:11,color:T.green}}>✓</span>}
+                            {!p._customOpen&&(p.customCosts||[]).some(c=>(c.perUnit||c.amount||0)>0||c.desc)&&<span style={{fontSize:11,color:T.green}}>✓</span>}
                           </div>
                           <span style={{fontSize:11,color:p._customOpen?T.accent:T.faint,display:"inline-block",transform:p._customOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.15s"}}>v</span>
                         </div>
                         {p._customOpen&&<div>
                           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                             <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Custom Costs</div>
-                            <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",amount:0}]})}
+                            <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
                               style={{fontSize:11,color:T.accent,fontFamily:font,background:"none",border:`1px solid ${T.accent}44`,borderRadius:5,cursor:"pointer",padding:"2px 10px"}}>+ Add</button>
                           </div>
                           {(p.customCosts||[]).length>0&&(
                             <div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                               <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
+                                <thead><tr style={{background:T.surface}}>
+                                  <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`,width:"35%"}}>Description</th>
+                                  <th style={{padding:"4px 8px",textAlign:"center",fontSize:10,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`,width:"18%"}}>Type</th>
+                                  <th style={{padding:"4px 8px",textAlign:"center",fontSize:10,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`,width:"18%"}}>Cost</th>
+                                  <th style={{padding:"4px 8px",textAlign:"center",fontSize:10,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`,width:"18%"}}>Total</th>
+                                  <th style={{width:"11%"}}/>
+                                </tr></thead>
                                 <tbody>
-                                  {(p.customCosts||[]).map((cc,ci)=>(
-                                    <tr key={ci} style={{borderBottom:ci<p.customCosts.length-1?`1px solid ${T.border}22`:"none",background:ci%2===0?T.card:T.surface}}>
-                                      <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`,width:"60%"}}>
-                                        <input value={cc.desc||""} placeholder="Description…"
+                                  {(p.customCosts||[]).map((cc,ci)=>{
+                                    const isFlat=!!cc.flat;
+                                    const costVal=cc.perUnit||cc.amount||0;
+                                    const total=isFlat?costVal:costVal*(p.totalQty||0);
+                                    return(
+                                    <tr key={ci} style={{borderBottom:ci<p.customCosts.length-1?`1px solid ${T.border}`:"none",background:ci%2===0?T.card:T.surface}}>
+                                      <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`}}>
+                                        <input value={cc.desc||""} placeholder="Embroidery, DTG, etc…"
                                           onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
                                           style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:font}}/>
                                       </td>
-                                      <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`,width:"25%",textAlign:"center"}}>
-                                        <div style={{display:"flex",alignItems:"center",gap:2,justifyContent:"center"}}>
-                                          <span style={{fontSize:11,color:T.faint,fontFamily:mono}}>$</span>
-                                          <input type="text" inputMode="decimal" value={cc.amount||""} placeholder="0.00"
-                                            onChange={e=>{const raw=e.target.value;if(raw===""||/^[0-9]*\.?[0-9]*$/.test(raw)){const c=[...p.customCosts];c[ci]={...c[ci],amount:raw===""?0:raw.endsWith(".")?raw:parseFloat(raw)||0};updateProd(i,{...p,customCosts:c});}}}
-                                            onBlur={e=>{const c=[...p.customCosts];c[ci]={...c[ci],amount:parseFloat(e.target.value)||0};updateProd(i,{...p,customCosts:c});}}
-                                            style={{width:70,background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono,textAlign:"center"}}/>
+                                      <td style={{padding:"3px 4px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
+                                        <div style={{display:"inline-flex",borderRadius:4,overflow:"hidden"}}>
+                                          {[{id:false,label:"/ unit"},{id:true,label:"flat"}].map((opt,oi)=>{
+                                            const sel=isFlat===opt.id;
+                                            return <button key={oi} onClick={()=>{const c=[...p.customCosts];c[ci]={...c[ci],flat:opt.id};updateProd(i,{...p,customCosts:c});}}
+                                              style={{padding:"2px 8px",fontSize:9,fontFamily:font,fontWeight:600,border:`1px solid ${sel?T.accent:T.border}`,marginLeft:oi>0?-1:0,cursor:"pointer",background:sel?T.accent:T.card,color:sel?"#fff":T.faint,borderRadius:oi===0?"4px 0 0 4px":"0 4px 4px 0",position:"relative",zIndex:sel?1:0}}>{opt.label}</button>;
+                                          })}
                                         </div>
                                       </td>
-                                      <td style={{padding:"5px 8px",textAlign:"center",width:"15%"}}>
+                                      <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
+                                        <div style={{display:"flex",alignItems:"center",gap:2,justifyContent:"center"}}>
+                                          <span style={{fontSize:11,color:T.faint,fontFamily:mono}}>$</span>
+                                          <input type="text" inputMode="decimal" value={cc.perUnit||cc.amount||""} placeholder="0.00"
+                                            onChange={e=>{const raw=e.target.value;if(raw===""||/^[0-9]*\.?[0-9]*$/.test(raw)){const c=[...p.customCosts];c[ci]={...c[ci],perUnit:raw===""?0:raw.endsWith(".")?raw:parseFloat(raw)||0};updateProd(i,{...p,customCosts:c});}}}
+                                            onBlur={e=>{const c=[...p.customCosts];c[ci]={...c[ci],perUnit:parseFloat(e.target.value)||0};updateProd(i,{...p,customCosts:c});}}
+                                            onFocus={e=>e.target.select()}
+                                            style={{width:60,background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono,textAlign:"center"}}/>
+                                        </div>
+                                      </td>
+                                      <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`,textAlign:"center",fontFamily:mono,fontSize:12,fontWeight:total>0?700:400,color:total>0?T.green:T.faint}}>
+                                        {total>0?fmtD(total):"—"}
+                                      </td>
+                                      <td style={{padding:"5px 8px",textAlign:"center"}}>
                                         <button onClick={()=>{const c=p.customCosts.filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
                                           style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:12}}
                                           onMouseEnter={e=>e.currentTarget.style.color=T.red}
                                           onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
                                       </td>
                                     </tr>
-                                  ))}
+                                    );
+                                  })}
                                 </tbody>
                               </table>
                             </div>

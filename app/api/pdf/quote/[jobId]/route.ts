@@ -85,7 +85,7 @@ function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: bool
           finUnitRate += (pr.finishing?.[key] || pr.specialty?.[key] || 0);
         }
       });
-      if (p.isFleece) { const locs = activeLocs + (p.tagPrint ? 1 : 0); finUnitRate += (pr.packaging?.Tee || pr.finishing?.Tee || 0) * locs; }
+      if (p.isFleece) { const locs = activeLocs + (p.tagPrint ? 1 : 0); finUnitRate += (pr.finishing?.Fleece || 0) * locs; }
     }
   }
   let specUnitRate = 0;
@@ -131,7 +131,7 @@ function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: bool
     }
     if (p.setupFees.manualCost > 0) setupTotal += p.setupFees.manualCost;
   }
-  const customTotal = (p.customCosts || []).reduce((a: number, c: any) => a + (c.amount || 0), 0);
+  const customTotal = (p.customCosts || []).reduce((a: number, c: any) => { const v = c.perUnit || c.amount || 0; return a + (c.flat ? v : v * qty); }, 0);
   const poTotal = (printTotal + finUnitRate + specUnitRate) * qty + setupTotal + customTotal;
   const shipping = inclShip ? qty * (p.isFleece ? 1.50 : 0.65) : 0;
   const totalCost = blankCost + poTotal + shipping;

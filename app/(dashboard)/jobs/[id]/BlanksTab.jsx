@@ -7,7 +7,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
-export function BlanksTab({ items, job, payments, onRecalcPhase }) {
+export function BlanksTab({ items, job, payments, onRecalcPhase, onUpdateItem }) {
   const supabase = createClient();
   const [localFields, setLocalFields] = useState({});
   const [proofStatus, setProofStatus] = useState({});
@@ -21,9 +21,10 @@ export function BlanksTab({ items, job, payments, onRecalcPhase }) {
       const status = {};
       for (const it of items) {
         const proofs = (data || []).filter(f => f.item_id === it.id && f.stage === "proof");
+        const manualApproved = it.artwork_status === "approved";
         status[it.id] = {
-          hasProof: proofs.length > 0,
-          allApproved: proofs.length > 0 && proofs.every(f => f.approval === "approved"),
+          hasProof: proofs.length > 0 || manualApproved,
+          allApproved: manualApproved || (proofs.length > 0 && proofs.every(f => f.approval === "approved")),
         };
       }
       setProofStatus(status);
@@ -47,7 +48,9 @@ export function BlanksTab({ items, job, payments, onRecalcPhase }) {
     const key = itemId + "_" + field;
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
     saveTimers.current[key] = setTimeout(async () => {
-      await supabase.from("items").update({ [field]: value || null }).eq("id", itemId);
+      const dbVal = field === "blanks_order_cost" ? (parseFloat(value) || null) : (value || null);
+      await supabase.from("items").update({ [field]: dbVal }).eq("id", itemId);
+      if (onUpdateItem) onUpdateItem(itemId, { [field]: dbVal });
       if (field === "blanks_order_number" && value) {
         const item = items.find(it => it.id === itemId);
         if (item) logJobActivity(job.id, `Blanks ordered for ${item.name} — S&S #${value}`);
@@ -123,9 +126,9 @@ export function BlanksTab({ items, job, payments, onRecalcPhase }) {
       {items.map((item, i) => {
         const f = localFields[item.id] || {};
         const totalUnits = tQty(item.qtys || {});
-        const calcCost = item.cost_per_unit ? (item.cost_per_unit * totalUnits) : null;
+        const calcCost = item.cost_per_unit != null ? (item.cost_per_unit * totalUnits) : null;
         const actualCost = f.blanks_order_cost ? parseFloat(f.blanks_order_cost) : null;
-        const costDiff = calcCost && actualCost ? actualCost - calcCost : null;
+        const costDiff = calcCost !== null && actualCost !== null ? actualCost - calcCost : null;
         const hasOrder = !!f.blanks_order_number;
 
         return (
@@ -153,13 +156,13 @@ export function BlanksTab({ items, job, payments, onRecalcPhase }) {
                     <input style={{ ...ic, fontFamily: mono }} type="text" inputMode="decimal" value={f.blanks_order_cost || ""} placeholder="0.00"
                       onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
                       onFocus={e => e.target.select()} />
-                    {calcCost && actualCost && (
+                    {calcCost !== null && actualCost !== null && (
                       <span style={{ fontSize: 10, fontFamily: mono, fontWeight: 600, flexShrink: 0, color: costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.faint }}>
                         {costDiff === 0 ? "match" : (costDiff > 0 ? "+" : "") + "$" + Math.abs(costDiff).toFixed(2)}
                       </span>
                     )}
                   </div>
-                  {calcCost && <div style={{ fontSize: 9, color: T.faint, marginTop: 2 }}>Calculated: ${calcCost.toFixed(2)}</div>}
+                  {calcCost !== null && <div style={{ fontSize: 9, color: T.faint, marginTop: 2 }}>Calculated: ${calcCost.toFixed(2)}</div>}
                 </div>
               </div>
             </div>

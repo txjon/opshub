@@ -89,9 +89,21 @@ function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabel, stag
               </>
             )}
             {file.approval === "revision_requested" && (
+              <>
+                <button onClick={() => onApproval(file.id, "approved")}
+                  style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green, border: "none", cursor: "pointer" }}>
+                  Approve
+                </button>
+                <button onClick={() => onApproval(file.id, "pending")}
+                  style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.amberDim, color: T.amber, border: "none", cursor: "pointer" }}>
+                  Re-submit
+                </button>
+              </>
+            )}
+            {file.approval === "approved" && (
               <button onClick={() => onApproval(file.id, "pending")}
                 style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.amberDim, color: T.amber, border: "none", cursor: "pointer" }}>
-                Re-submit
+                Revoke
               </button>
             )}
           </div>
@@ -220,6 +232,11 @@ function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, onFil
           {hasPrintReady && (
             <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>
               Print-ready
+            </span>
+          )}
+          {item.artwork_status === "approved" && (
+            <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>
+              Proof Approved
             </span>
           )}
           <span style={{ fontSize: 12, color: T.muted }}>{expanded ? "▲" : "▼"}</span>

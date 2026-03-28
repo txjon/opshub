@@ -7,7 +7,7 @@ import { POTab } from "./POTab.jsx";
 import { BuySheetTab } from "./BuySheetTab";
 import { ProductionTab } from "./ProductionTab";
 import { BlanksTab } from "./BlanksTab";
-
+import { ApprovalsPaymentTab } from "./ApprovalsPaymentTab";
 import { ArtTab } from "./ArtTab";
 import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -155,8 +155,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         const { data: proofFiles } = await supabase.from("item_files").select("item_id, approval").eq("stage", "proof").in("item_id", ids);
         const ps: Record<string, { allApproved: boolean }> = {};
         for (const id of ids) {
+          const item = itemsRes.data.find((it: any) => it.id === id);
+          const manualApproved = item?.artwork_status === "approved";
           const proofs = (proofFiles || []).filter((f: any) => f.item_id === id);
-          ps[id] = { allApproved: proofs.length > 0 && proofs.every((f: any) => f.approval === "approved") };
+          ps[id] = { allApproved: manualApproved || (proofs.length > 0 && proofs.every((f: any) => f.approval === "approved")) };
         }
         setProofStatus(ps);
       }
@@ -390,7 +392,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {/* Horizontal tab nav */}
       <div style={{display:"flex",gap:4,padding:4,background:T.surface,borderRadius:8,marginBottom:16,flexWrap:"wrap"}}>
-        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"art",label:"Art Files"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"blanks",label:"Blanks"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"}].map(t=>(
+        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"art",label:"Art Files"},{id:"approvals",label:"Approvals & Payment"},{id:"blanks",label:"Blanks"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"}].map(t=>(
           <button key={t.id} onClick={async ()=>{
             if (tab==="buysheet" && t.id!=="buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
             if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
@@ -584,103 +586,30 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
 
-              {/* Invoice */}
-              <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>setShowInvoiceEmail(!showInvoiceEmail)}
-                  style={{flex:1,background:T.purple,border:"none",borderRadius:8,color:"#fff",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:600,padding:"8px",cursor:"pointer",textAlign:"center"}}>
-                  Send Invoice
-                </button>
-                <button onClick={()=>window.open(`/api/pdf/invoice/${job.id}`,"_blank")}
-                  style={{background:T.accent,border:"none",borderRadius:8,color:"#fff",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:600,padding:"8px 16px",cursor:"pointer"}}>
-                  Preview
-                </button>
-                <button onClick={()=>{const a=document.createElement("a");a.href=`/api/pdf/invoice/${job.id}?download=1`;a.download="invoice.pdf";a.click();}}
-                  style={{background:T.green,border:"none",borderRadius:8,color:"#fff",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:600,padding:"8px 16px",cursor:"pointer"}}>
-                  Download
-                </button>
-              </div>
-              {showInvoiceEmail&&(
-                <SendEmailDialog
-                  type="invoice"
-                  jobId={job.id}
-                  contacts={contacts.map(c=>({name:c.name,email:c.email||""}))}
-                  defaultEmail={contacts.find(c=>c.role_on_job==="billing")?.email||contacts.find(c=>c.role_on_job==="primary")?.email||""}
-                  defaultSubject={`Invoice — ${(job.clients as any)?.name||""} · ${job.title}`}
-                  onClose={()=>setShowInvoiceEmail(false)}
-                  onSent={()=>logJobActivity(job.id,"Invoice sent to client")}
-                />
-              )}
-
-              {/* Payment records */}
+              {/* Payment summary (read-only) */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payment records</div>
-                  <button onClick={()=>setJob(j=>j?{...j,_addPayment:!(j as any)._addPayment} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
+                  <button onClick={()=>setTab("approvals")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
                 </div>
-                {(job as any)._addPayment&&(
-                  <div style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10,marginBottom:8}}>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginBottom:6}}>
-                      <select id="pm-type" style={ic}>
-                        <option value="deposit">Deposit</option>
-                        <option value="balance">Balance</option>
-                        <option value="full_payment">Full Payment</option>
-                        <option value="refund">Refund</option>
-                      </select>
-                      <input id="pm-amount" type="text" inputMode="decimal" placeholder="Amount" style={ic}/>
-                      <input id="pm-invoice" placeholder="Invoice #" style={ic}/>
-                      <input id="pm-due" type="date" style={ic}/>
-                    </div>
-                    <div style={{display:"flex",gap:6}}>
-                      <button onClick={async()=>{
-                        const type=(document.getElementById("pm-type") as HTMLSelectElement).value;
-                        const amount=parseFloat((document.getElementById("pm-amount") as HTMLInputElement).value)||0;
-                        if(!amount) return;
-                        const invoice_number=(document.getElementById("pm-invoice") as HTMLInputElement).value.trim()||null;
-                        const due_date=(document.getElementById("pm-due") as HTMLInputElement).value||null;
-                        await supabase.from("payment_records").insert({job_id:job.id,type,amount,invoice_number,due_date,status:"draft"});
-                        logJobActivity(job.id, `Payment added: ${type.replace(/_/g," ")} — $${amount.toLocaleString()}${invoice_number ? ` (${invoice_number})` : ""}`);
-                        setJob(j=>j?{...j,_addPayment:false} as any:j);
-                        loadData();
-                        setTimeout(recalcPhase, 500);
-                      }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>
-                      <button onClick={()=>setJob(j=>j?{...j,_addPayment:false} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:11,padding:"5px 10px",cursor:"pointer"}}>Cancel</button>
-                    </div>
-                  </div>
-                )}
-                {payments.length===0&&!(job as any)._addPayment&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
+                {payments.length===0&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
                 {payments.length>0&&(
                   <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
                     <thead><tr style={{borderBottom:"1px solid #2a3050"}}>
-                      {["Invoice","Type","Amount","Due","Status",""].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:T.muted,fontWeight:500}}>{h}</th>)}
+                      {["Invoice","Type","Amount","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:T.muted,fontWeight:500}}>{h}</th>)}
                     </tr></thead>
-                    <tbody>{payments.map(p=>{
-                      const statuses=["draft","sent","viewed","partial","paid","overdue","void"];
-                      const nextStatus=()=>{const idx=statuses.indexOf(p.status);return statuses[(idx+1)%statuses.length];};
-                      return(
+                    <tbody>{payments.map(p=>(
                       <tr key={p.id} style={{borderBottom:"1px solid #2a3050"}}>
                         <td style={{padding:"6px",fontFamily:"var(--font-mono)",color:T.muted}}>{p.invoice_number||"—"}</td>
                         <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
                         <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
-                        <td style={{padding:"6px",color:T.muted}}>{p.due_date?new Date(p.due_date).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"—"}</td>
                         <td style={{padding:"6px"}}>
-                          <button onClick={async()=>{
-                            const ns=nextStatus();
-                            await supabase.from("payment_records").update({status:ns,paid_date:ns==="paid"?new Date().toISOString().split("T")[0]:null}).eq("id",p.id);
-                            logJobActivity(job.id, `Payment ${p.invoice_number||"#"} status → ${ns}${ns==="paid"?" — $"+p.amount.toLocaleString():""}`);
-                            if(ns==="paid") notifyTeam(`Payment received — $${p.amount.toLocaleString()} · ${(job.clients as any)?.name||""} · ${job.title}`, "payment", job.id, "job");
-                            loadData();
-                            setTimeout(recalcPhase, 500);
-                          }} style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
+                          <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
                             background:p.status==="paid"?"#0e3d24":p.status==="overdue"?"#3d1212":"#3d2a08",
-                            color:p.status==="paid"?"#34c97a":p.status==="overdue"?"#f05353":"#f5a623"}}>{p.status}</button>
+                            color:p.status==="paid"?"#34c97a":p.status==="overdue"?"#f05353":"#f5a623"}}>{p.status}</span>
                         </td>
-                        <td style={{padding:"6px"}}>
-                          <button onClick={()=>setConfirmDeletePayment(p.id)} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11}}
-                            onMouseEnter={e=>e.currentTarget.style.color=T.red}
-                            onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
-                        </td>
-                      </tr>);
-                    })}</tbody>
+                      </tr>
+                    ))}</tbody>
                   </table>
                 )}
               </div>
@@ -757,6 +686,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* BUYSHEET */}
       {tab==="art"&&(
         <ArtTab project={job} items={items} contacts={contacts} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} />
+      )}
+      {tab==="approvals"&&(
+        <ApprovalsPaymentTab
+          job={job}
+          items={items}
+          contacts={contacts}
+          payments={payments}
+          proofStatus={proofStatus}
+          onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
+          onReload={loadData}
+          onRecalcPhase={recalcPhase}
+        />
       )}
       {tab==="buysheet"&&(
         <BuySheetTab
@@ -848,7 +789,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </>
       )}
       {tab==="blanks"&&(
-        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} />
+        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} />
       )}
       {tab==="po"&&(
         <POTab

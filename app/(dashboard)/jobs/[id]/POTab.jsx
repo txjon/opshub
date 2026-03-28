@@ -151,7 +151,7 @@ export function POTab({project,items,costingData,onRecalcPhase}) {
       fields[it.id] = {
         packing_notes: it.packing_notes||"",
         drive_link: it.drive_link||"",
-        incoming_goods: it.incoming_goods||"",
+        incoming_goods: it.incoming_goods || it.blanks_order_number || "",
         production_notes_po: it.production_notes_po||"",
       };
     });

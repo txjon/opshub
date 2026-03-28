@@ -1,0 +1,183 @@
+"use client";
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { T, font, mono } from "@/lib/theme";
+import { SendEmailDialog } from "@/components/SendEmailDialog";
+import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
+
+export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatus, onUpdateItem, onReload, onRecalcPhase }) {
+  const supabase = createClient();
+  const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
+  const [addingPayment, setAddingPayment] = useState(false);
+
+  const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" };
+  const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
+
+  const approvedCount = items.filter(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved").length;
+  const allApproved = items.length > 0 && approvedCount === items.length;
+
+  return (
+    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* ── Proof Approvals ── */}
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Proof Approvals</div>
+          <span style={{ fontSize: 11, fontWeight: 600, color: allApproved ? T.green : T.amber }}>
+            {approvedCount}/{items.length} approved
+          </span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {items.map((item, i) => {
+            const fileApproved = proofStatus[item.id]?.allApproved;
+            const manualApproved = item.artwork_status === "approved";
+            const isApproved = fileApproved || manualApproved;
+            return (
+              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.surface, borderRadius: 8, border: `1px solid ${isApproved ? T.green + "44" : T.border}` }}>
+                <span style={{ width: 22, height: 22, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
+                  {String.fromCharCode(65 + i)}
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
+                  <div style={{ fontSize: 10, color: T.muted }}>{[item.blank_vendor, item.color].filter(Boolean).join(" · ")}</div>
+                </div>
+                {fileApproved && (
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>
+                    File Approved
+                  </span>
+                )}
+                <button onClick={async () => {
+                  const newStatus = manualApproved ? "not_started" : "approved";
+                  await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
+                  if (onUpdateItem) onUpdateItem(item.id, { artwork_status: newStatus });
+                  if (newStatus === "approved") logJobActivity(job.id, `${item.name} proof manually approved`);
+                  if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
+                }}
+                  style={{ padding: "3px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
+                    background: manualApproved ? T.greenDim : T.surface,
+                    color: manualApproved ? T.green : T.muted,
+                    border: `1px solid ${manualApproved ? T.green + "44" : T.border}`,
+                  }}>
+                  {manualApproved ? "Approved" : "Approve"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Invoice ── */}
+      <div style={card}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Invoice</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: showInvoiceEmail ? 10 : 0 }}>
+          <button onClick={() => setShowInvoiceEmail(!showInvoiceEmail)}
+            style={{ flex: 1, background: T.purple, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontFamily: font, fontWeight: 600, padding: "8px", cursor: "pointer", textAlign: "center" }}>
+            Send Invoice
+          </button>
+          <button onClick={() => window.open(`/api/pdf/invoice/${job.id}`, "_blank")}
+            style={{ background: T.accent, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontFamily: font, fontWeight: 600, padding: "8px 16px", cursor: "pointer" }}>
+            Preview
+          </button>
+          <button onClick={() => { const a = document.createElement("a"); a.href = `/api/pdf/invoice/${job.id}?download=1`; a.download = "invoice.pdf"; a.click(); }}
+            style={{ background: T.green, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontFamily: font, fontWeight: 600, padding: "8px 16px", cursor: "pointer" }}>
+            Download
+          </button>
+        </div>
+        {showInvoiceEmail && (
+          <SendEmailDialog
+            type="invoice"
+            jobId={job.id}
+            contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
+            defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
+            defaultSubject={`Invoice — ${job.clients?.name || ""} · ${job.title}`}
+            onClose={() => setShowInvoiceEmail(false)}
+            onSent={() => logJobActivity(job.id, "Invoice sent to client")}
+          />
+        )}
+      </div>
+
+      {/* ── Payment Records ── */}
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Payment Records</div>
+          <button onClick={() => setAddingPayment(!addingPayment)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 5, color: T.muted, fontSize: 10, padding: "2px 8px", cursor: "pointer" }}>+ Add</button>
+        </div>
+
+        {addingPayment && (
+          <div style={{ background: T.surface, border: `1px solid ${T.accent}44`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 6 }}>
+              <select id="apt-pm-type" style={ic}>
+                <option value="deposit">Deposit</option>
+                <option value="balance">Balance</option>
+                <option value="full_payment">Full Payment</option>
+                <option value="refund">Refund</option>
+              </select>
+              <input id="apt-pm-amount" type="text" inputMode="decimal" placeholder="Amount" style={ic} />
+              <input id="apt-pm-invoice" placeholder="Invoice #" style={ic} />
+              <input id="apt-pm-due" type="date" style={ic} />
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={async () => {
+                const type = document.getElementById("apt-pm-type").value;
+                const amount = parseFloat(document.getElementById("apt-pm-amount").value) || 0;
+                if (!amount) return;
+                const invoice_number = document.getElementById("apt-pm-invoice").value.trim() || null;
+                const due_date = document.getElementById("apt-pm-due").value || null;
+                await supabase.from("payment_records").insert({ job_id: job.id, type, amount, invoice_number, due_date, status: "draft" });
+                logJobActivity(job.id, `Payment added: ${type.replace(/_/g, " ")} — $${amount.toLocaleString()}${invoice_number ? ` (${invoice_number})` : ""}`);
+                setAddingPayment(false);
+                if (onReload) onReload();
+                if (onRecalcPhase) setTimeout(onRecalcPhase, 500);
+              }} style={{ background: T.green, border: "none", borderRadius: 5, color: "#fff", fontSize: 11, fontWeight: 600, padding: "5px 12px", cursor: "pointer" }}>Save</button>
+              <button onClick={() => setAddingPayment(false)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 5, color: T.muted, fontSize: 11, padding: "5px 10px", cursor: "pointer" }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {payments.length === 0 && !addingPayment && <p style={{ fontSize: 12, color: T.muted }}>No payments recorded yet.</p>}
+        {payments.length > 0 && (
+          <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+            <thead><tr style={{ borderBottom: `1px solid ${T.border}` }}>
+              {["Invoice", "Type", "Amount", "Due", "Status", ""].map(h => <th key={h} style={{ textAlign: "left", padding: "3px 6px", color: T.muted, fontWeight: 500 }}>{h}</th>)}
+            </tr></thead>
+            <tbody>{payments.map(p => {
+              const statuses = ["draft", "sent", "viewed", "partial", "paid", "overdue", "void"];
+              const nextStatus = () => { const idx = statuses.indexOf(p.status); return statuses[(idx + 1) % statuses.length]; };
+              return (
+                <tr key={p.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                  <td style={{ padding: "6px", fontFamily: mono, color: T.muted }}>{p.invoice_number || "—"}</td>
+                  <td style={{ padding: "6px", textTransform: "capitalize" }}>{p.type.replace(/_/g, " ")}</td>
+                  <td style={{ padding: "6px", fontWeight: 600 }}>${p.amount.toLocaleString()}</td>
+                  <td style={{ padding: "6px", color: T.muted }}>{p.due_date ? new Date(p.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
+                  <td style={{ padding: "6px" }}>
+                    <button onClick={async () => {
+                      const ns = nextStatus();
+                      await supabase.from("payment_records").update({ status: ns, paid_date: ns === "paid" ? new Date().toISOString().split("T")[0] : null }).eq("id", p.id);
+                      logJobActivity(job.id, `Payment ${p.invoice_number || "#"} status → ${ns}${ns === "paid" ? " — $" + p.amount.toLocaleString() : ""}`);
+                      if (ns === "paid") notifyTeam(`Payment received — $${p.amount.toLocaleString()} · ${job.clients?.name || ""} · ${job.title}`, "payment", job.id, "job");
+                      if (onReload) onReload();
+                      if (onRecalcPhase) setTimeout(onRecalcPhase, 500);
+                    }} style={{
+                      padding: "1px 7px", borderRadius: 99, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer",
+                      background: p.status === "paid" ? "#0e3d24" : p.status === "overdue" ? "#3d1212" : "#3d2a08",
+                      color: p.status === "paid" ? "#34c97a" : p.status === "overdue" ? "#f05353" : "#f5a623",
+                    }}>{p.status}</button>
+                  </td>
+                  <td style={{ padding: "6px" }}>
+                    <button onClick={async () => {
+                      await supabase.from("payment_records").delete().eq("id", p.id);
+                      if (onReload) onReload();
+                      if (onRecalcPhase) setTimeout(onRecalcPhase, 500);
+                    }} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 11 }}
+                      onMouseEnter={e => e.currentTarget.style.color = T.red}
+                      onMouseLeave={e => e.currentTarget.style.color = T.faint}>✕</button>
+                  </td>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}

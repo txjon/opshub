@@ -301,7 +301,11 @@ export default function WarehousePage() {
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {job.items.map(item => (
-                    <span key={item.id} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: T.surface, color: T.muted }}>
+                    <span key={item.id} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: T.surface, color: T.muted, cursor: "pointer" }}
+                      onClick={() => undoReceived(item)}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = T.amber; e.currentTarget.style.color = T.amber; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "transparent"; e.currentTarget.style.color = T.muted; }}
+                      title="Click to revert to incoming">
                       {item.name} · {tQty(item.qtys)} units
                     </span>
                   ))}
@@ -359,7 +363,11 @@ export default function WarehousePage() {
                   {/* Item summary */}
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                     {job.items.map(item => (
-                      <span key={item.id} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: T.surface, color: T.muted }}>
+                      <span key={item.id} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: T.surface, color: T.muted, cursor: "pointer" }}
+                        onClick={() => undoReceived(item)}
+                        onMouseEnter={e => { e.currentTarget.style.color = T.amber; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = T.muted; }}
+                        title="Click to revert to incoming">
                         {item.name} · {tQty(item.qtys)} units
                       </span>
                     ))}

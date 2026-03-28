@@ -104,7 +104,7 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
     // Fleece upcharge (automatic when isFleece)
     if (p.isFleece) {
       const locsCount = activeLocs.length + (p.tagPrint ? 1 : 0);
-      const rate = (pr.packaging?.Tee || pr.finishing?.Tee || 0) * locsCount;
+      const rate = (pr.finishing?.Fleece || 0) * locsCount;
       if (rate > 0) lines.push({ label: "Fleece upcharge", qty, rate, total: rate * qty });
     }
   }
@@ -173,9 +173,13 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
     }
   }
 
-  // Custom costs
+  // Custom costs (per unit × qty, or flat)
   for (const c of (p.customCosts || [])) {
-    if (c.amount) lines.push({ label: c.label || "Custom", qty: 1, rate: c.amount, total: c.amount });
+    const v = c.perUnit || c.amount || 0;
+    if (v > 0) {
+      if (c.flat) lines.push({ label: c.desc || c.label || "Custom", qty: 1, rate: v, total: v });
+      else lines.push({ label: c.desc || c.label || "Custom", qty, rate: v, total: v * qty });
+    }
   }
 
   return lines;

@@ -39,15 +39,15 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick 
   const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))] as string[];
   const allPosSent = vendors.length > 0 && vendors.every((v: string) => poSentVendors.includes(v));
   const atDecorator = items.some(it => it.pipeline_stage === "in_production");
-  const allShipped = items.length > 0 && items.every(it => it.pipeline_stage === "shipped" && it.ship_tracking);
+  const allShipped = items.length > 0 && items.every(it => it.pipeline_stage === "shipped");
 
   const steps: Step[] = [
     { id: "buysheet", label: "Buy Sheet", done: hasItems, active: !hasItems, detail: hasItems ? `${items.length} items` : undefined },
-    { id: "art", label: "Art Files", done: hasProofs, active: hasItems && !hasProofs },
     { id: "costing", label: "Costing", done: hasCosting, active: hasItems && !hasCosting },
     { id: "quote", label: "Quote Approved", done: quoteApproved, active: hasCosting && !quoteApproved },
-    { id: "art", label: "Proofs Approved", done: allProofsApproved, active: quoteApproved && !allProofsApproved, detail: allProofsApproved ? undefined : `${items.filter(it => proofStatus[it.id]?.allApproved).length}/${items.length}` },
-    { id: "overview", label: "Payment", done: paymentMet, active: quoteApproved && !paymentMet, detail: isNetTerms ? "Net terms" : undefined },
+    { id: "art", label: "Art Files", done: hasProofs, active: hasItems && !hasProofs },
+    { id: "approvals", label: "Proofs Approved", done: allProofsApproved, active: quoteApproved && !allProofsApproved, detail: allProofsApproved ? undefined : `${items.filter(it => proofStatus[it.id]?.allApproved).length}/${items.length}` },
+    { id: "approvals", label: "Payment", done: paymentMet, active: quoteApproved && !paymentMet, detail: isNetTerms ? "Net terms" : undefined },
     { id: "blanks", label: "Blanks Ordered", done: allBlanksOrdered, active: paymentMet && allProofsApproved && !allBlanksOrdered, detail: blanksOrdered > 0 ? `${blanksOrdered}/${items.length}` : undefined },
     { id: "po", label: "POs Sent", done: allPosSent, active: allBlanksOrdered && !allPosSent, detail: allPosSent ? undefined : vendors.length > 0 ? `${poSentVendors.length}/${vendors.length}` : undefined },
     { id: "production", label: "Production", done: allShipped, active: atDecorator && !allShipped },
