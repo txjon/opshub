@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { logJobActivity } from "@/components/JobActivityPanel";
+import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 
 const STAGES = [
   { id: "in_production", label: "In Production", pct: 50 },
@@ -37,7 +37,10 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
       await supabase.from("items").update({ [field]: value || null }).eq("id", itemId);
       if (field === "ship_tracking" && value) {
         const item = items.find(it => it.id === itemId);
-        if (item) logJobActivity(item.job_id, `${item.name} shipped from decorator — tracking: ${value}`);
+        if (item) {
+          logJobActivity(item.job_id, `${item.name} shipped from decorator — tracking: ${value}`);
+          notifyTeam(`${item.name} shipped from decorator — incoming to warehouse`, "production", item.job_id, "job");
+        }
       }
       if (onRecalcPhase) onRecalcPhase();
     }, 800);

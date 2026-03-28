@@ -736,17 +736,25 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         <>
         <div style={{marginBottom:12}}>
           {(job as any).quote_approved ? (
-            <div style={{background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <div>
-                <div style={{fontSize:13,fontWeight:600,color:T.green}}>Quote approved</div>
-                {(job as any).quote_approved_at && <div style={{fontSize:10,color:T.muted,marginTop:2}}>Approved {new Date((job as any).quote_approved_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>}
+            <div style={{background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,padding:"10px 14px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,color:T.green}}>Quote approved</div>
+                  {(job as any).quote_approved_at && <div style={{fontSize:10,color:T.muted,marginTop:2}}>Approved {new Date((job as any).quote_approved_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>}
+                </div>
+                <button onClick={async()=>{
+                  await supabase.from("jobs").update({quote_approved:false,quote_approved_at:null}).eq("id",job.id);
+                  setJob(j=>j?{...j,quote_approved:false,quote_approved_at:null} as any:j);
+                  logJobActivity(job.id, "Quote approval revoked");
+                  recalcPhase();
+                }} style={{fontSize:10,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer"}}>Revoke</button>
               </div>
-              <button onClick={async()=>{
-                await supabase.from("jobs").update({quote_approved:false,quote_approved_at:null}).eq("id",job.id);
-                setJob(j=>j?{...j,quote_approved:false,quote_approved_at:null} as any:j);
-                logJobActivity(job.id, "Quote approval revoked");
-                recalcPhase();
-              }} style={{fontSize:10,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer"}}>Revoke</button>
+              <div style={{display:"flex",gap:6,fontSize:11}}>
+                <span style={{color:T.muted}}>Next:</span>
+                <button onClick={()=>setTab("overview")} style={{color:T.accent,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline",padding:0}}>Send Invoice</button>
+                <span style={{color:T.faint}}>·</span>
+                <button onClick={()=>setTab("art")} style={{color:T.accent,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline",padding:0}}>Send Proofs</button>
+              </div>
             </div>
           ) : (
             <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>

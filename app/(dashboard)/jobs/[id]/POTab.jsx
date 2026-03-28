@@ -208,6 +208,14 @@ export function POTab({project,items,costingData,onRecalcPhase}) {
   const ready = !!active;
   const allFilled = vItems.every(it=>itemFields[it.id]?.packing_notes?.trim());
 
+  // Blanks gate: check if all items for current vendor have blanks ordered
+  const blanksNotOrdered = vItems.filter(it => !it.blanks_order_number);
+
+  // PO sent tracker: stored in job type_meta
+  const poSentVendors = project?.type_meta?.po_sent_vendors || [];
+  const isPoSent = poSentVendors.includes(active);
+  const allVendorsPoSent = vendors.length > 0 && vendors.every(v => poSentVendors.includes(v));
+
   return (
     <div style={{fontFamily:font,color:T.text,display:"flex",flexDirection:"column",gap:12}}>
 
@@ -262,8 +270,36 @@ export function POTab({project,items,costingData,onRecalcPhase}) {
           defaultEmail={getDec(active)?.contact_email||""}
           defaultSubject={`PO — ${(project.clients?.name||project.title||"")} — ${active}`}
           onClose={()=>setShowSendEmail(false)}
-          onSent={()=>{ logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`); if(onRecalcPhase) onRecalcPhase(); }}
+          onSent={async()=>{
+            logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`);
+            // Track which vendors have received POs
+            const updated = [...new Set([...(project.type_meta?.po_sent_vendors||[]), active])];
+            await supabase.from("jobs").update({type_meta:{...(project.type_meta||{}), po_sent_vendors: updated}}).eq("id",project.id);
+            if(onRecalcPhase) onRecalcPhase();
+          }}
         />
+      )}
+
+      {/* Warnings and status */}
+      {active && blanksNotOrdered.length > 0 && (
+        <div style={{background:T.amberDim,border:`1px solid ${T.amber}44`,borderRadius:8,padding:"10px 14px",fontSize:12,color:T.amber}}>
+          {blanksNotOrdered.length} item{blanksNotOrdered.length!==1?"s":""} without blanks ordered — complete the Blanks tab first
+        </div>
+      )}
+
+      {/* PO sent tracker */}
+      {vendors.length > 0 && (
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontSize:10,color:T.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em"}}>PO Status:</span>
+          {vendors.map(v=>(
+            <span key={v} style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:99,
+              background:poSentVendors.includes(v)?T.greenDim:T.surface,
+              color:poSentVendors.includes(v)?T.green:T.faint}}>
+              {v} {poSentVendors.includes(v)?"✓ Sent":"— Not sent"}
+            </span>
+          ))}
+          {allVendorsPoSent && <span style={{fontSize:10,color:T.green,fontWeight:600}}>All POs sent</span>}
+        </div>
       )}
 
       {active&&(
