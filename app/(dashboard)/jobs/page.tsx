@@ -40,8 +40,9 @@ function getItemProgress(job: any): string {
   if (shipped > 0) return `${shipped}/${total} shipped`;
   const inProd = items.filter((it: any) => it.pipeline_stage === "in_production" || it.pipeline_stage === "shipped").length;
   if (inProd > 0) return `${inProd}/${total} in production`;
-  const ordered = items.filter((it: any) => it.blanks_order_number).length;
-  if (ordered > 0) return `${ordered}/${total} blanks ordered`;
+  const apparel = items.filter((it: any) => it.garment_type !== "accessory");
+  const ordered = apparel.filter((it: any) => it.blanks_order_number).length;
+  if (apparel.length > 0 && ordered > 0) return `${ordered}/${apparel.length} blanks ordered`;
   return `${total} items`;
 }
 
@@ -64,7 +65,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), costing_summary, type_meta, items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, type_meta, items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, garment_type, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);

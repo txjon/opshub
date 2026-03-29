@@ -218,7 +218,7 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
   const customTotal=(p.customCosts||[]).reduce((a,c)=>{const v=c.perUnit||c.amount||0;return a+(c.flat?v:v*qty);},0);
   const perUnitPORate=printTotal+finUnitRate+specUnitRate;
   const poTotal=perUnitPORate*qty+setupTotal+customTotal;
-  const shipping=inclShip?qty*(p.isFleece?1.50:0.65):0;
+  const shipping=inclShip&&p.garment_type!=="accessory"?qty*(p.isFleece?1.50:0.65):0;
   const totalCost=blankCost+poTotal+shipping;
   const marginPct=(parseFloat((margin||"30%").replace("%",""))/100)||0.30;
   const ccRate=inclCC?0.03:0;

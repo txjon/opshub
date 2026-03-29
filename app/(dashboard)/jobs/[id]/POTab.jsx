@@ -212,7 +212,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
   const allFilled = vItems.every(it=>itemFields[it.id]?.packing_notes?.trim());
 
   // Blanks gate: check if all items for current vendor have blanks ordered
-  const blanksNotOrdered = vItems.filter(it => !it.blanks_order_number);
+  const blanksNotOrdered = vItems.filter(it => !it.blanks_order_number && it.garment_type !== "accessory");
 
   // PO sent tracker: stored in job type_meta
   const poSentVendors = project?.type_meta?.po_sent_vendors || [];
