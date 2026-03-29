@@ -169,7 +169,6 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
           if(key!=="Packaging"){finUnitRate+=(pr.specialty?.[key]||pr.finishing?.[key]||0);}
         }
       });
-      if(p.isFleece){const locs=activeLocs+(p.tagPrint?1:0);finUnitRate+=(pr.finishing?.Fleece||0)*locs;}
     }
   }
   let specUnitRate=0;
@@ -178,8 +177,10 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
     if(pr){
       const activeLocs=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length||0;
       Object.keys(pr.specialty||{}).forEach(key=>{
-        if(p.specialtyQtys[key+"_on"]){
-          const count=p.specialtyQtys[key+"_count"]!==undefined?p.specialtyQtys[key+"_count"]:activeLocs;
+        const isFleece=key==="Fleece Upcharge";
+        const isOn=isFleece?p.isFleece:p.specialtyQtys[key+"_on"];
+        if(isOn){
+          const count=isFleece?(activeLocs+(p.tagPrint?1:0)):(p.specialtyQtys[key+"_count"]!==undefined?p.specialtyQtys[key+"_count"]:activeLocs);
           specUnitRate+=(pr.specialty?.[key]||0)*count;
         }
       });
@@ -912,8 +913,6 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                   {label:"Packaging",key:"Packaging",col3:"variant",col4:"packaging_variant"},
                                   ...Object.keys(pr.finishing||{}).map(k=>({label:k,key:k,col3:"blank",col4:"finishing_item"})),
                                 ];
-                                // Add fleece upcharge row automatically if isFleece is on
-                                if(p.isFleece) rows.push({label:"Fleece Upcharge",key:"FleeceUpcharge",col3:"print_count",col4:"finishing_fleece"});
                                 return rows;
                               })().map(({label,key,col3,col4},idx,arr)=>{
                                 const pr=PRINTERS[p.printVendor];
@@ -1086,17 +1085,21 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
                               <tbody>
                                 {specKeys.map((key,idx)=>{
-                                  const label=key.replace(/([A-Z])/g," $1").trim();
+                                  const label=key;
                                   const unitCost=pr.specialty[key]||0;
+                                  const isFleece=key==="Fleece Upcharge";
                                   const allPrintCount=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length||0;
-                                  const active=!!(p.specialtyQtys?.[key+"_on"]);
-                                  const printCount=active?(p.specialtyQtys?.[key+"_count"]!==undefined?p.specialtyQtys[key+"_count"]:allPrintCount):0;
+                                  const active=isFleece?!!p.isFleece:!!(p.specialtyQtys?.[key+"_on"]);
+                                  const printCount=active?(isFleece?(allPrintCount+(p.tagPrint?1:0)):(p.specialtyQtys?.[key+"_count"]!==undefined?p.specialtyQtys[key+"_count"]:allPrintCount)):0;
                                   const total=active?unitCost*printCount:0;
                                   const isLast=idx===specKeys.length-1;
                                   return(
                                     <tr key={key} style={{borderBottom:isLast?"none":`1px solid ${T.border}22`,background:active?T.accentDim:idx%2===0?T.card:T.surface}}>
                                       <td style={{padding:"7px 12px",fontFamily:font,fontSize:12,fontWeight:600,color:active?T.accent:T.muted,borderRight:`1px solid ${T.border}`,width:"28%"}}>{label}</td>
                                       <td style={{padding:"5px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"28%"}}>
+                                        {isFleece?(
+                                          <span style={{fontSize:10,color:active?T.amber:T.faint,fontFamily:font,fontWeight:600}}>{active?"auto":"off"}</span>
+                                        ):(
                                         <div style={{display:"flex",borderRadius:5,overflow:"hidden",border:`1px solid ${T.border}`,width:"fit-content",margin:"0 auto"}}>
                                           {["Yes","No"].map(opt=>{
                                             const sel=(active?"Yes":"No")===opt;
@@ -1112,15 +1115,23 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                             );
                                           })}
                                         </div>
+                                        )}
                                       </td>
                                       <td style={{padding:"4px 8px",textAlign:"center",borderRight:`1px solid ${T.border}`,width:"29%"}}>
                                         {active?(
+                                          isFleece?(
+                                            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                                              <span style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{printCount}</span>
+                                              <span style={{fontSize:9,color:T.faint,fontFamily:font}}>prints</span>
+                                            </div>
+                                          ):(
                                           <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
                                             <input type="text" inputMode="numeric" value={p.specialtyQtys?.[key+"_count"]!==undefined?p.specialtyQtys[key+"_count"]:allPrintCount}
                                               onChange={e=>{const v=parseInt(e.target.value)||0;updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_count"]:v}});}}
                                               style={{width:30,textAlign:"center",background:T.surface,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontFamily:mono,fontSize:12,padding:"2px",outline:"none"}}/>
                                             <span style={{fontSize:9,color:T.faint,fontFamily:font}}>prints</span>
                                           </div>
+                                          )
                                         ):null}
                                       </td>
                                       <td style={{padding:"7px 10px",textAlign:"center",fontFamily:mono,fontSize:12,fontWeight:total>0?700:400,color:total>0?T.green:T.faint,width:"15%"}}>

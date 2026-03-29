@@ -351,17 +351,23 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged, onUpda
       const psd = readPsd(new Uint8Array(arrayBuffer));
       // Extract print info from PSD groups (same logic as mockup-client)
       const PLACEMENT_MAP = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest' };
+      const SKIP_GROUPS = ['Shirt Color', 'Shadows', 'Highlights', 'Mask'];
       const printInfo = [];
       const groups = [...(psd.children || [])].reverse();
       for (const group of groups) {
         if (!group.children) continue;
+        if (SKIP_GROUPS.includes(group.name)) continue;
         const zoneName = PLACEMENT_MAP[group.name];
-        if (!zoneName) continue;
+        const isTag = group.name.toLowerCase() === "tag" || group.name.toLowerCase() === "tags";
         const colors = [];
         let minL=Infinity, minT=Infinity, maxR=-Infinity, maxB=-Infinity;
         for (const layer of group.children) {
-          minL=Math.min(minL,layer.left); minT=Math.min(minT,layer.top);
-          maxR=Math.max(maxR,layer.right); maxB=Math.max(maxB,layer.bottom);
+          if (isTag) {
+            if (minL === Infinity) { minL=layer.left; minT=layer.top; maxR=layer.right; maxB=layer.bottom; }
+          } else {
+            minL=Math.min(minL,layer.left); minT=Math.min(minT,layer.top);
+            maxR=Math.max(maxR,layer.right); maxB=Math.max(maxB,layer.bottom);
+          }
           // Sample color from layer
           let hex = "#888888";
           if (layer.canvas) {
@@ -373,11 +379,14 @@ function MockupDropZone({ item, clientName, projectTitle, onFilesChanged, onUpda
           }
           colors.push({ name: layer.name, hex });
         }
+        const artW = maxR - minL;
+        const artH = maxB - minT;
+        if (artW <= 0 || artH <= 0) continue;
         printInfo.push({
-          placement: zoneName,
+          placement: zoneName || group.name,
           groupName: group.name,
-          widthInches: ((maxR-minL)/300).toFixed(2),
-          heightInches: ((maxB-minT)/300).toFixed(2),
+          widthInches: (artW/300).toFixed(2),
+          heightInches: (artH/300).toFixed(2),
           colors,
         });
       }

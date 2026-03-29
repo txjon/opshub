@@ -21,7 +21,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick 
   const quoteSent = true; // We don't track this explicitly yet
   const quoteApproved = job.quote_approved;
   const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved);
-  const hasProofs = items.some(it => proofStatus[it.id]);
+  const hasProofs = items.some(it => (it as any).hasFiles);
 
   const terms = job.payment_terms || "";
   const isNetTerms = terms === "net_15" || terms === "net_30";

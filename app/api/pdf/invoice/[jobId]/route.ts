@@ -61,13 +61,12 @@ function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: bool
     if (pr) {
       if (p.finishingQtys["Packaging_on"]) { const variant = p.isFleece ? "Fleece" : (p.finishingQtys["Packaging_variant"] || "Tee"); finUnitRate += (pr.packaging?.[variant] || pr.finishing?.[variant] || 0); }
       Object.keys(p.finishingQtys || {}).forEach((fk: string) => { if (fk.endsWith("_on") && p.finishingQtys[fk]) { const key = fk.replace("_on", ""); if (key !== "Packaging") { finUnitRate += (pr.finishing?.[key] || pr.specialty?.[key] || 0); } } });
-      if (p.isFleece) { const locs = activeLocs + (p.tagPrint ? 1 : 0); finUnitRate += (pr.finishing?.Fleece || 0) * locs; }
     }
   }
   let specUnitRate = 0;
   if (p.specialtyQtys && p.printVendor) {
     const pr = PRINTERS[p.printVendor];
-    if (pr) { const activeLocs = [1,2,3,4,5,6].filter(loc => { const ld = p.printLocations?.[loc]; return ld?.location || ld?.screens > 0; }).length || 0; Object.keys(p.specialtyQtys || {}).forEach((sk: string) => { if (sk.endsWith("_on") && p.specialtyQtys[sk]) { const key = sk.replace("_on", ""); const count = p.specialtyQtys[key.replace("_on", "_count")] || activeLocs; specUnitRate += (pr.specialty?.[key] || 0) * count; } }); }
+    if (pr) { const activeLocs = [1,2,3,4,5,6].filter(loc => { const ld = p.printLocations?.[loc]; return ld?.location || ld?.screens > 0; }).length || 0; Object.keys(pr.specialty || {}).forEach((key: string) => { const isFleece = key === "Fleece Upcharge"; const isOn = isFleece ? p.isFleece : p.specialtyQtys?.[key + "_on"]; if (isOn) { const count = isFleece ? (activeLocs + (p.tagPrint ? 1 : 0)) : (p.specialtyQtys?.[key + "_count"] !== undefined ? p.specialtyQtys[key + "_count"] : activeLocs); specUnitRate += (pr.specialty[key] || 0) * count; } }); }
   }
   let setupTotal = 0;
   if (p.setupFees && p.printVendor) {

@@ -154,15 +154,20 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (itemsRes.data) {
       const ids = itemsRes.data.map((it: any) => it.id);
       if (ids.length > 0) {
-        const { data: proofFiles } = await supabase.from("item_files").select("item_id, approval").eq("stage", "proof").in("item_id", ids);
+        const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids);
         const ps: Record<string, { allApproved: boolean }> = {};
+        const filesPerItem: Record<string, boolean> = {};
         for (const id of ids) {
           const item = itemsRes.data.find((it: any) => it.id === id);
           const manualApproved = item?.artwork_status === "approved";
-          const proofs = (proofFiles || []).filter((f: any) => f.item_id === id);
+          const proofs = (allFiles || []).filter((f: any) => f.item_id === id && f.stage === "proof");
+          const itemFiles = (allFiles || []).filter((f: any) => f.item_id === id);
           ps[id] = { allApproved: manualApproved || (proofs.length > 0 && proofs.every((f: any) => f.approval === "approved")) };
+          filesPerItem[id] = itemFiles.length > 0;
         }
         setProofStatus(ps);
+        // Mark items with files
+        setItems(prev => prev.map(it => ({ ...it, hasFiles: filesPerItem[it.id] || false })));
       }
     }
     setLoading(false);

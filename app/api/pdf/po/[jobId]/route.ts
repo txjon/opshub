@@ -102,11 +102,11 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
         if (rate > 0) lines.push({ label: key, qty, rate, total: rate * qty });
       }
     }
-    // Fleece upcharge (automatic when isFleece)
-    if (p.isFleece) {
+    // Fleece upcharge (from specialty, automatic when isFleece)
+    if (p.isFleece && pr.specialty?.["Fleece Upcharge"]) {
       const locsCount = activeLocs.length + (p.tagPrint ? 1 : 0);
-      const rate = (pr.finishing?.Fleece || 0) * locsCount;
-      if (rate > 0) lines.push({ label: "Fleece upcharge", qty, rate, total: rate * qty });
+      const rate = (pr.specialty["Fleece Upcharge"] || 0) * locsCount;
+      if (rate > 0) lines.push({ label: "Fleece Upcharge", qty, rate, total: rate * qty });
     }
   }
 
@@ -203,38 +203,38 @@ function renderPOHTML(data: any): string {
     grandTotal += itemTotal;
 
     const decoSection = decoLines.length > 0 ? `
-      <div style="margin-top:10px;border-top:0.5px solid #e8e8e8;padding-top:8px">
-        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">Print & Decoration</div>
-        <table style="width:100%;border-collapse:collapse;font-size:10px">
+      <div style="margin-top:6px;border-top:0.5px solid #e8e8e8;padding-top:5px">
+        <div style="font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:3px">Print & Decoration</div>
+        <table style="width:100%;border-collapse:collapse;font-size:9px">
           ${decoLines.map((l: any) => `
             <tr>
-              <td style="padding:3px 0;color:#444">${l.label}</td>
-              <td style="padding:3px 8px;text-align:right;color:#888;font-family:${mono}">${l.qty.toLocaleString()}×${fmtD(l.rate)}</td>
-              <td style="padding:3px 0;text-align:right;font-weight:700;font-family:${mono}">${fmtD(l.total)}</td>
+              <td style="padding:1px 0;color:#444">${l.label}</td>
+              <td style="padding:1px 6px;text-align:right;color:#888;font-family:${mono}">${l.qty.toLocaleString()}×${fmtD(l.rate)}</td>
+              <td style="padding:1px 0;text-align:right;font-weight:700;font-family:${mono}">${fmtD(l.total)}</td>
             </tr>`).join("")}
           <tr style="border-top:0.5px solid #e0e0e0">
-            <td colspan="2" style="padding:5px 0 2px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888">Item total</td>
-            <td style="padding:5px 0 2px;text-align:right;font-size:12px;font-weight:800;font-family:${mono}">${fmtD(itemTotal)}</td>
+            <td colspan="2" style="padding:3px 0 1px;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888">Item total</td>
+            <td style="padding:3px 0 1px;text-align:right;font-size:11px;font-weight:800;font-family:${mono}">${fmtD(itemTotal)}</td>
           </tr>
         </table>
       </div>` : "";
 
-    const thumbHtml = item.mockupThumb ? `<img src="${item.mockupThumb}" style="width:300px;height:auto;object-fit:contain;border-radius:4px;background:#f7f7f7;flex-shrink:0" crossorigin="anonymous" />` : "";
+    const thumbHtml = item.mockupThumb ? `<img src="${item.mockupThumb}" style="height:120px;width:auto;object-fit:contain;border-radius:4px;background:#f7f7f7;flex-shrink:0" crossorigin="anonymous" />` : "";
 
-    return `<div style="border-left:3px solid #1a1a1a;padding-left:16px;margin-bottom:24px">
+    return `<div style="border-left:3px solid #1a1a1a;padding-left:16px;margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}</div>
         <div style="font-size:10px;color:#888">${item.totalQty.toLocaleString()} units</div>
       </div>
-      <div style="display:flex;gap:16px;margin-bottom:8px;font-size:10px;color:#555">
+      <div style="display:flex;gap:12px;margin-bottom:4px;font-size:9px;color:#555">
         ${item.blank_vendor ? `<div><span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#bbb;margin-right:4px">Brand</span>${item.blank_vendor}</div>` : ""}
         ${item.blank_sku ? `<div><span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#bbb;margin-right:4px">Color</span>${item.blank_sku}</div>` : ""}
         ${item.printVendor ? `<div><span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#bbb;margin-right:4px">Decorator</span>${item.printVendor}</div>` : ""}
       </div>
-      ${sizeStr ? `<div style="font-size:10px;color:#555;padding:5px 10px;background:#f7f7f7;border-radius:3px;margin-bottom:8px">
+      ${sizeStr ? `<div style="font-size:9px;color:#555;padding:3px 8px;background:#f7f7f7;border-radius:3px;margin-bottom:4px">
         <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#aaa;margin-right:6px">Sizes</span>${sizeStr}
       </div>` : ""}
-      ${item.drive_link ? `<div style="font-size:9.5px;margin-bottom:10px;padding:4px 10px;background:#f0f5ff;border-radius:3px">
+      ${item.drive_link ? `<div style="font-size:9px;margin-bottom:4px;padding:3px 8px;background:#f0f5ff;border-radius:3px">
         <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin-right:6px">Production folder</span>
         <a href="${item.drive_link}" style="color:#1a56db">${item.drive_link}</a>
       </div>` : ""}
@@ -242,16 +242,16 @@ function renderPOHTML(data: any): string {
         ${thumbHtml ? `<div style="flex-shrink:0">${thumbHtml}</div>` : ""}
         <div style="flex:1;min-width:0">${decoSection}</div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">
-        ${incoming ? `<div style="background:#f9f9f9;padding:7px 10px;border-radius:3px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px">
+        ${incoming ? `<div style="background:#f9f9f9;padding:4px 8px;border-radius:3px">
           <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#bbb;margin-bottom:3px">Incoming goods</div>
           <div style="font-size:9.5px;color:#444;line-height:1.5">${incoming}</div>
         </div>` : "<div></div>"}
-        ${item.production_notes_po ? `<div style="background:#f9f9f9;padding:7px 10px;border-radius:3px">
+        ${item.production_notes_po ? `<div style="background:#f9f9f9;padding:4px 8px;border-radius:3px">
           <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#bbb;margin-bottom:3px">Production notes</div>
           <div style="font-size:9.5px;color:#444;line-height:1.5;white-space:pre-wrap">${item.production_notes_po}</div>
         </div>` : "<div></div>"}
-        ${item.packing_notes ? `<div style="background:#f9f9f9;padding:7px 10px;border-radius:3px">
+        ${item.packing_notes ? `<div style="background:#f9f9f9;padding:4px 8px;border-radius:3px">
           <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#bbb;margin-bottom:3px">Packing / shipping</div>
           <div style="font-size:9.5px;color:#444;line-height:1.5;white-space:pre-wrap">${item.packing_notes}</div>
         </div>` : "<div></div>"}
