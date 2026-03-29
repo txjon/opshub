@@ -18,6 +18,8 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -43,7 +45,35 @@ export default function ClientsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight">Clients</h1>
+        <button onClick={() => setAdding(true)}
+          className="px-4 py-2 text-sm font-semibold rounded-lg bg-primary text-primary-foreground hover:opacity-90">
+          + New Client
+        </button>
       </div>
+      {adding && (
+        <div className="flex items-center gap-3">
+          <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
+            onKeyDown={async e => {
+              if (e.key === "Enter" && newName.trim()) {
+                const { data } = await supabase.from("clients").insert({ name: newName.trim() }).select("*, contacts(id), jobs(id)").single();
+                if (data) { setClients(prev => [...prev, data as Client].sort((a, b) => a.name.localeCompare(b.name))); }
+                setNewName(""); setAdding(false);
+              }
+              if (e.key === "Escape") { setNewName(""); setAdding(false); }
+            }}
+            placeholder="Client name..."
+            className="px-3 py-2 text-sm rounded-lg border border-border bg-secondary/50 text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50"
+          />
+          <button onClick={async () => {
+            if (!newName.trim()) return;
+            const { data } = await supabase.from("clients").insert({ name: newName.trim() }).select("*, contacts(id), jobs(id)").single();
+            if (data) { setClients(prev => [...prev, data as Client].sort((a, b) => a.name.localeCompare(b.name))); }
+            setNewName(""); setAdding(false);
+          }} className="px-3 py-2 text-sm font-semibold rounded-lg bg-primary text-primary-foreground">Save</button>
+          <button onClick={() => { setNewName(""); setAdding(false); }}
+            className="px-3 py-2 text-sm rounded-lg border border-border text-muted-foreground">Cancel</button>
+        </div>
+      )}
       <div>
         <input
           type="text"

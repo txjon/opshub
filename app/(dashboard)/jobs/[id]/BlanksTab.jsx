@@ -13,6 +13,14 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
   const [localFields, setLocalFields] = useState({});
   const [proofStatus, setProofStatus] = useState({});
   const saveTimers = useRef({});
+  const pendingSaves = useRef({});
+
+  // Save pending changes on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(pendingSaves.current).forEach(fn => { if (typeof fn === "function") fn(); });
+    };
+  }, []);
 
   // Load proof status
   useEffect(() => {
@@ -54,8 +62,9 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
     setLocalFields(p => ({ ...p, [itemId]: { ...p[itemId], [field]: value } }));
     const key = itemId + "_" + field;
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
-    saveTimers.current[key] = setTimeout(async () => {
-      const dbVal = field === "blanks_order_cost" ? (parseFloat(value) || null) : (value || null);
+    const doSave = async () => {
+      delete pendingSaves.current[key];
+      const dbVal = field === "blanks_order_cost" ? (parseFloat(String(value).replace(/[^0-9.\-]/g, "")) || null) : (value || null);
       await supabase.from("items").update({ [field]: dbVal }).eq("id", itemId);
       if (onUpdateItem) onUpdateItem(itemId, { [field]: dbVal });
       if (field === "blanks_order_number" && value) {
@@ -63,7 +72,9 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
         if (item) logJobActivity(job.id, `Blanks ordered for ${item.name} — S&S #${value}`);
       }
       if (onRecalcPhase) onRecalcPhase();
-    }, 800);
+    };
+    pendingSaves.current[key] = doSave;
+    saveTimers.current[key] = setTimeout(doSave, 800);
   }
 
   // Gate checks

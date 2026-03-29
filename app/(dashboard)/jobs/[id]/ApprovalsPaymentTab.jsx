@@ -159,7 +159,7 @@ export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatu
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={async () => {
-                const amount = parseFloat(pmAmount) || 0;
+                const amount = parseFloat(String(pmAmount).replace(/[^0-9.\-]/g, "")) || 0;
                 if (!amount) return;
                 const invoice_number = pmInvoice.trim() || null;
                 const due_date = pmDue || null;

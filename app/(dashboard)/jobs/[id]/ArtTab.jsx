@@ -102,7 +102,9 @@ function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, onFil
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadStage, setUploadStage] = useState("client_art");
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(() => {
+    try { const v = localStorage.getItem(`art-exp-${item.id}`); return v !== null ? v === "1" : true; } catch { return true; }
+  });
   const [confirmDelete, setConfirmDelete] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -177,7 +179,7 @@ function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, onFil
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
       {/* Item header */}
-      <div onClick={() => setExpanded(!expanded)}
+      <div onClick={() => { const next = !expanded; setExpanded(next); try { localStorage.setItem(`art-exp-${item.id}`, next ? "1" : "0"); } catch {} }}
         style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
         <span style={{
           width: 22, height: 22, borderRadius: 5, background: T.accentDim,
@@ -757,7 +759,7 @@ function isLightColor(hex) {
 export function ArtTab({ project, items, contacts, onUpdateItem }) {
   const clientName = project?.clients?.name || "Unknown Client";
   const projectTitle = project?.title || "Untitled Project";
-  const sorted = [...items].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const sorted = items;
 
   if (!items.length) {
     return (

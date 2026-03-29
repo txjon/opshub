@@ -90,6 +90,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
   const [proofStatus, setProofStatus] = useState<Record<string,{allApproved:boolean}>>({});
+  const [allClients, setAllClients] = useState<{id:string,name:string}[]>([]);
+  const [clientQuery, setClientQuery] = useState("");
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
+  const clientDropdownRef = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const saveErrorTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -107,6 +111,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     loadData();
     supabase.auth.getUser().then(({data:{user}})=>{ if(user) setCurrentUserId(user.id); });
+    supabase.from("clients").select("id, name").order("name").then(({data})=>setAllClients(data||[]));
     supabase.from("profiles").select("id, full_name").then(({data})=>{
       const map: Record<string,string>={};
       (data||[]).forEach((p:any)=>{ map[p.id]=p.full_name||"Team"; });
@@ -277,6 +282,17 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     }
   }, [job?.quote_approved, items.length, payments.length, proofStatus, recalcPhase]);
 
+  // Client search
+  const clientResults = clientQuery.trim().length > 0 ? allClients.filter(c => c.name.toLowerCase().includes(clientQuery.trim().toLowerCase())) : [];
+  useEffect(() => {
+    if (job && !clientQuery) setClientQuery((job.clients as any)?.name || "");
+  }, [job?.client_id]);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (clientDropdownRef.current && !clientDropdownRef.current.contains(e.target as Node)) setShowClientDropdown(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   const upd = (k: string, v: any) => { if (!job) return; const u = {...job, [k]:v} as Job; setJob(u); saveJob({[k]:v}); };
   const updItem = (id: string, p: Partial<Item>) => saveItem(id, p);
 
@@ -443,8 +459,42 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project info</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client</label>
-                    <input style={ic} value={(job.clients as any)?.name||""} readOnly placeholder="No client assigned"/>
+                  <div style={{position:"relative"}} ref={clientDropdownRef}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client</label>
+                    <input style={ic} value={clientQuery} onChange={e=>{setClientQuery(e.target.value);setShowClientDropdown(true);}}
+                      onFocus={()=>setShowClientDropdown(true)} placeholder="Search or assign client..."/>
+                    {showClientDropdown&&clientQuery.trim().length>0&&(
+                      <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,maxHeight:200,overflowY:"auto",marginTop:4}}>
+                        {clientResults.map(c=>(
+                          <div key={c.id} onClick={async()=>{
+                            await supabase.from("jobs").update({client_id:c.id}).eq("id",job.id);
+                            setJob(j=>j?{...j,client_id:c.id,clients:{name:c.name}} as any:j);
+                            setClientQuery(c.name);
+                            setShowClientDropdown(false);
+                          }} style={{padding:"8px 12px",fontSize:12,cursor:"pointer",borderBottom:`1px solid ${T.border}`}}
+                            onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
+                            onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                            {c.name}
+                          </div>
+                        ))}
+                        {clientResults.length===0&&<div style={{padding:"8px 12px",fontSize:11,color:T.faint}}>No matching clients</div>}
+                        <div onClick={async()=>{
+                          const name=clientQuery.trim();
+                          if(!name) return;
+                          const {data:newClient}=await supabase.from("clients").insert({name}).select("id,name").single();
+                          if(newClient){
+                            await supabase.from("jobs").update({client_id:newClient.id}).eq("id",job.id);
+                            setJob(j=>j?{...j,client_id:newClient.id,clients:{name:newClient.name}} as any:j);
+                            setAllClients(prev=>[...prev,newClient].sort((a,b)=>a.name.localeCompare(b.name)));
+                            setClientQuery(newClient.name);
+                            setShowClientDropdown(false);
+                          }
+                        }} style={{padding:"8px 12px",fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",borderTop:`1px solid ${T.border}`}}
+                          onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
+                          onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                          + Create "{clientQuery.trim()}"
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project title</label>
                     <input style={ic} value={job.title} onChange={e=>upd("title",e.target.value)}/>
@@ -770,14 +820,17 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onRegisterSave={(fn: () => Promise<void>) => { saveBuySheetRef.current = fn; }}
           onSaveStatus={(s: string) => handleSaveStatus(s)}
           onSaved={(resolved: any[]) => {
-            // Optimistic update — no loadData() call, no flash
-            const mapped = resolved.map((it: any) => ({
-              ...it,
-              sizes: it.sizes || [],
-              qtys: it.qtys || {},
-              totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a: number, v: number) => a + v, 0),
-            }));
-            setItems(mapped);
+            // Merge buy sheet data into existing items, preserving lifecycle fields
+            setItems(prev => {
+              const prevMap = Object.fromEntries(prev.map(it => [it.id, it]));
+              return resolved.map((it: any) => ({
+                ...(prevMap[it.id] || {}),
+                ...it,
+                sizes: it.sizes || [],
+                qtys: it.qtys || {},
+                totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a: number, v: number) => a + v, 0),
+              }));
+            });
           }}
         />
       )}
