@@ -20,7 +20,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick 
   const hasCosting = items.some(it => it.decorator);
   const quoteSent = true; // We don't track this explicitly yet
   const quoteApproved = job.quote_approved;
-  const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved);
+  const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
   const hasProofs = items.some(it => (it as any).hasFiles);
 
   const terms = job.payment_terms || "";
@@ -47,7 +47,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick 
     { id: "costing", label: "Costing", done: hasCosting, active: hasItems && !hasCosting },
     { id: "quote", label: "Quote Approved", done: quoteApproved, active: hasCosting && !quoteApproved },
     { id: "art", label: "Art Files", done: hasProofs, active: hasItems && !hasProofs },
-    { id: "approvals", label: "Proofs Approved", done: allProofsApproved, active: quoteApproved && !allProofsApproved, detail: allProofsApproved ? undefined : `${items.filter(it => proofStatus[it.id]?.allApproved).length}/${items.length}` },
+    { id: "approvals", label: "Proofs Approved", done: allProofsApproved, active: quoteApproved && !allProofsApproved, detail: allProofsApproved ? undefined : `${items.filter(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved").length}/${items.length}` },
     { id: "approvals", label: "Payment", done: paymentMet, active: quoteApproved && !paymentMet, detail: isNetTerms ? "Net terms" : undefined },
     { id: "blanks", label: "Blanks Ordered", done: allBlanksOrdered, active: paymentMet && allProofsApproved && !allBlanksOrdered, detail: apparelItems.length > 0 && blanksOrdered > 0 ? `${blanksOrdered}/${apparelItems.length}` : undefined },
     { id: "po", label: "POs Sent", done: allPosSent, active: allBlanksOrdered && !allPosSent, detail: allPosSent ? undefined : vendors.length > 0 ? `${poSentVendors.length}/${vendors.length}` : undefined },

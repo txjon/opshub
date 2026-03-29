@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { logJobActivity } from "@/components/JobActivityPanel";
@@ -8,7 +8,7 @@ const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
 export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick }) {
-  const items = allItems.filter(it => it.garment_type !== "accessory");
+  const items = useMemo(() => allItems.filter(it => it.garment_type !== "accessory"), [allItems]);
   const supabase = createClient();
   const [localFields, setLocalFields] = useState({});
   const [proofStatus, setProofStatus] = useState({});
@@ -32,16 +32,22 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
     });
   }, [items]);
 
-  // Initialize fields
+  // Initialize fields — only for items not already in localFields
   useEffect(() => {
-    const fields = {};
-    items.forEach(it => {
-      fields[it.id] = {
-        blanks_order_number: it.blanks_order_number || "",
-        blanks_order_cost: it.blanks_order_cost || "",
-      };
+    setLocalFields(prev => {
+      const next = { ...prev };
+      let changed = false;
+      items.forEach(it => {
+        if (!next[it.id]) {
+          next[it.id] = {
+            blanks_order_number: it.blanks_order_number || "",
+            blanks_order_cost: it.blanks_order_cost || "",
+          };
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
     });
-    setLocalFields(fields);
   }, [items]);
 
   function updateField(itemId, field, value) {
@@ -76,7 +82,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
     paymentGateMet = true; // Permissive default
   }
 
-  const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved);
+  const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
   const gatesMet = quoteApproved && paymentGateMet && allProofsApproved;
 
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
@@ -114,7 +120,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ color: allProofsApproved ? T.green : T.red }}>{allProofsApproved ? "✓" : "✕"}</span>
-              <span style={{ color: allProofsApproved ? T.muted : T.text }}>All proofs approved ({items.filter(it => proofStatus[it.id]?.allApproved).length}/{items.length})</span>
+              <span style={{ color: allProofsApproved ? T.muted : T.text }}>All proofs approved ({items.filter(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved").length}/{items.length})</span>
             </div>
           </div>
         </div>
@@ -131,7 +137,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
         const f = localFields[item.id] || {};
         const totalUnits = tQty(item.qtys || {});
         const calcCost = item.cost_per_unit != null ? (item.cost_per_unit * totalUnits) : null;
-        const actualCost = f.blanks_order_cost ? parseFloat(f.blanks_order_cost) : null;
+        const actualCost = f.blanks_order_cost ? parseFloat(String(f.blanks_order_cost).replace(/[^0-9.\-]/g, "")) : null;
         const costDiff = calcCost !== null && actualCost !== null ? actualCost - calcCost : null;
         const hasOrder = !!f.blanks_order_number;
 

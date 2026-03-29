@@ -171,7 +171,7 @@ function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, onFil
     files: files.filter(f => f.stage === s.key),
   }));
   const totalFiles = files.length;
-  const pendingProofs = files.filter(f => f.stage === "proof" && f.approval === "pending").length;
+  const pendingProofs = item.artwork_status === "approved" ? 0 : files.filter(f => f.stage === "proof" && f.approval === "pending").length;
   const hasPrintReady = files.some(f => f.stage === "print_ready");
 
   return (
