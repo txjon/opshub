@@ -74,15 +74,23 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
     // Skip screen fees if not first in group
     if (isShared) {
       const firstIdx = allProds.findIndex((cp: any) => Object.values(cp.printLocations || {}).some((l: any) => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === ld.shareGroup.trim().toLowerCase() && l.screens > 0));
-      const myIdx = allProds.indexOf(p);
+      const myIdx = allProds.findIndex((cp: any) => cp.id === p.id);
       if (firstIdx >= 0 && myIdx > firstIdx) sharedScreensToSkip += screens;
     }
   }
 
-  // Tag print
+  // Tag print — use shared group qty for rate lookup if tag is shared
   if (p.tagPrint) {
+    const tagGroup = p.tagShareGroup || "";
+    let tagEffQty = qty;
+    if (p.tagShared && tagGroup && allProds) {
+      tagEffQty = allProds.reduce((sum: number, cp: any) => {
+        if (cp.tagPrint && cp.tagShared && cp.tagShareGroup && cp.tagShareGroup.trim().toLowerCase() === tagGroup.trim().toLowerCase()) return sum + (cp.totalQty || 0);
+        return sum;
+      }, 0) || qty;
+    }
     const minQty = pr.qtys?.[0] || 0;
-    const tagRate = (qty < minQty && pr.minimums?.tagPrint > 0) ? pr.minimums.tagPrint / qty : (pr.tagPrices?.[pr.qtys?.findIndex((q: number) => qty < q) - 1 || 0] || 0);
+    const tagRate = (tagEffQty < minQty && pr.minimums?.tagPrint > 0) ? pr.minimums.tagPrint / tagEffQty : (pr.tagPrices?.[pr.qtys?.findIndex((q: number) => tagEffQty < q) - 1 || 0] || 0);
     lines.push({ label: "Tag print", qty, rate: tagRate, total: tagRate * qty });
   }
 

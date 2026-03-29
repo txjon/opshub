@@ -138,7 +138,7 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
       // Skip screen fees if not the first item in the share group
       if(isShared){
         const firstIdx=allProds.findIndex(cp=>Object.values(cp.printLocations||{}).some(l=>l.shared&&l.shareGroup&&l.shareGroup.trim().toLowerCase()===ld.shareGroup.trim().toLowerCase()&&l.screens>0));
-        const myIdx=allProds.indexOf(p);
+        const myIdx=allProds.findIndex(cp=>cp.id===p.id);
         if(firstIdx>=0&&myIdx>firstIdx) sharedScreensToSkip+=(parseFloat(ld.screens)||0);
       }
       const effectiveQty=isShared&&sharedQty>0?sharedQty:qty;
