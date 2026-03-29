@@ -8,6 +8,7 @@ import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatus, onUpdateItem, onReload, onRecalcPhase }) {
   const supabase = createClient();
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
+  const [showCombinedEmail, setShowCombinedEmail] = useState(false);
   const [addingPayment, setAddingPayment] = useState(false);
   const [pmType, setPmType] = useState("deposit");
   const [pmAmount, setPmAmount] = useState("");
@@ -22,6 +23,39 @@ export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatu
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* ── Send Invoice & Proofs ── */}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => setShowCombinedEmail(!showCombinedEmail)}
+          style={{ flex: 1, padding: "14px", borderRadius: 10, border: "none", cursor: "pointer",
+            background: T.purple, color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: font,
+            letterSpacing: "-0.01em", transition: "opacity 0.15s" }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+          Send Invoice & Proofs to Client
+        </button>
+        <button onClick={() => window.open(`/api/pdf/invoice-proofs/${job.id}`, "_blank")}
+          style={{ padding: "14px 24px", borderRadius: 10, border: "none", cursor: "pointer",
+            background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: font,
+            transition: "opacity 0.15s", flexShrink: 0 }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+          Preview
+        </button>
+      </div>
+      {showCombinedEmail && (
+        <div>
+          <SendEmailDialog
+            type="invoice_proofs"
+            jobId={job.id}
+            contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
+            defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
+            defaultSubject={`Invoice & Proofs — ${job.clients?.name || ""} · ${job.title}`}
+            onClose={() => setShowCombinedEmail(false)}
+            onSent={() => { logJobActivity(job.id, "Invoice & proofs sent to client"); setShowCombinedEmail(false); }}
+          />
+        </div>
+      )}
 
       {/* ── Proof Approvals ── */}
       <div style={card}>
@@ -129,8 +163,9 @@ export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatu
                 if (!amount) return;
                 const invoice_number = pmInvoice.trim() || null;
                 const due_date = pmDue || null;
-                await supabase.from("payment_records").insert({ job_id: job.id, type: pmType, amount, invoice_number, due_date, status: "pending" });
-                logJobActivity(job.id, `Payment added: ${pmType.replace(/_/g, " ")} — $${amount.toLocaleString()}${invoice_number ? ` (${invoice_number})` : ""}`);
+                await supabase.from("payment_records").insert({ job_id: job.id, type: pmType, amount, invoice_number, due_date, status: "paid", paid_date: new Date().toISOString().split("T")[0] });
+                logJobActivity(job.id, `Payment received: ${pmType.replace(/_/g, " ")} — $${amount.toLocaleString()}${invoice_number ? ` (${invoice_number})` : ""}`);
+                notifyTeam(`Payment received — $${amount.toLocaleString()} · ${job.clients?.name || ""} · ${job.title}`, "payment", job.id, "job");
                 setPmType("deposit"); setPmAmount(""); setPmInvoice(""); setPmDue(new Date().toISOString().split("T")[0]);
                 setAddingPayment(false);
                 if (onReload) onReload();

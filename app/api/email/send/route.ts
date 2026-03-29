@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const resend = new Resend(process.env.RESEND_API_KEY);
-    const { type, jobId, vendor, recipientEmail, recipientName, subject, customBody } = await req.json();
+    const { type, jobId, vendor, recipientEmail, ccEmails, recipientName, subject, customBody } = await req.json();
 
     if (!recipientEmail || !type) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       const { data, error } = await resend.emails.send({
         from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
         to: recipientEmail,
+        ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
         subject: subject || "File for Review — House Party Distro",
         html: customBody,
       });
@@ -60,8 +61,13 @@ export async function POST(req: NextRequest) {
       fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
       defaultSubject = subject || "Invoice from House Party Distro";
       filename = `invoice-${jobId.slice(0, 8)}.pdf`;
+    } else if (type === "invoice_proofs") {
+      pdfUrl = `${baseUrl}/api/pdf/invoice-proofs/${jobId}?download=1`;
+      fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
+      defaultSubject = subject || "Invoice & Proofs — House Party Distro";
+      filename = `invoice-proofs-${jobId.slice(0, 8)}.pdf`;
     } else {
-      return NextResponse.json({ error: "Invalid type. Use 'quote', 'po', or 'invoice'" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }
 
     // Generate the PDF by calling our own endpoint (internal call, pass secret key)
@@ -79,8 +85,15 @@ export async function POST(req: NextRequest) {
     const { data, error } = await resend.emails.send({
       from: fromAddress,
       to: recipientEmail,
+      ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
       subject: defaultSubject,
-      html: `<p>Hi${recipientName ? ` ${recipientName}` : ""},</p><p>Please find the attached ${type === "quote" ? "quote" : "purchase order"}.</p><p>Best,<br/>House Party Distro</p>`,
+      html: type === "quote"
+        ? `<p>Hi,</p><p>Here's your quote — take a look and let us know if you have any questions or want to make changes.</p><p>Welcome to the party,<br/>House Party Distro</p>`
+        : type === "invoice_proofs"
+        ? `<p>Hi,</p><p>Attached is your invoice along with print proofs for review. Please take a look at the proofs and let us know if everything looks good or if you'd like any revisions.</p><p>Welcome to the party,<br/>House Party Distro</p>`
+        : type === "invoice"
+        ? `<p>Hi,</p><p>Attached is your invoice. Let us know if you have any questions.</p><p>Welcome to the party,<br/>House Party Distro</p>`
+        : `<p>Hi,</p><p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p><p>Thanks,<br/>House Party Distro</p>`,
       attachments: [
         {
           filename,

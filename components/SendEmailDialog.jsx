@@ -32,27 +32,25 @@ export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, onSent,
     setSending(true);
     setError("");
     try {
-      // Send to each recipient
-      for (const recipientEmail of recipients) {
-        const res = await fetch("/api/email/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type,
-            jobId,
-            vendor: vendor || undefined,
-            recipientEmail,
-            recipientName: "",
-            subject: subject.trim(),
-            customBody: customBody || undefined,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok || data.error) {
-          setError(data.error || `Failed to send to ${recipientEmail}`);
-          setSending(false);
-          return;
-        }
+      const res = await fetch("/api/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type,
+          jobId,
+          vendor: vendor || undefined,
+          recipientEmail: recipients[0],
+          ccEmails: recipients.slice(1),
+          recipientName: "",
+          subject: subject.trim(),
+          customBody: customBody || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setError(data.error || "Failed to send");
+        setSending(false);
+        return;
       }
       setSent(true);
       setSending(false);

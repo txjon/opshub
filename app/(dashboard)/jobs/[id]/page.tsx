@@ -232,6 +232,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         ship_tracking: (it as any).ship_tracking || null,
         received_at_hpd: (it as any).received_at_hpd || false,
         artwork_status: (it as any).artwork_status || null,
+        garment_type: (it as any).garment_type || null,
       })),
       payments: payments.map(p => ({ amount: p.amount, status: p.status })),
       proofStatus,
@@ -459,7 +460,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         {(()=>{
                           const r=calculatePhase({
                             job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
-                            items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null})),
+                            items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
                             payments:payments.map(p=>({amount:p.amount,status:p.status})),
                             proofStatus,
                             poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
@@ -675,42 +676,73 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   {items.map(item=>{
                     const qty=tQty(item.qtys||{});
                     const dc=(item as any).decoration_type;
-                    const decoColors: Record<string,{bg:string,text:string}> = {
-                      screen_print:{bg:"#1e3a6e",text:T.accent},
-                      embroidery:{bg:"#2d1f5e",text:"#a78bfa"},
-                      patch:{bg:"#3d2a08",text:"#f5a623"},
-                    };
-                    const deco = dc?decoColors[dc]||decoColors.screen_print:null;
+                    const isAccessory=(item as any).garment_type==="accessory";
                     return (
                       <div key={item.id} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",background:T.surface,borderRadius:6}}>
                         <div style={{flex:1,minWidth:0}}>
                           <span style={{fontSize:12,fontWeight:600,color:T.text}}>{item.name}</span>
                           <span style={{fontSize:10,color:T.muted,marginLeft:7}}>{item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}</span>
                         </div>
-                        <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:"nowrap",
-                          background:item.status==="confirmed"?"#0e3d24":"#3d2a08",
-                          color:item.status==="confirmed"?"#34c97a":"#f5a623"}}>{item.status}</span>
-                        {deco&&<span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:"nowrap",background:deco.bg,color:deco.text}}>{dc.replace(/_/g," ")}</span>}
+                        {!isAccessory&&dc&&<span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:"nowrap",background:T.accentDim,color:T.accent}}>{dc.replace(/_/g," ")}</span>}
+                        {isAccessory&&<span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:"nowrap",background:T.purpleDim||"#2d1f5e",color:T.purple}}>Accessory</span>}
                       </div>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Activity */}
+              {/* Project Summary */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Activity</div>
-                <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                  <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                    <div style={{width:6,height:6,borderRadius:"50%",background:T.accent,flexShrink:0,marginTop:4}}/>
-                    <div><div style={{fontSize:12}}>Project created</div><div style={{fontSize:10,color:T.muted}}>{new Date(job.created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div></div>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Project Summary</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {/* Created */}
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+                    <span style={{color:T.muted}}>Created</span>
+                    <span>{new Date((job as any).created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
                   </div>
-                  {items.length>0&&(
-                    <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-                      <div style={{width:6,height:6,borderRadius:"50%",background:"#34c97a",flexShrink:0,marginTop:4}}/>
-                      <div><div style={{fontSize:12}}>{items.length} item{items.length!==1?"s":""} on buy sheet</div><div style={{fontSize:10,color:T.muted}}>{totalUnits.toLocaleString()} total units</div></div>
-                    </div>
-                  )}
+                  {/* Blank Suppliers */}
+                  {(()=>{
+                    const costProds=(job as any).costing_data?.costProds||[];
+                    const suppliers=[...new Set(costProds.map((cp:any)=>cp.supplier).filter(Boolean))];
+                    return suppliers.length>0?(
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,alignItems:"flex-start"}}>
+                        <span style={{color:T.muted,flexShrink:0}}>Blank Suppliers</span>
+                        <span style={{textAlign:"right"}}>{suppliers.join(", ")}</span>
+                      </div>
+                    ):null;
+                  })()}
+                  {/* Decorators / Vendors */}
+                  {(()=>{
+                    const costProds=(job as any).costing_data?.costProds||[];
+                    const vendors=[...new Set(costProds.map((cp:any)=>cp.printVendor).filter(Boolean))];
+                    return vendors.length>0?(
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,alignItems:"flex-start"}}>
+                        <span style={{color:T.muted,flexShrink:0}}>Decorators</span>
+                        <span style={{textAlign:"right"}}>{vendors.join(", ")}</span>
+                      </div>
+                    ):null;
+                  })()}
+                  {/* Items / Units */}
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+                    <span style={{color:T.muted}}>Items</span>
+                    <span>{items.length} items · {totalUnits.toLocaleString()} units</span>
+                  </div>
+                  {/* What's Next */}
+                  {(()=>{
+                    const r=calculatePhase({
+                      job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
+                      items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
+                      payments:payments.map(p=>({amount:p.amount,status:p.status})),
+                      proofStatus,
+                      poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
+                    });
+                    return r.itemProgress?(
+                      <div style={{borderTop:`1px solid ${T.border}`,paddingTop:8,marginTop:2}}>
+                        <div style={{fontSize:10,color:T.muted,marginBottom:3}}>NEXT STEP</div>
+                        <div style={{fontSize:12,fontWeight:600,color:T.accent}}>{r.itemProgress}</div>
+                      </div>
+                    ):null;
+                  })()}
                 </div>
               </div>
 

@@ -427,6 +427,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
           blank_sku: item.blank_sku || null,
           cost_per_unit: item.cost_per_unit || null,
           blank_costs: item.blankCosts && Object.keys(item.blankCosts).length > 0 ? item.blankCosts : null,
+          garment_type: item.garment_type || null,
           status: "tbd", artwork_status: "not_started",
           sort_order: current.indexOf(item),
         }).select("id").single();
@@ -501,7 +502,15 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const [distTotal, setDistTotal] = useState("");
   const [showPicker, setShowPicker] = useState(false);
   const [showManual, setShowManual] = useState(false);
-  const [showAddType, setShowAddType] = useState(null); // "apparel" | null
+  const [showAddType, setShowAddType] = useState(null); // "apparel" | "accessory" | null
+  const [accName, setAccName] = useState("");
+  const [accQty, setAccQty] = useState("");
+  const [accCatalog, setAccCatalog] = useState([]);
+  useEffect(() => {
+    createClient().from("items").select("name").eq("garment_type", "accessory").then(({ data }) => {
+      setAccCatalog([...new Set((data || []).map(d => d.name).filter(Boolean))].sort());
+    });
+  }, []);
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
   const [localQtys, setLocalQtys] = useState({});
@@ -547,6 +556,29 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
 
   const addItem = (item) => { updateLocal([...(workingItems||[]), item]); };
 
+  const addAccessory = () => {
+    if (!accName.trim()) return;
+    const item = {
+      id: Date.now() + Math.random(),
+      name: accName.trim(),
+      blank_vendor: "",
+      blank_sku: "",
+      style: "",
+      color: "",
+      garment_type: "accessory",
+      sizes: ["OS"],
+      qtys: { OS: parseInt(accQty) || 0 },
+      curve: DEFAULT_CURVE,
+      totalQty: parseInt(accQty) || 0,
+      blankCosts: {},
+      cost_per_unit: 0,
+    };
+    addItem(item);
+    if (!accCatalog.includes(accName.trim())) setAccCatalog(prev => [...prev, accName.trim()].sort());
+    setAccName("");
+    setAccQty("");
+  };
+
   const handleDragStart = (idx) => setDragIdx(idx);
   const handleDragOver = (e, idx) => { e.preventDefault(); setDragOverIdx(idx); };
   const handleDrop = (idx) => {
@@ -567,15 +599,15 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
       {isEmpty && !showPicker && !showManual && (
         <div style={{ padding:"20px 0" }}>
           <div style={{ color:T.faint, fontSize:13, fontFamily:font, marginBottom:12 }}>No items yet — add products to start your buy sheet.</div>
-          <div style={{ display:"flex", gap:10, marginBottom:showAddType==="apparel"?12:0 }}>
+          <div style={{ display:"flex", gap:10, marginBottom:(showAddType==="apparel"||showAddType==="accessory")?12:0 }}>
             <button onClick={() => setShowAddType(showAddType==="apparel"?null:"apparel")} style={{ background:showAddType==="apparel"?T.accent:T.surface, color:showAddType==="apparel"?"#fff":T.text, border:`1px solid ${showAddType==="apparel"?T.accent:T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
               + Apparel
             </button>
             <button disabled style={{ background:T.surface, color:T.faint, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, cursor:"default", opacity:0.6 }}>
               + Headwear <span style={{ fontSize:10, marginLeft:4 }}>coming soon</span>
             </button>
-            <button disabled style={{ background:T.surface, color:T.faint, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, cursor:"default", opacity:0.6 }}>
-              + Accessory <span style={{ fontSize:10, marginLeft:4 }}>coming soon</span>
+            <button onClick={() => setShowAddType(showAddType==="accessory"?null:"accessory")} style={{ background:showAddType==="accessory"?T.accent:T.surface, color:showAddType==="accessory"?"#fff":T.text, border:`1px solid ${showAddType==="accessory"?T.accent:T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+              + Accessory
             </button>
           </div>
           {showAddType==="apparel"&&(
@@ -585,6 +617,26 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
               </button>
               <button onClick={() => setShowManual(true)} style={{ background:T.surface, color:T.text, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, cursor:"pointer" }}>
                 + Popular
+              </button>
+            </div>
+          )}
+          {showAddType==="accessory"&&(
+            <div style={{ display:"flex", gap:8, alignItems:"flex-end" }}>
+              <div style={{ flex:1, position:"relative" }}>
+                <label style={{ fontSize:10, color:T.muted, marginBottom:3, display:"block" }}>Accessory name</label>
+                <input value={accName} onChange={e=>setAccName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addAccessory()}
+                  list="acc-catalog" placeholder="Sticker, Tote Bag, Pin..." style={{ width:"100%", padding:"8px 10px", border:`1px solid ${T.border}`, borderRadius:8, background:T.surface, color:T.text, fontSize:13, fontFamily:font, outline:"none", boxSizing:"border-box" }}/>
+                <datalist id="acc-catalog">{accCatalog.map(n=><option key={n} value={n}/>)}</datalist>
+              </div>
+              <div>
+                <label style={{ fontSize:10, color:T.muted, marginBottom:3, display:"block" }}>Qty</label>
+                <input value={accQty} onChange={e=>setAccQty(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addAccessory()}
+                  type="text" inputMode="numeric" placeholder="0" style={{ width:80, padding:"8px 10px", border:`1px solid ${T.border}`, borderRadius:8, background:T.surface, color:T.text, fontSize:13, fontFamily:mono, outline:"none", textAlign:"center", boxSizing:"border-box" }}/>
+              </div>
+              <button onClick={addAccessory} disabled={!accName.trim()}
+                style={{ padding:"8px 20px", borderRadius:8, border:"none", fontSize:13, fontWeight:600, cursor:accName.trim()?"pointer":"default",
+                  background:accName.trim()?T.accent:T.surface, color:accName.trim()?"#fff":T.faint }}>
+                Add
               </button>
             </div>
           )}
@@ -600,8 +652,8 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
             <button disabled style={{ background:T.surface, color:T.faint, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"default", opacity:0.6 }}>
               + Headwear <span style={{ fontSize:9, marginLeft:3 }}>soon</span>
             </button>
-            <button disabled style={{ background:T.surface, color:T.faint, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"default", opacity:0.6 }}>
-              + Accessory <span style={{ fontSize:9, marginLeft:3 }}>soon</span>
+            <button onClick={() => { setShowAddType(showAddType==="accessory"?null:"accessory"); setShowPicker(false); setShowManual(false); }} style={{ background:showAddType==="accessory"?T.accent:T.surface, color:showAddType==="accessory"?"#fff":T.muted, border:`1px solid ${showAddType==="accessory"?T.accent:T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+              + Accessory
             </button>
             {showAddType==="apparel"&&(
               <>
@@ -624,6 +676,26 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
               ))}
             </div>
           </div>
+          {showAddType==="accessory"&&(
+            <div style={{ display:"flex", gap:8, alignItems:"flex-end", marginBottom:10 }}>
+              <div style={{ flex:1, position:"relative" }}>
+                <label style={{ fontSize:10, color:T.muted, marginBottom:3, display:"block" }}>Accessory name</label>
+                <input value={accName} onChange={e=>setAccName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addAccessory()}
+                  list="acc-catalog-tb" placeholder="Sticker, Tote Bag, Pin..." style={{ width:"100%", padding:"6px 10px", border:`1px solid ${T.border}`, borderRadius:7, background:T.surface, color:T.text, fontSize:12, fontFamily:font, outline:"none", boxSizing:"border-box" }}/>
+                <datalist id="acc-catalog-tb">{accCatalog.map(n=><option key={n} value={n}/>)}</datalist>
+              </div>
+              <div>
+                <label style={{ fontSize:10, color:T.muted, marginBottom:3, display:"block" }}>Qty</label>
+                <input value={accQty} onChange={e=>setAccQty(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addAccessory()}
+                  type="text" inputMode="numeric" placeholder="0" style={{ width:70, padding:"6px 10px", border:`1px solid ${T.border}`, borderRadius:7, background:T.surface, color:T.text, fontSize:12, fontFamily:mono, outline:"none", textAlign:"center", boxSizing:"border-box" }}/>
+              </div>
+              <button onClick={addAccessory} disabled={!accName.trim()}
+                style={{ padding:"6px 16px", borderRadius:7, border:"none", fontSize:12, fontWeight:600, cursor:accName.trim()?"pointer":"default",
+                  background:accName.trim()?T.accent:T.surface, color:accName.trim()?"#fff":T.faint }}>
+                Add
+              </button>
+            </div>
+          )}
 
           <div style={{ borderRadius:10, border:`1px solid ${T.border}`, overflow:"hidden" }}>
             <table style={{ borderCollapse:"collapse", fontSize:12, width:"100%" }}>

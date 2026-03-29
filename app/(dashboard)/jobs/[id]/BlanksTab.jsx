@@ -7,7 +7,8 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
-export function BlanksTab({ items, job, payments, onRecalcPhase, onUpdateItem, onTabClick }) {
+export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick }) {
+  const items = allItems.filter(it => it.garment_type !== "accessory");
   const supabase = createClient();
   const [localFields, setLocalFields] = useState({});
   const [proofStatus, setProofStatus] = useState({});
@@ -81,7 +82,7 @@ export function BlanksTab({ items, job, payments, onRecalcPhase, onUpdateItem, o
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
 
   if (items.length === 0) {
-    return <div style={{ ...card, textAlign: "center", color: T.muted, padding: "2rem", fontSize: 13 }}>No items yet — add items in the Buy Sheet first.</div>;
+    return <div style={{ ...card, textAlign: "center", color: T.muted, padding: "2rem", fontSize: 13 }}>No apparel items — continue to PO.</div>;
   }
 
   return (

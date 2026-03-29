@@ -81,10 +81,10 @@ export function loadPricingFromDecorators(decorators) {
   for (const d of decorators) {
     const key = d.short_code || d.name;
     if (d.pricing_data) {
-      map[key] = d.pricing_data;
+      map[key] = { ...d.pricing_data, capabilities: d.capabilities || [] };
     } else {
       // Decorator exists but no pricing — add with empty structure so it shows in dropdown
-      map[key] = { qtys:[], prices:{}, tagPrices:[], finishing:{}, setup:{Screens:0,TagScreens:0,Seps:0,InkChange:0}, specialty:{} };
+      map[key] = { qtys:[], prices:{}, tagPrices:[], finishing:{}, setup:{Screens:0,TagScreens:0,Seps:0,InkChange:0}, specialty:{}, capabilities: d.capabilities || [] };
     }
   }
   PRINTERS = map;
@@ -356,6 +356,131 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             {costProds.map((p,i)=>{
               const r=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);
               const mc2=r?(r.margin_pct>=0.30?T.green:r.margin_pct>=0.20?T.amber:T.red):T.faint;
+
+              // ── Accessory slim card ──
+              if (p.garment_type === "accessory") {
+                return (
+                  <div key={p.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
+                    <div style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{width:24,height:24,borderRadius:5,background:T.purpleDim||"#2d1f5e",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.purple,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
+                      <div style={{flex:1}}>
+                        <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||"Accessory"}</span>
+                        <span style={{fontSize:10,color:T.purple,marginLeft:8,fontWeight:600}}>Accessory</span>
+                      </div>
+                      <div style={{marginRight:12}} onClick={e=>e.stopPropagation()}>
+                        <div style={{fontSize:9,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Vendor</div>
+                        <select value={p.printVendor||""} onChange={e=>updateProd(i,{...p,printVendor:e.target.value})}
+                          style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:p.printVendor?T.text:T.muted,fontFamily:font,fontSize:11,padding:"3px 8px",outline:"none",cursor:"pointer"}}>
+                          <option value="">— select —</option>
+                          {Object.keys(PRINTERS).map(k=><option key={k} value={k}>{k}</option>)}
+                        </select>
+                      </div>
+                      <div style={{textAlign:"right",marginRight:16}}>
+                        <div style={{fontSize:9,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
+                        <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:6}} onClick={e=>e.stopPropagation()}>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:9,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Sell $/unit</div>
+                          <div style={{background:T.surface,border:"1px solid "+(p.sellOverride?T.amber:T.border),borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2}}>
+                            <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
+                            <input type="number" step="0.01" value={p.sellOverride||""} placeholder={r?.sellPerUnit?.toFixed(2)||"0.00"}
+                              onChange={e=>updateProd(i,{...p,sellOverride:parseFloat(e.target.value)||null})}
+                              style={{width:50,background:"transparent",border:"none",outline:"none",color:p.sellOverride?T.amber:T.text,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{padding:"12px 16px",borderTop:`1px solid ${T.border}`}}>
+                      {/* Custom costs */}
+                      <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Costs</div>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                        <span style={{fontSize:11,color:T.faint}}>Add line items for this accessory</span>
+                        <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
+                          style={{fontSize:11,color:T.accent,fontFamily:font,background:"none",border:`1px solid ${T.accent}44`,borderRadius:5,cursor:"pointer",padding:"2px 10px"}}>+ Add</button>
+                      </div>
+                      {(p.customCosts||[]).length>0&&(
+                        <div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden",marginBottom:10}}>
+                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
+                            <thead><tr style={{background:T.surface}}>
+                              <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`,width:"40%"}}>Description</th>
+                              <th style={{padding:"4px 8px",textAlign:"center",fontSize:10,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`,width:"15%"}}>Type</th>
+                              <th style={{padding:"4px 8px",textAlign:"center",fontSize:10,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`,width:"15%"}}>Cost</th>
+                              <th style={{padding:"4px 8px",textAlign:"center",fontSize:10,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`,width:"18%"}}>Total</th>
+                              <th style={{width:"12%"}}/>
+                            </tr></thead>
+                            <tbody>
+                              {(p.customCosts||[]).map((cc,ci)=>{
+                                const isFlat=!!cc.flat;
+                                const costVal=cc.perUnit||cc.amount||0;
+                                const total=isFlat?costVal:costVal*(p.totalQty||0);
+                                return(
+                                  <tr key={ci} style={{borderBottom:ci<p.customCosts.length-1?`1px solid ${T.border}`:"none",background:ci%2===0?T.card:T.surface}}>
+                                    <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`}}>
+                                      <input value={cc.desc||""} placeholder="Description…" onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
+                                        style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:font}}/>
+                                    </td>
+                                    <td style={{padding:"3px 4px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
+                                      <div style={{display:"inline-flex",borderRadius:4,overflow:"hidden"}}>
+                                        {[{id:false,label:"/ unit"},{id:true,label:"flat"}].map((opt,oi)=>{
+                                          const sel=isFlat===opt.id;
+                                          return <button key={oi} onClick={()=>{const c=[...p.customCosts];c[ci]={...c[ci],flat:opt.id};updateProd(i,{...p,customCosts:c});}}
+                                            style={{padding:"2px 8px",fontSize:9,fontFamily:font,fontWeight:600,border:`1px solid ${sel?T.accent:T.border}`,marginLeft:oi>0?-1:0,cursor:"pointer",background:sel?T.accent:T.card,color:sel?"#fff":T.faint,borderRadius:oi===0?"4px 0 0 4px":"0 4px 4px 0",position:"relative",zIndex:sel?1:0}}>{opt.label}</button>;
+                                        })}
+                                      </div>
+                                    </td>
+                                    <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
+                                      <div style={{display:"flex",alignItems:"center",gap:2,justifyContent:"center"}}>
+                                        <span style={{fontSize:11,color:T.faint,fontFamily:mono}}>$</span>
+                                        <input type="text" inputMode="decimal" value={cc.perUnit||cc.amount||""} placeholder="0.00"
+                                          onChange={e=>{const raw=e.target.value;if(raw===""||/^[0-9]*\.?[0-9]*$/.test(raw)){const c=[...p.customCosts];c[ci]={...c[ci],perUnit:raw===""?0:raw.endsWith(".")?raw:parseFloat(raw)||0};updateProd(i,{...p,customCosts:c});}}}
+                                          onBlur={e=>{const c=[...p.customCosts];c[ci]={...c[ci],perUnit:parseFloat(e.target.value)||0};updateProd(i,{...p,customCosts:c});}}
+                                          onFocus={e=>e.target.select()}
+                                          style={{width:60,background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono,textAlign:"center"}}/>
+                                      </div>
+                                    </td>
+                                    <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`,textAlign:"center",fontFamily:mono,fontSize:12,fontWeight:total>0?700:400,color:total>0?T.green:T.faint}}>
+                                      {total>0?fmtD(total):"—"}
+                                    </td>
+                                    <td style={{padding:"5px 8px",textAlign:"center"}}>
+                                      <button onClick={()=>{const c=p.customCosts.filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
+                                        style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:12}}
+                                        onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      {/* Item summary */}
+                      {r&&(
+                        <div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
+                            <tbody>
+                              {[
+                                ["Revenue",        fmtD(r.grossRev),        T.accent],
+                                ["Total Cost",     fmtD(r.totalCost),       T.text],
+                                ["Net Profit",     fmtD(r.netProfit),       mc2],
+                                ["Margin",         fmtP(r.margin_pct),      mc2],
+                                ["Profit / Piece", fmtD(r.profitPerPiece),  mc2],
+                              ].map(([l,v,c],idx)=>(
+                                <tr key={l} style={{borderBottom:idx<4?`1px solid ${T.border}22`:"none",background:idx>=2?(mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim):T.surface}}>
+                                  <td style={{padding:"6px 12px",fontSize:11,fontWeight:500,color:T.muted,fontFamily:font,width:"50%"}}>{l}</td>
+                                  <td style={{padding:"6px 12px",fontSize:13,fontWeight:700,color:c,fontFamily:mono,textAlign:"right"}}>{v}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
+              // ── Apparel full card ──
               const isCollapsed=!!collapsed[p.id];
               const headerBB=isCollapsed?"none":"1px solid "+T.border;
               const bodyDisplay=isCollapsed?"none":"grid";
@@ -589,6 +714,23 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                               style={{fontSize:10,color:T.amber,fontFamily:font,background:T.accentDim,border:"1px solid "+T.amber+"44",borderRadius:5,cursor:"pointer",padding:"6px 12px",fontWeight:600,whiteSpace:"nowrap",flexShrink:0}}>↓ All</button>
                           </div>
                         </div>
+                        {p.printVendor&&PRINTERS[p.printVendor]?.capabilities?.length>0&&(
+                          <div style={{marginBottom:10}}>
+                            <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Decoration Type</div>
+                            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                              {PRINTERS[p.printVendor].capabilities.map(cap=>{
+                                const sel=(p.decorationType||"")===cap;
+                                return <button key={cap} onClick={()=>updateProd(i,{...p,decorationType:cap})}
+                                  style={{padding:"3px 12px",borderRadius:99,fontSize:11,fontWeight:600,cursor:"pointer",
+                                    border:`1px solid ${sel?T.accent:T.border}`,
+                                    background:sel?T.accent:"transparent",
+                                    color:sel?"#fff":T.muted}}>
+                                  {cap}
+                                </button>;
+                              })}
+                            </div>
+                          </div>
+                        )}
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Print Locations</div>
                         <div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
@@ -1277,7 +1419,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
 
   const initItems = (buyItems || []).map(it => {
     const saved = savedData?.costProds?.find((p) => p.id === it.id);
-    if (saved) return { ...saved, sizes: sortSizes(it.sizes || []), qtys: it.qtys || saved.qtys || {} };
+    if (saved) return { ...saved, sizes: sortSizes(it.sizes || []), qtys: it.qtys || saved.qtys || {}, garment_type: it.garment_type || saved.garment_type || null };
     let blankCosts = {};
     if (it.blankCosts && Object.keys(it.blankCosts).length > 0) {
       blankCosts = it.blankCosts;
@@ -1299,6 +1441,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       blankCosts,
       blankCostPerUnit,
       totalQty: Object.values(it.qtys || {}).reduce((a, v) => a + v, 0),
+      garment_type: it.garment_type || null,
     };
   });
 
@@ -1345,7 +1488,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   // Only runs when buyItems actually changes (compared by serialized snapshot)
   useEffect(() => {
     if (!buyItems.length) return;
-    const snapshot = JSON.stringify(buyItems.map(b => ({ id:b.id, name:b.name, sizes:b.sizes, qtys:b.qtys, totalQty:b.totalQty })));
+    const snapshot = JSON.stringify(buyItems.map(b => ({ id:b.id, name:b.name, sizes:b.sizes, qtys:b.qtys, totalQty:b.totalQty, garment_type:b.garment_type })));
     if (snapshot === lastBuyItemsRef.current) return;
     lastBuyItemsRef.current = snapshot;
 
@@ -1356,14 +1499,14 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       const newItems = buyItems.filter(bi => !existingIds.has(bi.id)).map(it => {
         const styleKey = (it.style || it.blank_vendor || "").split("–")[0].trim().replace(/\s+/g, "");
         const blankCosts = it.blankCosts && Object.keys(it.blankCosts).length > 0 ? it.blankCosts : seedBlankCosts(styleKey, it.color || it.blank_sku || "", it.sizes || []);
-        return { ...EMPTY_COST_PRODUCT(), id: it.id, name: it.name || "", style: it.blank_vendor || "", color: it.blank_sku || "", sizes: sortSizes(it.sizes || []), qtys: it.qtys || {}, blankCosts, totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a, v) => a + v, 0) };
+        return { ...EMPTY_COST_PRODUCT(), id: it.id, name: it.name || "", style: it.blank_vendor || "", color: it.blank_sku || "", sizes: sortSizes(it.sizes || []), qtys: it.qtys || {}, blankCosts, totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a, v) => a + v, 0), garment_type: it.garment_type || null };
       });
       // Update existing + remove deleted
       const updated = prev.filter(cp => buyIds.has(cp.id)).map(cp => {
         const bi = buyItems.find(b => b.id === cp.id);
         if (!bi) return cp;
         const totalQty = bi.totalQty || Object.values(bi.qtys || {}).reduce((a, v) => a + v, 0);
-        return { ...cp, name: bi.name || cp.name, sizes: sortSizes(bi.sizes || []), qtys: bi.qtys || cp.qtys, totalQty };
+        return { ...cp, name: bi.name || cp.name, sizes: sortSizes(bi.sizes || []), qtys: bi.qtys || cp.qtys, totalQty, garment_type: bi.garment_type || cp.garment_type || null };
       });
       return newItems.length > 0 ? [...updated, ...newItems] : updated;
     };
@@ -1423,10 +1566,11 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           if (cp.printVendor && vendorIdMapRef.current[cp.printVendor]) {
             const decoratorId = vendorIdMapRef.current[cp.printVendor];
             const { data: existing } = await supabase.from("decorator_assignments").select("id").eq("item_id", cp.id).limit(1).single();
+            const decoType = cp.decorationType || "screen_print";
             if (existing) {
-              await supabase.from("decorator_assignments").update({ decorator_id: decoratorId }).eq("id", existing.id);
+              await supabase.from("decorator_assignments").update({ decorator_id: decoratorId, decoration_type: decoType }).eq("id", existing.id);
             } else {
-              await supabase.from("decorator_assignments").insert({ item_id: cp.id, decorator_id: decoratorId, decoration_type: "screen_print", pipeline_stage: "blanks_ordered" });
+              await supabase.from("decorator_assignments").insert({ item_id: cp.id, decorator_id: decoratorId, decoration_type: decoType, pipeline_stage: "blanks_ordered" });
             }
           }
         }

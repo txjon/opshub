@@ -434,7 +434,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       vendor_state: (decoratorRecord as any)?.state || firstDecorator?.state || "",
       vendor_zip: (decoratorRecord as any)?.zip || firstDecorator?.zip || "",
       payment_terms: (job.payment_terms || "").replace(/_/g, " "),
-      ship_method: orderInfo.shipMethod || "",
+      ship_method: (job.type_meta as any)?.po_ship_methods?.[vendorName] || orderInfo.shipMethod || "",
       ship_to_address: (job.type_meta as any)?.venue_address || "",
       items: vendorItems,
     };

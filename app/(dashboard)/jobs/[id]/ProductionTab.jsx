@@ -85,18 +85,7 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</span>
                   {item.decoration_type && <span style={{ padding: "1px 7px", borderRadius: 6, fontSize: 10, fontWeight: 500, background: T.accentDim, color: T.accent }}>{item.decoration_type.replace(/_/g, " ")}</span>}
-                  <button onClick={async (e) => {
-                    e.stopPropagation();
-                    const newStatus = item.artwork_status === "approved" ? "not_started" : "approved";
-                    await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
-                    onUpdateItem(item.id, { artwork_status: newStatus });
-                    if (newStatus === "approved") logJobActivity(item.job_id, `${item.name} proof manually approved`);
-                  }}
-                    style={{ padding: "1px 8px", borderRadius: 6, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer",
-                      background: item.artwork_status === "approved" ? T.greenDim : T.surface,
-                      color: item.artwork_status === "approved" ? T.green : T.muted }}>
-                    {item.artwork_status === "approved" ? "Proof Approved" : "Approve Proof"}
-                  </button>
+                  {item.artwork_status === "approved" && <span style={{ padding: "1px 7px", borderRadius: 6, fontSize: 10, fontWeight: 600, background: T.greenDim, color: T.green }}>Proof Approved</span>}
                 </div>
                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                   {item.decorator || "No decorator"} · {totalUnits.toLocaleString()} units

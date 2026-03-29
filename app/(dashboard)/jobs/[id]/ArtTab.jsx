@@ -71,41 +71,11 @@ function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabel, stag
           {file.notes && <span> · {file.notes}</span>}
         </div>
         {/* Approval status for proofs */}
-        {approval && (
+        {false && approval && (
           <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
             <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: approval.bg, color: approval.color }}>
               {approval.label}
             </span>
-            {file.approval === "pending" && (
-              <>
-                <button onClick={() => onApproval(file.id, "approved")}
-                  style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green, border: "none", cursor: "pointer" }}>
-                  Approve
-                </button>
-                <button onClick={() => onApproval(file.id, "revision_requested")}
-                  style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.redDim, color: T.red, border: "none", cursor: "pointer" }}>
-                  Request revision
-                </button>
-              </>
-            )}
-            {file.approval === "revision_requested" && (
-              <>
-                <button onClick={() => onApproval(file.id, "approved")}
-                  style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green, border: "none", cursor: "pointer" }}>
-                  Approve
-                </button>
-                <button onClick={() => onApproval(file.id, "pending")}
-                  style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.amberDim, color: T.amber, border: "none", cursor: "pointer" }}>
-                  Re-submit
-                </button>
-              </>
-            )}
-            {file.approval === "approved" && (
-              <button onClick={() => onApproval(file.id, "pending")}
-                style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.amberDim, color: T.amber, border: "none", cursor: "pointer" }}>
-                Revoke
-              </button>
-            )}
           </div>
         )}
       </div>

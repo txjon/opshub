@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { subtractBusinessDays, calculatePriority } from "@/lib/dates";
 
 type ClientOption = { id: string; name: string; default_terms: string | null; client_type: string | null; };
 
@@ -226,14 +227,6 @@ export default function NewJobPage() {
                 )}
               </select>
             </div>
-            <div>
-              <label className={lc}>Priority</label>
-              <select value={form.priority} onChange={e => set("priority", e.target.value)} className={ic}>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </div>
           </div>
 
           <div>
@@ -251,12 +244,18 @@ export default function NewJobPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={lc}>Target Ship Date</label>
-              <input type="date" value={form.target_ship_date} onChange={e => set("target_ship_date", e.target.value)} className={ic} />
+              <label className={lc}>In-Hands Date</label>
+              <input type="date" value={form.in_hands_date} onChange={e => {
+                set("in_hands_date", e.target.value);
+                if (e.target.value) {
+                  set("target_ship_date", subtractBusinessDays(e.target.value, 3));
+                  set("priority", calculatePriority(e.target.value));
+                }
+              }} className={ic} />
             </div>
             <div>
-              <label className={lc}>In Hands Date</label>
-              <input type="date" value={form.in_hands_date} onChange={e => set("in_hands_date", e.target.value)} className={ic} />
+              <label className={lc}>Target Ship Date</label>
+              <input type="date" value={form.target_ship_date} onChange={e => set("target_ship_date", e.target.value)} className={ic} />
             </div>
           </div>
 

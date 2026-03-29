@@ -238,12 +238,14 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180}}>
             <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
-            <select value={shipMethods[active]||""} onChange={e=>{
+            <select value={shipMethods[active]||""} onChange={async e=>{
               const val=e.target.value;
               const updated={...shipMethods,[active]:val};
               setShipMethods(updated);
-              const meta={...(project.type_meta||{}),po_ship_methods:updated};
-              supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
+              // Read fresh type_meta from DB to avoid overwriting other fields
+              const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
+              const meta = { ...(fresh?.type_meta || {}), po_ship_methods: updated };
+              await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
               if(onUpdateJob) onUpdateJob({type_meta:meta});
             }}
               style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
@@ -278,7 +280,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
           vendor={active}
           contacts={getDec(active)?.contacts_list||[]}
           defaultEmail={getDec(active)?.contact_email||""}
-          defaultSubject={`PO — ${(project.clients?.name||project.title||"")} — ${active}`}
+          defaultSubject={`PO ${project.job_number||""} — ${(project.clients?.name||project.title||"")} — ${active}`}
           onClose={()=>setShowSendEmail(false)}
           onSent={async()=>{
             logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`);

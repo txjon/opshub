@@ -32,8 +32,9 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick 
     else paymentMet = true;
   }
 
-  const blanksOrdered = items.filter(it => it.blanks_order_number).length;
-  const allBlanksOrdered = items.length > 0 && blanksOrdered === items.length;
+  const apparelItems = items.filter(it => it.garment_type !== "accessory");
+  const blanksOrdered = apparelItems.filter(it => it.blanks_order_number).length;
+  const allBlanksOrdered = apparelItems.length === 0 || blanksOrdered === apparelItems.length;
   const poSentVendors = job.type_meta?.po_sent_vendors || [];
   const costProds = job.costing_data?.costProds || [];
   const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))] as string[];
@@ -48,7 +49,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick 
     { id: "art", label: "Art Files", done: hasProofs, active: hasItems && !hasProofs },
     { id: "approvals", label: "Proofs Approved", done: allProofsApproved, active: quoteApproved && !allProofsApproved, detail: allProofsApproved ? undefined : `${items.filter(it => proofStatus[it.id]?.allApproved).length}/${items.length}` },
     { id: "approvals", label: "Payment", done: paymentMet, active: quoteApproved && !paymentMet, detail: isNetTerms ? "Net terms" : undefined },
-    { id: "blanks", label: "Blanks Ordered", done: allBlanksOrdered, active: paymentMet && allProofsApproved && !allBlanksOrdered, detail: blanksOrdered > 0 ? `${blanksOrdered}/${items.length}` : undefined },
+    { id: "blanks", label: "Blanks Ordered", done: allBlanksOrdered, active: paymentMet && allProofsApproved && !allBlanksOrdered, detail: apparelItems.length > 0 && blanksOrdered > 0 ? `${blanksOrdered}/${apparelItems.length}` : undefined },
     { id: "po", label: "POs Sent", done: allPosSent, active: allBlanksOrdered && !allPosSent, detail: allPosSent ? undefined : vendors.length > 0 ? `${poSentVendors.length}/${vendors.length}` : undefined },
     { id: "production", label: "Production", done: allShipped, active: atDecorator && !allShipped },
   ];

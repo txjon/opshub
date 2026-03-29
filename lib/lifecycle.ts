@@ -19,6 +19,7 @@ export type LifecycleInput = {
     ship_tracking: string | null;
     received_at_hpd: boolean;
     artwork_status?: string | null;
+    garment_type?: string | null;
   }[];
   payments: {
     amount: number;
@@ -52,7 +53,8 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   const atDecorator = items.filter(it => it.pipeline_stage === "in_production").length;
   const shippedFromDecorator = items.filter(it => it.pipeline_stage === "shipped").length;
   const receivedAtHpd = items.filter(it => it.received_at_hpd).length;
-  const blanksOrdered = items.filter(it => it.blanks_order_number).length;
+  const apparelItems = items.filter(it => it.garment_type !== "accessory");
+  const blanksOrdered = apparelItems.filter(it => it.blanks_order_number).length;
   const allProofsApproved = items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
 
   // ── COMPLETE
@@ -97,7 +99,7 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   const costProds = (job as any).costing_data?.costProds || [];
   const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))];
   const allPosSent = vendors.length > 0 && vendors.every((v: string) => (poSentVendors || []).includes(v));
-  const allBlanksOrdered = total > 0 && blanksOrdered === total;
+  const allBlanksOrdered = apparelItems.length === 0 || blanksOrdered === apparelItems.length;
   if (allPosSent && allBlanksOrdered) {
     return { phase: "production", itemProgress: "At decorator — awaiting completion" };
   }
@@ -118,7 +120,7 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
 
     if (paymentGateMet) {
       if (blanksOrdered > 0) {
-        return { phase: "ready", itemProgress: `${blanksOrdered}/${total} blanks ordered` };
+        return { phase: "ready", itemProgress: `${blanksOrdered}/${apparelItems.length} blanks ordered` };
       }
       return { phase: "ready", itemProgress: "Order blanks & send POs" };
     }

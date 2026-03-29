@@ -533,6 +533,24 @@ export default function DecoratorsPage() {
                         </div>
                       </div>
                       <ShipFromSection d={d} upd={upd} />
+                      {/* Capabilities */}
+                      <div>
+                        <div style={{ fontSize:10, fontWeight:600, color:T.muted, textTransform:"uppercase" as const, letterSpacing:"0.06em", marginBottom:4 }}>Decoration Types</div>
+                        <div style={{ display:"flex", gap:4, flexWrap:"wrap", alignItems:"center" }}>
+                          {(d.capabilities||[]).map((cap: string, ci: number) => (
+                            <span key={ci} style={{ display:"flex", alignItems:"center", gap:4, padding:"3px 10px", borderRadius:99, fontSize:11, fontWeight:600, background:T.accentDim, color:T.accent }}>
+                              {cap}
+                              <button onClick={() => upd({ capabilities: (d.capabilities||[]).filter((_: string, j: number) => j !== ci) } as any)}
+                                style={{ background:"none", border:"none", color:T.accent, cursor:"pointer", fontSize:10, lineHeight:1 }}>✕</button>
+                            </span>
+                          ))}
+                          <button onClick={() => {
+                            const val = prompt("Add decoration type (e.g. Screen Print, Embroidery, DTG, Patch)");
+                            if (val?.trim()) upd({ capabilities: [...(d.capabilities||[]), val.trim()] } as any);
+                          }}
+                            style={{ padding:"3px 10px", borderRadius:99, fontSize:10, fontWeight:600, background:"none", border:`1px solid ${T.border}`, color:T.muted, cursor:"pointer" }}>+ Add</button>
+                        </div>
+                      </div>
                       <Field label="Notes" value={d.notes||""} onChange={v=>upd({notes:v})} placeholder="Dock hours, special instructions..." wide />
                     </div>
                   </div>
