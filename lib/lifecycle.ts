@@ -27,6 +27,7 @@ export type LifecycleInput = {
   }[];
   proofStatus: Record<string, { allApproved: boolean }>; // keyed by item id
   poSentVendors: string[];
+  costingVendors?: string[]; // unique vendor short codes from costing
 };
 
 export type LifecycleResult = {
@@ -35,7 +36,7 @@ export type LifecycleResult = {
 };
 
 export function calculatePhase(input: LifecycleInput): LifecycleResult {
-  const { job, items, payments, proofStatus, poSentVendors } = input;
+  const { job, items, payments, proofStatus, poSentVendors, costingVendors } = input;
 
   // Manual locks
   if (job.phase === "on_hold" || job.phase === "cancelled") {
@@ -75,10 +76,15 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
     }
   }
 
-  // ── FULFILLMENT (stage route only, all items received at HPD)
+  // ── FULFILLMENT (stage route, all items received at HPD)
   if (route === "stage" && receivedAtHpd === total && job.fulfillment_status !== "shipped") {
     const status = job.fulfillment_status || "staged";
     return { phase: "fulfillment", itemProgress: status };
+  }
+
+  // ── SHIPPING (ship_through route, all items received at HPD, needs forwarding)
+  if (route === "ship_through" && receivedAtHpd === total && receivedAtHpd > 0 && job.fulfillment_status !== "shipped") {
+    return { phase: "shipping", itemProgress: "Ready to forward to client" };
   }
 
   // ── RECEIVING (items shipped from decorator, coming to HPD)
@@ -96,8 +102,7 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   }
 
   // POs sent + blanks ordered = production (waiting on decorator)
-  const costProds = (job as any).costing_data?.costProds || [];
-  const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))];
+  const vendors = costingVendors || [];
   const allPosSent = vendors.length > 0 && vendors.every((v: string) => (poSentVendors || []).includes(v));
   const allBlanksOrdered = apparelItems.length === 0 || blanksOrdered === apparelItems.length;
   if (allPosSent && allBlanksOrdered) {

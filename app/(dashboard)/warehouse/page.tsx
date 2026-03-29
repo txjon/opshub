@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import Link from "next/link";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
+import { calculatePhase } from "@/lib/lifecycle";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -125,6 +126,34 @@ export default function WarehousePage() {
     }, 800);
   }
 
+  async function recalcJobPhase(jobId: string) {
+    const { data: jobData } = await supabase.from("jobs").select("*, clients(name)").eq("id", jobId).single();
+    if (!jobData || jobData.phase === "on_hold" || jobData.phase === "cancelled") return;
+    const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage, blanks_order_number, ship_tracking, received_at_hpd, artwork_status, garment_type").eq("job_id", jobId);
+    const { data: payments } = await supabase.from("payment_records").select("amount, status").eq("job_id", jobId);
+    const { data: proofFiles } = await supabase.from("item_files").select("item_id, approval").eq("stage", "proof").in("item_id", (jobItems||[]).map(it=>it.id));
+    const proofStatus: Record<string, { allApproved: boolean }> = {};
+    for (const it of (jobItems||[])) {
+      const manualApproved = it.artwork_status === "approved";
+      const proofs = (proofFiles||[]).filter(f => f.item_id === it.id);
+      proofStatus[it.id] = { allApproved: manualApproved || (proofs.length > 0 && proofs.every(f => f.approval === "approved")) };
+    }
+    const result = calculatePhase({
+      job: { job_type: jobData.job_type, shipping_route: jobData.shipping_route || "ship_through", payment_terms: jobData.payment_terms, quote_approved: jobData.quote_approved || false, phase: jobData.phase, fulfillment_status: jobData.fulfillment_status || null },
+      items: (jobItems||[]).map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage, blanks_order_number: it.blanks_order_number, ship_tracking: it.ship_tracking, received_at_hpd: it.received_at_hpd || false, artwork_status: it.artwork_status, garment_type: it.garment_type })),
+      payments: (payments||[]).map(p => ({ amount: p.amount, status: p.status })),
+      proofStatus,
+      poSentVendors: jobData.type_meta?.po_sent_vendors || [],
+      costingVendors: [...new Set((jobData.costing_data?.costProds||[]).map((cp: any) => cp.printVendor).filter(Boolean))],
+    });
+    if (result.phase !== jobData.phase) {
+      const timestamps = jobData.phase_timestamps || {};
+      timestamps[result.phase] = new Date().toISOString();
+      await supabase.from("jobs").update({ phase: result.phase, phase_timestamps: timestamps }).eq("id", jobId);
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, phase: result.phase } as any : j));
+    }
+  }
+
   async function markReceived(item: WarehouseItem) {
     const now = new Date().toISOString();
     await supabase.from("items").update({ received_at_hpd: true, received_at_hpd_at: now }).eq("id", item.id);
@@ -133,6 +162,7 @@ export default function WarehousePage() {
       ...j,
       items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now } : it),
     })));
+    setTimeout(() => recalcJobPhase(item.job_id), 300);
   }
 
   async function undoReceived(item: WarehouseItem) {
@@ -141,6 +171,7 @@ export default function WarehousePage() {
       ...j,
       items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: false, received_at_hpd_at: null } : it),
     })));
+    setTimeout(() => recalcJobPhase(item.job_id), 300);
   }
 
   async function updateFulfillment(jobId: string, status: string | null, tracking?: string) {
@@ -152,6 +183,7 @@ export default function WarehousePage() {
       notifyTeam("Order shipped to client", "production", jobId, "job");
     }
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, fulfillment_status: status, ...(tracking !== undefined ? { fulfillment_tracking: tracking } : {}) } : j));
+    setTimeout(() => recalcJobPhase(jobId), 300);
   }
 
   function debounceFulfillmentTracking(jobId: string, tracking: string) {

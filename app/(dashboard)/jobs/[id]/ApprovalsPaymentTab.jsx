@@ -24,37 +24,66 @@ export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatu
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
 
-      {/* ── Send Invoice & Proofs ── */}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => setShowCombinedEmail(!showCombinedEmail)}
-          style={{ flex: 1, padding: "14px", borderRadius: 10, border: "none", cursor: "pointer",
-            background: T.purple, color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: font,
-            letterSpacing: "-0.01em", transition: "opacity 0.15s" }}
-          onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
-          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-          Send Invoice & Proofs to Client
-        </button>
-        <button onClick={() => window.open(`/api/pdf/invoice-proofs/${job.id}`, "_blank")}
-          style={{ padding: "14px 24px", borderRadius: 10, border: "none", cursor: "pointer",
-            background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: font,
-            transition: "opacity 0.15s", flexShrink: 0 }}
-          onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
-          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-          Preview
-        </button>
+      {/* ── Send Actions ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => { setShowCombinedEmail(!showCombinedEmail); setShowInvoiceEmail(false); }}
+            style={{ flex: 1, padding: "14px", borderRadius: 10, border: "none", cursor: "pointer",
+              background: T.purple, color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: font,
+              letterSpacing: "-0.01em", transition: "opacity 0.15s" }}
+            onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+            onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+            Send Invoice & Proofs
+          </button>
+          <button onClick={() => window.open(`/api/pdf/invoice-proofs/${job.id}`, "_blank")}
+            style={{ padding: "14px 24px", borderRadius: 10, border: "none", cursor: "pointer",
+              background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: font,
+              transition: "opacity 0.15s", flexShrink: 0 }}
+            onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+            onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+            Preview
+          </button>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => { setShowInvoiceEmail(!showInvoiceEmail); setShowCombinedEmail(false); }}
+            style={{ flex: 1, padding: "10px", borderRadius: 10, border: `1px solid ${T.border}`, cursor: "pointer",
+              background: "transparent", color: T.muted, fontSize: 12, fontWeight: 600, fontFamily: font,
+              transition: "all 0.15s" }}
+            onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
+            Send Invoice Only
+          </button>
+          <button onClick={() => window.open(`/api/pdf/invoice/${job.id}`, "_blank")}
+            style={{ padding: "10px 24px", borderRadius: 10, border: `1px solid ${T.border}`, cursor: "pointer",
+              background: "transparent", color: T.muted, fontSize: 12, fontWeight: 600, fontFamily: font,
+              transition: "all 0.15s", flexShrink: 0 }}
+            onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
+            Preview
+          </button>
+        </div>
       </div>
       {showCombinedEmail && (
-        <div>
-          <SendEmailDialog
-            type="invoice_proofs"
-            jobId={job.id}
-            contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
-            defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
-            defaultSubject={`Invoice & Proofs — ${job.clients?.name || ""} · ${job.title}`}
-            onClose={() => setShowCombinedEmail(false)}
-            onSent={() => { logJobActivity(job.id, "Invoice & proofs sent to client"); setShowCombinedEmail(false); }}
-          />
-        </div>
+        <SendEmailDialog
+          type="invoice_proofs"
+          jobId={job.id}
+          contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
+          defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
+          defaultSubject={`Invoice & Proofs — ${job.clients?.name || ""} · ${job.title}`}
+          onClose={() => setShowCombinedEmail(false)}
+          onSent={() => { logJobActivity(job.id, "Invoice & proofs sent to client"); setShowCombinedEmail(false); }}
+        />
+      )}
+      {showInvoiceEmail && (
+        <SendEmailDialog
+          type="invoice"
+          jobId={job.id}
+          contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
+          defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
+          defaultSubject={`Invoice — ${job.clients?.name || ""} · ${job.title}`}
+          onClose={() => setShowInvoiceEmail(false)}
+          onSent={() => { logJobActivity(job.id, "Invoice sent to client"); setShowInvoiceEmail(false); }}
+        />
       )}
 
       {/* ── Proof Approvals ── */}
@@ -104,35 +133,6 @@ export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatu
         </div>
       </div>
 
-      {/* ── Invoice ── */}
-      <div style={card}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Invoice</div>
-        <div style={{ display: "flex", gap: 6, marginBottom: showInvoiceEmail ? 10 : 0 }}>
-          <button onClick={() => setShowInvoiceEmail(!showInvoiceEmail)}
-            style={{ flex: 1, background: T.purple, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontFamily: font, fontWeight: 600, padding: "8px", cursor: "pointer", textAlign: "center" }}>
-            Send Invoice
-          </button>
-          <button onClick={() => window.open(`/api/pdf/invoice/${job.id}`, "_blank")}
-            style={{ background: T.accent, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontFamily: font, fontWeight: 600, padding: "8px 16px", cursor: "pointer" }}>
-            Preview
-          </button>
-          <button onClick={() => { const a = document.createElement("a"); a.href = `/api/pdf/invoice/${job.id}?download=1`; a.download = "invoice.pdf"; a.click(); }}
-            style={{ background: T.green, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontFamily: font, fontWeight: 600, padding: "8px 16px", cursor: "pointer" }}>
-            Download
-          </button>
-        </div>
-        {showInvoiceEmail && (
-          <SendEmailDialog
-            type="invoice"
-            jobId={job.id}
-            contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
-            defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
-            defaultSubject={`Invoice — ${job.clients?.name || ""} · ${job.title}`}
-            onClose={() => setShowInvoiceEmail(false)}
-            onSent={() => logJobActivity(job.id, "Invoice sent to client")}
-          />
-        )}
-      </div>
 
       {/* ── Payment Records ── */}
       <div style={card}>

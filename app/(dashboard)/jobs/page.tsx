@@ -18,6 +18,7 @@ const PHASE_COLORS: Record<string,{bg:string,text:string,label:string}> = {
   pre_production:{ bg:"#2d1f5e", text:"#a78bfa", label:"Pre-Production" },
   production:    { bg:"#1e3a6e", text:"#4f8ef7", label:"Production" },
   receiving:     { bg:"#3d2a08", text:"#f5a623", label:"Receiving" },
+  shipping:      { bg:"#1e3a6e", text:"#4f8ef7", label:"Shipping" },
   fulfillment:   { bg:"#2d1f5e", text:"#a78bfa", label:"Fulfillment" },
   complete:      { bg:"#0e3d24", text:"#34c97a", label:"Complete" },
   on_hold:       { bg:"#3d1212", text:"#f05353", label:"On Hold" },

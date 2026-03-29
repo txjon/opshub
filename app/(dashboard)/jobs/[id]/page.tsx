@@ -43,6 +43,7 @@ const PHASE_COLORS: Record<string,{bg:string,text:string}> = {
   pre_production:{bg:"#EEEDFE",text:"#3C3489"},
   production:{bg:"#E6F1FB",text:"#0C447C"},
   receiving:{bg:"#FAEEDA",text:"#633806"},
+  shipping:{bg:"#E6F1FB",text:"#0C447C"},
   fulfillment:{bg:T.purpleDim,text:T.purple},
   shipped:{bg:"#EAF3DE",text:"#27500A"},
   complete:{bg:"#EAF3DE",text:"#27500A"},
@@ -237,6 +238,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       payments: payments.map(p => ({ amount: p.amount, status: p.status })),
       proofStatus,
       poSentVendors: (job as any).type_meta?.po_sent_vendors || [],
+      costingVendors: [...new Set(((job as any).costing_data?.costProds || []).map((cp: any) => cp.printVendor).filter(Boolean))],
     });
     if (result.phase !== job.phase) {
       const timestamps = (job as any).phase_timestamps || {};
@@ -252,6 +254,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         ready: `${label} → Ready to order blanks & send POs`,
         production: `${label} → Items at decorator`,
         receiving: `${label} → Items incoming to warehouse`,
+        shipping: `${label} → All items received — ready to forward to client`,
         fulfillment: `${label} → All items received — ready for fulfillment`,
         complete: `${label} → Project complete`,
       };
@@ -446,14 +449,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       {["corporate","brand","artist","tour","webstore","drop_ship"].map(t=><option key={t} value={t}>{t.replace(/_/g," ")}</option>)}
                     </select>
                   </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Priority</label>
-                    <div style={{padding:"6px 10px",borderRadius:6,fontSize:12,fontWeight:600,textAlign:"center",
-                      background:job.priority==="hot"?T.redDim:job.priority==="rush"?T.amberDim:T.greenDim,
-                      color:job.priority==="hot"?T.red:job.priority==="rush"?T.amber:T.green}}>
-                      {(job.priority||"normal").toUpperCase()}
-                    </div>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
+                    <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
+                      <option value="drop_ship">Drop ship (direct to client)</option>
+                      <option value="ship_through">Ship-through (forward from HPD)</option>
+                      <option value="stage">Stage (fulfillment from HPD)</option>
+                    </select>
                   </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Phase</label>
+                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Phase</label>
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
                       <div style={{...ic,background:T.card,display:"flex",alignItems:"center",gap:6}}>
                         <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>{job.phase.replace(/_/g," ")}</span>
@@ -464,34 +467,22 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                             payments:payments.map(p=>({amount:p.amount,status:p.status})),
                             proofStatus,
                             poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
+                            costingVendors:[...new Set(((job as any).costing_data?.costProds||[]).map((cp:any)=>cp.printVendor).filter(Boolean))],
                           });
                           return r.itemProgress?<span style={{fontSize:10,color:T.muted}}>{r.itemProgress}</span>:null;
                         })()}
                       </div>
                       {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
-                        <button onClick={()=>{upd("phase","on_hold");}} style={{fontSize:9,color:T.amber,background:T.amberDim,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontWeight:600}}>Hold</button>
+                        <button onClick={()=>{upd("phase","on_hold");}} style={{fontSize:10,color:T.amber,background:"none",border:`1px solid ${T.amber}`,borderRadius:6,padding:"4px 12px",cursor:"pointer",fontWeight:600}}>Place on Hold</button>
                       )}
                       {job.phase==="on_hold"&&(
                         <button onClick={async()=>{
-                          // Clear hold, set to intake temporarily, then recalc
                           await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
                           setJob(j=>j?{...j,phase:"intake"} as any:j);
                           setTimeout(recalcPhase, 300);
                         }} style={{fontSize:9,color:T.green,background:T.greenDim,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontWeight:600}}>Resume</button>
                       )}
                     </div>
-                  </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Contract</label>
-                    <select style={ic} value={job.contract_status} onChange={e=>upd("contract_status",e.target.value)}>
-                      {["not_sent","sent","signed","waived"].map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
-                    </select>
-                  </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
-                    <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
-                      <option value="drop_ship">Drop ship (direct to client)</option>
-                      <option value="ship_through">Ship-through (forward from HPD)</option>
-                      <option value="stage">Stage (fulfillment from HPD)</option>
-                    </select>
                   </div>
                   <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
                     <textarea style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
