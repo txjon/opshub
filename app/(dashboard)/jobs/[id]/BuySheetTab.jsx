@@ -21,7 +21,7 @@ function distribute(total, sizes, curve) {
 
 // ── S&S Catalog Picker ──────────────────────────────────────────────────────
 
-function SSPicker({ onAdd, onClose }) {
+function SSPicker({ onAdd, onClose, isFav, toggleFav }) {
   const [query, setQuery] = useState("");
   const [brands, setBrands] = useState([]);
   const [selBrand, setSelBrand] = useState(null);
@@ -142,7 +142,20 @@ function SSPicker({ onAdd, onClose }) {
           <div style={{ flex:1, overflowY:"auto" }}>
             {loading ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>Loading…</div>
               : styles.length===0 ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Brand or search</div>
-              : (selBrand ? styles.filter(s => s.brandName===selBrand) : styles).map(s => colRow(s.styleName, selStyle?.styleID===s.styleID, () => loadProducts(s), s.title||s.baseCategory))}
+              : (selBrand ? styles.filter(s => s.brandName===selBrand) : styles).map(s => (
+                <div key={s.styleID} style={{ display:"flex", alignItems:"center", borderBottom:`1px solid ${T.border}` }}>
+                  <div onClick={() => loadProducts(s)} style={{ flex:1, padding:"8px 11px", cursor:"pointer", fontSize:11, fontFamily:font, background:selStyle?.styleID===s.styleID?T.accent:"transparent", color:selStyle?.styleID===s.styleID?"#fff":T.text, transition:"background 0.1s" }}
+                    onMouseEnter={e => { if(selStyle?.styleID!==s.styleID) e.currentTarget.style.background=T.surface; }}
+                    onMouseLeave={e => { if(selStyle?.styleID!==s.styleID) e.currentTarget.style.background="transparent"; }}>
+                    {s.styleName}
+                    {(s.title||s.baseCategory) && <div style={{ fontSize:9, color:selStyle?.styleID===s.styleID?"rgba(255,255,255,0.7)":T.faint, marginTop:1 }}>{s.title||s.baseCategory}</div>}
+                  </div>
+                  {isFav && <button onClick={(e) => { e.stopPropagation(); toggleFav("ss", s.styleName, `${s.brandName} ${s.styleName}`, s.baseCategory || s.title); }}
+                    style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 8px", fontSize:14, color:isFav("ss",s.styleName)?T.amber:T.faint, flexShrink:0 }}>
+                    {isFav("ss",s.styleName)?"★":"☆"}
+                  </button>}
+                </div>
+              ))}
           </div>
         </div>
         <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
@@ -191,7 +204,7 @@ function SSPicker({ onAdd, onClose }) {
 }
 // ── AS Colour Picker ─────────────────────────────────────────────────────────
 
-function ASColourPicker({ onAdd, onClose }) {
+function ASColourPicker({ onAdd, onClose, isFav, toggleFav }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pricing, setPricing] = useState({});  // { sku: price }
@@ -323,10 +336,18 @@ function ASColourPicker({ onAdd, onClose }) {
           <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Style")}
             <div style={{ flex: 1, overflowY: "auto" }}>
-              {filteredProducts.map(p => colRow(
-                `${p.styleCode} — ${(p.styleName || "").replace(` | ${p.styleCode}`, "")}`,
-                selStyle?.styleCode === p.styleCode,
-                () => loadVariants(p)
+              {filteredProducts.map(p => (
+                <div key={p.styleCode} style={{ display:"flex", alignItems:"center", borderBottom:`1px solid ${T.border}` }}>
+                  <div onClick={() => loadVariants(p)} style={{ flex:1, padding:"8px 11px", cursor:"pointer", fontSize:11, fontFamily:font, background:selStyle?.styleCode===p.styleCode?T.accent:"transparent", color:selStyle?.styleCode===p.styleCode?"#fff":T.text, transition:"background 0.1s" }}
+                    onMouseEnter={e => { if(selStyle?.styleCode!==p.styleCode) e.currentTarget.style.background=T.surface; }}
+                    onMouseLeave={e => { if(selStyle?.styleCode!==p.styleCode) e.currentTarget.style.background="transparent"; }}>
+                    {`${p.styleCode} — ${(p.styleName || "").replace(` | ${p.styleCode}`, "")}`}
+                  </div>
+                  {isFav && <button onClick={(e) => { e.stopPropagation(); toggleFav("ascolour", p.styleCode, `AS Colour ${p.styleCode}`, p.productType); }}
+                    style={{ background:"none", border:"none", cursor:"pointer", padding:"4px 8px", fontSize:14, color:isFav("ascolour",p.styleCode)?T.amber:T.faint, flexShrink:0 }}>
+                    {isFav("ascolour",p.styleCode)?"★":"☆"}
+                  </button>}
+                </div>
               ))}
             </div>
           </div>
@@ -374,6 +395,417 @@ function ASColourPicker({ onAdd, onClose }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── LA Apparel Picker ────────────────────────────────────────────────────────
+function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selCategory, setSelCategory] = useState(null);
+  const [selStyle, setSelStyle] = useState(null);
+  const [variants, setVariants] = useState([]);
+  const [selColorType, setSelColorType] = useState(null);
+  const [selSizes, setSelSizes] = useState({});
+  const [itemName, setItemName] = useState("");
+  const [newColor, setNewColor] = useState("");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    fetch("/api/laapparel?endpoint=products").then(r => r.json()).then(data => {
+      setProducts(Array.isArray(data) ? data : []);
+      setLoading(false);
+    });
+  }, []);
+
+  const categories = [...new Set(products.map(p => p.category))].sort();
+  const filteredProducts = products.filter(p => {
+    if (search.trim()) return p.styleCode.includes(search) || p.description.toLowerCase().includes(search.toLowerCase());
+    if (selCategory) return p.category === selCategory;
+    return true;
+  });
+
+  async function loadStyle(product) {
+    setSelStyle(product); setSelColorType(null); setSelSizes({}); setVariants([]);
+    const res = await fetch(`/api/laapparel?endpoint=variants&styleCode=${product.styleCode}`);
+    const data = await res.json();
+    setVariants(Array.isArray(data) ? data : []);
+  }
+
+  // Group variants by color_type
+  const colorTypes = [...new Set(variants.map(v => v.color_type))];
+  // Also include any custom colors added to the style
+  const customColors = selStyle?.colors || [];
+  const allColorOptions = [...colorTypes, ...customColors.filter(c => !colorTypes.includes(c))];
+
+  // Get size rows for selected color type
+  const sizeRows = selColorType ? variants.filter(v => v.color_type === selColorType || (v.color_type === "Colors" && !["White"].includes(selColorType) && !colorTypes.includes(selColorType))) : [];
+  // If custom color selected, use "Colors" pricing
+  const effectiveRows = sizeRows.length > 0 ? sizeRows : variants.filter(v => v.color_type === "Colors");
+
+  // Expand size ranges into individual sizes
+  const expandSizes = (sizeStr) => {
+    if (!sizeStr) return [];
+    const s = sizeStr.trim();
+    // Handle ranges like S-XL, XS-3XL
+    const rangeMatch = s.match(/^(\w+)\s*-\s*(\w+)$/);
+    if (rangeMatch) {
+      const SIZE_ORDER = ["3-6M","6-12M","12-18M","18-24M","2T","3T","4T","5T","6T","OSFA","OS","XXS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
+      const start = SIZE_ORDER.indexOf(rangeMatch[1]);
+      const end = SIZE_ORDER.indexOf(rangeMatch[2]);
+      if (start >= 0 && end >= 0 && end >= start) return SIZE_ORDER.slice(start, end + 1);
+    }
+    // Handle comma-separated or single sizes
+    return s.split(",").map(x => x.trim()).filter(Boolean);
+  };
+
+  const toggleSz = (sz) => setSelSizes(p => { const n = { ...p }; if (n[sz] !== undefined) delete n[sz]; else n[sz] = 1; return n; });
+  const canAdd = selStyle && selColorType && Object.keys(selSizes).length > 0;
+
+  const doAdd = () => {
+    if (!canAdd) return;
+    const allSizes = sortSizes(Object.keys(selSizes));
+    const qtys = {}; allSizes.forEach(sz => { qtys[sz] = 0; });
+    // Find case price — use matching row's price for each size
+    const blankCosts = {};
+    for (const sz of allSizes) {
+      const row = effectiveRows.find(r => expandSizes(r.sizes).includes(sz));
+      if (row) blankCosts[sz] = row.case_price;
+    }
+    const colorLabel = selColorType === "White" ? "White" : selColorType === "Colors" ? "Colors" : selColorType;
+    onAdd({
+      id: Date.now() + Math.random(),
+      name: itemName.trim() || `LA Apparel ${selStyle.styleCode} - ${colorLabel}`,
+      blank_vendor: `LA Apparel ${selStyle.styleCode}`,
+      blank_sku: colorLabel,
+      style: `LA Apparel ${selStyle.styleCode}`,
+      color: colorLabel,
+      sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
+    });
+    setItemName(""); setSelColorType(null); setSelSizes({});
+  };
+
+  async function addColor() {
+    if (!newColor.trim() || !selStyle) return;
+    await fetch(`/api/laapparel?endpoint=add_color&styleCode=${selStyle.styleCode}&color=${encodeURIComponent(newColor.trim())}`);
+    setProducts(prev => prev.map(p => p.styleCode === selStyle.styleCode ? { ...p, colors: [...(p.colors || []), newColor.trim()] } : p));
+    setSelStyle(prev => prev ? { ...prev, colors: [...(prev.colors || []), newColor.trim()] } : prev);
+    setNewColor("");
+  }
+
+  const colRow = (label, active, onClick, sub) => (
+    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
+      onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
+      onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+      {label}
+      {sub && <div style={{ fontSize: 9, color: active ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+
+  const colHead = (title) => (
+    <div style={{ padding: "5px 11px", background: T.surface, borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: font }}>{title}</div>
+  );
+
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font }}>Browse LA Apparel</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search style # or name..." style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
+          <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 160 }} />
+          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>Add to buy sheet →</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+      </div>
+      {loading ? (
+        <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: T.muted }}>Loading LA Apparel catalog...</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr 1fr 1fr", height: 300 }}>
+          {/* Category */}
+          <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {colHead("Category")}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {categories.map(cat => colRow(cat, selCategory === cat, () => { setSelCategory(selCategory === cat ? null : cat); setSelStyle(null); setSelColorType(null); setSelSizes({}); }))}
+            </div>
+          </div>
+          {/* Style */}
+          <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {colHead("Style")}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {filteredProducts.map(p => (
+                <div key={p.styleCode} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
+                  <div onClick={() => loadStyle(p)} style={{ flex: 1, padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: selStyle?.styleCode === p.styleCode ? T.accent : "transparent", color: selStyle?.styleCode === p.styleCode ? "#fff" : T.text, transition: "background 0.1s" }}
+                    onMouseEnter={e => { if (selStyle?.styleCode !== p.styleCode) e.currentTarget.style.background = T.surface; }}
+                    onMouseLeave={e => { if (selStyle?.styleCode !== p.styleCode) e.currentTarget.style.background = "transparent"; }}>
+                    {p.styleCode}
+                    <div style={{ fontSize: 9, color: selStyle?.styleCode === p.styleCode ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{p.description}</div>
+                  </div>
+                  {isFav && <button onClick={(e) => { e.stopPropagation(); toggleFav("laapparel", p.styleCode, `LA Apparel ${p.styleCode}`, p.description); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 8px", fontSize: 14, color: isFav("laapparel", p.styleCode) ? T.amber : T.faint, flexShrink: 0 }}>
+                    {isFav("laapparel", p.styleCode) ? "★" : "☆"}
+                  </button>}
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Color */}
+          <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {colHead("Color")}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {!selStyle ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint }}>← Style</div>
+                : <>
+                  {allColorOptions.map(c => colRow(c, selColorType === c, () => { setSelColorType(c); setSelSizes({}); }))}
+                  <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}` }}>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <input value={newColor} onChange={e => setNewColor(e.target.value)} onKeyDown={e => e.key === "Enter" && addColor()}
+                        placeholder="Add color..." style={{ flex: 1, padding: "4px 8px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, outline: "none", fontFamily: font }} />
+                      <button onClick={addColor} disabled={!newColor.trim()}
+                        style={{ fontSize: 9, padding: "4px 8px", borderRadius: 4, border: "none", background: newColor.trim() ? T.accent : T.surface, color: newColor.trim() ? "#fff" : T.faint, cursor: newColor.trim() ? "pointer" : "default" }}>+</button>
+                    </div>
+                  </div>
+                </>}
+            </div>
+          </div>
+          {/* Sizes */}
+          <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {colHead("Sizes")}
+            <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+              {!selColorType ? <div style={{ padding: "6px 2px", fontSize: 10, color: T.faint }}>← Color</div>
+                : <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {(() => {
+                    const allSizes = [];
+                    for (const row of effectiveRows) {
+                      for (const sz of expandSizes(row.sizes)) {
+                        if (!allSizes.find(s => s.size === sz)) allSizes.push({ size: sz, price: row.case_price });
+                      }
+                    }
+                    return sortSizes(allSizes.map(s => s.size)).map(sz => {
+                      const on = selSizes[sz] !== undefined;
+                      const price = allSizes.find(s => s.size === sz)?.price || 0;
+                      return (
+                        <div key={sz} onClick={() => toggleSz(sz)}
+                          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
+                          {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${price.toFixed(2)}</span>}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              }
+            </div>
+            {selColorType && Object.keys(selSizes).length > 0 && (
+              <div style={{ padding: "5px 10px", borderTop: `1px solid ${T.border}`, fontSize: 10, fontFamily: font, color: T.muted }}>
+                {Object.keys(selSizes).length} size{Object.keys(selSizes).length !== 1 ? "s" : ""} selected
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Favorites Picker ─────────────────────────────────────────────────────────
+function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav }) {
+  const HP_CATEGORIES = ["Crewnecks", "Hats", "Hoodies", "Jackets", "Long Sleeve", "Tees", "Other"];
+  const [selCategory, setSelCategory] = useState(null);
+  const [selFav, setSelFav] = useState(null);
+  const [variants, setVariants] = useState([]);
+  const [inventory, setInventory] = useState({});
+  const [pricing, setPricing] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [selColor, setSelColor] = useState(null);
+  const [selSizes, setSelSizes] = useState({});
+  const [itemName, setItemName] = useState("");
+
+  async function loadFav(fav) {
+    setSelFav(fav); setSelColor(null); setSelSizes({}); setVariants([]); setInventory({}); setLoading(true);
+    try {
+      if (fav.supplier === "ss") {
+        // S&S: search by style name, get products
+        const searchRes = await fetch(`/api/ss?endpoint=search&q=${encodeURIComponent(fav.style_code)}`);
+        const searchData = await searchRes.json();
+        const match = (searchData || []).find(s => s.styleName === fav.style_code);
+        if (match) {
+          const prodRes = await fetch(`/api/ss?endpoint=products&styleId=${match.styleID}`);
+          const products = await prodRes.json();
+          const mapped = (products || []).map(p => ({
+            sku: `${p.styleName}-${p.colorName}-${p.sizeName}`,
+            colour: p.colorName,
+            sizeCode: p.sizeName,
+            price: p.customerPrice || p.casePrice || 0,
+            stock: (p.warehouses || []).reduce((a, w) => a + w.qty, 0),
+          }));
+          setVariants(mapped);
+          const inv = {}; mapped.forEach(v => { inv[v.sku] = v.stock; });
+          setInventory(inv);
+          const pr = {}; mapped.forEach(v => { pr[v.sku] = v.price; });
+          setPricing(pr);
+        }
+      } else if (fav.supplier === "ascolour") {
+        const [varRes, invRes, priceRes] = await Promise.all([
+          fetch(`/api/ascolour?endpoint=variants&styleCode=${fav.style_code}`),
+          fetch(`/api/ascolour?endpoint=inventory&q=${fav.style_code}`),
+          fetch(`/api/ascolour?endpoint=pricing`),
+        ]);
+        const varData = await varRes.json();
+        setVariants((varData || []).map(v => ({ ...v, colour: v.colour, sizeCode: v.sizeCode })));
+        const invData = await invRes.json();
+        const inv = {};
+        (invData || []).forEach(item => { inv[item.sku] = (inv[item.sku] || 0) + item.quantity; });
+        setInventory(inv);
+        const priceData = await priceRes.json();
+        const pr = {};
+        (priceData || []).forEach(p => { pr[p.sku] = p.price; });
+        setPricing(pr);
+      }
+    } catch (e) { console.error("Favorites load error:", e); }
+    setLoading(false);
+  }
+
+  const colorGroups = variants.reduce((acc, v) => {
+    if (!acc[v.colour]) acc[v.colour] = [];
+    acc[v.colour].push(v);
+    return acc;
+  }, {});
+  const colorNames = Object.keys(colorGroups).sort();
+  const currentColorVariants = selColor ? (colorGroups[selColor] || []) : [];
+
+  const toggleSz = (sz) => setSelSizes(p => { const n = { ...p }; if (n[sz] !== undefined) delete n[sz]; else n[sz] = 1; return n; });
+  const canAdd = selFav && selColor && Object.keys(selSizes).length > 0;
+
+  const doAdd = () => {
+    if (!canAdd) return;
+    const allSizes = sortSizes(Object.keys(selSizes));
+    const qtys = {}; allSizes.forEach(sz => { qtys[sz] = 0; });
+    const blankCosts = {};
+    allSizes.forEach(sz => {
+      const variant = currentColorVariants.find(v => v.sizeCode === sz);
+      if (variant) blankCosts[sz] = pricing[variant.sku] || variant.price || 0;
+    });
+    const prefix = selFav.supplier === "ss" ? "" : "AS Colour ";
+    onAdd({
+      id: Date.now() + Math.random(),
+      name: itemName.trim() || `${selFav.style_name} - ${selColor}`,
+      blank_vendor: selFav.style_name,
+      blank_sku: selColor,
+      style: selFav.style_name,
+      color: selColor,
+      sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
+    });
+    setItemName(""); setSelColor(null); setSelSizes({});
+  };
+
+  const colRow = (label, active, onClick, sub) => (
+    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
+      onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
+      onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+      {label}
+      {sub && <div style={{ fontSize: 9, color: active ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+
+  const colHead = (title) => (
+    <div style={{ padding: "5px 11px", background: T.surface, borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: font }}>{title}</div>
+  );
+
+  const supplierLabel = { ss: "S&S", ascolour: "AS Colour" };
+
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#5795b2", fontFamily: font }}>House Party Favorites</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
+          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>Add to buy sheet →</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "0.8fr 1.4fr 1fr 1fr", height: 300 }}>
+        {/* Category column */}
+        <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {colHead("Category")}
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {HP_CATEGORIES.filter(cat => favorites.some(f => (f.category || "Other") === cat)).map(cat => {
+              const count = favorites.filter(f => (f.category || "Other") === cat).length;
+              return colRow(`${cat}`, selCategory === cat, () => { setSelCategory(selCategory === cat ? null : cat); setSelFav(null); }, `${count} style${count !== 1 ? "s" : ""}`);
+            })}
+          </div>
+        </div>
+        {/* Favorites column */}
+        <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {colHead("Favorites")}
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {(()=>{
+              const filtered = selCategory ? favorites.filter(f => (f.category || "Other") === selCategory) : favorites;
+              return filtered.length === 0 ? (
+              <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>{selCategory ? "No favorites in this category" : "No favorites yet — star styles in S&S, AS Colour, or LA Apparel"}</div>
+            ) : filtered.map(fav => (
+              <div key={`${fav.supplier}-${fav.style_code}`} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
+                <div onClick={() => loadFav(fav)} style={{ flex: 1, padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: selFav?.style_code === fav.style_code && selFav?.supplier === fav.supplier ? T.accent : "transparent", color: selFav?.style_code === fav.style_code && selFav?.supplier === fav.supplier ? "#fff" : T.text, transition: "background 0.1s" }}
+                  onMouseEnter={e => { if (!(selFav?.style_code === fav.style_code && selFav?.supplier === fav.supplier)) e.currentTarget.style.background = T.surface; }}
+                  onMouseLeave={e => { if (!(selFav?.style_code === fav.style_code && selFav?.supplier === fav.supplier)) e.currentTarget.style.background = "transparent"; }}>
+                  {fav.style_name}
+                  <div style={{ fontSize: 9, color: selFav?.style_code === fav.style_code && selFav?.supplier === fav.supplier ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{supplierLabel[fav.supplier] || fav.supplier}</div>
+                </div>
+                <select value={fav.category || "Other"} onClick={e => e.stopPropagation()} onChange={async e => {
+                  const newCat = e.target.value;
+                  await createClient().from("favorites").update({ category: newCat }).eq("id", fav.id);
+                  setFavorites(prev => prev.map(f => f.id === fav.id ? { ...f, category: newCat } : f));
+                }} style={{ fontSize: 8, padding: "1px 2px", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.faint, outline: "none", cursor: "pointer", flexShrink: 0, marginRight: 2 }}>
+                  {HP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <button onClick={() => toggleFav(fav.supplier, fav.style_code, fav.style_name)}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 8px", fontSize: 14, color: T.amber, flexShrink: 0 }}>★</button>
+              </div>
+            ));
+            })()}
+          </div>
+        </div>
+        <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {colHead("Color")}
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {loading ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>Loading...</div>
+              : !selFav ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>← Select a favorite</div>
+              : colorNames.map(c => {
+                const stock = (colorGroups[c] || []).reduce((a, v) => a + (inventory[v.sku] || 0), 0);
+                return colRow(c, selColor === c, () => { setSelColor(c); setSelSizes({}); }, stock > 0 ? `${stock.toLocaleString()} avail` : undefined);
+              })}
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {colHead("Sizes")}
+          <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+            {!selColor ? <div style={{ padding: "6px 2px", fontSize: 10, color: T.faint, fontFamily: font }}>← Color</div>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {sortSizes(currentColorVariants.map(v => v.sizeCode)).map(sz => {
+                  const on = selSizes[sz] !== undefined;
+                  const variant = currentColorVariants.find(v => v.sizeCode === sz);
+                  const price = variant ? (pricing[variant.sku] || variant.price || 0) : 0;
+                  const stock = variant ? (inventory[variant.sku] || 0) : 0;
+                  return (
+                    <div key={sz} onClick={() => toggleSz(sz)}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 9, color: on ? "rgba(255,255,255,0.5)" : stock > 100 ? T.green : stock > 0 ? T.amber : T.red, fontFamily: mono }}>{stock.toLocaleString()}</span>
+                        {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${Number(price).toFixed(2)}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            }
+          </div>
+          {selColor && Object.keys(selSizes).length > 0 && (
+            <div style={{ padding: "5px 10px", borderTop: `1px solid ${T.border}`, fontSize: 10, fontFamily: font, color: T.muted }}>
+              {Object.keys(selSizes).length} size{Object.keys(selSizes).length !== 1 ? "s" : ""} selected
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -532,13 +964,58 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const [distTotal, setDistTotal] = useState("");
   const [showPicker, setShowPicker] = useState(false);
   const [showASColour, setShowASColour] = useState(false);
+  const [showLAApparel, setShowLAApparel] = useState(false);
   const [showAddType, setShowAddType] = useState(null); // "apparel" | "accessory" | null
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [favorites, setFavorites] = useState([]);
+  useEffect(() => {
+    createClient().from("favorites").select("*").order("style_name").then(({ data }) => setFavorites(data || []));
+  }, []);
+  const HP_CATEGORIES = ["Crewnecks", "Hats", "Hoodies", "Jackets", "Long Sleeve", "Tees"];
+  const CATEGORY_MAP = {
+    // S&S
+    "T-Shirts": "Tees", "Short Sleeve T-Shirts": "Tees", "Long Sleeve T-Shirts": "Long Sleeve",
+    "Fleece": "Hoodies", "Sweatshirts": "Crewnecks", "Hoodies": "Hoodies", "Outerwear": "Jackets",
+    "Caps": "Hats", "Headwear": "Hats",
+    // AS Colour
+    "Longsleeve T-Shirts": "Long Sleeve", "Hooded Sweatshirts": "Hoodies", "Crew Sweatshirts": "Crewnecks",
+    "Zip Sweatshirts": "Jackets",
+    // LA Apparel
+    "Men / Unisex": "Tees", "Womens": "Tees",
+  };
+  const guessCategory = (supplier, styleName, sourceCategory) => {
+    if (sourceCategory && CATEGORY_MAP[sourceCategory]) return CATEGORY_MAP[sourceCategory];
+    const lower = (styleName || "").toLowerCase();
+    if (lower.includes("hoodie") || lower.includes("hooded")) return "Hoodies";
+    if (lower.includes("crew") && lower.includes("sweat")) return "Crewnecks";
+    if (lower.includes("jacket") || lower.includes("zip")) return "Jackets";
+    if (lower.includes("long sleeve") || lower.includes("l/s")) return "Long Sleeve";
+    if (lower.includes("hat") || lower.includes("cap") || lower.includes("beanie")) return "Hats";
+    if (lower.includes("tee") || lower.includes("t-shirt")) return "Tees";
+    return "Other";
+  };
+  const isFav = (supplier, styleCode) => favorites.some(f => f.supplier === supplier && f.style_code === styleCode);
+  const toggleFav = async (supplier, styleCode, styleName, sourceCategory) => {
+    const supabase = createClient();
+    if (isFav(supplier, styleCode)) {
+      await supabase.from("favorites").delete().eq("supplier", supplier).eq("style_code", styleCode);
+      setFavorites(prev => prev.filter(f => !(f.supplier === supplier && f.style_code === styleCode)));
+    } else {
+      const category = guessCategory(supplier, styleName, sourceCategory);
+      const { data } = await supabase.from("favorites").insert({ supplier, style_code: styleCode, style_name: styleName, category }).select().single();
+      if (data) setFavorites(prev => [...prev, data].sort((a, b) => a.style_name.localeCompare(b.style_name)));
+    }
+  };
+  const [accType, setAccType] = useState("");
   const [accName, setAccName] = useState("");
   const [accQty, setAccQty] = useState("");
   const [accCatalog, setAccCatalog] = useState([]);
+  const [accTypes, setAccTypes] = useState([]);
   useEffect(() => {
-    createClient().from("items").select("name").eq("garment_type", "accessory").then(({ data }) => {
+    createClient().from("items").select("name, blank_vendor").eq("garment_type", "accessory").then(({ data }) => {
       setAccCatalog([...new Set((data || []).map(d => d.name).filter(Boolean))].sort());
+      setAccTypes([...new Set((data || []).map(d => d.blank_vendor).filter(Boolean))].sort());
     });
   }, []);
   const [dragIdx, setDragIdx] = useState(null);
@@ -588,12 +1065,13 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
 
   const addAccessory = () => {
     if (!accName.trim()) return;
+    const typeName = accType.trim();
     const item = {
       id: Date.now() + Math.random(),
       name: accName.trim(),
-      blank_vendor: "",
+      blank_vendor: typeName,
       blank_sku: "",
-      style: "",
+      style: typeName,
       color: "",
       garment_type: "accessory",
       sizes: ["OS"],
@@ -605,6 +1083,8 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
     };
     addItem(item);
     if (!accCatalog.includes(accName.trim())) setAccCatalog(prev => [...prev, accName.trim()].sort());
+    if (typeName && !accTypes.includes(typeName)) setAccTypes(prev => [...prev, typeName].sort());
+    setAccType("");
     setAccName("");
     setAccQty("");
   };
@@ -623,79 +1103,100 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
-      {showPicker && <SSPicker onAdd={item => { addItem(item); }} onClose={() => setShowPicker(false)} />}
-      {showASColour && <ASColourPicker onAdd={item => { addItem(item); setShowASColour(false); }} onClose={() => setShowASColour(false)} />}
+      {showPicker && <SSPicker onAdd={item => { addItem(item); }} onClose={() => setShowPicker(false)} isFav={isFav} toggleFav={toggleFav} />}
+      {showASColour && <ASColourPicker onAdd={item => { addItem(item); setShowASColour(false); }} onClose={() => setShowASColour(false)} isFav={isFav} toggleFav={toggleFav} />}
+      {showLAApparel && <LAApparelPicker onAdd={item => { addItem(item); }} onClose={() => setShowLAApparel(false)} isFav={isFav} toggleFav={toggleFav} />}
+      {showFavorites && <FavoritesPicker favorites={favorites} setFavorites={setFavorites} onAdd={item => { addItem(item); }} onClose={() => setShowFavorites(false)} toggleFav={toggleFav} />}
 
-      {isEmpty && !showPicker && !showASColour && (
-        <div style={{ padding:"20px 0" }}>
-          <div style={{ color:T.faint, fontSize:13, fontFamily:font, marginBottom:12 }}>No items yet — add products to start your buy sheet.</div>
-          <div style={{ display:"flex", gap:10, marginBottom:(showAddType==="apparel"||showAddType==="accessory")?12:0 }}>
-            <button onClick={() => setShowAddType(showAddType==="apparel"?null:"apparel")} style={{ background:showAddType==="apparel"?T.accent:T.surface, color:showAddType==="apparel"?"#fff":T.text, border:`1px solid ${showAddType==="apparel"?T.accent:T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
-              + Apparel
+      {/* Add Item Modal */}
+      {showAddModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center" }}
+          onClick={() => setShowAddModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"24px", width:420, maxWidth:"90vw" }}>
+            <div style={{ fontSize:16, fontWeight:700, color:T.text, fontFamily:font, marginBottom:4 }}>Add Item</div>
+            <div style={{ fontSize:12, color:T.muted, marginBottom:16 }}>Choose a source</div>
+            <button onClick={() => { setShowAddModal(false); setShowFavorites(true); }}
+              style={{ width:"100%", padding:"12px", borderRadius:8, border:"none", background:"#5795b2", color:"#fff", fontSize:13, fontWeight:700, fontFamily:font, cursor:"pointer", marginBottom:10, transition:"opacity 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+              onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+              House Party Favorites {favorites.length > 0 && <span style={{ fontSize:10, opacity:0.7, marginLeft:4 }}>{favorites.length}</span>}
             </button>
-            <button disabled style={{ background:T.surface, color:T.faint, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, cursor:"default", opacity:0.6 }}>
-              + Headwear <span style={{ fontSize:10, marginLeft:4 }}>coming soon</span>
-            </button>
-            <button onClick={() => setShowAddType(showAddType==="accessory"?null:"accessory")} style={{ background:showAddType==="accessory"?T.accent:T.surface, color:showAddType==="accessory"?"#fff":T.text, border:`1px solid ${showAddType==="accessory"?T.accent:T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
-              + Accessory
-            </button>
-          </div>
-          {showAddType==="apparel"&&(
-            <div style={{ display:"flex", gap:10 }}>
-              <button onClick={() => setShowPicker(true)} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
-                Browse S&amp;S Catalog
-              </button>
-              <button onClick={() => setShowASColour(true)} style={{ background:T.surface, color:T.text, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, cursor:"pointer" }}>
-                Browse AS Colour
-              </button>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+              {[
+                { label:"S&S Activewear", bg:"#b65722", color:"#fff", action:() => { setShowAddModal(false); setShowPicker(true); } },
+                { label:"AS Colour", bg:"#000000", color:"#fff", action:() => { setShowAddModal(false); setShowASColour(true); } },
+                { label:"LA Apparel", bg:"#ffffff", color:"#000000", border:true, action:() => { setShowAddModal(false); setShowLAApparel(true); } },
+                { label:"Custom Accessory", bg:T.surface, color:T.text, border:true, action:() => { setShowAddModal(false); setShowAddType("accessory"); } },
+                { label:"Headwear", bg:T.surface, color:T.faint, disabled:true, sub:"coming soon" },
+              ].map(opt => (
+                <button key={opt.label} onClick={opt.disabled ? undefined : opt.action} disabled={opt.disabled}
+                  style={{ padding:"10px 14px", borderRadius:8, border:opt.border?`1px solid ${T.border}`:"none", background:opt.bg,
+                    cursor:opt.disabled?"default":"pointer", opacity:opt.disabled?0.4:1, textAlign:"center", transition:"opacity 0.15s",
+                    fontSize:12, fontWeight:600, color:opt.color, fontFamily:font }}
+                  onMouseEnter={e => { if(!opt.disabled) e.currentTarget.style.opacity = "0.85"; }}
+                  onMouseLeave={e => { e.currentTarget.style.opacity = opt.disabled?"0.4":"1"; }}>
+                  {opt.label}{opt.sub ? <span style={{ fontSize:9, marginLeft:6, opacity:0.6 }}>{opt.sub}</span> : ""}
+                </button>
+              ))}
             </div>
-          )}
-          {showAddType==="accessory"&&(
-            <div style={{ display:"flex", gap:8, alignItems:"flex-end" }}>
-              <div style={{ flex:1, position:"relative" }}>
-                <label style={{ fontSize:10, color:T.muted, marginBottom:3, display:"block" }}>Accessory name</label>
+          </div>
+        </div>
+      )}
+
+      {/* Accessory modal */}
+      {showAddType === "accessory" && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center" }}
+          onClick={() => setShowAddType(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"24px", width:400, maxWidth:"90vw" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+              <div style={{ fontSize:16, fontWeight:700, color:T.text, fontFamily:font }}>Custom Accessory</div>
+              <button onClick={() => setShowAddType(null)} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", lineHeight:1 }}>×</button>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <div style={{ position:"relative" }}>
+                <label style={{ fontSize:10, color:T.muted, marginBottom:3, display:"block" }}>Type</label>
+                <input value={accType} onChange={e=>setAccType(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addAccessory()}
+                  list="acc-types-modal" placeholder="Patch - PVC, Sticker, Pin..." autoFocus style={{ width:"100%", padding:"8px 10px", border:`1px solid ${T.border}`, borderRadius:7, background:T.surface, color:T.text, fontSize:13, fontFamily:font, outline:"none", boxSizing:"border-box" }}/>
+                <datalist id="acc-types-modal">{accTypes.map(t=><option key={t} value={t}/>)}</datalist>
+              </div>
+              <div style={{ position:"relative" }}>
+                <label style={{ fontSize:10, color:T.muted, marginBottom:3, display:"block" }}>Name</label>
                 <input value={accName} onChange={e=>setAccName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addAccessory()}
-                  list="acc-catalog" placeholder="Sticker, Tote Bag, Pin..." style={{ width:"100%", padding:"8px 10px", border:`1px solid ${T.border}`, borderRadius:8, background:T.surface, color:T.text, fontSize:13, fontFamily:font, outline:"none", boxSizing:"border-box" }}/>
-                <datalist id="acc-catalog">{accCatalog.map(n=><option key={n} value={n}/>)}</datalist>
+                  list="acc-catalog-modal" placeholder="Item name..." style={{ width:"100%", padding:"8px 10px", border:`1px solid ${T.border}`, borderRadius:7, background:T.surface, color:T.text, fontSize:13, fontFamily:font, outline:"none", boxSizing:"border-box" }}/>
+                <datalist id="acc-catalog-modal">{accCatalog.map(n=><option key={n} value={n}/>)}</datalist>
               </div>
               <div>
                 <label style={{ fontSize:10, color:T.muted, marginBottom:3, display:"block" }}>Qty</label>
                 <input value={accQty} onChange={e=>setAccQty(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addAccessory()}
-                  type="text" inputMode="numeric" placeholder="0" style={{ width:80, padding:"8px 10px", border:`1px solid ${T.border}`, borderRadius:8, background:T.surface, color:T.text, fontSize:13, fontFamily:mono, outline:"none", textAlign:"center", boxSizing:"border-box" }}/>
+                  type="text" inputMode="numeric" placeholder="0" style={{ width:100, padding:"8px 10px", border:`1px solid ${T.border}`, borderRadius:7, background:T.surface, color:T.text, fontSize:13, fontFamily:mono, outline:"none", textAlign:"center", boxSizing:"border-box" }}/>
               </div>
-              <button onClick={addAccessory} disabled={!accName.trim()}
-                style={{ padding:"8px 20px", borderRadius:8, border:"none", fontSize:13, fontWeight:600, cursor:accName.trim()?"pointer":"default",
+              <button onClick={() => { addAccessory(); setShowAddType(null); }} disabled={!accName.trim()}
+                style={{ width:"100%", padding:"10px", borderRadius:8, border:"none", fontSize:13, fontWeight:600, cursor:accName.trim()?"pointer":"default",
                   background:accName.trim()?T.accent:T.surface, color:accName.trim()?"#fff":T.faint }}>
-                Add
+                Add to Buy Sheet
               </button>
             </div>
-          )}
+          </div>
+        </div>
+      )}
+
+      {isEmpty && !showPicker && !showASColour && !showLAApparel && !showFavorites && !showAddType && (
+        <div style={{ padding:"20px 0", textAlign:"center" }}>
+          <div style={{ color:T.faint, fontSize:13, fontFamily:font, marginBottom:16 }}>No items yet — add products to start your buy sheet.</div>
+          <button onClick={() => setShowAddModal(true)}
+            style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"12px 32px", fontSize:14, fontFamily:font, fontWeight:700, cursor:"pointer" }}>
+            + Add Item
+          </button>
         </div>
       )}
 
       {!isEmpty && (
         <>
           <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
-            <button onClick={() => { setShowAddType(showAddType==="apparel"?null:"apparel"); setShowPicker(false); setShowASColour(false); }} style={{ background:showAddType==="apparel"?T.accent:T.surface, color:showAddType==="apparel"?"#fff":T.muted, border:`1px solid ${showAddType==="apparel"?T.accent:T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
-              + Apparel
+            <button onClick={() => setShowAddModal(true)}
+              style={{ background:T.accent, color:"#fff", border:"none", borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+              + Add Item
             </button>
-            <button disabled style={{ background:T.surface, color:T.faint, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"default", opacity:0.6 }}>
-              + Headwear <span style={{ fontSize:9, marginLeft:3 }}>soon</span>
-            </button>
-            <button onClick={() => { setShowAddType(showAddType==="accessory"?null:"accessory"); setShowPicker(false); setShowASColour(false); }} style={{ background:showAddType==="accessory"?T.accent:T.surface, color:showAddType==="accessory"?"#fff":T.muted, border:`1px solid ${showAddType==="accessory"?T.accent:T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
-              + Accessory
-            </button>
-            {showAddType==="apparel"&&(
-              <>
-                <div style={{ width:1, height:20, background:T.border }}/>
-                <button onClick={() => { setShowPicker(!showPicker); setShowASColour(false); }} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
-                  Browse S&amp;S
-                </button>
-                <button onClick={() => { setShowASColour(!showASColour); setShowPicker(false); }} style={{ background:T.surface, color:T.muted, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"pointer" }}>
-                  Browse AS Colour
-                </button>
-              </>
-            )}
             {grandTotal > 0 && <span style={{ fontSize:12, color:T.green, fontFamily:mono, fontWeight:600 }}>{grandTotal.toLocaleString()} units total</span>}
             <div style={{ marginLeft:"auto", display:"flex", gap:12 }}>
               {[["↑↓←→","Nav"],["Enter","↓"],["Tab","→"]].map(([k,l]) => (
@@ -706,26 +1207,6 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
               ))}
             </div>
           </div>
-          {showAddType==="accessory"&&(
-            <div style={{ display:"flex", gap:8, alignItems:"flex-end", marginBottom:10 }}>
-              <div style={{ flex:1, position:"relative" }}>
-                <label style={{ fontSize:10, color:T.muted, marginBottom:3, display:"block" }}>Accessory name</label>
-                <input value={accName} onChange={e=>setAccName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addAccessory()}
-                  list="acc-catalog-tb" placeholder="Sticker, Tote Bag, Pin..." style={{ width:"100%", padding:"6px 10px", border:`1px solid ${T.border}`, borderRadius:7, background:T.surface, color:T.text, fontSize:12, fontFamily:font, outline:"none", boxSizing:"border-box" }}/>
-                <datalist id="acc-catalog-tb">{accCatalog.map(n=><option key={n} value={n}/>)}</datalist>
-              </div>
-              <div>
-                <label style={{ fontSize:10, color:T.muted, marginBottom:3, display:"block" }}>Qty</label>
-                <input value={accQty} onChange={e=>setAccQty(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addAccessory()}
-                  type="text" inputMode="numeric" placeholder="0" style={{ width:70, padding:"6px 10px", border:`1px solid ${T.border}`, borderRadius:7, background:T.surface, color:T.text, fontSize:12, fontFamily:mono, outline:"none", textAlign:"center", boxSizing:"border-box" }}/>
-              </div>
-              <button onClick={addAccessory} disabled={!accName.trim()}
-                style={{ padding:"6px 16px", borderRadius:7, border:"none", fontSize:12, fontWeight:600, cursor:accName.trim()?"pointer":"default",
-                  background:accName.trim()?T.accent:T.surface, color:accName.trim()?"#fff":T.faint }}>
-                Add
-              </button>
-            </div>
-          )}
 
           <div style={{ borderRadius:10, border:`1px solid ${T.border}`, overflow:"hidden" }}>
             <table style={{ borderCollapse:"collapse", fontSize:12, width:"100%" }}>
