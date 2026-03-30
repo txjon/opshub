@@ -113,8 +113,10 @@ function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, onFil
   async function loadFiles() {
     const res = await fetch(`/api/files?itemId=${item.id}`);
     const data = await res.json();
-    setFiles(data.files || []);
+    const fileList = data.files || [];
+    setFiles(fileList);
     setLoading(false);
+    if (onUpdateItem) onUpdateItem(item.id, { hasFiles: fileList.length > 0 });
   }
 
   async function handleUpload(e) {

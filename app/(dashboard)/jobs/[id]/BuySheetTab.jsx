@@ -150,7 +150,10 @@ function SSPicker({ onAdd, onClose }) {
           <div style={{ flex:1, overflowY:"auto" }}>
             {loadingProducts ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>Loading…</div>
               : !selStyle ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Style</div>
-              : colorNames.map(c => colRow(c, selColor===c, () => { setSelColor(c); setSelSizes({}); }))}
+              : colorNames.map(c => {
+                const stock = (colorGroups[c]?.items||[]).reduce((a,p) => a + (p.warehouses||[]).reduce((b,w) => b + w.qty, 0), 0);
+                return colRow(c, selColor===c, () => { setSelColor(c); setSelSizes({}); }, stock > 0 ? `${stock.toLocaleString()} avail` : undefined);
+              })}
           </div>
         </div>
         <div style={{ display:"flex", flexDirection:"column", overflow:"hidden" }}>
@@ -160,11 +163,16 @@ function SSPicker({ onAdd, onClose }) {
               : <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
                   {sortSizes(currentColor.sizes).map(sz => {
                     const on = selSizes[sz] !== undefined;
+                    const sizeProduct = (currentColor.items||[]).find(p => p.sizeName === sz);
+                    const sizeStock = sizeProduct ? (sizeProduct.warehouses||[]).reduce((a,w) => a + w.qty, 0) : 0;
                     return (
                       <div key={sz} onClick={() => toggleSz(sz)}
                         style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"7px 10px", borderRadius:6, cursor:"pointer", border:`1px solid ${on?T.accent:T.border}`, background:on?T.accent:T.surface, transition:"all 0.12s", userSelect:"none" }}>
                         <span style={{ fontSize:12, fontWeight:700, color:on?"#fff":T.muted, fontFamily:mono }}>{sz}</span>
-                        <span style={{ fontSize:10, color:on?"rgba(255,255,255,0.7)":T.muted }}>${Number(currentColor.prices[sz]||0).toFixed(2)}</span>
+                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          <span style={{ fontSize:9, color:on?"rgba(255,255,255,0.5)":sizeStock>100?T.green:sizeStock>0?T.amber:T.red, fontFamily:mono }}>{sizeStock.toLocaleString()}</span>
+                          <span style={{ fontSize:10, color:on?"rgba(255,255,255,0.7)":T.muted }}>${Number(currentColor.prices[sz]||0).toFixed(2)}</span>
+                        </div>
                       </div>
                     );
                   })}
@@ -181,165 +189,177 @@ function SSPicker({ onAdd, onClose }) {
     </div>
   );
 }
-// ── Manual Picker (pulls from blank_catalog table) ───────────────────────────
+// ── AS Colour Picker ─────────────────────────────────────────────────────────
 
-const POPULAR_STYLES = [
-  { brand: "Comfort Colors", style: "1717", title: "Garment-Dyed Heavyweight Tee" },
-  { brand: "Next Level", style: "6210", title: "Unisex CVC T-Shirt" },
-];
-
-function ManualPicker({ onAdd, onClose }) {
+function ASColourPicker({ onAdd, onClose }) {
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [styleData, setStyleData] = useState({}); // { "CC-1717": { colors: { "Black": { sizes: [...], prices: {...} } } } }
-  const [selBrand, setSelBrand] = useState(null);
+  const [pricing, setPricing] = useState({});  // { sku: price }
   const [selStyle, setSelStyle] = useState(null);
+  const [variants, setVariants] = useState([]);
+  const [loadingVariants, setLoadingVariants] = useState(false);
   const [selColor, setSelColor] = useState(null);
   const [selSizes, setSelSizes] = useState({});
-  const [name, setName] = useState("");
+  const [inventory, setInventory] = useState({});  // { sku: totalQty }
+  const [itemName, setItemName] = useState("");
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
-    async function loadAll() {
-      const results = {};
-
-      // 1. Load S&S popular styles
-      for (const ps of POPULAR_STYLES) {
-        const key = `${ps.brand}-${ps.style}`;
-        try {
-          const searchRes = await fetch(`/api/ss?endpoint=search&q=${ps.style}&brand=${encodeURIComponent(ps.brand)}`);
-          const searchData = await searchRes.json();
-          const match = (searchData || []).find(s => s.styleName === ps.style);
-          if (!match) continue;
-          const prodRes = await fetch(`/api/ss?endpoint=products&styleId=${match.styleID}`);
-          const products = await prodRes.json();
-          const colors = {};
-          (products || []).forEach(p => {
-            if (!colors[p.colorName]) colors[p.colorName] = { sizes: [], prices: {} };
-            if (!colors[p.colorName].sizes.includes(p.sizeName)) colors[p.colorName].sizes.push(p.sizeName);
-            colors[p.colorName].prices[p.sizeName] = p.customerPrice;
-          });
-          results[key] = { ...ps, source: "ss", colors };
-        } catch (e) { console.error("Failed to load", key, e); }
-      }
-
-      // 2. Load blank catalog entries
-      try {
-        const supabase = createClient();
-        const { data: catalog } = await supabase.from("blank_catalog").select("*").order("brand").order("style").order("color");
-        if (catalog && catalog.length > 0) {
-          const grouped = {};
-          catalog.forEach(entry => {
-            const key = `${entry.brand}-${entry.style}`;
-            if (results[key]) return; // S&S takes priority
-            if (!grouped[key]) grouped[key] = { brand: entry.brand, style: entry.style, title: "", source: "catalog", colors: {} };
-            grouped[key].colors[entry.color] = { sizes: entry.sizes || [], prices: entry.costs || {} };
-          });
-          Object.assign(results, grouped);
-        }
-      } catch (e) { console.error("Failed to load blank catalog", e); }
-
-      setStyleData(results);
+    async function load() {
+      const [prodRes, priceRes] = await Promise.all([
+        fetch("/api/ascolour?endpoint=products"),
+        fetch("/api/ascolour?endpoint=pricing"),
+      ]);
+      const prodData = await prodRes.json();
+      setProducts(Array.isArray(prodData) ? prodData : []);
+      const priceData = await priceRes.json();
+      const pm = {};
+      (Array.isArray(priceData) ? priceData : []).forEach(p => { pm[p.sku] = p.price; });
+      setPricing(pm);
       setLoading(false);
     }
-    loadAll();
+    load();
   }, []);
 
-  const brands = [...new Set(Object.values(styleData).map(sd => sd.brand))].sort();
-  const brandStyles = selBrand ? Object.entries(styleData).filter(([_, sd]) => sd.brand === selBrand) : [];
-  const currentStyle = selStyle ? styleData[selStyle] : null;
-  const colorNames = currentStyle ? Object.keys(currentStyle.colors).sort() : [];
-  const currentColor = currentStyle && selColor ? currentStyle.colors[selColor] : null;
-  const toggleSz = (sz) => setSelSizes(p => { const n={...p}; if(n[sz]!==undefined) delete n[sz]; else n[sz]=1; return n; });
-  const canAdd = currentStyle && currentColor && Object.keys(selSizes).length > 0;
+  const filteredProducts = search.trim()
+    ? products.filter(p => p.styleName?.toLowerCase().includes(search.toLowerCase()) || p.styleCode?.includes(search) || p.productType?.toLowerCase().includes(search.toLowerCase()))
+    : products;
+
+  async function loadVariants(style) {
+    setSelStyle(style);
+    setSelColor(null);
+    setSelSizes({});
+    setVariants([]);
+    setInventory({});
+    setLoadingVariants(true);
+    try {
+      const [varRes, invRes] = await Promise.all([
+        fetch(`/api/ascolour?endpoint=variants&styleCode=${style.styleCode}`),
+        fetch(`/api/ascolour?endpoint=inventory&q=${style.styleCode}`),
+      ]);
+      const varData = await varRes.json();
+      setVariants(Array.isArray(varData) ? varData : []);
+      const invData = await invRes.json();
+      const inv = {};
+      (Array.isArray(invData) ? invData : []).forEach(item => {
+        inv[item.sku] = (inv[item.sku] || 0) + item.quantity;
+      });
+      setInventory(inv);
+    } catch (e) { console.error("AS Colour load error:", e); }
+    setLoadingVariants(false);
+  }
+
+  // Group variants by color
+  const colorGroups = variants.reduce((acc, v) => {
+    if (!acc[v.colour]) acc[v.colour] = [];
+    acc[v.colour].push(v);
+    return acc;
+  }, {});
+  const colorNames = Object.keys(colorGroups).sort();
+  const currentColorVariants = selColor ? (colorGroups[selColor] || []) : [];
+
+  const toggleSz = (sz) => setSelSizes(p => { const n = { ...p }; if (n[sz] !== undefined) delete n[sz]; else n[sz] = 1; return n; });
+  const canAdd = selStyle && selColor && Object.keys(selSizes).length > 0;
 
   const doAdd = () => {
     if (!canAdd) return;
     const allSizes = sortSizes(Object.keys(selSizes));
     const qtys = {}; allSizes.forEach(sz => { qtys[sz] = 0; });
-    const blankCosts = {}; allSizes.forEach(sz => { blankCosts[sz] = currentColor.prices[sz] || 0; });
+    const blankCosts = {};
+    allSizes.forEach(sz => {
+      const variant = currentColorVariants.find(v => v.sizeCode === sz);
+      if (variant) blankCosts[sz] = pricing[variant.sku] || 0;
+    });
     onAdd({
       id: Date.now() + Math.random(),
-      name: name.trim() || `${currentStyle.brand} ${currentStyle.style} - ${selColor}`,
-      blank_vendor: `${currentStyle.brand} ${currentStyle.style}`,
+      name: itemName.trim() || `AS Colour ${selStyle.styleCode} - ${selColor}`,
+      blank_vendor: `AS Colour ${selStyle.styleCode}`,
       blank_sku: selColor,
-      style: `${currentStyle.brand} ${currentStyle.style}`,
+      style: `AS Colour ${selStyle.styleCode}`,
       color: selColor,
-      sizes: allSizes,
-      qtys,
-      curve: DEFAULT_CURVE,
-      totalQty: 0,
-      blankCosts,
+      sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
     });
-    setName(""); setSelColor(null); setSelSizes({}); setSelStyle(null); setSelBrand(null);
+    setItemName(""); setSelColor(null); setSelSizes({});
   };
 
   const colRow = (label, active, onClick, sub) => (
-    <div onClick={onClick} style={{ padding:"8px 11px", cursor:"pointer", fontSize:11, fontFamily:font, background:active?T.accent:"transparent", color:active?"#fff":T.text, borderBottom:`1px solid ${T.border}`, transition:"background 0.1s" }}
-      onMouseEnter={e => { if(!active) e.currentTarget.style.background=T.surface; }}
-      onMouseLeave={e => { if(!active) e.currentTarget.style.background="transparent"; }}>
+    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
+      onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
+      onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
       {label}
-      {sub && <div style={{ fontSize:9, color:active?"rgba(255,255,255,0.7)":T.faint, marginTop:1 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 9, color: active ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{sub}</div>}
     </div>
   );
 
   const colHead = (title) => (
-    <div style={{ padding:"5px 11px", background:T.surface, borderBottom:`1px solid ${T.border}`, fontSize:9, fontWeight:700, color:T.muted, letterSpacing:"0.1em", textTransform:"uppercase", fontFamily:font }}>{title}</div>
+    <div style={{ padding: "5px 11px", background: T.surface, borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: font }}>{title}</div>
   );
 
   return (
-    <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden", marginBottom:8 }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 14px", borderBottom:`1px solid ${T.border}` }}>
-        <span style={{ fontSize:12, fontWeight:700, color:T.text, fontFamily:font }}>Popular Styles</span>
-        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-          <input value={name} onChange={e=>setName(e.target.value)} placeholder="Item display name" style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", width:200 }} />
-          <button onClick={doAdd} disabled={!canAdd} style={{ background:canAdd?T.accent:T.surface, color:canAdd?"#fff":T.muted, border:"none", borderRadius:6, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:canAdd?"pointer":"default", transition:"all 0.15s" }}>Add to buy sheet →</button>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", lineHeight:1 }}>×</button>
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font }}>Browse AS Colour</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search style # or name..." style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 200 }} />
+          <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
+          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", transition: "all 0.15s" }}>Add to buy sheet →</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
       </div>
       {loading ? (
-        <div style={{ padding:20, textAlign:"center", fontSize:12, color:T.muted, fontFamily:font }}>Loading popular styles from S&amp;S…</div>
+        <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: T.muted, fontFamily: font }}>Loading AS Colour catalog...</div>
       ) : (
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1.5fr 1fr", height:300 }}>
-          <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
-            {colHead("Brand")}
-            <div style={{ flex:1, overflowY:"auto" }}>
-              {brands.map(b => colRow(b, selBrand===b, () => { setSelBrand(b); setSelStyle(null); setSelColor(null); setSelSizes({}); }))}
-            </div>
-          </div>
-          <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1.2fr 1fr", height: 300 }}>
+          <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Style")}
-            <div style={{ flex:1, overflowY:"auto" }}>
-              {!selBrand ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Brand</div>
-                : brandStyles.map(([key, sd]) => colRow(sd.style, selStyle===key, () => { setSelStyle(key); setSelColor(null); setSelSizes({}); }, sd.title))}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {filteredProducts.map(p => colRow(
+                `${p.styleCode} — ${(p.styleName || "").replace(` | ${p.styleCode}`, "")}`,
+                selStyle?.styleCode === p.styleCode,
+                () => loadVariants(p),
+                p.productType
+              ))}
             </div>
           </div>
-          <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Color")}
-            <div style={{ flex:1, overflowY:"auto" }}>
-              {!selStyle ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Style</div>
-                : colorNames.map(c => colRow(c, selColor===c, () => { setSelColor(c); setSelSizes({}); }))}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {loadingVariants ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>Loading...</div>
+                : !selStyle ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>← Style</div>
+                : colorNames.map(c => {
+                  const colorVars = colorGroups[c] || [];
+                  const stock = colorVars.reduce((a, v) => a + (inventory[v.sku] || 0), 0);
+                  return colRow(c, selColor === c, () => { setSelColor(c); setSelSizes({}); }, stock > 0 ? `${stock.toLocaleString()} avail` : undefined);
+                })}
             </div>
           </div>
-          <div style={{ display:"flex", flexDirection:"column", overflow:"hidden" }}>
+          <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Sizes")}
-            <div style={{ flex:1, overflowY:"auto", padding:8 }}>
-              {!selColor ? <div style={{ padding:"6px 2px", fontSize:10, color:T.faint, fontFamily:font }}>← Color</div>
-                : <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
-                    {sortSizes(currentColor.sizes).map(sz => {
-                      const on = selSizes[sz] !== undefined;
-                      return (
-                        <div key={sz} onClick={() => toggleSz(sz)}
-                          style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"7px 10px", borderRadius:6, cursor:"pointer", border:`1px solid ${on?T.accent:T.border}`, background:on?T.accent:T.surface, transition:"all 0.12s", userSelect:"none" }}>
-                          <span style={{ fontSize:12, fontWeight:700, color:on?"#fff":T.muted, fontFamily:mono }}>{sz}</span>
-                          <span style={{ fontSize:10, color:on?"rgba(255,255,255,0.7)":T.muted }}>${Number(currentColor.prices[sz]||0).toFixed(2)}</span>
+            <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+              {!selColor ? <div style={{ padding: "6px 2px", fontSize: 10, color: T.faint, fontFamily: font }}>← Color</div>
+                : <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {sortSizes(currentColorVariants.map(v => v.sizeCode)).map(sz => {
+                    const on = selSizes[sz] !== undefined;
+                    const variant = currentColorVariants.find(v => v.sizeCode === sz);
+                    const price = variant ? (pricing[variant.sku] || 0) : 0;
+                    const stock = variant ? (inventory[variant.sku] || 0) : 0;
+                    return (
+                      <div key={sz} onClick={() => toggleSz(sz)}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 9, color: on ? "rgba(255,255,255,0.5)" : stock > 100 ? T.green : stock > 0 ? T.amber : T.red, fontFamily: mono }}>{stock.toLocaleString()}</span>
+                          {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${price.toFixed(2)}</span>}
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    );
+                  })}
+                </div>
               }
             </div>
             {selColor && Object.keys(selSizes).length > 0 && (
-              <div style={{ padding:"5px 10px", borderTop:`1px solid ${T.border}`, fontSize:10, fontFamily:font, color:T.muted }}>
-                {Object.keys(selSizes).length} size{Object.keys(selSizes).length!==1?"s":""} selected
+              <div style={{ padding: "5px 10px", borderTop: `1px solid ${T.border}`, fontSize: 10, fontFamily: font, color: T.muted }}>
+                {Object.keys(selSizes).length} size{Object.keys(selSizes).length !== 1 ? "s" : ""} selected
               </div>
             )}
           </div>
@@ -348,6 +368,7 @@ function ManualPicker({ onAdd, onClose }) {
     </div>
   );
 }
+
 // ── Main BuySheetTab ─────────────────────────────────────────────────────────
 
 export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSaved }) {
@@ -501,7 +522,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const [distRow, setDistRow] = useState(null);
   const [distTotal, setDistTotal] = useState("");
   const [showPicker, setShowPicker] = useState(false);
-  const [showManual, setShowManual] = useState(false);
+  const [showASColour, setShowASColour] = useState(false);
   const [showAddType, setShowAddType] = useState(null); // "apparel" | "accessory" | null
   const [accName, setAccName] = useState("");
   const [accQty, setAccQty] = useState("");
@@ -594,9 +615,9 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
       {showPicker && <SSPicker onAdd={item => { addItem(item); }} onClose={() => setShowPicker(false)} />}
-      {showManual && <ManualPicker onAdd={item => { addItem(item); setShowManual(false); }} onClose={() => setShowManual(false)} />}
+      {showASColour && <ASColourPicker onAdd={item => { addItem(item); setShowASColour(false); }} onClose={() => setShowASColour(false)} />}
 
-      {isEmpty && !showPicker && !showManual && (
+      {isEmpty && !showPicker && !showASColour && (
         <div style={{ padding:"20px 0" }}>
           <div style={{ color:T.faint, fontSize:13, fontFamily:font, marginBottom:12 }}>No items yet — add products to start your buy sheet.</div>
           <div style={{ display:"flex", gap:10, marginBottom:(showAddType==="apparel"||showAddType==="accessory")?12:0 }}>
@@ -615,8 +636,8 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
               <button onClick={() => setShowPicker(true)} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
                 Browse S&amp;S Catalog
               </button>
-              <button onClick={() => setShowManual(true)} style={{ background:T.surface, color:T.text, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, cursor:"pointer" }}>
-                + Popular
+              <button onClick={() => setShowASColour(true)} style={{ background:T.surface, color:T.text, border:`1px solid ${T.border}`, borderRadius:8, padding:"9px 20px", fontSize:13, fontFamily:font, cursor:"pointer" }}>
+                Browse AS Colour
               </button>
             </div>
           )}
@@ -646,23 +667,23 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
       {!isEmpty && (
         <>
           <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
-            <button onClick={() => { setShowAddType(showAddType==="apparel"?null:"apparel"); setShowPicker(false); setShowManual(false); }} style={{ background:showAddType==="apparel"?T.accent:T.surface, color:showAddType==="apparel"?"#fff":T.muted, border:`1px solid ${showAddType==="apparel"?T.accent:T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+            <button onClick={() => { setShowAddType(showAddType==="apparel"?null:"apparel"); setShowPicker(false); setShowASColour(false); }} style={{ background:showAddType==="apparel"?T.accent:T.surface, color:showAddType==="apparel"?"#fff":T.muted, border:`1px solid ${showAddType==="apparel"?T.accent:T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
               + Apparel
             </button>
             <button disabled style={{ background:T.surface, color:T.faint, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"default", opacity:0.6 }}>
               + Headwear <span style={{ fontSize:9, marginLeft:3 }}>soon</span>
             </button>
-            <button onClick={() => { setShowAddType(showAddType==="accessory"?null:"accessory"); setShowPicker(false); setShowManual(false); }} style={{ background:showAddType==="accessory"?T.accent:T.surface, color:showAddType==="accessory"?"#fff":T.muted, border:`1px solid ${showAddType==="accessory"?T.accent:T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+            <button onClick={() => { setShowAddType(showAddType==="accessory"?null:"accessory"); setShowPicker(false); setShowASColour(false); }} style={{ background:showAddType==="accessory"?T.accent:T.surface, color:showAddType==="accessory"?"#fff":T.muted, border:`1px solid ${showAddType==="accessory"?T.accent:T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
               + Accessory
             </button>
             {showAddType==="apparel"&&(
               <>
                 <div style={{ width:1, height:20, background:T.border }}/>
-                <button onClick={() => { setShowPicker(!showPicker); setShowManual(false); }} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+                <button onClick={() => { setShowPicker(!showPicker); setShowASColour(false); }} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
                   Browse S&amp;S
                 </button>
-                <button onClick={() => { setShowManual(!showManual); setShowPicker(false); }} style={{ background:T.surface, color:T.muted, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"pointer" }}>
-                  + Popular
+                <button onClick={() => { setShowASColour(!showASColour); setShowPicker(false); }} style={{ background:T.surface, color:T.muted, border:`1px solid ${T.border}`, borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, cursor:"pointer" }}>
+                  Browse AS Colour
                 </button>
               </>
             )}

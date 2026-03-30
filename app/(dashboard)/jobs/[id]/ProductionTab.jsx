@@ -15,26 +15,42 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
   const supabase = createClient();
   const [localFields, setLocalFields] = useState({});
   const saveTimers = useRef({});
+  const pendingSaves = useRef({});
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
 
+  // Init only new items — don't overwrite existing local edits
   useEffect(() => {
-    const fields = {};
-    items.forEach(it => {
-      fields[it.id] = {
-        ship_tracking: it.ship_tracking || "",
-        ship_qtys: it.ship_qtys || {},
-      };
+    setLocalFields(prev => {
+      const next = { ...prev };
+      let changed = false;
+      items.forEach(it => {
+        if (!next[it.id]) {
+          next[it.id] = { ship_tracking: it.ship_tracking || "", ship_qtys: it.ship_qtys || {} };
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
     });
-    setLocalFields(fields);
   }, [items]);
+
+  // Save pending changes on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(pendingSaves.current).forEach(fn => { if (typeof fn === "function") fn(); });
+    };
+  }, []);
 
   function updateField(itemId, field, value) {
     setLocalFields(p => ({ ...p, [itemId]: { ...p[itemId], [field]: value } }));
     const key = itemId + "_" + field;
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
-    saveTimers.current[key] = setTimeout(async () => {
+    const doSave = async () => {
+      delete pendingSaves.current[key];
       await supabase.from("items").update({ [field]: value || null }).eq("id", itemId);
-    }, 800);
+      if (onUpdateItem) onUpdateItem(itemId, { [field]: value || null });
+    };
+    pendingSaves.current[key] = doSave;
+    saveTimers.current[key] = setTimeout(doSave, 800);
   }
 
   async function markShipped(itemId) {
@@ -59,9 +75,13 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
     setLocalFields(p => ({ ...p, [itemId]: { ...p[itemId], ship_qtys: updated } }));
     const key = itemId + "_ship_qtys";
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
-    saveTimers.current[key] = setTimeout(async () => {
+    const doSave = async () => {
+      delete pendingSaves.current[key];
       await supabase.from("items").update({ ship_qtys: updated }).eq("id", itemId);
-    }, 800);
+      if (onUpdateItem) onUpdateItem(itemId, { ship_qtys: updated });
+    };
+    pendingSaves.current[key] = doSave;
+    saveTimers.current[key] = setTimeout(doSave, 800);
   }
 
   if (items.length === 0) {
