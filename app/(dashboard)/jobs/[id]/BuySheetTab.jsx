@@ -195,6 +195,7 @@ function ASColourPicker({ onAdd, onClose }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pricing, setPricing] = useState({});  // { sku: price }
+  const [selCategory, setSelCategory] = useState(null);
   const [selStyle, setSelStyle] = useState(null);
   const [variants, setVariants] = useState([]);
   const [loadingVariants, setLoadingVariants] = useState(false);
@@ -221,9 +222,12 @@ function ASColourPicker({ onAdd, onClose }) {
     load();
   }, []);
 
-  const filteredProducts = search.trim()
-    ? products.filter(p => p.styleName?.toLowerCase().includes(search.toLowerCase()) || p.styleCode?.includes(search) || p.productType?.toLowerCase().includes(search.toLowerCase()))
-    : products;
+  const categories = [...new Set(products.map(p => p.productType).filter(Boolean))].sort();
+  const filteredProducts = products.filter(p => {
+    if (search.trim()) return p.styleName?.toLowerCase().includes(search.toLowerCase()) || p.styleCode?.includes(search) || p.productType?.toLowerCase().includes(search.toLowerCase());
+    if (selCategory) return p.productType === selCategory;
+    return true;
+  });
 
   async function loadVariants(style) {
     setSelStyle(style);
@@ -309,15 +313,20 @@ function ASColourPicker({ onAdd, onClose }) {
       {loading ? (
         <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: T.muted, fontFamily: font }}>Loading AS Colour catalog...</div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1.2fr 1fr", height: 300 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr 1.2fr 1fr", height: 300 }}>
+          <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {colHead("Category")}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {categories.map(cat => colRow(cat, selCategory === cat, () => { setSelCategory(selCategory === cat ? null : cat); setSelStyle(null); setSelColor(null); setSelSizes({}); setVariants([]); }))}
+            </div>
+          </div>
           <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Style")}
             <div style={{ flex: 1, overflowY: "auto" }}>
               {filteredProducts.map(p => colRow(
                 `${p.styleCode} — ${(p.styleName || "").replace(` | ${p.styleCode}`, "")}`,
                 selStyle?.styleCode === p.styleCode,
-                () => loadVariants(p),
-                p.productType
+                () => loadVariants(p)
               ))}
             </div>
           </div>

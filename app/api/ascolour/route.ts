@@ -49,23 +49,57 @@ export async function GET(request: NextRequest) {
   if (!endpoint) return NextResponse.json({ error: "Missing endpoint" }, { status: 400 });
 
   try {
-    let url = "";
-    let hdrs: Record<string, string>;
-
     if (endpoint === "products") {
-      // Get all products or search by type
-      url = `${AC_BASE}/catalog/products?pageSize=250`;
-      hdrs = headers();
+      // Paginate to get all products
+      const hdrs = headers();
+      const allProducts: any[] = [];
+      let page = 1;
+      while (true) {
+        const res = await fetch(`${AC_BASE}/catalog/products?pageSize=250&pageNumber=${page}`, { headers: hdrs, cache: "no-store" });
+        if (!res.ok) break;
+        const data = await res.json();
+        const items = data.data || data;
+        if (!Array.isArray(items) || items.length === 0) break;
+        allProducts.push(...items);
+        if (items.length < 250) break;
+        page++;
+      }
+      return NextResponse.json(allProducts);
     } else if (endpoint === "variants") {
       if (!styleCode) return NextResponse.json({ error: "Missing styleCode" }, { status: 400 });
-      url = `${AC_BASE}/catalog/products/${styleCode}/variants?pageSize=250`;
-      hdrs = headers();
+      const hdrs = headers();
+      const allVars: any[] = [];
+      let page = 1;
+      while (true) {
+        const res = await fetch(`${AC_BASE}/catalog/products/${styleCode}/variants?pageSize=250&pageNumber=${page}`, { headers: hdrs, cache: "no-store" });
+        if (!res.ok) break;
+        const data = await res.json();
+        const items = data.data || data;
+        if (!Array.isArray(items) || items.length === 0) break;
+        allVars.push(...items);
+        if (items.length < 250) break;
+        page++;
+      }
+      return NextResponse.json(allVars);
     } else if (endpoint === "inventory") {
-      // Get inventory, optionally filtered by SKU prefix
-      url = q
+      // Paginate inventory
+      const hdrs = headers();
+      const baseUrl = q
         ? `${AC_BASE}/inventory/items?skuFilter=${encodeURIComponent(q)}&pageSize=250`
         : `${AC_BASE}/inventory/items?pageSize=250`;
-      hdrs = headers();
+      const allInv: any[] = [];
+      let page = 1;
+      while (true) {
+        const res = await fetch(`${baseUrl}&pageNumber=${page}`, { headers: hdrs, cache: "no-store" });
+        if (!res.ok) break;
+        const data = await res.json();
+        const items = data.data || data;
+        if (!Array.isArray(items) || items.length === 0) break;
+        allInv.push(...items);
+        if (items.length < 250) break;
+        page++;
+      }
+      return NextResponse.json(allInv);
     } else if (endpoint === "pricing") {
       // Requires auth token
       url = `${AC_BASE}/catalog/pricelist?pageSize=250`;
@@ -89,14 +123,6 @@ export async function GET(request: NextRequest) {
     } else {
       return NextResponse.json({ error: "Unknown endpoint" }, { status: 400 });
     }
-
-    const res = await fetch(url, { headers: hdrs, cache: "no-store" });
-    if (!res.ok) {
-      const text = await res.text();
-      return NextResponse.json({ error: `AS Colour API error: ${res.status}`, detail: text }, { status: res.status });
-    }
-    const data = await res.json();
-    return NextResponse.json(data.data || data);
   } catch (err) {
     return NextResponse.json({ error: "Failed to fetch", detail: String(err) }, { status: 500 });
   }
