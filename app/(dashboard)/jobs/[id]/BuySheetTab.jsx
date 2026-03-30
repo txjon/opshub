@@ -1011,11 +1011,12 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const [accName, setAccName] = useState("");
   const [accQty, setAccQty] = useState("");
   const [accCatalog, setAccCatalog] = useState([]);
-  const [accTypes, setAccTypes] = useState([]);
+  const SEED_ACC_TYPES = ["Patch - PVC", "Patch - Embroidered", "Flag", "Keychain"];
+  const [accTypes, setAccTypes] = useState(SEED_ACC_TYPES);
   useEffect(() => {
     createClient().from("items").select("name, blank_vendor").eq("garment_type", "accessory").then(({ data }) => {
       setAccCatalog([...new Set((data || []).map(d => d.name).filter(Boolean))].sort());
-      setAccTypes([...new Set((data || []).map(d => d.blank_vendor).filter(Boolean))].sort());
+      setAccTypes([...new Set([...SEED_ACC_TYPES, ...(data || []).map(d => d.blank_vendor).filter(Boolean)])].sort());
     });
   }, []);
   const [dragIdx, setDragIdx] = useState(null);

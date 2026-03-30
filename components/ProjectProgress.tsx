@@ -9,16 +9,16 @@ type Step = {
   detail?: string;
 };
 
-export function ProjectProgress({ job, items, payments, proofStatus, onTabClick }: {
+export function ProjectProgress({ job, items, payments, proofStatus, onTabClick, activeTab }: {
   job: any;
   items: any[];
   payments: any[];
   proofStatus: Record<string, { allApproved: boolean }>;
   onTabClick: (tab: string) => void;
+  activeTab: string;
 }) {
   const hasItems = items.length > 0;
   const hasCosting = items.some(it => it.decorator);
-  const quoteSent = true; // We don't track this explicitly yet
   const quoteApproved = job.quote_approved;
   const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
   const hasProofs = items.some(it => (it as any).hasFiles);
@@ -43,21 +43,19 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick 
   const allShipped = items.length > 0 && items.every(it => it.pipeline_stage === "shipped");
 
   const steps: Step[] = [
-    { id: "buysheet", label: "Buy Sheet", done: hasItems, active: !hasItems, detail: hasItems ? `${items.length} items` : undefined },
+    { id: "overview", label: "Overview", done: true, active: false },
+    { id: "buysheet", label: "Buy Sheet", done: hasItems, active: !hasItems, detail: hasItems ? `${items.length}` : undefined },
     { id: "costing", label: "Costing", done: hasCosting, active: hasItems && !hasCosting },
-    { id: "quote", label: "Quote Approved", done: quoteApproved, active: hasCosting && !quoteApproved },
+    { id: "quote", label: "Quote", done: quoteApproved, active: hasCosting && !quoteApproved },
     { id: "art", label: "Art Files", done: hasProofs, active: hasItems && !hasProofs },
-    { id: "approvals", label: "Proofs Approved", done: allProofsApproved, active: quoteApproved && !allProofsApproved, detail: allProofsApproved ? undefined : `${items.filter(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved").length}/${items.length}` },
-    { id: "approvals", label: "Payment", done: paymentMet, active: quoteApproved && !paymentMet, detail: isNetTerms ? "Net terms" : undefined },
-    { id: "blanks", label: "Blanks Ordered", done: allBlanksOrdered, active: paymentMet && allProofsApproved && !allBlanksOrdered, detail: apparelItems.length > 0 && blanksOrdered > 0 ? `${blanksOrdered}/${apparelItems.length}` : undefined },
-    { id: "po", label: "POs Sent", done: allPosSent, active: allBlanksOrdered && !allPosSent, detail: allPosSent ? undefined : vendors.length > 0 ? `${poSentVendors.length}/${vendors.length}` : undefined },
+    { id: "approvals", label: "Approvals", done: allProofsApproved && paymentMet, active: quoteApproved && (!allProofsApproved || !paymentMet) },
+    { id: "blanks", label: "Blanks", done: allBlanksOrdered, active: paymentMet && allProofsApproved && !allBlanksOrdered, detail: apparelItems.length > 0 && blanksOrdered > 0 ? `${blanksOrdered}/${apparelItems.length}` : undefined },
+    { id: "po", label: "PO", done: allPosSent, active: allBlanksOrdered && !allPosSent },
     { id: "production", label: "Production", done: allShipped, active: atDecorator && !allShipped },
   ];
 
-  // Find the first incomplete step
-  const nextIdx = steps.findIndex(s => !s.done);
   const completedCount = steps.filter(s => s.done).length;
-  const pct = Math.round((completedCount / steps.length) * 100);
+  const pct = Math.round(((completedCount - 1) / (steps.length - 1)) * 100); // -1 to exclude Overview which is always done
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>
@@ -69,9 +67,11 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick 
         <span style={{ fontSize: 10, fontFamily: mono, color: pct === 100 ? T.green : T.muted, fontWeight: 600 }}>{pct}%</span>
       </div>
 
-      {/* Steps */}
-      <div style={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+      {/* Nav steps */}
+      <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
         {steps.map((step, i) => {
+          const isCurrent = activeTab === step.id || (step.id === "quote" && activeTab === "quote");
+          const nextIdx = steps.findIndex(s => !s.done);
           const isNext = i === nextIdx;
           return (
             <button
@@ -79,17 +79,17 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick 
               onClick={() => onTabClick(step.id)}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
-                padding: "3px 10px", borderRadius: 99, fontSize: 10,
-                fontFamily: font, fontWeight: isNext ? 700 : step.done ? 500 : 400,
-                cursor: "pointer", border: "none",
-                background: step.done ? T.greenDim : isNext ? T.accentDim : "transparent",
-                color: step.done ? T.green : isNext ? T.accent : T.faint,
+                padding: "6px 16px", borderRadius: 99, fontSize: 12,
+                fontFamily: font, fontWeight: isCurrent ? 700 : isNext ? 600 : step.done ? 500 : 400,
+                cursor: "pointer", border: isCurrent ? `2px solid ${T.accent}` : "2px solid transparent",
+                background: isCurrent ? T.accent : step.done ? T.greenDim : isNext ? T.accentDim : "transparent",
+                color: isCurrent ? "#fff" : step.done ? T.green : isNext ? T.accent : T.faint,
                 transition: "all 0.15s",
               }}
             >
-              <span style={{ fontSize: 8 }}>{step.done ? "✓" : isNext ? "→" : "○"}</span>
+              {!isCurrent && <span style={{ fontSize: 8 }}>{step.done ? "✓" : isNext ? "→" : "○"}</span>}
               {step.label}
-              {step.detail && <span style={{ fontFamily: mono, fontSize: 9, opacity: 0.7 }}>{step.detail}</span>}
+              {step.detail && !isCurrent && <span style={{ fontFamily: mono, fontSize: 9, opacity: 0.7 }}>{step.detail}</span>}
             </button>
           );
         })}

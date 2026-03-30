@@ -421,30 +421,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {/* Progress checklist */}
       {job.phase !== "complete" && job.phase !== "cancelled" && (
-        <ProjectProgress job={job} items={items} payments={payments} proofStatus={proofStatus} onTabClick={setTab} />
+        <ProjectProgress job={job} items={items} payments={payments} proofStatus={proofStatus} activeTab={tab} onTabClick={async (t) => {
+          if (tab === "buysheet" && t !== "buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
+          if ((tab === "costing" || tab === "quote") && t !== "costing" && t !== "quote") {
+            if (saveCostingRef.current) { try { await saveCostingRef.current(); } catch(e) { if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return; } }
+          }
+          setTab(t);
+        }} />
       )}
 
-      {/* Horizontal tab nav */}
-      <div style={{display:"flex",gap:4,padding:4,background:T.surface,borderRadius:8,marginBottom:16,flexWrap:"wrap"}}>
-        {[{id:"overview",label:"Overview"},{id:"buysheet",label:"Buy Sheet"},{id:"costing",label:"Costing"},{id:"quote",label:"Client Quote"},{id:"art",label:"Art Files"},{id:"approvals",label:"Approvals & Payment"},{id:"blanks",label:"Blanks"},{id:"po",label:"Purchase Order"},{id:"production",label:"Production"}].map(t=>(
-          <button key={t.id} onClick={async ()=>{
-            if (tab==="buysheet" && t.id!=="buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
-            if ((tab==="costing" || tab==="quote") && t.id!=="costing" && t.id!=="quote") {
-              if (saveCostingRef.current) {
-                try {
-                  await saveCostingRef.current();
-                } catch(e) {
-                  if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return;
-                }
-              }
-            }
-            setTab(t.id);
-          }}
-            style={{padding:"7px 14px",fontSize:12,fontWeight:tab===t.id?600:400,background:tab===t.id?T.accent:"transparent",color:tab===t.id?"#fff":T.muted,border:"none",borderRadius:6,cursor:"pointer",fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",whiteSpace:"nowrap"}}>
-            {t.label}
-          </button>
-        ))}
-      </div>
 
       {/* Layout: content + activity panel */}
       <div style={{display:"flex",gap:20}}>
