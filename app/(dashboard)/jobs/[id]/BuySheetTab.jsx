@@ -619,6 +619,15 @@ function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav })
   const [selColor, setSelColor] = useState(null);
   const [selSizes, setSelSizes] = useState({});
   const [itemName, setItemName] = useState("");
+  const [newColor, setNewColor] = useState("");
+
+  async function addLAColor() {
+    if (!newColor.trim() || !selFav || selFav.supplier !== "laapparel") return;
+    await fetch(`/api/laapparel?endpoint=add_color&styleCode=${selFav.style_code}&color=${encodeURIComponent(newColor.trim())}`);
+    // Reload variants to pick up new color
+    await loadFav(selFav);
+    setNewColor("");
+  }
 
   async function loadFav(fav) {
     setSelFav(fav); setSelColor(null); setSelSizes({}); setVariants([]); setInventory({}); setLoading(true);
@@ -660,6 +669,37 @@ function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav })
         const pr = {};
         (priceData || []).forEach(p => { pr[p.sku] = p.price; });
         setPricing(pr);
+      } else if (fav.supplier === "laapparel") {
+        const varRes = await fetch(`/api/laapparel?endpoint=variants&styleCode=${fav.style_code}`);
+        const varData = await varRes.json();
+        // LA Apparel has color_type (White/Colors) + custom colors array
+        const colorTypes = [...new Set((varData || []).map(v => v.color_type))];
+        const customColors = (varData || []).length > 0 ? (varData[0].colors || []) : [];
+        const allColors = [...colorTypes, ...customColors.filter(c => !colorTypes.includes(c))];
+        // Expand sizes and build variants per color
+        const SIZE_ORDER = ["3-6M","6-12M","12-18M","18-24M","2T","3T","4T","5T","6T","OSFA","OS","XXS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL"];
+        const expandSizes = (s) => {
+          const rangeMatch = s.trim().match(/^(\w+)\s*-\s*(\w+)$/);
+          if (rangeMatch) { const start = SIZE_ORDER.indexOf(rangeMatch[1]); const end = SIZE_ORDER.indexOf(rangeMatch[2]); if (start >= 0 && end >= start) return SIZE_ORDER.slice(start, end + 1); }
+          return s.split(",").map(x => x.trim()).filter(Boolean);
+        };
+        const mapped = [];
+        for (const color of allColors) {
+          // Use "Colors" pricing for custom colors, or matching color_type
+          const rows = varData.filter(v => v.color_type === color || (v.color_type === "Colors" && !["White"].includes(color) && !colorTypes.includes(color)));
+          const effectiveRows = rows.length > 0 ? rows : varData.filter(v => v.color_type === "Colors");
+          for (const row of effectiveRows) {
+            for (const sz of expandSizes(row.sizes)) {
+              if (!mapped.find(m => m.colour === color && m.sizeCode === sz)) {
+                mapped.push({ sku: `${fav.style_code}-${color}-${sz}`, colour: color, sizeCode: sz, price: row.case_price });
+              }
+            }
+          }
+        }
+        setVariants(mapped);
+        const pr = {}; mapped.forEach(v => { pr[v.sku] = v.price || 0; });
+        setPricing(pr);
+        setInventory({});
       }
     } catch (e) { console.error("Favorites load error:", e); }
     setLoading(false);
@@ -769,10 +809,22 @@ function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav })
           <div style={{ flex: 1, overflowY: "auto" }}>
             {loading ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>Loading...</div>
               : !selFav ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>← Select a favorite</div>
-              : colorNames.map(c => {
-                const stock = (colorGroups[c] || []).reduce((a, v) => a + (inventory[v.sku] || 0), 0);
-                return colRow(c, selColor === c, () => { setSelColor(c); setSelSizes({}); }, stock > 0 ? `${stock.toLocaleString()} avail` : undefined);
-              })}
+              : <>
+                {colorNames.map(c => {
+                  const stock = (colorGroups[c] || []).reduce((a, v) => a + (inventory[v.sku] || 0), 0);
+                  return colRow(c, selColor === c, () => { setSelColor(c); setSelSizes({}); }, stock > 0 ? `${stock.toLocaleString()} avail` : undefined);
+                })}
+                {selFav?.supplier === "laapparel" && (
+                  <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}` }}>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <input value={newColor} onChange={e => setNewColor(e.target.value)} onKeyDown={e => e.key === "Enter" && addLAColor()}
+                        placeholder="Add color..." style={{ flex: 1, padding: "4px 8px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, outline: "none", fontFamily: font }} />
+                      <button onClick={addLAColor} disabled={!newColor.trim()}
+                        style={{ fontSize: 9, padding: "4px 8px", borderRadius: 4, border: "none", background: newColor.trim() ? T.accent : T.surface, color: newColor.trim() ? "#fff" : T.faint, cursor: newColor.trim() ? "pointer" : "default" }}>+</button>
+                    </div>
+                  </div>
+                )}
+              </>}
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -1104,10 +1156,23 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
-      {showPicker && <SSPicker onAdd={item => { addItem(item); }} onClose={() => setShowPicker(false)} isFav={isFav} toggleFav={toggleFav} />}
-      {showASColour && <ASColourPicker onAdd={item => { addItem(item); setShowASColour(false); }} onClose={() => setShowASColour(false)} isFav={isFav} toggleFav={toggleFav} />}
-      {showLAApparel && <LAApparelPicker onAdd={item => { addItem(item); }} onClose={() => setShowLAApparel(false)} isFav={isFav} toggleFav={toggleFav} />}
-      {showFavorites && <FavoritesPicker favorites={favorites} setFavorites={setFavorites} onAdd={item => { addItem(item); }} onClose={() => setShowFavorites(false)} toggleFav={toggleFav} />}
+      {(showPicker || showASColour || showLAApparel || showFavorites) && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
+          onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); }}>
+          <div onClick={e => e.stopPropagation()} style={{ width:"95vw", maxWidth:1000, maxHeight:"90vh", display:"flex", flexDirection:"column" }}>
+            <div style={{ marginBottom:8, display:"flex", gap:8, alignItems:"center" }}>
+              <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowAddModal(true); }}
+                style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, fontSize:11, fontWeight:600, padding:"4px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
+                ← Sources
+              </button>
+            </div>
+            {showPicker && <SSPicker onAdd={item => { addItem(item); }} onClose={() => setShowPicker(false)} isFav={isFav} toggleFav={toggleFav} />}
+            {showASColour && <ASColourPicker onAdd={item => { addItem(item); setShowASColour(false); }} onClose={() => setShowASColour(false)} isFav={isFav} toggleFav={toggleFav} />}
+            {showLAApparel && <LAApparelPicker onAdd={item => { addItem(item); }} onClose={() => setShowLAApparel(false)} isFav={isFav} toggleFav={toggleFav} />}
+            {showFavorites && <FavoritesPicker favorites={favorites} setFavorites={setFavorites} onAdd={item => { addItem(item); }} onClose={() => setShowFavorites(false)} toggleFav={toggleFav} />}
+          </div>
+        </div>
+      )}
 
       {/* Add Item Modal */}
       {showAddModal && (
