@@ -1618,6 +1618,14 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
             }
           }
         }
+        // Update parent items with decorator names so progress bar reflects costing status
+        if (onUpdateBuyItems) {
+          const decMap = {};
+          for (const cp of costProds) { if (cp.printVendor) decMap[cp.id] = cp.printVendor; }
+          if (Object.keys(decMap).length > 0) {
+            onUpdateBuyItems(prev => prev.map(bi => decMap[bi.id] ? {...bi, decorator: decMap[bi.id]} : bi));
+          }
+        }
       } catch(e) { console.error("Failed to save costing data", e); }
     }
   };
