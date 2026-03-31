@@ -252,6 +252,7 @@ export async function createInvoice(
     terms?: string;
     shipAddress?: string;
     memo?: string;
+    email?: string;
   } = {}
 ): Promise<{ invoiceId: string; invoiceNumber: string; paymentLink: string }> {
   // Look up QB item IDs for each product/service name
@@ -311,6 +312,10 @@ export async function createInvoice(
     body.CustomerMemo = { value: options.memo };
   }
 
+  if (options.email) {
+    body.BillEmail = { Address: options.email };
+  }
+
   const data = await qbFetch("/invoice", { method: "POST", body });
   const invoice = data.Invoice;
   console.log("[QB] Invoice created:", JSON.stringify({ Id: invoice.Id, DocNumber: invoice.DocNumber, TxnTaxDetail: invoice.TxnTaxDetail }));
@@ -325,12 +330,14 @@ export async function createInvoice(
   const tokens = await getTokens();
   const realm = tokens?.realm_id || process.env.QB_REALM_ID;
 
-  // Send invoice via QB to generate payment link
+  // Send invoice via QB to generate payment link (requires BillEmail on invoice)
   let paymentLink = fullInvoice.InvoiceLink || "";
-  if (!paymentLink) {
+  if (!paymentLink && options.email) {
     try {
-      const sendResult = await qbFetch(`/invoice/${invoice.Id}/send`, { method: "POST" });
-      paymentLink = sendResult?.Invoice?.InvoiceLink || "";
+      const sendResult = await qbFetch(`/invoice/${invoice.Id}/send?sendTo=${encodeURIComponent(options.email)}`, { method: "POST" });
+      const sentInvoice = sendResult?.Invoice;
+      paymentLink = sentInvoice?.InvoiceLink || "";
+      console.log("[QB] Invoice sent, InvoiceLink:", paymentLink);
     } catch (e) {
       console.log("[QB] Could not send invoice for payment link:", (e as any).message);
     }

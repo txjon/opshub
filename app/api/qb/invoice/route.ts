@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
     const result = await createInvoice(customerId, lineItems, {
       terms: job.payment_terms || undefined,
       memo: `${job.title} — ${job.job_number}`,
+      email: primaryEmail || undefined,
     });
 
     // Save QB invoice data to job
