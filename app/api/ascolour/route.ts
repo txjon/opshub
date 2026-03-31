@@ -102,8 +102,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(allInv);
     } else if (endpoint === "pricing") {
       // Requires auth token
-      url = `${AC_BASE}/catalog/pricelist?pageSize=250`;
-      hdrs = await authHeaders();
+      const hdrs = await authHeaders();
 
       // Paginate to get all pricing
       const allPrices: any[] = [];
