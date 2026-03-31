@@ -796,6 +796,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
           onReload={loadData}
           onRecalcPhase={recalcPhase}
+          onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
         />
       )}
       {tab==="buysheet"&&(
