@@ -302,6 +302,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         const r = calcCostProduct(p, costMargin, inclShip, inclCC, costProds);
         if (!r || r.grossRev === 0) return null;
         const dbItem = (items || []).find((it: any) => it.id === p.id);
+        // Use saved sell_per_unit (rounded, matches QB) — fall back to calculated
+        const savedSell = dbItem?.sell_per_unit;
+        const finalSell = savedSell > 0 ? savedSell : r.sellPerUnit;
+        const finalRev = Math.round(finalSell * totalQty * 100) / 100;
         return {
           name: p.name || dbItem?.name || "Item",
           style: p.style || dbItem?.blank_vendor || "",
@@ -309,8 +313,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
           sizes: sortSizes(Object.keys(savedQtys).filter(sz => (savedQtys[sz] || 0) > 0)),
           qtys: savedQtys,
           totalQty,
-          sellPerUnit: r.sellPerUnit,
-          grossRev: r.grossRev,
+          sellPerUnit: finalSell,
+          grossRev: finalRev,
         };
       }).filter(Boolean);
     }
