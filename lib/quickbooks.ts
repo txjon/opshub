@@ -65,10 +65,12 @@ export async function exchangeCode(code: string): Promise<{
 export async function saveTokens(
   accessToken: string,
   refreshToken: string,
-  expiresIn: number
+  expiresIn: number,
+  realmId?: string
 ) {
   const supabase = getSupabase();
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+  const realm = realmId || process.env.QB_REALM_ID;
 
   // Upsert — always one row
   const { data: existing } = await supabase
@@ -82,7 +84,7 @@ export async function saveTokens(
       access_token: accessToken,
       refresh_token: refreshToken,
       expires_at: expiresAt,
-      realm_id: process.env.QB_REALM_ID,
+      realm_id: realm,
       updated_at: new Date().toISOString(),
     }).eq("id", existing.id);
   } else {
@@ -90,7 +92,7 @@ export async function saveTokens(
       access_token: accessToken,
       refresh_token: refreshToken,
       expires_at: expiresAt,
-      realm_id: process.env.QB_REALM_ID,
+      realm_id: realm,
     });
   }
 }
@@ -162,7 +164,8 @@ async function qbFetch(
   options: { method?: string; body?: any } = {}
 ): Promise<any> {
   const token = await getAccessToken();
-  const realmId = process.env.QB_REALM_ID;
+  const tokens = await getTokens();
+  const realmId = tokens?.realm_id || process.env.QB_REALM_ID;
   const url = `${QB_BASE_URL}/v3/company/${realmId}${endpoint}`;
 
   const res = await fetch(url, {

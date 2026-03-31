@@ -6,13 +6,15 @@ export async function GET(req: NextRequest) {
   const state = req.nextUrl.searchParams.get("state");
   const error = req.nextUrl.searchParams.get("error");
 
+  const realmId = req.nextUrl.searchParams.get("realmId");
+
   if (error || !code) {
     return NextResponse.redirect(new URL("/settings?qb=error", req.url));
   }
 
   try {
     const tokens = await exchangeCode(code);
-    await saveTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
+    await saveTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in, realmId || undefined);
     return NextResponse.redirect(new URL("/settings?qb=connected", req.url));
   } catch (err: any) {
     console.error("[QB Callback] Error:", err.message);
