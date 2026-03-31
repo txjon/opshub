@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/settings?qb=connected", req.url));
   } catch (err: any) {
     console.error("[QB Callback] Token exchange error:", err.message);
-    return NextResponse.redirect(new URL("/settings?qb=error", req.url));
+    const msg = encodeURIComponent(err.message || "Unknown error");
+    return NextResponse.redirect(new URL(`/settings?qb=error&msg=${msg}`, req.url));
   }
 }
