@@ -5,10 +5,40 @@ import { T, font, mono } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 
-export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatus, onUpdateItem, onReload, onRecalcPhase }) {
+export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatus, onUpdateItem, onReload, onRecalcPhase, onUpdateJob }) {
   const supabase = createClient();
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
   const [showCombinedEmail, setShowCombinedEmail] = useState(false);
+  const [pushingToQB, setPushingToQB] = useState(false);
+  const [qbError, setQbError] = useState("");
+
+  const qbInvoiceNumber = job.type_meta?.qb_invoice_number;
+  const qbPaymentLink = job.type_meta?.qb_payment_link;
+
+  async function pushToQB() {
+    setPushingToQB(true);
+    setQbError("");
+    try {
+      const res = await fetch("/api/qb/invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to push to QuickBooks");
+      // Update local job data with QB info
+      if (onUpdateJob) onUpdateJob({
+        type_meta: { ...(job.type_meta || {}), qb_invoice_id: data.invoiceId || job.type_meta?.qb_invoice_id, qb_invoice_number: data.invoiceNumber, qb_payment_link: data.paymentLink },
+      });
+      logJobActivity(job.id, `Invoice #${data.invoiceNumber} created in QuickBooks`);
+      return data;
+    } catch (err) {
+      setQbError(err.message);
+      return null;
+    } finally {
+      setPushingToQB(false);
+    }
+  }
   const [addingPayment, setAddingPayment] = useState(false);
   const [pmType, setPmType] = useState("deposit");
   const [pmAmount, setPmAmount] = useState("");
@@ -23,6 +53,29 @@ export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatu
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* ── QuickBooks Status ── */}
+      {qbInvoiceNumber ? (
+        <div style={{ background: T.greenDim, border: `1px solid ${T.green}44`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.green }}>QB Invoice #{qbInvoiceNumber}</div>
+            {qbPaymentLink && <a href={qbPaymentLink} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: T.accent }}>Payment link →</a>}
+          </div>
+          <button onClick={pushToQB} disabled={pushingToQB}
+            style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer" }}>
+            {pushingToQB ? "Updating..." : "Re-push"}
+          </button>
+        </div>
+      ) : (
+        <button onClick={async () => { const result = await pushToQB(); if (result) { setShowCombinedEmail(true); } }}
+          disabled={pushingToQB}
+          style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", cursor: pushingToQB ? "default" : "pointer",
+            background: T.green, color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: font,
+            opacity: pushingToQB ? 0.6 : 1, transition: "opacity 0.15s" }}>
+          {pushingToQB ? "Creating in QuickBooks..." : "Create Invoice in QuickBooks"}
+        </button>
+      )}
+      {qbError && <div style={{ background: T.redDim, border: `1px solid ${T.red}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.red }}>{qbError}</div>}
 
       {/* ── Send Actions ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
