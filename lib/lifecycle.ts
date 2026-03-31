@@ -120,7 +120,7 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
     } else if (terms === "deposit_balance") {
       paymentGateMet = payments.some(p => p.status === "paid" || p.status === "partial");
     } else {
-      paymentGateMet = true;
+      paymentGateMet = false;
     }
 
     if (paymentGateMet) {

@@ -7,7 +7,8 @@ import { POTab } from "./POTab.jsx";
 import { BuySheetTab } from "./BuySheetTab";
 import { ProductionTab } from "./ProductionTab";
 import { BlanksTab } from "./BlanksTab";
-import { ApprovalsPaymentTab } from "./ApprovalsPaymentTab";
+import { PaymentTab } from "./PaymentTab";
+import { ApprovalsTab } from "./ApprovalsTab";
 import { ArtTab } from "./ArtTab";
 import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -654,11 +655,21 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
 
-              {/* Payment summary (read-only) */}
+              {/* Payment summary */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
-                  <button onClick={()=>setTab("approvals")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
+                  <button onClick={()=>setTab("payment")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
+                </div>
+                <div style={{marginBottom:8}}>
+                  <label style={{fontSize:10,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
+                  <select style={ic} value={job.payment_terms||""} onChange={e=>upd("payment_terms",e.target.value||null)}>
+                    <option value="">— select —</option>
+                    <option value="prepaid">Prepaid</option>
+                    <option value="deposit_balance">Deposit / Balance</option>
+                    <option value="net_15">Net 15</option>
+                    <option value="net_30">Net 30</option>
+                  </select>
                 </div>
                 {payments.length===0&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
                 {payments.length>0&&(
@@ -786,17 +797,24 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {tab==="art"&&(
         <ArtTab project={job} items={items} contacts={contacts} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} />
       )}
-      {tab==="approvals"&&(
-        <ApprovalsPaymentTab
+      {tab==="payment"&&(
+        <PaymentTab
           job={job}
-          items={items}
           contacts={contacts}
           payments={payments}
-          proofStatus={proofStatus}
-          onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
           onReload={loadData}
           onRecalcPhase={recalcPhase}
           onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
+        />
+      )}
+      {tab==="approvals"&&(
+        <ApprovalsTab
+          job={job}
+          items={items}
+          contacts={contacts}
+          proofStatus={proofStatus}
+          onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
+          onRecalcPhase={recalcPhase}
         />
       )}
       {tab==="buysheet"&&(

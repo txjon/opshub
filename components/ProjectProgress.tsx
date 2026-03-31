@@ -25,12 +25,12 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
 
   const terms = job.payment_terms || "";
   const isNetTerms = terms === "net_15" || terms === "net_30";
-  let paymentMet = isNetTerms;
-  if (!isNetTerms) {
-    if (terms === "prepaid") paymentMet = payments.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + p.amount, 0) > 0;
-    else if (terms === "deposit_balance") paymentMet = payments.some((p: any) => p.status === "paid" || p.status === "partial");
-    else paymentMet = true;
-  }
+  let paymentMet = false;
+  if (!terms) paymentMet = false;
+  else if (isNetTerms) paymentMet = true;
+  else if (terms === "prepaid") paymentMet = payments.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + p.amount, 0) > 0;
+  else if (terms === "deposit_balance") paymentMet = payments.some((p: any) => p.status === "paid" || p.status === "partial");
+  else paymentMet = false;
 
   const apparelItems = items.filter(it => it.garment_type !== "accessory");
   const blanksOrdered = apparelItems.filter(it => it.blanks_order_number).length;
@@ -48,7 +48,8 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
     { id: "costing", label: "Costing", done: hasCosting, active: hasItems && !hasCosting },
     { id: "quote", label: "Quote", done: quoteApproved, active: hasCosting && !quoteApproved },
     { id: "art", label: "Art Files", done: hasProofs, active: hasItems && !hasProofs },
-    { id: "approvals", label: "Approvals", done: allProofsApproved && paymentMet, active: quoteApproved && (!allProofsApproved || !paymentMet) },
+    { id: "payment", label: "Payment", done: paymentMet, active: quoteApproved && !paymentMet },
+    { id: "approvals", label: "Approvals", done: allProofsApproved, active: paymentMet && !allProofsApproved },
     { id: "blanks", label: "Blanks", done: allBlanksOrdered, active: paymentMet && allProofsApproved && !allBlanksOrdered, detail: apparelItems.length > 0 && blanksOrdered > 0 ? `${blanksOrdered}/${apparelItems.length}` : undefined },
     { id: "po", label: "PO", done: allPosSent, active: allBlanksOrdered && !allPosSent },
     { id: "production", label: "Production", done: allShipped, active: atDecorator && !allShipped },

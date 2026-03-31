@@ -90,7 +90,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
   } else if (terms === "deposit_balance") {
     paymentGateMet = (payments || []).some(p => p.status === "paid" || p.status === "partial");
   } else {
-    paymentGateMet = true; // Permissive default
+    paymentGateMet = false; // Require terms to be set
   }
 
   const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
@@ -119,7 +119,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                 <span style={{ color: paymentGateMet ? T.green : T.red }}>{paymentGateMet ? "✓" : "✕"}</span>
                 <span style={{ color: paymentGateMet ? T.muted : T.text }}>
                   {terms === "prepaid" ? "Full payment received" : "Deposit received"}
-                  {!paymentGateMet && <> (add on <a onClick={e=>{e.preventDefault();if(onTabClick)onTabClick("approvals");}} style={{color:T.accent,cursor:"pointer",textDecoration:"underline"}}>Approvals &amp; Payment</a> tab)</>}
+                  {!paymentGateMet && <> (add on <a onClick={e=>{e.preventDefault();if(onTabClick)onTabClick("payment");}} style={{color:T.accent,cursor:"pointer",textDecoration:"underline"}}>Payment</a> tab)</>}
                 </span>
               </div>
             )}
