@@ -241,7 +241,7 @@ export default function JobsPage() {
               {/* Client + project name */}
               <div style={{ width:240, flexShrink:0 }}>
                 <div style={{ fontSize:14, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{job.clients?.name||"No client"}</div>
-                <div style={{ fontSize:11, color:T.muted, marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{job.title} · <span style={{ fontFamily:mono, fontSize:10 }}>{job.job_number}</span></div>
+                <div style={{ fontSize:11, color:T.muted, marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{job.type_meta?.qb_invoice_number ? <span style={{ fontFamily:mono, fontWeight:600, color:T.text }}>INV-{job.type_meta.qb_invoice_number}</span> : job.title}{job.type_meta?.qb_invoice_number && job.title ? <span style={{ color:T.faint }}> · {job.title}</span> : null} · <span style={{ fontFamily:mono, fontSize:10 }}>{job.job_number}</span></div>
               </div>
 
               {/* Units + Revenue stats */}

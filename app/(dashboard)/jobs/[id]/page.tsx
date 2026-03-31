@@ -343,7 +343,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               {saving&&<span style={{fontSize:11,color:T.muted}}>Saving...</span>}
             </div>
             <h1 style={{fontSize:26,fontWeight:700,margin:"0 0 3px",letterSpacing:"-0.02em",color:T.text,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>{(job.clients as any)?.name||"No client"}</h1>
-            <div style={{fontSize:16,color:T.muted,marginBottom:6}}>{job.title}</div>
+            {(job as any).type_meta?.qb_invoice_number ? (
+              <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:6}}>
+                <span style={{fontSize:16,fontWeight:600,color:T.text,fontFamily:"'IBM Plex Mono',monospace"}}>INV-{(job as any).type_meta.qb_invoice_number}</span>
+                {job.title && <span style={{fontSize:13,color:T.faint}}>{job.title}</span>}
+              </div>
+            ) : (
+              <div style={{fontSize:16,color:T.muted,marginBottom:6}}>{job.title}</div>
+            )}
             <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.muted}}>
               <span style={{textTransform:"capitalize"}}>{job.job_type}</span>
               <span style={{color:T.faint}}>·</span>
@@ -482,8 +489,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       </div>
                     )}
                   </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project title</label>
-                    <input style={ic} value={job.title} onChange={e=>upd("title",e.target.value)}/>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project memo</label>
+                    <input style={ic} value={job.title} placeholder="Optional description..." onChange={e=>upd("title",e.target.value)}/>
                   </div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Type</label>
                     <select style={ic} value={job.job_type} onChange={e=>upd("job_type",e.target.value)}>
