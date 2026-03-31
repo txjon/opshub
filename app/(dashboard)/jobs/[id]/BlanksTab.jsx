@@ -159,7 +159,10 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                 {String.fromCharCode(65 + i)}
               </span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</span>
+                  <span style={{ fontSize: 10, color: T.text, fontFamily: mono }}>{job?.job_number}{String.fromCharCode(65 + i)}</span>
+                </div>
                 <div style={{ fontSize: 10, color: T.muted }}>{[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ")} · {totalUnits.toLocaleString()} units</div>
               </div>
               {hasOrder && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>Ordered</span>}
