@@ -3,12 +3,29 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAccessToken } from "@/lib/quickbooks";
+import { createHmac } from "crypto";
 
 const QB_BASE_URL = "https://quickbooks.api.intuit.com";
 
+// Verify QB webhook signature
+function verifySignature(payload: string, signature: string): boolean {
+  const webhookVerifier = process.env.QB_WEBHOOK_VERIFIER_TOKEN;
+  if (!webhookVerifier) return true; // Skip verification if not configured
+  const hash = createHmac("sha256", webhookVerifier).update(payload).digest("base64");
+  return hash === signature;
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const rawBody = await req.text();
+    const signature = req.headers.get("intuit-signature") || "";
+
+    if (!verifySignature(rawBody, signature)) {
+      console.error("[QB Webhook] Invalid signature");
+      return NextResponse.json({ success: false }, { status: 401 });
+    }
+
+    const body = JSON.parse(rawBody);
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     // QB sends eventNotifications array

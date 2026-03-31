@@ -324,7 +324,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const balanceDue = quoteTotal - totalPaid;
 
     const html = renderInvoiceHTML({
-      invoiceNum: orderInfo.invoiceNum || job.job_number || "",
+      invoiceNum: job.type_meta?.qb_invoice_number || orderInfo.invoiceNum || job.job_number || "",
       today,
       terms,
       shipDate: job.target_ship_date ? new Date(job.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "",
