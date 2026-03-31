@@ -76,22 +76,8 @@ export async function POST(req: NextRequest) {
       if (totalQty === 0) continue;
 
       const cp = costProds.find((p: any) => p.id === item.id);
-      // Calculate sell price same way costing tab does
-      const MARGIN_TIERS: Record<string, number> = {"10%":1.15,"15%":1.26,"20%":1.33,"25%":1.43,"30%":1.53};
-      const costMargin = job.costing_data?.costMargin || "30%";
-      const marginMult = MARGIN_TIERS[costMargin] || 1.53;
-      let sellPerUnit = 0;
-      if (cp?.sellOverride && cp?.sellOverride > 0) {
-        sellPerUnit = cp.sellOverride;
-      } else if (cp?._sellOverrideVal && parseFloat(cp._sellOverrideVal) > 0) {
-        sellPerUnit = parseFloat(cp._sellOverrideVal);
-      } else if (cp?.unitPrice && cp.unitPrice > 0) {
-        sellPerUnit = cp.unitPrice;
-      } else if (cp) {
-        // Calculate from blank cost + margin (same as CostingTab)
-        sellPerUnit = Math.ceil((cp.blankCostPerUnit || 0) * marginMult * 100) / 100;
-      }
-      if (sellPerUnit === 0) sellPerUnit = item.sell_per_unit || 0;
+      // sell_per_unit is saved by CostingTab on every save — use it as primary source
+      const sellPerUnit = item.sell_per_unit || cp?.sellOverride || 0;
       const garmentType = item.garment_type || "custom";
       const qbProductName = QB_PRODUCT_MAP[garmentType] || "Custom";
 

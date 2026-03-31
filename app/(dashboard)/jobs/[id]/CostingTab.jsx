@@ -1593,13 +1593,18 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }, costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty } });
         // Write refined blank costs + decorator assignments back to items
         for (const cp of costProds) {
+          const r2 = calcCostProduct(cp, costMargin, inclShip, inclCC, costProds);
+          const itemUpdates = {};
           if (cp.blankCosts && Object.keys(cp.blankCosts).length > 0) {
             const costValues = Object.values(cp.blankCosts).filter(v => v > 0);
-            const avgCost = costValues.length > 0 ? costValues.reduce((a, v) => a + v, 0) / costValues.length : null;
-            await supabase.from("items").update({
-              blank_costs: cp.blankCosts,
-              cost_per_unit: avgCost,
-            }).eq("id", cp.id);
+            itemUpdates.blank_costs = cp.blankCosts;
+            itemUpdates.cost_per_unit = costValues.length > 0 ? costValues.reduce((a, v) => a + v, 0) / costValues.length : null;
+          }
+          if (r2?.sellPerUnit > 0) {
+            itemUpdates.sell_per_unit = Math.round(r2.sellPerUnit * 100) / 100;
+          }
+          if (Object.keys(itemUpdates).length > 0) {
+            await supabase.from("items").update(itemUpdates).eq("id", cp.id);
           }
           // Auto-create/update decorator assignment when vendor is selected
           if (cp.printVendor && vendorIdMapRef.current[cp.printVendor]) {
