@@ -887,12 +887,12 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
     }
   }, [items]);
 
-  // ── Auto-save: 1.5s debounce after any change (longer for fast tabbing) ────
+  // ── Auto-save: 800ms debounce after any change ────
   useEffect(() => {
     if (!isDirty) return;
     const t = setTimeout(async () => {
       await onSaveRef.current?.();
-    }, 1500);
+    }, 800);
     return () => clearTimeout(t);
   }, [currentSnapshot]);
 
@@ -906,12 +906,13 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   // Save on unmount if dirty
   const isDirtyRef = useRef(false);
   isDirtyRef.current = isDirty;
+
   useEffect(() => {
     const handler = (e) => { if (isDirtyRef.current) { e.preventDefault(); e.returnValue = ""; } };
     window.addEventListener("beforeunload", handler);
     return () => {
       window.removeEventListener("beforeunload", handler);
-      if (isDirtyRef.current && onSaveRef.current) onSaveRef.current();
+      if (onSaveRef.current) onSaveRef.current();
     };
   }, []);
 
@@ -1075,6 +1076,29 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
   const [localQtys, setLocalQtys] = useState({});
+  const localQtysRef = useRef({});
+  localQtysRef.current = localQtys;
+  const workingItemsRef = useRef(workingItems);
+  workingItemsRef.current = workingItems;
+
+  // Flush pending qty edits into workingItems before save
+  useEffect(() => {
+    return () => {
+      const pending = localQtysRef.current;
+      if (!pending || Object.keys(pending).length === 0) return;
+      const items = workingItemsRef.current || [];
+      const updated = items.map(it => {
+        let newQtys = { ...(it.qtys || {}) };
+        let modified = false;
+        (it.sizes || []).forEach(sz => {
+          const key = it.id + "_" + sz;
+          if (pending[key] !== undefined) { newQtys[sz] = parseInt(pending[key]) || 0; modified = true; }
+        });
+        return modified ? { ...it, qtys: newQtys, totalQty: Object.values(newQtys).reduce((a, v) => a + v, 0) } : it;
+      });
+      setLocalItems(updated);
+    };
+  }, []);
   const inputRefs = useRef({});
 
   const getLocalQty = (itemId, sz) => {
@@ -1084,12 +1108,19 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const setLocalQty = (itemId, sz, val) => {
     setLocalQtys(p => ({...p, [itemId+"_"+sz]: val}));
   };
+  const commitTimers = useRef({});
   const commitQty = (rowIdx, itemId, sz) => {
     const key = itemId+"_"+sz;
     if (localQtys[key] === undefined) return;
     const parsed = parseInt(localQtys[key]) || 0;
     setLocalQtys(p => { const n={...p}; delete n[key]; return n; });
     updateQty(rowIdx, sz, parsed);
+  };
+  // Auto-commit qty after 500ms of no typing
+  const scheduleCommit = (rowIdx, itemId, sz) => {
+    const key = itemId+"_"+sz;
+    if (commitTimers.current[key]) clearTimeout(commitTimers.current[key]);
+    commitTimers.current[key] = setTimeout(() => commitQty(rowIdx, itemId, sz), 500);
   };
 
   const isEmpty = safeItems.length === 0;
@@ -1362,7 +1393,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
                                   value={getLocalQty(item.id,sz) !== null ? getLocalQty(item.id,sz) : (qty||"")}
                                   placeholder="0"
                                   onFocus={e => { setFocused({row:rowIdx,col:szIdx}); setLocalQty(item.id,sz,qty||""); e.target.select(); }}
-                                  onChange={e => setLocalQty(item.id, sz, e.target.value)}
+                                  onChange={e => { setLocalQty(item.id, sz, e.target.value); scheduleCommit(rowIdx, item.id, sz); }}
                                   onBlur={() => commitQty(rowIdx, item.id, sz)}
                                   onKeyDown={e => {
                                     const moveTo = (r,c) => { setFocused({row:r,col:c}); setTimeout(()=>{ const el=inputRefs.current[r+"_"+c]; if(el) el.focus(); },0); };
