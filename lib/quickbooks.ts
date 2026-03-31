@@ -325,8 +325,19 @@ export async function createInvoice(
   const tokens = await getTokens();
   const realm = tokens?.realm_id || process.env.QB_REALM_ID;
 
-  // Build payment link
-  const paymentLink = fullInvoice.InvoiceLink || `https://app.qbo.intuit.com/app/customerportal?invoiceId=${invoice.Id}&companyId=${realm}`;
+  // Send invoice via QB to generate payment link
+  let paymentLink = fullInvoice.InvoiceLink || "";
+  if (!paymentLink) {
+    try {
+      const sendResult = await qbFetch(`/invoice/${invoice.Id}/send`, { method: "POST" });
+      paymentLink = sendResult?.Invoice?.InvoiceLink || "";
+    } catch (e) {
+      console.log("[QB] Could not send invoice for payment link:", (e as any).message);
+    }
+  }
+  if (!paymentLink) {
+    paymentLink = `https://app.qbo.intuit.com/app/invoices/pay?txnId=${invoice.Id}&companyId=${realm}`;
+  }
 
   return {
     invoiceId: invoice.Id,
