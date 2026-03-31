@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
       if (totalQty === 0) continue;
 
       const cp = costProds.find((p: any) => p.id === item.id);
-      const sellPerUnit = cp?._sellPerUnit || item.sell_per_unit || 0;
+      const sellPerUnit = cp?.unitPrice || cp?._sellPerUnit || item.sell_per_unit || 0;
       const garmentType = item.garment_type || "custom";
       const qbProductName = QB_PRODUCT_MAP[garmentType] || "Custom";
 

@@ -292,13 +292,18 @@ export async function createInvoice(
 
   const data = await qbFetch("/invoice", { method: "POST", body });
   const invoice = data.Invoice;
+  console.log("[QB] Invoice created:", JSON.stringify({ Id: invoice.Id, DocNumber: invoice.DocNumber, InvoiceLink: invoice.InvoiceLink }));
+
+  // Get realm from DB for payment link
+  const tokens = await getTokens();
+  const realm = tokens?.realm_id || process.env.QB_REALM_ID;
 
   // Build payment link
-  const paymentLink = `https://app.qbo.intuit.com/app/customerportal?invoiceId=${invoice.Id}&companyId=${process.env.QB_REALM_ID}`;
+  const paymentLink = invoice.InvoiceLink || `https://app.qbo.intuit.com/app/customerportal?invoiceId=${invoice.Id}&companyId=${realm}`;
 
   return {
     invoiceId: invoice.Id,
-    invoiceNumber: invoice.DocNumber || invoice.Id,
+    invoiceNumber: invoice.DocNumber || String(invoice.Id),
     paymentLink,
   };
 }
