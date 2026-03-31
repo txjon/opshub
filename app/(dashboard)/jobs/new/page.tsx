@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { subtractBusinessDays, addBusinessDays, calculatePriority } from "@/lib/dates";
+// dates imported but not used on this form — timeline set on Overview tab
 
 type ClientOption = { id: string; name: string; default_terms: string | null; client_type: string | null; };
 
@@ -19,8 +19,6 @@ export default function NewJobPage() {
     shipping_route: "ship_through",
     payment_terms: "",
     payment_method: "quickbooks",
-    target_ship_date: "",
-    in_hands_date: "",
     notes: "",
     client_name: "",
   });
@@ -132,9 +130,7 @@ export default function NewJobPage() {
           priority: form.priority,
           shipping_route: form.shipping_route,
           payment_terms: form.payment_terms || null,
-          target_ship_date: form.target_ship_date || null,
           type_meta: {
-            in_hands_date: form.in_hands_date || null,
             payment_method: form.payment_method || null,
           },
           notes: form.notes || null,
@@ -218,17 +214,6 @@ export default function NewJobPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={lc}>Project Type *</label>
-              <select value={form.job_type} onChange={e => set("job_type", e.target.value)} className={ic}>
-                {["corporate","brand","artist","tour","webstore","drop_ship"].map(t=>
-                  <option key={t} value={t}>{t.replace(/_/g," ")}</option>
-                )}
-              </select>
-            </div>
-          </div>
-
           <div>
             <label className={lc}>Shipping Route</label>
             <select value={form.shipping_route} onChange={e => set("shipping_route", e.target.value)} className={ic}>
@@ -236,54 +221,6 @@ export default function NewJobPage() {
               <option value="stage">Stage (fulfillment from HPD)</option>
               <option value="drop_ship">Drop ship (direct to client)</option>
             </select>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-          <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Timeline & Payment</h2>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={lc}>In-Hands Date</label>
-              <input type="date" value={form.in_hands_date} onChange={e => {
-                set("in_hands_date", e.target.value);
-                if (e.target.value) {
-                  const ship = subtractBusinessDays(e.target.value, 3);
-                  set("target_ship_date", ship);
-                  set("priority", calculatePriority(ship));
-                }
-              }} className={ic} />
-            </div>
-            <div>
-              <label className={lc}>Target Ship Date</label>
-              <input type="date" value={form.target_ship_date} onChange={e => {
-                set("target_ship_date", e.target.value);
-                if (e.target.value) {
-                  set("priority", calculatePriority(e.target.value));
-                  if (!form.in_hands_date) set("in_hands_date", addBusinessDays(e.target.value, 3));
-                }
-              }} className={ic} />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={lc}>Payment Terms</label>
-              <select value={form.payment_terms} onChange={e => set("payment_terms", e.target.value)} className={ic}>
-                <option value="">Not set</option>
-                <option value="net_15">Net 15</option>
-                <option value="net_30">Net 30</option>
-                <option value="deposit_balance">Deposit + Balance</option>
-                <option value="prepaid">Prepaid</option>
-              </select>
-            </div>
-            <div>
-              <label className={lc}>Payment Method</label>
-              <select value={form.payment_method} onChange={e => set("payment_method", e.target.value)} className={ic}>
-                <option value="quickbooks">QuickBooks</option>
-                <option value="ach">ACH</option>
-              </select>
-            </div>
           </div>
         </div>
 
