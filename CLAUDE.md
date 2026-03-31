@@ -12,6 +12,7 @@ Internal operations platform for House Party Distro, a custom apparel company in
 - **Resend** for email delivery (quote to client, PO to decorator)
 - **S&S Activewear API** for blank catalog integration
 - **Google Drive API** for art file storage (service account with domain-wide delegation)
+- **QuickBooks Online API** for invoicing, payments, and sales tax (OAuth 2.0 + webhooks)
 
 ## Architecture
 
@@ -39,6 +40,10 @@ app/api/
   pdf/invoice/[jobId]/ — Generate client invoice PDF via Browserless
   pdf/po/[jobId]/     — Generate PO PDF via Browserless
   pdf/quote/[jobId]/  — Generate quote PDF via Browserless
+  qb/connect/         — Initiate QuickBooks OAuth flow
+  qb/callback/        — Receive OAuth tokens from QB
+  qb/invoice/         — Push invoice to QB, return invoice # + payment link + tax
+  qb/webhook/         — Receive payment events from QB (HMAC verified)
   ss/                 — S&S Activewear API proxy
   team/               — Invite members + edit roles (manager-only)
 ```
@@ -322,6 +327,29 @@ Manager-only reporting dashboard:
 - **Export Clients**: aggregated financials per client
 - **Export Payments**: all payment records across all projects with job context
 
+### QuickBooks Integration
+
+**Flow:** Create Invoice in QB → get invoice # + payment link + sales tax → generate PDF with QB data → email with "Pay Online" button.
+
+**OAuth:** Connect via `/api/qb/connect`. Tokens stored in `qb_tokens` table. Auto-refreshes on expiry. Auto-retries on 401 (refresh + retry once). Refresh token valid 100 days.
+
+**Invoice push** (`/api/qb/invoice`):
+- Matches OpsHub client to QB customer (auto-search by name, cached in `clients.qb_customer_id`)
+- Maps `garment_type` → QB Product/Service name (Tees, Hoodies, Hats, etc.)
+- Line items: description (name / vendor / color / sizes), qty, rate from `items.sell_per_unit`
+- Payment terms carried over
+- QB auto-generates invoice number
+- After creation, reads invoice back to get sales tax calculation
+- Saves to `jobs.type_meta`: qb_invoice_id, qb_invoice_number, qb_payment_link, qb_tax_amount, qb_total_with_tax
+
+**Invoice PDF** shows: QB invoice number, subtotal, sales tax (from QB), paid amount, amount due. Totals match QB exactly (uses rounded `sell_per_unit` from items table).
+
+**Email** includes green "Pay Online" button linking to QB Payments (credit card / ACH).
+
+**Payment webhook** (`/api/qb/webhook`): Receives QB payment events (HMAC signature verified), matches to job via QB invoice ID, records payment in OpsHub, logs activity, notifies team. Returns 200 always (QB requirement).
+
+**Garment type dropdown** on buy sheet per item — maps to QB Product/Service. 30+ types covering all QB products.
+
 ### Handoff Notifications
 
 Every phase transition triggers a team notification via the notification bell:
@@ -354,6 +382,7 @@ Phase transitions also auto-log to job activity feed.
 | `job_activity` | Per-job activity feed (auto events + manual comments) |
 | `messages` | Party Line global team chat |
 | `notifications` | Per-user notifications (@mentions, alerts) |
+| `qb_tokens` | QuickBooks OAuth tokens (one row, auto-refreshed) |
 
 ### Migrations
 
@@ -376,6 +405,8 @@ Phase transitions also auto-log to job activity feed.
 016_phase_constraint.sql   — Update phase constraint for v2 lifecycle, map old phases
 017_job_number_auto.sql    — Auto-generate job numbers (HPD-YYMM-NNN) via trigger + backfill
 018_fix_rls_phases.sql     — Fix RLS policies for production/shipping roles with new phases
+019_quickbooks.sql         — qb_tokens table + clients.qb_customer_id
+020_garment_types.sql      — Expanded garment_type constraint (30+ types for QB mapping)
 ```
 
 ### JSONB Patterns
@@ -403,6 +434,9 @@ Shared Supabase clients. Use `createClient()` from the appropriate one — never
 
 ### `lib/lifecycle.ts`
 Phase calculation engine. `calculatePhase()` takes job, items, payments, and costing data → returns the correct phase and item progress string. Called from job detail page on every relevant change. Supports payment gate logic, job type routing (warehouse vs drop ship), and hold/cancelled locks.
+
+### `lib/quickbooks.ts`
+QuickBooks Online API client. OAuth token management (save, refresh, auto-retry on 401). Customer search/create with caching. Invoice creation with product mapping, tax readback, and payment link generation. All API calls log `intuit_tid` for debugging.
 
 ### `lib/google-drive.ts`
 Google Drive API wrapper. Handles folder creation, file upload, deletion, and permissions. Uses service account with domain-wide delegation. Supports both `GOOGLE_SERVICE_ACCOUNT_KEY` (raw JSON) and `GOOGLE_SERVICE_ACCOUNT_KEY_B64` (base64) env var formats.
@@ -451,6 +485,11 @@ EMAIL_FROM_PO                      — production@housepartydistro.com
 GOOGLE_SERVICE_ACCOUNT_KEY         — Google service account JSON (Vercel)
 GOOGLE_SERVICE_ACCOUNT_KEY_B64     — Same key, base64-encoded (local dev)
 GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive
+QB_CLIENT_ID                       — QuickBooks OAuth client ID
+QB_CLIENT_SECRET                   — QuickBooks OAuth client secret
+QB_REALM_ID                        — QuickBooks company ID
+QB_REDIRECT_URI                    — OAuth callback URL
+QB_WEBHOOK_VERIFIER_TOKEN          — HMAC verification for QB webhooks
 ```
 
 ## Conventions
