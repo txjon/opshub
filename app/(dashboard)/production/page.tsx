@@ -109,6 +109,7 @@ export default function ProductionPage() {
         decorator_short_code: assignment?.decorators?.short_code || null,
         decorator_assignment_id: assignment?.id || null,
         target_ship_date: (() => {
+          if (job?.type_meta?.decorator_ships) return job.type_meta.decorator_ships;
           const ih = job?.type_meta?.in_hands_date || job?.type_meta?.show_date;
           if (ih) return calculateMilestones(ih).decoratorShips;
           return job?.target_ship_date || null;

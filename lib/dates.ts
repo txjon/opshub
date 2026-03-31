@@ -49,15 +49,25 @@ export function calculateMilestones(inHandsDate: string) {
   };
 }
 
-/** Auto-calculate priority based on business days from today to decorator ship date */
-export function calculatePriority(inHandsDate: string): "normal" | "rush" | "hot" {
-  const { decoratorShips } = calculateMilestones(inHandsDate);
+/** Auto-calculate priority based on business days from today to ship date */
+export function calculatePriority(shipDate: string): "normal" | "rush" | "hot" {
   const today = new Date().toISOString().split("T")[0];
-  const bizDays = businessDaysBetween(today, decoratorShips);
+  const bizDays = businessDaysBetween(today, shipDate);
 
-  if (bizDays <= 5) return "hot";
-  if (bizDays <= 10) return "rush";
+  if (bizDays < 5) return "hot";
+  if (bizDays < 10) return "rush";
   return "normal";
+}
+
+/** Add N business days to a date */
+export function addBusinessDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T12:00:00");
+  let remaining = days;
+  while (remaining > 0) {
+    d.setDate(d.getDate() + 1);
+    if (!isWeekend(d)) remaining--;
+  }
+  return d.toISOString().split("T")[0];
 }
 
 /** Business days from today to a target date */

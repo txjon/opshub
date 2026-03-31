@@ -183,7 +183,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
   const vItems = sorted.filter(it=>getCostProd(it.id)?.printVendor===active);
   const today = new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
   const inHands = project?.type_meta?.in_hands_date || project?.type_meta?.show_date;
-  const decoratorShipDate = inHands ? calculateMilestones(inHands).decoratorShips : project?.target_ship_date;
+  const decoratorShipDate = project?.type_meta?.decorator_ships || (inHands ? calculateMilestones(inHands).decoratorShips : project?.target_ship_date);
   const shipDate = decoratorShipDate
     ? new Date(decoratorShipDate+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
     : "—";

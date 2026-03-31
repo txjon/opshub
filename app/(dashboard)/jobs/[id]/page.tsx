@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/Skeleton";
 import { ProjectProgress } from "@/components/ProjectProgress";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
-import { calculateMilestones, calculatePriority, businessDaysFromNow } from "@/lib/dates";
+import { calculateMilestones, calculatePriority, businessDaysFromNow, subtractBusinessDays, addBusinessDays } from "@/lib/dates";
 
 function JobSkeleton() {
   return (
@@ -541,14 +541,22 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               {/* Shipping details */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>In-hands date</label><input style={ic} type="date" value={job.type_meta?.in_hands_date||job.type_meta?.show_date||""} onChange={e=>{
                     const ih = e.target.value;
                     upd("type_meta",{...job.type_meta,in_hands_date:ih});
                     if(ih){
-                      const ms = calculateMilestones(ih);
-                      upd("target_ship_date",ms.shipFromWarehouse);
-                      upd("priority",calculatePriority(ih));
+                      const ship = subtractBusinessDays(ih, 3);
+                      upd("target_ship_date",ship);
+                      upd("priority",calculatePriority(ship));
+                    }
+                  }}/></div>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Ship date</label><input style={ic} type="date" value={job.target_ship_date||""} onChange={e=>{
+                    const ship = e.target.value;
+                    upd("target_ship_date",ship);
+                    if(ship){
+                      upd("priority",calculatePriority(ship));
+                      if(!job.type_meta?.in_hands_date) upd("type_meta",{...job.type_meta,in_hands_date:addBusinessDays(ship,3)});
                     }
                   }}/></div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Priority</label>
@@ -560,19 +568,22 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </div>
                 </div>
                 {(job.type_meta?.in_hands_date||job.type_meta?.show_date)&&(()=>{
-                  const ms=calculateMilestones(job.type_meta?.in_hands_date||job.type_meta?.show_date);
-                  const fmt=(d:string)=>new Date(d+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
+                  const ih=job.type_meta?.in_hands_date||job.type_meta?.show_date;
+                  const ms=calculateMilestones(ih);
+                  const milestones=[
+                    {label:"Decorator order by",key:"decoratorOrderDeadline",date:job.type_meta?.decorator_order_by||ms.decoratorOrderDeadline},
+                    {label:"Decorator ships",key:"decoratorShips",date:job.type_meta?.decorator_ships||ms.decoratorShips},
+                    {label:"Arrive warehouse",key:"arriveAtWarehouse",date:job.type_meta?.arrive_warehouse||ms.arriveAtWarehouse},
+                  ];
                   return(
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6,marginTop:8}}>
-                      {[
-                        {label:"Decorator order by",date:ms.decoratorOrderDeadline},
-                        {label:"Decorator ships",date:ms.decoratorShips},
-                        {label:"Arrive warehouse",date:ms.arriveAtWarehouse},
-                        {label:"Ship to client",date:ms.shipFromWarehouse},
-                      ].map(m=>(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:8}}>
+                      {milestones.map(m=>(
                         <div key={m.label} style={{background:T.surface,borderRadius:6,padding:"5px 8px"}}>
                           <div style={{fontSize:8,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{m.label}</div>
-                          <div style={{fontSize:11,fontWeight:600,color:T.muted,fontFamily:"var(--font-mono)"}}>{fmt(m.date)}</div>
+                          <input type="date" value={m.date} style={{background:"transparent",border:"none",outline:"none",fontSize:11,fontWeight:600,color:T.muted,fontFamily:"var(--font-mono)",width:"100%",padding:0,cursor:"pointer"}} onChange={e=>{
+                            const metaKey = m.key==="decoratorOrderDeadline"?"decorator_order_by":m.key==="decoratorShips"?"decorator_ships":"arrive_warehouse";
+                            upd("type_meta",{...job.type_meta,[metaKey]:e.target.value});
+                          }}/>
                         </div>
                       ))}
                     </div>
