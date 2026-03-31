@@ -962,6 +962,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
         const newSortOrder = current.indexOf(item);
         const dbUpdates = {};
         if (item.name !== prev?.name) dbUpdates.name = item.name;
+        if (item.garment_type !== prev?.garment_type) dbUpdates.garment_type = item.garment_type || null;
         if (item.cost_per_unit !== prev?.cost_per_unit) dbUpdates.cost_per_unit = item.cost_per_unit || null;
         if (JSON.stringify(item.blankCosts) !== JSON.stringify(prev?.blankCosts)) dbUpdates.blank_costs = item.blankCosts || null;
         dbUpdates.sort_order = newSortOrder;
@@ -1308,10 +1309,43 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
                               onMouseDown={e => e.stopPropagation()}
                               style={{ fontSize:12, fontWeight:600, color:"#fff", fontFamily:font, background:"transparent", border:"none", outline:"none", width:"100%", cursor:"text" }}
                             />
-                            <div style={{ fontSize:10, color:"rgba(255,255,255,0.6)", fontFamily:font, marginTop:1 }}>
+                            <div style={{ fontSize:10, color:"rgba(255,255,255,0.6)", fontFamily:font, marginTop:1, display:"flex", alignItems:"center", gap:6 }}>
                               {item.blank_vendor||item.style}{(item.blank_sku||item.color)?` · ${item.blank_sku||item.color}`:""}
                               {item.stockLevel > 0 && <span style={{ marginLeft:6, color:item.stockLevel>100?T.green:T.amber }}>{item.stockLevel.toLocaleString()} in stock</span>}
                               {item.cost_per_unit > 0 && <span style={{ marginLeft:6, color:T.amber }}>${item.cost_per_unit.toFixed(2)}/unit</span>}
+                              <select value={item.garment_type||""} onChange={e => {
+                                const newItems = (workingItems||[]).map((it,idx) => idx===rowIdx ? {...it, garment_type:e.target.value||null} : it);
+                                updateLocal(newItems);
+                              }} onClick={e=>e.stopPropagation()} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:4, color:item.garment_type?T.text:T.faint, fontSize:9, padding:"1px 4px", outline:"none", cursor:"pointer", marginLeft:4 }}>
+                                <option value="">Type</option>
+                                <option value="tee">Tee</option>
+                                <option value="longsleeve">Longsleeve</option>
+                                <option value="hoodie">Hoodie</option>
+                                <option value="crewneck">Crewneck</option>
+                                <option value="jacket">Jacket</option>
+                                <option value="pants">Pants</option>
+                                <option value="shorts">Shorts</option>
+                                <option value="hat">Hat</option>
+                                <option value="beanie">Beanie</option>
+                                <option value="tote">Tote</option>
+                                <option value="patch">Patch</option>
+                                <option value="poster">Poster</option>
+                                <option value="sticker">Sticker</option>
+                                <option value="socks">Socks</option>
+                                <option value="bandana">Bandana</option>
+                                <option value="banner">Banner</option>
+                                <option value="flag">Flag</option>
+                                <option value="pin">Pin</option>
+                                <option value="koozie">Koozie</option>
+                                <option value="can_cooler">Can Cooler</option>
+                                <option value="key_chain">Key Chain</option>
+                                <option value="custom_bag">Custom Bag</option>
+                                <option value="water_bottle">Water Bottle</option>
+                                <option value="towel">Towel</option>
+                                <option value="woven_labels">Woven Labels</option>
+                                <option value="custom">Custom</option>
+                                <option value="accessory">Accessory</option>
+                              </select>
                             </div>
                           </div>
                         </div>
