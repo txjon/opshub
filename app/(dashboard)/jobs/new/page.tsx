@@ -212,9 +212,9 @@ export default function NewJobPage() {
               {!selectedClientId && form.client_name.trim() && <p className="text-xs text-muted-foreground mt-1">Select a client or create new</p>}
             </div>
             <div>
-              <label className={lc}>Project Title *</label>
-              <input value={form.title} onChange={e => set("title", e.target.value)} required
-                placeholder="e.g. TAA US Tour 2026" className={ic} />
+              <label className={lc}>Project memo</label>
+              <input value={form.title} onChange={e => set("title", e.target.value)}
+                placeholder="Optional description..." className={ic} />
             </div>
           </div>
 
