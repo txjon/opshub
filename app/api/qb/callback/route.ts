@@ -6,31 +6,16 @@ export async function GET(req: NextRequest) {
   const state = req.nextUrl.searchParams.get("state");
   const error = req.nextUrl.searchParams.get("error");
 
-  // Debug: show all params
-  if (!code) {
-    return NextResponse.json({
-      debug: "No code received",
-      params: Object.fromEntries(req.nextUrl.searchParams.entries()),
-      error,
-      state,
-    });
+  if (error || !code) {
+    return NextResponse.redirect(new URL("/settings?qb=error", req.url));
   }
 
-  // Step 1: Exchange code
-  let tokens;
   try {
-    tokens = await exchangeCode(code);
-  } catch (err: any) {
-    return NextResponse.json({ step: "exchangeCode", error: err.message });
-  }
-
-  // Step 2: Save tokens
-  try {
+    const tokens = await exchangeCode(code);
     await saveTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
+    return NextResponse.redirect(new URL("/settings?qb=connected", req.url));
   } catch (err: any) {
-    return NextResponse.json({ step: "saveTokens", error: err.message });
+    console.error("[QB Callback] Error:", err.message);
+    return NextResponse.redirect(new URL("/settings?qb=error", req.url));
   }
-
-  // Success
-  return NextResponse.redirect(new URL("/settings?qb=connected", req.url));
 }
