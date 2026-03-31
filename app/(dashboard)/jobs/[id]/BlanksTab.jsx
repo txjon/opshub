@@ -165,6 +165,16 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
               {hasOrder && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>Ordered</span>}
             </div>
             <div style={{ padding: "10px 14px" }}>
+              {(item.sizes || []).length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                  {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
+                    <div key={sz} style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
+                      <span style={{ fontSize: 10, color: T.muted, fontFamily: mono }}>{sz}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: T.text, fontFamily: mono }}>{(item.qtys || {})[sz]}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 <div>
                   <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>S&S Order #</label>
