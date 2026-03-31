@@ -340,7 +340,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
               {["10%","15%","20%","25%","30%"].map(m=>(
                 <button key={m} onClick={()=>setCostMargin(m)}
-                  style={{background:costMargin===m?T.accent:"transparent",color:costMargin===m?"#fff":T.muted,border:"none",borderRadius:4,padding:"2px 8px",fontSize:11,fontFamily:mono,cursor:"pointer"}}>{m}</button>
+                  style={{background:costMargin===m?T.amber:"transparent",color:costMargin===m?"#fff":T.muted,border:"none",borderRadius:4,padding:"2px 8px",fontSize:11,fontFamily:mono,cursor:"pointer"}}>{m}</button>
               ))}
             </div>
             <div style={{display:"flex",gap:12,alignItems:"center"}}>
