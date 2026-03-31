@@ -20,8 +20,8 @@ export async function GET(req: NextRequest) {
     await saveTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
     return NextResponse.redirect(new URL("/settings?qb=connected", req.url));
   } catch (err: any) {
-    console.error("[QB Callback] Token exchange error:", err.message);
-    const msg = encodeURIComponent(err.message || "Unknown error");
-    return NextResponse.redirect(new URL(`/settings?qb=error&msg=${msg}`, req.url));
+    console.error("[QB Callback] Error:", err);
+    // Show error as JSON for debugging — remove this after fixing
+    return NextResponse.json({ error: err.message, stack: err.stack }, { status: 500 });
   }
 }
