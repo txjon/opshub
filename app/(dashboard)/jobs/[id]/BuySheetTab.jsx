@@ -4,6 +4,22 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 const DEFAULT_CURVE = {S:5.13,M:20.57,L:38.14,XL:25.90,"2XL":7.69,"3XL":2.56};
 
+// Shift-click range selection for size pickers
+function handleSizeToggle(sz, e, availableSizes, setSelSizes, lastClickedRef) {
+  if (e?.shiftKey && lastClickedRef.current && lastClickedRef.current !== sz) {
+    const sorted = sortSizes(availableSizes);
+    const a = sorted.indexOf(lastClickedRef.current);
+    const b = sorted.indexOf(sz);
+    if (a >= 0 && b >= 0) {
+      const [start, end] = a < b ? [a, b] : [b, a];
+      setSelSizes(p => { const n = { ...p }; sorted.slice(start, end + 1).forEach(s => { n[s] = 1; }); return n; });
+      return;
+    }
+  }
+  lastClickedRef.current = sz;
+  setSelSizes(p => { const n = { ...p }; if (n[sz] !== undefined) delete n[sz]; else n[sz] = 1; return n; });
+}
+
 function distribute(total, sizes, curve) {
   const relevant = sizes.filter(sz => curve[sz] !== undefined);
   const total_pct = relevant.reduce((a,sz) => a+(curve[sz]||0), 0);
@@ -34,6 +50,7 @@ function SSPicker({ onAdd, onClose, isFav, toggleFav }) {
   const [selSizes, setSelSizes] = useState({});
   const [filteredBrands, setFilteredBrands] = useState(null);
   const [itemName, setItemName] = useState("");
+  const lastClickedSize = useRef(null);
 
   useEffect(() => {
     fetch("/api/ss?endpoint=brands")
@@ -85,7 +102,7 @@ function SSPicker({ onAdd, onClose, isFav, toggleFav }) {
   const colorNames = Object.keys(colorGroups).sort();
   const currentColor = selColor ? colorGroups[selColor] : null;
 
-  const toggleSz = (sz) => setSelSizes(p => { const n={...p}; if(n[sz]!==undefined) delete n[sz]; else n[sz]=1; return n; });
+  const toggleSz = (sz, e) => handleSizeToggle(sz, e, currentColor?.sizes || [], setSelSizes, lastClickedSize);
   const canAdd = selStyle && selColor && currentColor && Object.keys(selSizes).length > 0;
 
   const doAdd = () => {
@@ -179,7 +196,7 @@ function SSPicker({ onAdd, onClose, isFav, toggleFav }) {
                     const sizeProduct = (currentColor.items||[]).find(p => p.sizeName === sz);
                     const sizeStock = sizeProduct ? (sizeProduct.warehouses||[]).reduce((a,w) => a + w.qty, 0) : 0;
                     return (
-                      <div key={sz} onClick={() => toggleSz(sz)}
+                      <div key={sz} onClick={(e) => toggleSz(sz, e)}
                         style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"7px 10px", borderRadius:6, cursor:"pointer", border:`1px solid ${on?T.accent:T.border}`, background:on?T.accent:T.surface, transition:"all 0.12s", userSelect:"none" }}>
                         <span style={{ fontSize:12, fontWeight:700, color:on?"#fff":T.muted, fontFamily:mono }}>{sz}</span>
                         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -216,6 +233,7 @@ function ASColourPicker({ onAdd, onClose, isFav, toggleFav }) {
   const [selSizes, setSelSizes] = useState({});
   const [inventory, setInventory] = useState({});  // { sku: totalQty }
   const [itemName, setItemName] = useState("");
+  const lastClickedSize = useRef(null);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -275,7 +293,7 @@ function ASColourPicker({ onAdd, onClose, isFav, toggleFav }) {
   const colorNames = Object.keys(colorGroups).sort();
   const currentColorVariants = selColor ? (colorGroups[selColor] || []) : [];
 
-  const toggleSz = (sz) => setSelSizes(p => { const n = { ...p }; if (n[sz] !== undefined) delete n[sz]; else n[sz] = 1; return n; });
+  const toggleSz = (sz, e) => handleSizeToggle(sz, e, currentColorVariants.map(v => v.sizeCode), setSelSizes, lastClickedSize);
   const canAdd = selStyle && selColor && Object.keys(selSizes).length > 0;
 
   const doAdd = () => {
@@ -374,7 +392,7 @@ function ASColourPicker({ onAdd, onClose, isFav, toggleFav }) {
                     const price = variant ? (pricing[variant.sku] || 0) : 0;
                     const stock = variant ? (inventory[variant.sku] || 0) : 0;
                     return (
-                      <div key={sz} onClick={() => toggleSz(sz)}
+                      <div key={sz} onClick={(e) => toggleSz(sz, e)}
                         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -411,6 +429,7 @@ function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
   const [itemName, setItemName] = useState("");
   const [newColor, setNewColor] = useState("");
   const [search, setSearch] = useState("");
+  const lastClickedSize = useRef(null);
 
   useEffect(() => {
     fetch("/api/laapparel?endpoint=products").then(r => r.json()).then(data => {
@@ -460,7 +479,8 @@ function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
     return s.split(",").map(x => x.trim()).filter(Boolean);
   };
 
-  const toggleSz = (sz) => setSelSizes(p => { const n = { ...p }; if (n[sz] !== undefined) delete n[sz]; else n[sz] = 1; return n; });
+  const laAvailSizes = effectiveRows.flatMap(r => expandSizes(r.sizes)).filter((s,i,a) => a.indexOf(s) === i);
+  const toggleSz = (sz, e) => handleSizeToggle(sz, e, laAvailSizes, setSelSizes, lastClickedSize);
   const canAdd = selStyle && selColorType && Object.keys(selSizes).length > 0;
 
   const doAdd = () => {
@@ -584,7 +604,7 @@ function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
                       const on = selSizes[sz] !== undefined;
                       const price = allSizes.find(s => s.size === sz)?.price || 0;
                       return (
-                        <div key={sz} onClick={() => toggleSz(sz)}
+                        <div key={sz} onClick={(e) => toggleSz(sz, e)}
                           style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
                           <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
                           {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${price.toFixed(2)}</span>}
@@ -620,6 +640,7 @@ function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav })
   const [selSizes, setSelSizes] = useState({});
   const [itemName, setItemName] = useState("");
   const [newColor, setNewColor] = useState("");
+  const lastClickedSize = useRef(null);
 
   async function addLAColor() {
     if (!newColor.trim() || !selFav || selFav.supplier !== "laapparel") return;
@@ -713,7 +734,7 @@ function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav })
   const colorNames = Object.keys(colorGroups).sort();
   const currentColorVariants = selColor ? (colorGroups[selColor] || []) : [];
 
-  const toggleSz = (sz) => setSelSizes(p => { const n = { ...p }; if (n[sz] !== undefined) delete n[sz]; else n[sz] = 1; return n; });
+  const toggleSz = (sz, e) => handleSizeToggle(sz, e, currentColorVariants.map(v => v.sizeCode), setSelSizes, lastClickedSize);
   const canAdd = selFav && selColor && Object.keys(selSizes).length > 0;
 
   const doAdd = () => {
@@ -838,7 +859,7 @@ function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav })
                   const price = variant ? (pricing[variant.sku] || variant.price || 0) : 0;
                   const stock = variant ? (inventory[variant.sku] || 0) : 0;
                   return (
-                    <div key={sz} onClick={() => toggleSz(sz)}
+                    <div key={sz} onClick={(e) => toggleSz(sz, e)}
                       style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -887,12 +908,12 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
     }
   }, [items]);
 
-  // ── Auto-save: 800ms debounce after any change ────
+  // ── Auto-save: 1500ms debounce after any change (longer for rapid qty entry) ────
   useEffect(() => {
     if (!isDirty) return;
     const t = setTimeout(async () => {
       await onSaveRef.current?.();
-    }, 800);
+    }, 1500);
     return () => clearTimeout(t);
   }, [currentSnapshot]);
 
@@ -990,14 +1011,11 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
         });
       }
 
-      // 5. Update snapshot to match what's now in DB (use current local state, not a stale copy)
-      // Read the latest localItems to build an accurate snapshot
-      setLocalItems(prev => {
-        const resolved = (prev || current).map(it => idMap[it.id] ? { ...it, id: idMap[it.id] } : it);
-        setSavedSnapshot(JSON.stringify(resolved));
-        if (onSaved) onSaved(resolved);
-        return prev; // Don't overwrite — keep whatever the user is currently editing
-      });
+      // 5. Update snapshot to what was ACTUALLY saved to DB (not current local state)
+      // This ensures edits made during the async save are still marked dirty and get saved next cycle
+      const resolvedCurrent = current.map(it => idMap[it.id] ? { ...it, id: idMap[it.id] } : it);
+      setSavedSnapshot(JSON.stringify(resolvedCurrent));
+      if (onSaved) onSaved(resolvedCurrent);
       if (onSaveStatus) onSaveStatus("saved");
     } catch (e) {
       console.error("Buy sheet save failed", e);
@@ -1111,10 +1129,22 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const commitTimers = useRef({});
   const commitQty = (rowIdx, itemId, sz) => {
     const key = itemId+"_"+sz;
-    if (localQtys[key] === undefined) return;
-    const parsed = parseInt(localQtys[key]) || 0;
+    // Clear any pending auto-commit to prevent double-fire with stale closure
+    if (commitTimers.current[key]) { clearTimeout(commitTimers.current[key]); delete commitTimers.current[key]; }
+    // Read from ref (not closure) so scheduled timers always get fresh data
+    const val = localQtysRef.current[key];
+    if (val === undefined) return;
+    const parsed = parseInt(val) || 0;
     setLocalQtys(p => { const n={...p}; delete n[key]; return n; });
-    updateQty(rowIdx, sz, parsed);
+    // Functional update: always merges into latest localItems, finds item by ID (not stale index)
+    setLocalItems(prev => {
+      const items = prev || workingItemsRef.current || [];
+      return items.map(it => {
+        if (it.id !== itemId) return it;
+        const newQtys = {...(it.qtys||{}), [sz]: parsed};
+        return {...it, qtys: newQtys, totalQty: Object.values(newQtys).reduce((a,v)=>a+v,0)};
+      });
+    });
   };
   // Auto-commit qty after 500ms of no typing
   const scheduleCommit = (rowIdx, itemId, sz) => {
@@ -1225,7 +1255,6 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
                 { label:"AS Colour", bg:"#000000", color:"#fff", action:() => { setShowAddModal(false); setShowASColour(true); } },
                 { label:"LA Apparel", bg:"#ffffff", color:"#000000", border:true, action:() => { setShowAddModal(false); setShowLAApparel(true); } },
                 { label:"Custom Accessory", bg:T.surface, color:T.text, border:true, action:() => { setShowAddModal(false); setShowAddType("accessory"); } },
-                { label:"Headwear", bg:T.surface, color:T.faint, disabled:true, sub:"coming soon" },
               ].map(opt => (
                 <button key={opt.label} onClick={opt.disabled ? undefined : opt.action} disabled={opt.disabled}
                   style={{ padding:"10px 14px", borderRadius:8, border:opt.border?`1px solid ${T.border}`:"none", background:opt.bg,
