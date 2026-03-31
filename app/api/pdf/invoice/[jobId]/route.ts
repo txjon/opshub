@@ -114,7 +114,7 @@ function renderInvoiceHTML(data: {
   invoiceNum: string; today: string; terms: string; shipDate: string;
   clientName: string; notes: string;
   prods: { name: string; style: string; color: string; sizes: string[]; qtys: Record<string,number>; totalQty: number; sellPerUnit: number; grossRev: number; }[];
-  quoteTotal: number; totalPaid: number; balanceDue: number;
+  quoteTotal: number; taxAmount: number; totalPaid: number; balanceDue: number;
 }): string {
   const font = `'Helvetica Neue', Arial, sans-serif`;
 
@@ -207,9 +207,13 @@ function renderInvoiceHTML(data: {
     <!-- Total -->
     <div style="display:flex;justify-content:flex-end;padding-top:14px;border-top:1.5px solid #1a1a1a;margin-top:4px">
       <div style="text-align:right">
-        ${data.totalPaid > 0 ? `
         <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa;margin-bottom:2px;font-family:${font}">Subtotal</div>
         <div style="font-size:14px;font-weight:600;letter-spacing:-0.02em;font-family:${font};color:#888;margin-bottom:6px">${fmtD(data.quoteTotal)}</div>
+        ${data.taxAmount > 0 ? `
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa;margin-bottom:2px;font-family:${font}">Sales Tax</div>
+        <div style="font-size:14px;font-weight:600;letter-spacing:-0.02em;font-family:${font};color:#888;margin-bottom:6px">${fmtD(data.taxAmount)}</div>
+        ` : ""}
+        ${data.totalPaid > 0 ? `
         <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#27500A;margin-bottom:2px;font-family:${font}">Paid</div>
         <div style="font-size:14px;font-weight:600;letter-spacing:-0.02em;font-family:${font};color:#27500A;margin-bottom:6px">-${fmtD(data.totalPaid)}</div>
         ` : ""}
@@ -320,8 +324,9 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     }
 
     const quoteTotal = prods.reduce((a: number, p: any) => a + p.grossRev, 0);
+    const taxAmount = job.type_meta?.qb_tax_amount || 0;
     const totalPaid = (payments || []).filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + p.amount, 0);
-    const balanceDue = quoteTotal - totalPaid;
+    const balanceDue = quoteTotal + taxAmount - totalPaid;
 
     const html = renderInvoiceHTML({
       invoiceNum: job.type_meta?.qb_invoice_number || orderInfo.invoiceNum || job.job_number || "",
@@ -332,6 +337,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       notes: orderInfo.notes || job.notes || "",
       prods,
       quoteTotal,
+      taxAmount,
       totalPaid,
       balanceDue,
     });

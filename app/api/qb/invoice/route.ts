@@ -120,6 +120,8 @@ export async function POST(req: NextRequest) {
         qb_invoice_id: result.invoiceId,
         qb_invoice_number: result.invoiceNumber,
         qb_payment_link: result.paymentLink,
+        qb_tax_amount: result.taxAmount,
+        qb_total_with_tax: result.totalWithTax,
       },
     }).eq("id", jobId);
 

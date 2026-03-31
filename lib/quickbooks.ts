@@ -182,6 +182,27 @@ async function qbFetch(
   const tid = res.headers.get("intuit_tid");
   if (tid) console.log(`[QB API] ${endpoint} intuit_tid: ${tid}`);
 
+  // Auto-retry on 401 — refresh token and try once more
+  if (res.status === 401) {
+    console.log(`[QB API] 401 on ${endpoint} — refreshing token and retrying`);
+    const newToken = await refreshAccessToken();
+    const retry = await fetch(url, {
+      method: options.method || "GET",
+      headers: {
+        Authorization: `Bearer ${newToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    if (!retry.ok) {
+      const text = await retry.text();
+      console.error(`[QB API Error] ${endpoint} (after refresh): ${retry.status} ${text}`);
+      throw new Error(`QB API error: ${retry.status} ${text}`);
+    }
+    return retry.json();
+  }
+
   if (!res.ok) {
     const text = await res.text();
     console.error(`[QB API Error] ${endpoint}: ${res.status} ${text}`);
@@ -292,19 +313,27 @@ export async function createInvoice(
 
   const data = await qbFetch("/invoice", { method: "POST", body });
   const invoice = data.Invoice;
-  console.log("[QB] Invoice created:", JSON.stringify({ Id: invoice.Id, DocNumber: invoice.DocNumber, InvoiceLink: invoice.InvoiceLink }));
+  console.log("[QB] Invoice created:", JSON.stringify({ Id: invoice.Id, DocNumber: invoice.DocNumber, TxnTaxDetail: invoice.TxnTaxDetail }));
+
+  // Read invoice back to get tax calculation
+  const readBack = await qbFetch(`/invoice/${invoice.Id}`);
+  const fullInvoice = readBack.Invoice || invoice;
+  const taxAmount = fullInvoice.TxnTaxDetail?.TotalTax || 0;
+  const totalWithTax = (fullInvoice.TotalAmt || 0);
 
   // Get realm from DB for payment link
   const tokens = await getTokens();
   const realm = tokens?.realm_id || process.env.QB_REALM_ID;
 
   // Build payment link
-  const paymentLink = invoice.InvoiceLink || `https://app.qbo.intuit.com/app/customerportal?invoiceId=${invoice.Id}&companyId=${realm}`;
+  const paymentLink = fullInvoice.InvoiceLink || `https://app.qbo.intuit.com/app/customerportal?invoiceId=${invoice.Id}&companyId=${realm}`;
 
   return {
     invoiceId: invoice.Id,
-    invoiceNumber: invoice.DocNumber || String(invoice.Id),
+    invoiceNumber: fullInvoice.DocNumber || String(invoice.Id),
     paymentLink,
+    taxAmount,
+    totalWithTax,
   };
 }
 
