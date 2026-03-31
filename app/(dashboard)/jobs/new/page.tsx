@@ -18,7 +18,7 @@ export default function NewJobPage() {
     priority: "normal",
     shipping_route: "ship_through",
     payment_terms: "",
-    payment_method: "",
+    payment_method: "quickbooks",
     target_ship_date: "",
     in_hands_date: "",
     notes: "",
@@ -280,14 +280,8 @@ export default function NewJobPage() {
             <div>
               <label className={lc}>Payment Method</label>
               <select value={form.payment_method} onChange={e => set("payment_method", e.target.value)} className={ic}>
-                <option value="">Not set</option>
-                <option value="credit_card">Credit Card</option>
+                <option value="quickbooks">QuickBooks</option>
                 <option value="ach">ACH</option>
-                <option value="wire">Wire Transfer</option>
-                <option value="check">Check</option>
-                <option value="paypal">PayPal</option>
-                <option value="venmo">Venmo</option>
-                <option value="zelle">Zelle</option>
               </select>
             </div>
           </div>
