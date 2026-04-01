@@ -232,62 +232,67 @@ export default function JobsPage() {
               return a + (it.sell_per_unit||0) * qty;
             }, 0);
 
+          const invNum = job.type_meta?.qb_invoice_number;
+          const progress = getItemProgress(job);
+
           return (
             <div key={job.id} onClick={() => router.push(`/jobs/${job.id}`)}
-              style={{ background:T.card, border:`1px solid ${borderColor}`, borderRadius:10, cursor:"pointer", transition:"background 0.1s", display:"flex", alignItems:"center", gap:12, padding:"11px 14px" }}
+              style={{ background:T.card, border:`1px solid ${borderColor}`, borderRadius:10, cursor:"pointer", transition:"background 0.1s", display:"flex", alignItems:"center", gap:14, padding:"10px 14px", height:56 }}
               onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = T.surface}
               onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = T.card}>
 
-              {/* Client + project name */}
-              <div style={{ width:240, flexShrink:0 }}>
-                <div style={{ fontSize:14, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{job.clients?.name||"No client"}</div>
-                <div style={{ fontSize:11, color:T.muted, marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{job.type_meta?.qb_invoice_number ? <span style={{ fontFamily:mono, fontWeight:600, color:T.text }}>INV-{job.type_meta.qb_invoice_number}</span> : job.title}{job.type_meta?.qb_invoice_number && job.title ? <span style={{ color:T.faint }}> · {job.title}</span> : null} · <span style={{ fontFamily:mono, fontSize:10 }}>{job.job_number}</span></div>
+              {/* Priority indicator */}
+              {job.priority !== "normal" ? (
+                <span style={{ padding:"2px 8px", borderRadius:99, fontSize:10, fontWeight:700, background:pri.bg, color:pri.text, whiteSpace:"nowrap", flexShrink:0 }}>{pri.label}</span>
+              ) : (
+                <span style={{ width:36, flexShrink:0 }}/>
+              )}
+
+              {/* Client + memo */}
+              <div style={{ width:360, flexShrink:0 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                  {job.clients?.name||"No client"}
+                </div>
+                <div style={{ fontSize:12, color:"#9aa3c0", marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                  {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{job.job_number}</span>
+                </div>
               </div>
 
-              {/* Units + Revenue stats */}
-              <div style={{ display:"flex", gap:20, width:160, flexShrink:0 }}>
-                <div>
-                  <div style={{ fontSize:10, color:T.muted, marginBottom:2 }}>Units</div>
-                  <div style={{ fontSize:13, fontWeight:600, color:T.text, fontFamily:mono }}>{totalUnits>0?totalUnits.toLocaleString():"—"}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize:10, color:T.muted, marginBottom:2 }}>Revenue</div>
-                  <div style={{ fontSize:13, fontWeight:600, color:totalRevenue>0?T.accent:T.muted, fontFamily:mono }}>{totalRevenue>0?"$"+Math.round(totalRevenue).toLocaleString():"—"}</div>
-                </div>
+              {/* Invoice # */}
+              <div style={{ width:90, flexShrink:0 }}>
+                {invNum ? <span style={{ fontSize:13, fontWeight:600, color:T.text, fontFamily:mono }}>INV-{invNum}</span>
+                  : <span style={{ fontSize:11, color:T.faint }}>—</span>}
               </div>
 
               <div style={{ flex:1 }}/>
 
-              {/* Priority - fixed width so columns align */}
-              <div style={{ width:110, flexShrink:0, display:"flex", justifyContent:"center" }}>
-                <span style={{ padding:"2px 9px", borderRadius:99, fontSize:11, fontWeight:600, background:pri.bg, color:pri.text, whiteSpace:"nowrap" }}>{pri.label}</span>
-              </div>
+              {/* Units + Revenue — right-justified next to status bar */}
+              <span style={{ fontSize:13, fontWeight:600, color:T.text, fontFamily:mono }}>{totalUnits>0?totalUnits.toLocaleString():"—"} <span style={{ fontSize:11, fontWeight:400, color:T.muted }}>units</span></span>
+              <span style={{ fontSize:13, fontWeight:600, color:totalRevenue>0?T.accent:T.faint, fontFamily:mono, textAlign:"right", minWidth:60 }}>{totalRevenue>0?"$"+Math.round(totalRevenue).toLocaleString():""}</span>
 
-              {/* Phase + progress */}
-              <div style={{ width:160, flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-                <span style={{ padding:"2px 9px", borderRadius:99, fontSize:11, fontWeight:600, background:phase.bg, color:phase.text, whiteSpace:"nowrap" }}>{phase.label}</span>
-                {getItemProgress(job) && <span style={{ fontSize:9, color:T.muted, fontFamily:mono }}>{getItemProgress(job)}</span>}
-              </div>
-
-              {/* Progress */}
-              <div style={{ width:120, flexShrink:0 }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
-                  <span style={{ fontSize:10, color:T.muted }}>Progress</span>
-                  <span style={{ fontSize:11, fontWeight:700, color:pctColor, fontFamily:mono }}>{pct}%</span>
-                </div>
-                <div style={{ height:5, background:T.surface, borderRadius:3 }}>
-                  <div style={{ height:"100%", width:pct+"%", background:pctColor, borderRadius:3, transition:"width 0.4s" }}/>
+              {/* Phase infographic */}
+              <div style={{ width:330, flexShrink:0 }}>
+                <div style={{ position:"relative", background:phase.bg, borderRadius:8, padding:"6px 10px", overflow:"hidden" }}>
+                  {/* Progress fill */}
+                  <div style={{ position:"absolute", top:0, left:0, bottom:0, width:pct+"%", background:phase.text+"18", borderRadius:8, transition:"width 0.4s" }}/>
+                  <div style={{ position:"relative", display:"flex", alignItems:"center", justifyContent:"space-between", whiteSpace:"nowrap", overflow:"hidden" }}>
+                    <div style={{ overflow:"hidden", textOverflow:"ellipsis" }}>
+                      <span style={{ fontSize:14, fontWeight:700, color:phase.text }}>{phase.label}</span>
+                      {progress && <span style={{ fontSize:12, color:"rgba(255,255,255,0.6)", marginLeft:6, fontFamily:mono }}>{progress}</span>}
+                    </div>
+                    <span style={{ fontSize:12, fontWeight:700, color:"rgba(255,255,255,0.5)", fontFamily:mono, marginLeft:6, flexShrink:0 }}>{pct}%</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Days */}
+              {/* Ship date */}
               <div style={{ textAlign:"right", minWidth:56, flexShrink:0 }}>
                 {daysLeft !== null ? (
                   <>
-                    <div style={{ fontSize:14, fontWeight:700, color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.muted, fontFamily:mono }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.muted, fontFamily:mono }}>
                       {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Today":daysLeft+"d"}
                     </div>
-                    <div style={{ fontSize:10, color:T.faint }}>
+                    <div style={{ fontSize:10, color:"#9aa3c0" }}>
                       {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
                     </div>
                   </>

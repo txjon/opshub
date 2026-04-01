@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
-import { calculateMilestones } from "@/lib/dates";
+// dates — milestones removed, ship date is set manually
 
 const STAGES = [
   { id: "in_production", label: "In Production" },
@@ -108,12 +108,7 @@ export default function ProductionPage() {
         decorator_name: assignment?.decorators?.name || null,
         decorator_short_code: assignment?.decorators?.short_code || null,
         decorator_assignment_id: assignment?.id || null,
-        target_ship_date: (() => {
-          if (job?.type_meta?.decorator_ships) return job.type_meta.decorator_ships;
-          const ih = job?.type_meta?.in_hands_date || job?.type_meta?.show_date;
-          if (ih) return calculateMilestones(ih).decoratorShips;
-          return job?.target_ship_date || null;
-        })(),
+        target_ship_date: job?.target_ship_date || null,
         total_units: totalUnits,
         proof_status: proofMap[it.id] || "none",
       };

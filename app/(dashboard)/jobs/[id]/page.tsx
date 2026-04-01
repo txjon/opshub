@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/Skeleton";
 import { ProjectProgress } from "@/components/ProjectProgress";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
-import { calculateMilestones, calculatePriority, businessDaysFromNow, subtractBusinessDays, addBusinessDays } from "@/lib/dates";
+import { calculatePriority, businessDaysFromNow } from "@/lib/dates";
 
 function JobSkeleton() {
   return (
@@ -123,13 +123,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   async function loadData() {
     setLoading(true);
     const [jobRes, itemsRes, paymentsRes, contactsRes] = await Promise.all([
-      supabase.from("jobs").select("*, clients(name)").eq("id", params.id).single(),
+      supabase.from("jobs").select("*, clients(name, shipping_address)").eq("id", params.id).single(),
       supabase.from("items").select("*, decorator_assignments(pipeline_stage, decoration_type, decorators(name)), buy_sheet_lines(size, qty_ordered, qty_shipped_from_vendor, qty_received_at_hpd)").eq("job_id", params.id).order("sort_order"),
       supabase.from("payment_records").select("*").eq("job_id", params.id).order("created_at"),
       supabase.from("job_contacts").select("*, contacts(*)").eq("job_id", params.id),
     ]);
     if (jobRes.data) {
-      setJob(jobRes.data as Job);
+      const j = jobRes.data as any;
+      // Auto-fill shipping address from client profile if not set
+      if (!j.type_meta?.venue_address && j.clients?.shipping_address) {
+        j.type_meta = { ...(j.type_meta || {}), venue_address: j.clients.shipping_address };
+      }
+      setJob(j as Job);
     }
     if (itemsRes.data) {
       const mapped = itemsRes.data.map((it: any) => {
@@ -352,8 +357,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{fontSize:16,color:T.muted,marginBottom:6}}>{job.title}</div>
             )}
             <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.muted}}>
-              <span style={{textTransform:"capitalize"}}>{job.job_type}</span>
-              <span style={{color:T.faint}}>·</span>
               <span>{totalUnits.toLocaleString()} units</span>
             </div>
           </div>
@@ -445,10 +448,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         <div style={{flex:1,minWidth:0}}>
       {/* OVERVIEW */}
                   {tab==="overview"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:10,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
+        <div style={{fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
 
-          {/* Top row: Project info + Shipping details (matched height) */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"start"}}>
+            {/* Left column: Project info + Shipping details */}
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project info</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
@@ -492,44 +496,27 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project memo</label>
                     <input style={ic} value={job.title} placeholder="Optional description..." onChange={e=>upd("title",e.target.value)}/>
                   </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Type</label>
-                    <select style={ic} value={job.job_type} onChange={e=>upd("job_type",e.target.value)}>
-                      {["corporate","brand","artist","tour","webstore","drop_ship"].map(t=><option key={t} value={t}>{t.replace(/_/g," ")}</option>)}
-                    </select>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Priority</label>
+                    <div style={{padding:"6px 10px",borderRadius:6,fontSize:12,fontWeight:600,textAlign:"center",
+                      background:job.priority==="hot"?T.redDim:job.priority==="rush"?T.amberDim:T.greenDim,
+                      color:job.priority==="hot"?T.red:job.priority==="rush"?T.amber:T.green}}>
+                      {(job.priority||"normal").toUpperCase()}
+                    </div>
                   </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
-                    <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
-                      <option value="drop_ship">Drop ship (direct to client)</option>
-                      <option value="ship_through">Ship-through (forward from HPD)</option>
-                      <option value="stage">Stage (fulfillment from HPD)</option>
-                    </select>
-                  </div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Phase</label>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <div style={{...ic,background:T.card,display:"flex",alignItems:"center",gap:6}}>
-                        <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>{job.phase.replace(/_/g," ")}</span>
-                        {(()=>{
-                          const r=calculatePhase({
-                            job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
-                            items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
-                            payments:payments.map(p=>({amount:p.amount,status:p.status})),
-                            proofStatus,
-                            poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
-                            costingVendors:[...new Set(((job as any).costing_data?.costProds||[]).map((cp:any)=>cp.printVendor).filter(Boolean))],
-                          });
-                          return r.itemProgress?<span style={{fontSize:10,color:T.muted}}>{r.itemProgress}</span>:null;
-                        })()}
-                      </div>
-                      {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
-                        <button onClick={()=>{upd("phase","on_hold");}} style={{fontSize:10,color:T.amber,background:"none",border:`1px solid ${T.amber}`,borderRadius:6,padding:"4px 12px",cursor:"pointer",fontWeight:600}}>Place on Hold</button>
-                      )}
-                      {job.phase==="on_hold"&&(
-                        <button onClick={async()=>{
-                          await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
-                          setJob(j=>j?{...j,phase:"intake"} as any:j);
-                          setTimeout(recalcPhase, 300);
-                        }} style={{fontSize:9,color:T.green,background:T.greenDim,border:"none",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontWeight:600}}>Resume</button>
-                      )}
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Phase</label>
+                    <div style={{...ic,background:T.card,display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>{job.phase.replace(/_/g," ")}</span>
+                      {(()=>{
+                        const r=calculatePhase({
+                          job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
+                          items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
+                          payments:payments.map(p=>({amount:p.amount,status:p.status})),
+                          proofStatus,
+                          poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
+                          costingVendors:[...new Set(((job as any).costing_data?.costProds||[]).map((cp:any)=>cp.printVendor).filter(Boolean))],
+                        });
+                        return r.itemProgress?<span style={{fontSize:10,color:T.muted}}>{r.itemProgress}</span>:null;
+                      })()}
                     </div>
                   </div>
                   <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
@@ -542,67 +529,118 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>In-hands date</label><input style={ic} type="date" value={job.type_meta?.in_hands_date||job.type_meta?.show_date||""} onChange={e=>{
-                    const ih = e.target.value;
-                    upd("type_meta",{...job.type_meta,in_hands_date:ih});
-                    if(ih){
-                      const ship = subtractBusinessDays(ih, 3);
-                      upd("target_ship_date",ship);
-                      upd("priority",calculatePriority(ship));
-                    }
-                  }}/></div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Ship date</label><input style={ic} type="date" value={job.target_ship_date||""} onChange={e=>{
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Ship date</label><input style={{...ic,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
                     const ship = e.target.value;
-                    upd("target_ship_date",ship);
-                    if(ship){
-                      upd("priority",calculatePriority(ship));
-                      if(!job.type_meta?.in_hands_date) upd("type_meta",{...job.type_meta,in_hands_date:addBusinessDays(ship,3)});
-                    }
+                    const updates: any = { target_ship_date: ship };
+                    if (ship) updates.priority = calculatePriority(ship);
+                    setJob(j => j ? {...j, ...updates} : j);
+                    saveJob(updates);
                   }}/></div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Priority</label>
-                    <div style={{padding:"6px 10px",borderRadius:6,fontSize:12,fontWeight:600,textAlign:"center",
-                      background:job.priority==="hot"?T.redDim:job.priority==="rush"?T.amberDim:T.greenDim,
-                      color:job.priority==="hot"?T.red:job.priority==="rush"?T.amber:T.green}}>
-                      {(job.priority||"normal").toUpperCase()}
-                    </div>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>In-hands date</label><input style={{...ic,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.type_meta?.in_hands_date||job.type_meta?.show_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
+                    upd("type_meta",{...job.type_meta,in_hands_date:e.target.value});
+                  }}/></div>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
+                    <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
+                      <option value="drop_ship">Drop ship (direct to client)</option>
+                      <option value="ship_through">Ship-through (forward from HPD)</option>
+                      <option value="stage">Stage (fulfillment from HPD)</option>
+                    </select>
                   </div>
                 </div>
-                {(job.type_meta?.in_hands_date||job.type_meta?.show_date)&&(()=>{
-                  const ih=job.type_meta?.in_hands_date||job.type_meta?.show_date;
-                  const ms=calculateMilestones(ih);
-                  const milestones=[
-                    {label:"Decorator order by",key:"decoratorOrderDeadline",date:job.type_meta?.decorator_order_by||ms.decoratorOrderDeadline},
-                    {label:"Decorator ships",key:"decoratorShips",date:job.type_meta?.decorator_ships||ms.decoratorShips},
-                    {label:"Arrive warehouse",key:"arriveAtWarehouse",date:job.type_meta?.arrive_warehouse||ms.arriveAtWarehouse},
-                  ];
-                  return(
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:8}}>
-                      {milestones.map(m=>(
-                        <div key={m.label} style={{background:T.surface,borderRadius:6,padding:"5px 8px"}}>
-                          <div style={{fontSize:8,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>{m.label}</div>
-                          <input type="date" value={m.date} style={{background:"transparent",border:"none",outline:"none",fontSize:11,fontWeight:600,color:T.muted,fontFamily:"var(--font-mono)",width:"100%",padding:0,cursor:"pointer"}} onChange={e=>{
-                            const metaKey = m.key==="decoratorOrderDeadline"?"decorator_order_by":m.key==="decoratorShips"?"decorator_ships":"arrive_warehouse";
-                            upd("type_meta",{...job.type_meta,[metaKey]:e.target.value});
-                          }}/>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-                <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:7,flex:1}}>
-                  <div style={{flex:1}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping address</label>
-                    <textarea style={{...ic,flex:1,minHeight:60,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})} placeholder="Venue name, street, city, state, zip..."/>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginTop:7}}>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping address</label>
+                    <textarea style={{...ic,minHeight:130,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/>
                   </div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
-                    <textarea style={{...ic,minHeight:44,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})} placeholder="Carrier, dock info, on-site contact..."/>
+                    <textarea style={{...ic,minHeight:130,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
                   </div>
                 </div>
               </div>
-          </div>
 
-          {/* Bottom section: two columns */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"start"}}>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {/* Hold + Delete */}
+              <div style={{display:"flex",gap:8}}>
+                {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
+                  <button onClick={()=>{upd("phase","on_hold");}}
+                    style={{flex:1,padding:"8px",background:"transparent",border:`1px solid ${T.amber}`,borderRadius:8,color:T.amber,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
+                    onMouseEnter={e=>(e.currentTarget.style.background=T.amberDim)}
+                    onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                    Place on Hold
+                  </button>
+                )}
+                {job.phase==="on_hold"&&(
+                  <button onClick={async()=>{
+                    await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
+                    setJob(j=>j?{...j,phase:"intake"} as any:j);
+                    setTimeout(recalcPhase, 300);
+                  }}
+                    style={{flex:1,padding:"8px",background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,color:T.green,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
+                    onMouseEnter={e=>(e.currentTarget.style.opacity="0.8")}
+                    onMouseLeave={e=>(e.currentTarget.style.opacity="1")}>
+                    Resume
+                  </button>
+                )}
+                <button
+                  onClick={() => setConfirmDeleteProject(true)}
+                  style={{flex:1,padding:"8px",background:"transparent",border:"1px solid #3d1212",borderRadius:8,color:"#f05353",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
+                  onMouseEnter={e=>(e.currentTarget.style.background="#3d1212")}
+                  onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                  Delete project
+                </button>
+              </div>
+            </div>
+
+            {/* Right column: Summary, Contacts, Payments, Items */}
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+
+              {/* Project Summary */}
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Project Summary</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+                    <span style={{color:T.muted}}>Created</span>
+                    <span>{new Date((job as any).created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
+                  </div>
+                  {(()=>{
+                    const costProds=(job as any).costing_data?.costProds||[];
+                    const suppliers=[...new Set(costProds.map((cp:any)=>cp.supplier).filter(Boolean))];
+                    return suppliers.length>0?(
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,alignItems:"flex-start"}}>
+                        <span style={{color:T.muted,flexShrink:0}}>Blank Suppliers</span>
+                        <span style={{textAlign:"right"}}>{suppliers.join(", ")}</span>
+                      </div>
+                    ):null;
+                  })()}
+                  {(()=>{
+                    const costProds=(job as any).costing_data?.costProds||[];
+                    const vendors=[...new Set(costProds.map((cp:any)=>cp.printVendor).filter(Boolean))];
+                    return vendors.length>0?(
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,alignItems:"flex-start"}}>
+                        <span style={{color:T.muted,flexShrink:0}}>Decorators</span>
+                        <span style={{textAlign:"right"}}>{vendors.join(", ")}</span>
+                      </div>
+                    ):null;
+                  })()}
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+                    <span style={{color:T.muted}}>Items</span>
+                    <span>{items.length} items · {totalUnits.toLocaleString()} units</span>
+                  </div>
+                  {(()=>{
+                    const r=calculatePhase({
+                      job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
+                      items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
+                      payments:payments.map(p=>({amount:p.amount,status:p.status})),
+                      proofStatus,
+                      poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
+                    });
+                    return r.itemProgress?(
+                      <div style={{borderTop:`1px solid ${T.border}`,paddingTop:8,marginTop:2}}>
+                        <div style={{fontSize:10,color:T.muted,marginBottom:3}}>NEXT STEP</div>
+                        <div style={{fontSize:12,fontWeight:600,color:T.accent}}>{r.itemProgress}</div>
+                      </div>
+                    ):null;
+                  })()}
+                </div>
+              </div>
 
               {/* Contacts */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
@@ -711,20 +749,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 )}
               </div>
 
-              {/* Delete project */}
-              <button
-                onClick={() => setConfirmDeleteProject(true)}
-                style={{width:"100%",padding:"8px",background:"transparent",border:"1px solid #3d1212",borderRadius:8,color:"#f05353",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
-                onMouseEnter={e=>(e.currentTarget.style.background="#3d1212")}
-                onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                Delete project
-              </button>
-
-            </div>
-
-            {/* Right: Items → Activity */}
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-
               {/* Items */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
@@ -748,61 +772,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       </div>
                     );
                   })}
-                </div>
-              </div>
-
-              {/* Project Summary */}
-              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Project Summary</div>
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  {/* Created */}
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
-                    <span style={{color:T.muted}}>Created</span>
-                    <span>{new Date((job as any).created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
-                  </div>
-                  {/* Blank Suppliers */}
-                  {(()=>{
-                    const costProds=(job as any).costing_data?.costProds||[];
-                    const suppliers=[...new Set(costProds.map((cp:any)=>cp.supplier).filter(Boolean))];
-                    return suppliers.length>0?(
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,alignItems:"flex-start"}}>
-                        <span style={{color:T.muted,flexShrink:0}}>Blank Suppliers</span>
-                        <span style={{textAlign:"right"}}>{suppliers.join(", ")}</span>
-                      </div>
-                    ):null;
-                  })()}
-                  {/* Decorators / Vendors */}
-                  {(()=>{
-                    const costProds=(job as any).costing_data?.costProds||[];
-                    const vendors=[...new Set(costProds.map((cp:any)=>cp.printVendor).filter(Boolean))];
-                    return vendors.length>0?(
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,alignItems:"flex-start"}}>
-                        <span style={{color:T.muted,flexShrink:0}}>Decorators</span>
-                        <span style={{textAlign:"right"}}>{vendors.join(", ")}</span>
-                      </div>
-                    ):null;
-                  })()}
-                  {/* Items / Units */}
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
-                    <span style={{color:T.muted}}>Items</span>
-                    <span>{items.length} items · {totalUnits.toLocaleString()} units</span>
-                  </div>
-                  {/* What's Next */}
-                  {(()=>{
-                    const r=calculatePhase({
-                      job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
-                      items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
-                      payments:payments.map(p=>({amount:p.amount,status:p.status})),
-                      proofStatus,
-                      poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
-                    });
-                    return r.itemProgress?(
-                      <div style={{borderTop:`1px solid ${T.border}`,paddingTop:8,marginTop:2}}>
-                        <div style={{fontSize:10,color:T.muted,marginBottom:3}}>NEXT STEP</div>
-                        <div style={{fontSize:12,fontWeight:600,color:T.accent}}>{r.itemProgress}</div>
-                      </div>
-                    ):null;
-                  })()}
                 </div>
               </div>
 

@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
-import { calculateMilestones } from "@/lib/dates";
+// dates — milestones removed, ship date is set manually
 
 function fmtD(n) {
   return "$"+Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -182,10 +182,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
   const active = selectedVendor||vendors[0]||"";
   const vItems = sorted.filter(it=>getCostProd(it.id)?.printVendor===active);
   const today = new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
-  const inHands = project?.type_meta?.in_hands_date || project?.type_meta?.show_date;
-  const decoratorShipDate = project?.type_meta?.decorator_ships || (inHands ? calculateMilestones(inHands).decoratorShips : project?.target_ship_date);
-  const shipDate = decoratorShipDate
-    ? new Date(decoratorShipDate+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
+  const shipDate = project?.target_ship_date
+    ? new Date(project.target_ship_date+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
     : "—";
 
   function updateItemField(itemId, field, val) {

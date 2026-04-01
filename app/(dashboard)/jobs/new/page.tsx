@@ -2,9 +2,9 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-// dates imported but not used on this form — timeline set on Overview tab
+import { T, font, mono } from "@/lib/theme";
 
-type ClientOption = { id: string; name: string; default_terms: string | null; client_type: string | null; };
+type ClientOption = { id: string; name: string; default_terms: string | null; };
 
 export default function NewJobPage() {
   const router = useRouter();
@@ -20,107 +20,127 @@ export default function NewJobPage() {
     payment_terms: "",
     payment_method: "quickbooks",
     notes: "",
-    client_name: "",
   });
 
-  // Client typeahead
+  // Client selection
   const [clients, setClients] = useState<ClientOption[]>([]);
-  const [filteredClients, setFilteredClients] = useState<ClientOption[]>([]);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [selectedClient, setSelectedClient] = useState<ClientOption | null>(null);
+  const [clientSearch, setClientSearch] = useState("");
+  const [showClientList, setShowClientList] = useState(false);
+  const clientRef = useRef<HTMLDivElement>(null);
+
+  // New client modal
   const [showNewClientModal, setShowNewClientModal] = useState(false);
-  const [newClientForm, setNewClientForm] = useState({ name: "", client_type: "", default_terms: "", notes: "", contacts: [] as {name:string,email:string,phone:string,role:string}[] });
+  const [nc, setNc] = useState({
+    company: "", contactName: "", email: "", phone: "", website: "",
+    billingAddress: "", shippingAddress: "", sameAsBilling: true,
+    taxExempt: false, defaultTerms: "prepaid", notes: "",
+    extraContacts: [] as { name: string; email: string; phone: string }[],
+  });
   const [savingClient, setSavingClient] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    supabase.from("clients").select("id, name, default_terms, client_type").order("name").then(({ data }) => {
+    supabase.from("clients").select("id, name, default_terms").order("name").then(({ data }) => {
       setClients(data || []);
     });
   }, []);
 
   useEffect(() => {
-    const q = form.client_name.trim().toLowerCase();
-    if (q.length === 0) { setFilteredClients([]); return; }
-    setFilteredClients(clients.filter(c => c.name.toLowerCase().includes(q)));
-  }, [form.client_name, clients]);
-
-  // Close dropdown on click outside
-  useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setShowDropdown(false);
+      if (clientRef.current && !clientRef.current.contains(e.target as Node)) setShowClientList(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const filteredClients = clientSearch.trim()
+    ? clients.filter(c => c.name.toLowerCase().includes(clientSearch.trim().toLowerCase()))
+    : clients;
 
   const selectClient = (c: ClientOption) => {
-    setForm(f => ({
-      ...f,
-      client_name: c.name,
-      payment_terms: c.default_terms || f.payment_terms,
-      job_type: c.client_type || f.job_type,
-    }));
-    setSelectedClientId(c.id);
-    setShowDropdown(false);
+    setSelectedClient(c);
+    setForm(f => ({ ...f, payment_terms: c.default_terms || f.payment_terms }));
+    setShowClientList(false);
+    setClientSearch("");
   };
+
+  const clearClient = () => { setSelectedClient(null); setClientSearch(""); };
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const openNewClientModal = () => {
-    setNewClientForm({ name: form.client_name.trim(), client_type: "", default_terms: "", notes: "", contacts: [] });
+    setNc({
+      company: "", contactName: "", email: "", phone: "", website: "",
+      billingAddress: "", shippingAddress: "", sameAsBilling: true,
+      taxExempt: false, defaultTerms: "prepaid", notes: "",
+      extraContacts: [],
+    });
     setShowNewClientModal(true);
-    setShowDropdown(false);
   };
 
-  const addModalContact = () => {
-    setNewClientForm(f => ({...f, contacts: [...f.contacts, {name:"",email:"",phone:"",role:""}]}));
-  };
-  const updateModalContact = (idx: number, field: string, value: string) => {
-    setNewClientForm(f => ({...f, contacts: f.contacts.map((c,i) => i===idx ? {...c,[field]:value} : c)}));
-  };
-  const removeModalContact = (idx: number) => {
-    setNewClientForm(f => ({...f, contacts: f.contacts.filter((_,i) => i!==idx)}));
-  };
+  const addExtraContact = () => setNc(p => ({ ...p, extraContacts: [...p.extraContacts, { name: "", email: "", phone: "" }] }));
+  const updateExtraContact = (idx: number, field: string, value: string) => setNc(p => ({ ...p, extraContacts: p.extraContacts.map((c, i) => i === idx ? { ...c, [field]: value } : c) }));
+  const removeExtraContact = (idx: number) => setNc(p => ({ ...p, extraContacts: p.extraContacts.filter((_, i) => i !== idx) }));
 
   const saveNewClient = async () => {
-    if (!newClientForm.name.trim()) return;
+    if (!nc.company.trim()) return;
     setSavingClient(true);
-    const { data, error: err } = await supabase.from("clients").insert({
-      name: newClientForm.name.trim(),
-      client_type: newClientForm.client_type || null,
-      default_terms: newClientForm.default_terms || null,
-      notes: newClientForm.notes || null,
-    }).select("id, name").single();
+    const insertData: any = {
+      name: nc.company.trim(),
+      default_terms: nc.defaultTerms || null,
+      notes: nc.notes || null,
+    };
+    // New profile fields — only include if non-empty (graceful if columns don't exist yet)
+    if (nc.website.trim()) insertData.website = nc.website.trim();
+    if (nc.billingAddress.trim()) insertData.billing_address = nc.billingAddress.trim();
+    const shipAddr = nc.sameAsBilling ? nc.billingAddress.trim() : nc.shippingAddress.trim();
+    if (shipAddr) insertData.shipping_address = shipAddr;
+    if (nc.taxExempt) insertData.tax_exempt = true;
+
+    let { data, error: err } = await supabase.from("clients").insert(insertData).select("id, name, default_terms").single();
+    // Retry without new fields if columns don't exist yet
+    if (err && err.message?.includes("column")) {
+      const fallback = { name: nc.company.trim(), default_terms: nc.defaultTerms || null, notes: nc.notes || null };
+      const retry = await supabase.from("clients").insert(fallback).select("id, name, default_terms").single();
+      data = retry.data; err = retry.error;
+    }
     if (err || !data) { setSavingClient(false); setError(err?.message || "Failed to create client"); return; }
-    // Create contacts
-    const validContacts = newClientForm.contacts.filter(c => c.name.trim() || c.email.trim());
-    if (validContacts.length > 0) {
-      await supabase.from("contacts").insert(validContacts.map((c,i) => ({
+
+    // Create primary contact
+    if (nc.contactName.trim() || nc.email.trim()) {
+      await supabase.from("contacts").insert({
+        client_id: data.id,
+        name: nc.contactName.trim() || nc.email.trim(),
+        email: nc.email.trim() || null,
+        phone: nc.phone.trim() || null,
+        is_primary: true,
+      });
+    }
+    // Create extra contacts
+    const extras = nc.extraContacts.filter(c => c.name.trim() || c.email.trim());
+    if (extras.length > 0) {
+      await supabase.from("contacts").insert(extras.map(c => ({
         client_id: data.id,
         name: c.name.trim() || c.email.trim(),
         email: c.email.trim() || null,
         phone: c.phone.trim() || null,
-        role_label: c.role.trim() || null,
-        is_primary: i === 0,
+        is_primary: false,
       })));
     }
+
     setSavingClient(false);
-    // Add to local list and select
-    setClients(prev => [...prev, { id: data.id, name: data.name, default_terms: newClientForm.default_terms || null, client_type: newClientForm.client_type || null }].sort((a,b) => a.name.localeCompare(b.name)));
-    setForm(f => ({ ...f, client_name: data.name, payment_terms: newClientForm.default_terms || f.payment_terms, job_type: newClientForm.client_type || f.job_type }));
-    setSelectedClientId(data.id);
+    const newClient = { id: data.id, name: data.name, default_terms: data.default_terms };
+    setClients(prev => [...prev, newClient].sort((a, b) => a.name.localeCompare(b.name)));
+    selectClient(newClient);
     setShowNewClientModal(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedClient) { setError("Please select or create a client"); return; }
     setLoading(true);
     setError("");
 
     try {
-      const clientId = selectedClientId;
-
       const { data: job, error: jobError } = await supabase
         .from("jobs")
         .insert({
@@ -130,11 +150,9 @@ export default function NewJobPage() {
           priority: form.priority,
           shipping_route: form.shipping_route,
           payment_terms: form.payment_terms || null,
-          type_meta: {
-            payment_method: form.payment_method || null,
-          },
+          type_meta: { payment_method: form.payment_method || null },
           notes: form.notes || null,
-          client_id: clientId,
+          client_id: selectedClient.id,
           job_number: "",
         })
         .select("id")
@@ -142,21 +160,12 @@ export default function NewJobPage() {
 
       if (jobError) throw jobError;
 
-      // Auto-add client's contacts to the new job
-      if (clientId) {
-        const { data: clientContacts } = await supabase
-          .from("contacts")
-          .select("id, is_primary")
-          .eq("client_id", clientId);
-        if (clientContacts?.length) {
-          await supabase.from("job_contacts").insert(
-            clientContacts.map(c => ({
-              job_id: job.id,
-              contact_id: c.id,
-              role_on_job: c.is_primary ? "primary" : "cc",
-            }))
-          );
-        }
+      const { data: clientContacts } = await supabase
+        .from("contacts").select("id, is_primary").eq("client_id", selectedClient.id);
+      if (clientContacts?.length) {
+        await supabase.from("job_contacts").insert(
+          clientContacts.map(c => ({ job_id: job.id, contact_id: c.id, role_on_job: c.is_primary ? "primary" : "cc" }))
+        );
       }
 
       router.push(`/jobs/${job.id}`);
@@ -166,81 +175,93 @@ export default function NewJobPage() {
     }
   };
 
-  const ic = "w-full px-3 py-2 rounded-md bg-secondary border border-border text-foreground text-sm outline-none focus:border-primary transition-colors";
-  const lc = "block text-sm font-medium mb-1.5";
+  const s = {
+    card: { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 18px" } as React.CSSProperties,
+    label: { fontSize: 11, color: T.muted, marginBottom: 4, display: "block", fontFamily: font, fontWeight: 500 } as React.CSSProperties,
+    input: { width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font, boxSizing: "border-box" as const },
+    select: { width: "100%", padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font, cursor: "pointer", boxSizing: "border-box" as const },
+  };
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">New Project</h1>
-        <p className="text-muted-foreground text-sm mt-1">Create a new production project</p>
-      </div>
+    <div style={{ maxWidth: 560, margin: "0 auto" }}>
+      <h1 style={{ fontSize: 22, fontWeight: 700, color: T.text, fontFamily: font, marginBottom: 4 }}>New Project</h1>
+      <p style={{ fontSize: 12, color: T.faint, fontFamily: font, marginBottom: 20 }}>Select a client to get started</p>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit}>
+        {/* Client selection */}
+        <div style={{ ...s.card, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: font }}>Client</span>
+            <button type="button" onClick={openNewClientModal}
+              style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+              + New Client
+            </button>
+          </div>
 
-        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-          <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Project Details</h2>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div ref={dropdownRef} className="relative">
-              <label className={lc}>Client</label>
-              <input value={form.client_name}
-                onChange={e => { set("client_name", e.target.value); setSelectedClientId(null); setShowDropdown(true); }}
-                onFocus={() => { if (form.client_name.trim()) setShowDropdown(true); }}
-                placeholder="Start typing to search..."
-                className={ic}
-                autoComplete="off" />
-              {showDropdown && form.client_name.trim() && (
-                <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-md border border-border bg-card shadow-lg">
-                  {filteredClients.map(c => (
+          {selectedClient ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 8, background: T.accentDim, border: `1px solid ${T.accent}44` }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, fontFamily: font }}>{selectedClient.name}</div>
+                {selectedClient.default_terms && <div style={{ fontSize: 10, color: T.accent, fontFamily: font, marginTop: 1 }}>{selectedClient.default_terms.replace(/_/g, " ")}</div>}
+              </div>
+              <button type="button" onClick={clearClient}
+                style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 16, padding: "0 4px" }}
+                onMouseEnter={e => (e.currentTarget.style.color = T.red)} onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>✕</button>
+            </div>
+          ) : (
+            <div ref={clientRef} style={{ position: "relative" }}>
+              <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setShowClientList(true); }}
+                onFocus={() => setShowClientList(true)} placeholder="Search clients..." style={s.input} autoComplete="off" autoFocus />
+              {showClientList && (
+                <div style={{ position: "absolute", zIndex: 50, top: "100%", left: 0, right: 0, marginTop: 4, maxHeight: 240, overflowY: "auto", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+                  {filteredClients.length === 0 ? (
+                    <div style={{ padding: "12px 14px", fontSize: 12, color: T.faint, fontFamily: font }}>{clientSearch.trim() ? "No clients found" : "No clients yet"}</div>
+                  ) : filteredClients.map(c => (
                     <button key={c.id} type="button" onClick={() => selectClient(c)}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-secondary transition-colors border-b border-border last:border-0">
+                      style={{ width: "100%", textAlign: "left", padding: "9px 14px", background: "transparent", border: "none", borderBottom: `1px solid ${T.border}`, cursor: "pointer", color: T.text, fontSize: 13, fontFamily: font, fontWeight: 600 }}
+                      onMouseEnter={e => (e.currentTarget.style.background = T.surface)} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
                       {c.name}
                     </button>
                   ))}
-                  <button type="button" onClick={openNewClientModal}
-                    className="w-full text-left px-3 py-2 text-sm font-semibold text-primary hover:bg-secondary transition-colors">
-                    + Create &quot;{form.client_name.trim()}&quot; as new client
-                  </button>
                 </div>
               )}
-              {selectedClientId && <p className="text-xs text-primary mt-1">Existing client selected</p>}
-              {!selectedClientId && form.client_name.trim() && <p className="text-xs text-muted-foreground mt-1">Select a client or create new</p>}
+            </div>
+          )}
+        </div>
+
+        {/* Project details */}
+        <div style={{ ...s.card, marginBottom: 12, opacity: selectedClient ? 1 : 0.4, pointerEvents: selectedClient ? "auto" : "none", transition: "opacity 0.2s" }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: font, display: "block", marginBottom: 10 }}>Project Details</span>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <label style={s.label}>Project memo</label>
+              <input value={form.title} onChange={e => set("title", e.target.value)} style={s.input} />
             </div>
             <div>
-              <label className={lc}>Project memo</label>
-              <input value={form.title} onChange={e => set("title", e.target.value)}
-                placeholder="Optional description..." className={ic} />
+              <label style={s.label}>Shipping route</label>
+              <select value={form.shipping_route} onChange={e => set("shipping_route", e.target.value)} style={s.select}>
+                <option value="ship_through">Ship-through</option>
+                <option value="stage">Stage (fulfillment)</option>
+                <option value="drop_ship">Drop ship</option>
+              </select>
             </div>
           </div>
-
-          <div>
-            <label className={lc}>Shipping Route</label>
-            <select value={form.shipping_route} onChange={e => set("shipping_route", e.target.value)} className={ic}>
-              <option value="ship_through">Ship-through (forward from HPD)</option>
-              <option value="stage">Stage (fulfillment from HPD)</option>
-              <option value="drop_ship">Drop ship (direct to client)</option>
-            </select>
+          <div style={{ marginTop: 10 }}>
+            <label style={s.label}>Notes</label>
+            <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2}
+              style={{ ...s.input, resize: "vertical" as const, lineHeight: 1.5 }} />
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-          <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Notes</h2>
-          <textarea value={form.notes} onChange={e => set("notes", e.target.value)}
-            placeholder="Any additional context..."
-            rows={3}
-            className={ic + " resize-none"} />
-        </div>
+        {error && <p style={{ fontSize: 12, color: T.red, fontFamily: font, marginBottom: 8 }}>{error}</p>}
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        <div className="flex gap-3">
-          <button type="submit" disabled={loading}
-            className="px-6 py-2 rounded-md bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50">
-            {loading ? "Creating..." : "Create project"}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="submit" disabled={loading || !selectedClient}
+            style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: selectedClient ? T.accent : T.surface, color: selectedClient ? "#fff" : T.faint, fontSize: 13, fontWeight: 600, cursor: selectedClient ? "pointer" : "default", fontFamily: font, opacity: loading ? 0.5 : 1 }}>
+            {loading ? "Creating..." : "Create Project"}
           </button>
           <button type="button" onClick={() => router.back()}
-            className="px-6 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary transition-colors">
+            style={{ padding: "10px 20px", borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, fontSize: 13, fontFamily: font, cursor: "pointer" }}>
             Cancel
           </button>
         </div>
@@ -248,33 +269,99 @@ export default function NewJobPage() {
 
       {/* New Client Modal */}
       {showNewClientModal && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100 }}
-          onClick={e => { if (e.target === e.currentTarget) setShowNewClientModal(false); }}>
-          <div style={{ background:"#1e2333", border:"1px solid #2a3050", borderRadius:12, padding:24, width:420, maxWidth:"90vw" }}>
-            <h3 style={{ fontSize:16, fontWeight:700, color:"#e8eaf2", marginBottom:16 }}>New Client</h3>
-            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
+          onClick={e => { if (e.target === e.currentTarget) { if (nc.company.trim() || nc.contactName.trim() || nc.email.trim()) { if (!window.confirm("You have unsaved client info. Discard?")) return; } setShowNewClientModal(false); } }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: 520, maxWidth: "90vw", maxHeight: "85vh", overflowY: "auto" }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, fontFamily: font, marginBottom: 16 }}>New Client</h3>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Company name */}
               <div>
-                <label style={{ fontSize:12, color:"#7a82a0", marginBottom:4, display:"block" }}>Client Name *</label>
-                <input value={newClientForm.name} onChange={e => setNewClientForm(f => ({...f, name: e.target.value}))}
-                  style={{ width:"100%", padding:"8px 12px", borderRadius:6, border:"1px solid #2a3050", background:"#181c27", color:"#e8eaf2", fontSize:14, outline:"none", boxSizing:"border-box" }} autoFocus />
+                <label style={s.label}>Company / Client Name *</label>
+                <input value={nc.company} onChange={e => setNc(p => ({ ...p, company: e.target.value }))}
+                  style={{ ...s.input, fontSize: 14 }} autoFocus />
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+
+              {/* Primary contact */}
+              <div style={{ background: T.surface, borderRadius: 8, padding: "12px 14px" }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: font }}>Primary Contact</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div>
+                    <label style={s.label}>Name</label>
+                    <input value={nc.contactName} onChange={e => setNc(p => ({ ...p, contactName: e.target.value }))} style={s.input} />
+                  </div>
+                  <div>
+                    <label style={s.label}>Phone</label>
+                    <input value={nc.phone} onChange={e => setNc(p => ({ ...p, phone: e.target.value }))} style={s.input} />
+                  </div>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <label style={s.label}>Email</label>
+                    <input value={nc.email} onChange={e => setNc(p => ({ ...p, email: e.target.value }))} type="email" style={s.input} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional contacts */}
+              {nc.extraContacts.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {nc.extraContacts.map((c, idx) => (
+                    <div key={idx} style={{ background: T.surface, borderRadius: 8, padding: "10px 12px", position: "relative" }}>
+                      <button type="button" onClick={() => removeExtraContact(idx)}
+                        style={{ position: "absolute", top: 8, right: 10, background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 12 }}
+                        onMouseEnter={e => (e.currentTarget.style.color = T.red)} onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>✕</button>
+                      <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6, fontFamily: font }}>Additional Contact</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                        <div><label style={s.label}>Name</label><input value={c.name} onChange={e => updateExtraContact(idx, "name", e.target.value)} style={s.input} /></div>
+                        <div><label style={s.label}>Email</label><input value={c.email} onChange={e => updateExtraContact(idx, "email", e.target.value)} style={s.input} /></div>
+                        <div><label style={s.label}>Phone</label><input value={c.phone} onChange={e => updateExtraContact(idx, "phone", e.target.value)} style={s.input} /></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button type="button" onClick={addExtraContact}
+                style={{ background: "none", border: `1px dashed ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, padding: "7px 0", cursor: "pointer", fontFamily: font, width: "100%" }}>
+                + Add Another Contact
+              </button>
+
+              {/* Website */}
+              <div>
+                <label style={s.label}>Website</label>
+                <input value={nc.website} onChange={e => setNc(p => ({ ...p, website: e.target.value }))} style={s.input} />
+              </div>
+
+              {/* Addresses */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
-                  <label style={{ fontSize:12, color:"#7a82a0", marginBottom:4, display:"block" }}>Client Type</label>
-                  <select value={newClientForm.client_type} onChange={e => setNewClientForm(f => ({...f, client_type: e.target.value}))}
-                    style={{ width:"100%", padding:"8px 12px", borderRadius:6, border:"1px solid #2a3050", background:"#181c27", color:"#e8eaf2", fontSize:13, outline:"none", cursor:"pointer" }}>
-                    <option value="">—</option>
-                    <option value="corporate">Corporate</option>
-                    <option value="brand">Brand</option>
-                    <option value="artist">Artist</option>
-                    <option value="tour">Tour</option>
-                    <option value="webstore">Webstore</option>
-                  </select>
+                  <label style={s.label}>Billing Address</label>
+                  <textarea value={nc.billingAddress} onChange={e => setNc(p => ({ ...p, billingAddress: e.target.value }))}
+rows={3} style={{ ...s.input, resize: "vertical" as const, lineHeight: 1.4 }} />
                 </div>
                 <div>
-                  <label style={{ fontSize:12, color:"#7a82a0", marginBottom:4, display:"block" }}>Payment Terms</label>
-                  <select value={newClientForm.default_terms} onChange={e => setNewClientForm(f => ({...f, default_terms: e.target.value}))}
-                    style={{ width:"100%", padding:"8px 12px", borderRadius:6, border:"1px solid #2a3050", background:"#181c27", color:"#e8eaf2", fontSize:13, outline:"none", cursor:"pointer" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                    <label style={{ ...s.label, marginBottom: 0 }}>Shipping Address</label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: T.muted, cursor: "pointer", fontFamily: font }}>
+                      <input type="checkbox" checked={nc.sameAsBilling} onChange={e => setNc(p => ({ ...p, sameAsBilling: e.target.checked }))}
+                        style={{ accentColor: T.accent }} />
+                      Same as billing
+                    </label>
+                  </div>
+                  {nc.sameAsBilling ? (
+                    <div style={{ padding: "10px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, fontSize: 12, color: T.faint, fontFamily: font, minHeight: 72, display: "flex", alignItems: "center" }}>
+                      {nc.billingAddress.trim() || "Will use billing address"}
+                    </div>
+                  ) : (
+                    <textarea value={nc.shippingAddress} onChange={e => setNc(p => ({ ...p, shippingAddress: e.target.value }))}
+  rows={3} style={{ ...s.input, resize: "vertical" as const, lineHeight: 1.4 }} />
+                  )}
+                </div>
+              </div>
+
+              {/* Payment terms + tax exempt */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "end" }}>
+                <div>
+                  <label style={s.label}>Default Payment Terms</label>
+                  <select value={nc.defaultTerms} onChange={e => setNc(p => ({ ...p, defaultTerms: e.target.value }))} style={s.select}>
                     <option value="">—</option>
                     <option value="net_15">Net 15</option>
                     <option value="net_30">Net 30</option>
@@ -282,53 +369,29 @@ export default function NewJobPage() {
                     <option value="prepaid">Prepaid</option>
                   </select>
                 </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "8px 0", fontFamily: font, fontSize: 12, color: T.text, whiteSpace: "nowrap" }}>
+                  <input type="checkbox" checked={nc.taxExempt} onChange={e => setNc(p => ({ ...p, taxExempt: e.target.checked }))}
+                    style={{ accentColor: T.accent, width: 16, height: 16 }} />
+                  Tax Exempt
+                </label>
               </div>
+
+              {/* Notes */}
               <div>
-                <label style={{ fontSize:12, color:"#7a82a0", marginBottom:4, display:"block" }}>Notes</label>
-                <textarea value={newClientForm.notes} onChange={e => setNewClientForm(f => ({...f, notes: e.target.value}))}
-                  placeholder="Any notes about this client..."
-                  rows={2}
-                  style={{ width:"100%", padding:"8px 12px", borderRadius:6, border:"1px solid #2a3050", background:"#181c27", color:"#e8eaf2", fontSize:13, outline:"none", resize:"vertical", lineHeight:1.5, boxSizing:"border-box" }} />
-              </div>
-              {/* Contacts */}
-              <div>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
-                  <label style={{ fontSize:12, color:"#7a82a0" }}>Contacts</label>
-                  <button type="button" onClick={addModalContact}
-                    style={{ background:"none", border:"1px solid #2a3050", borderRadius:5, color:"#7a82a0", fontSize:11, padding:"2px 8px", cursor:"pointer" }}>+ Add</button>
-                </div>
-                {newClientForm.contacts.length === 0 && (
-                  <div style={{ fontSize:11, color:"#3a4060", padding:"4px 0" }}>No contacts — you can add them later too</div>
-                )}
-                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                  {newClientForm.contacts.map((c, idx) => (
-                    <div key={idx} style={{ background:"#181c27", borderRadius:6, padding:"8px 10px", position:"relative" }}>
-                      <button type="button" onClick={() => removeModalContact(idx)}
-                        style={{ position:"absolute", top:6, right:8, background:"none", border:"none", color:"#3a4060", cursor:"pointer", fontSize:12 }}
-                        onMouseEnter={e => e.currentTarget.style.color="#f05353"}
-                        onMouseLeave={e => e.currentTarget.style.color="#3a4060"}>✕</button>
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
-                        <input value={c.name} onChange={e => updateModalContact(idx, "name", e.target.value)} placeholder="Name"
-                          style={{ padding:"5px 8px", borderRadius:4, border:"1px solid #2a3050", background:"#0f1117", color:"#e8eaf2", fontSize:12, outline:"none" }} />
-                        <input value={c.email} onChange={e => updateModalContact(idx, "email", e.target.value)} placeholder="Email"
-                          style={{ padding:"5px 8px", borderRadius:4, border:"1px solid #2a3050", background:"#0f1117", color:"#e8eaf2", fontSize:12, outline:"none" }} />
-                        <input value={c.phone} onChange={e => updateModalContact(idx, "phone", e.target.value)} placeholder="Phone"
-                          style={{ padding:"5px 8px", borderRadius:4, border:"1px solid #2a3050", background:"#0f1117", color:"#e8eaf2", fontSize:12, outline:"none" }} />
-                        <input value={c.role} onChange={e => updateModalContact(idx, "role", e.target.value)} placeholder="Role"
-                          style={{ padding:"5px 8px", borderRadius:4, border:"1px solid #2a3050", background:"#0f1117", color:"#e8eaf2", fontSize:12, outline:"none" }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <label style={s.label}>Notes</label>
+                <textarea value={nc.notes} onChange={e => setNc(p => ({ ...p, notes: e.target.value }))}
+rows={2} style={{ ...s.input, resize: "vertical" as const, lineHeight: 1.5 }} />
               </div>
             </div>
-            <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:16 }}>
-              <button onClick={() => setShowNewClientModal(false)}
-                style={{ padding:"8px 16px", borderRadius:6, border:"1px solid #2a3050", background:"transparent", color:"#7a82a0", fontSize:13, cursor:"pointer" }}>
+
+            {error && <p style={{ fontSize: 12, color: T.red, fontFamily: font, marginTop: 12 }}>{error}</p>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: error ? 8 : 18 }}>
+              <button type="button" onClick={() => setShowNewClientModal(false)}
+                style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, fontSize: 13, cursor: "pointer", fontFamily: font }}>
                 Cancel
               </button>
-              <button onClick={saveNewClient} disabled={savingClient || !newClientForm.name.trim()}
-                style={{ padding:"8px 20px", borderRadius:6, border:"none", background:"#4f8ef7", color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", opacity: savingClient || !newClientForm.name.trim() ? 0.5 : 1 }}>
+              <button type="button" onClick={saveNewClient} disabled={savingClient || !nc.company.trim()}
+                style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: savingClient || !nc.company.trim() ? 0.5 : 1 }}>
                 {savingClient ? "Creating..." : "Create Client"}
               </button>
             </div>

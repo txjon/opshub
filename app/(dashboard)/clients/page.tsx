@@ -7,7 +7,6 @@ import { SkeletonTable } from "@/components/Skeleton";
 type Client = {
   id: string;
   name: string;
-  client_type: string | null;
   default_terms: string | null;
   jobs: { id: string }[];
   contacts: { id: string }[];
@@ -36,8 +35,7 @@ export default function ClientsPage() {
     if (!search.trim()) return clients;
     const q = search.toLowerCase();
     return clients.filter(c =>
-      c.name.toLowerCase().includes(q) ||
-      (c.client_type || "").toLowerCase().includes(q)
+      c.name.toLowerCase().includes(q)
     );
   }, [clients, search]);
 
@@ -85,27 +83,25 @@ export default function ClientsPage() {
       </div>
       <div className="rounded-xl border border-border overflow-hidden">
         {loading ? (
-          <div className="p-4"><SkeletonTable rows={6} cols={4} /></div>
+          <div className="p-4"><SkeletonTable rows={6} cols={3} /></div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-secondary/50">
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">Name</th>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">Type</th>
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">Projects</th>
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">Terms</th>
               </tr>
             </thead>
             <tbody>
               {!filtered.length && (
-                <tr><td colSpan={4} className="px-4 py-12 text-center text-muted-foreground">
+                <tr><td colSpan={3} className="px-4 py-12 text-center text-muted-foreground">
                   {search ? "No clients match your search." : "No clients yet."}
                 </td></tr>
               )}
               {filtered.map(client => (
                 <tr key={client.id} className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors">
                   <td className="px-4 py-3 font-semibold"><Link href={`/clients/${client.id}`} className="hover:text-primary transition-colors">{client.name}</Link></td>
-                  <td className="px-4 py-3 text-muted-foreground capitalize">{client.client_type ?? "-"}</td>
                   <td className="px-4 py-3 text-muted-foreground">{client.jobs.length}</td>
                   <td className="px-4 py-3 text-muted-foreground capitalize">{client.default_terms?.replace(/_/g, " ") ?? "-"}</td>
                 </tr>

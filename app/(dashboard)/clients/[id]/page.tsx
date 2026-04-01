@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SkeletonRows } from "@/components/Skeleton";
 import Link from "next/link";
 
-type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; };
+type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
 type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; payment_records:any[]; };
 
@@ -101,7 +101,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     // Create a new job with this item pre-filled
     const { data: newJob } = await supabase.from("jobs").insert({
       title: `${client!.name} — Reorder`,
-      job_type: client!.client_type || "corporate",
+      job_type: "corporate",
       phase: "intake",
       priority: "normal",
       shipping_route: "ship_through",
@@ -149,13 +149,45 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       </button>
 
       {/* Header */}
-      <div style={{marginBottom:16}}>
-        <h1 style={{fontSize:24,fontWeight:700,margin:"0 0 6px",letterSpacing:"-0.02em"}}>{client.name}</h1>
-        <div style={{display:"flex",gap:16,fontSize:12,color:T.muted}}>
-          <span>{jobs.length} project{jobs.length!==1?"s":""}</span>
-          <span>{activeJobs.length} active</span>
-          <span>{totalUnits.toLocaleString()} total units</span>
+      <div style={{marginBottom:16,display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+        <div>
+          <h1 style={{fontSize:24,fontWeight:700,margin:"0 0 6px",letterSpacing:"-0.02em"}}>{client.name}</h1>
+          <div style={{display:"flex",gap:16,fontSize:12,color:T.muted}}>
+            <span>{jobs.length} project{jobs.length!==1?"s":""}</span>
+            <span>{activeJobs.length} active</span>
+            <span>{totalUnits.toLocaleString()} total units</span>
+          </div>
         </div>
+        <button onClick={async()=>{
+          const jobCount = jobs.length;
+          const msg = jobCount > 0
+            ? `Delete "${client.name}" and all ${jobCount} project${jobCount!==1?"s":""}, items, contacts, and related data? This cannot be undone.`
+            : `Delete "${client.name}" and all associated contacts? This cannot be undone.`;
+          if(!window.confirm(msg)) return;
+          // Cascade: delete job children first, then jobs, then client data
+          const jobIds = jobs.map(j=>j.id);
+          if(jobIds.length > 0){
+            const itemIds = (jobs.flatMap((j:any)=>(j.items||[]).map((it:any)=>it.id))).filter(Boolean);
+            if(itemIds.length > 0){
+              await supabase.from("buy_sheet_lines").delete().in("item_id",itemIds);
+              await supabase.from("item_files").delete().in("item_id",itemIds);
+              await supabase.from("decorator_assignments").delete().in("item_id",itemIds);
+              await supabase.from("items").delete().in("id",itemIds);
+            }
+            await supabase.from("job_contacts").delete().in("job_id",jobIds);
+            await supabase.from("job_activity").delete().in("job_id",jobIds);
+            await supabase.from("payment_records").delete().in("job_id",jobIds);
+            await supabase.from("jobs").delete().in("id",jobIds);
+          }
+          await supabase.from("contacts").delete().eq("client_id",client.id);
+          await supabase.from("clients").delete().eq("id",client.id);
+          router.push("/clients");
+        }}
+          style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.faint,fontSize:11,padding:"6px 12px",cursor:"pointer",fontFamily:font}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=T.red;e.currentTarget.style.color=T.red;}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.faint;}}>
+          Delete Client
+        </button>
       </div>
 
       {/* Financial summary */}
@@ -188,28 +220,35 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                   <div>
-                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Type</label>
-                    <select style={ic} value={client.client_type||""} onChange={e=>updateClient({client_type:e.target.value||null})}>
-                      <option value="">—</option>
-                      {["corporate","brand","artist","tour","webstore"].map(t=><option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </div>
-                  <div>
                     <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
                     <select style={ic} value={client.default_terms||""} onChange={e=>updateClient({default_terms:e.target.value||null})}>
                       <option value="">—</option>
                       {["net_15","net_30","deposit_balance","prepaid"].map(t=><option key={t} value={t}>{t.replace(/_/g," ")}</option>)}
                     </select>
                   </div>
+                  <div>
+                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Website</label>
+                    <input style={ic} value={client.website||""} onChange={e=>updateClient({website:e.target.value||null})}/>
+                  </div>
                 </div>
-                <div>
-                  <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Notes</label>
-                  <textarea style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.4}} value={client.notes||""} onChange={e=>updateClient({notes:e.target.value})}/>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div>
+                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Billing address</label>
+                    <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={client.billing_address||""} onChange={e=>updateClient({billing_address:e.target.value||null})}/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping address</label>
+                    <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={client.shipping_address||""} onChange={e=>updateClient({shipping_address:e.target.value||null})}/>
+                  </div>
                 </div>
+                <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:600,color:T.text,cursor:"pointer",padding:"6px 10px",background:T.surface,borderRadius:6,width:"fit-content"}}>
+                  <input type="checkbox" checked={client.tax_exempt||false} onChange={e=>updateClient({tax_exempt:e.target.checked} as any)} style={{accentColor:T.accent,width:18,height:18}}/>
+                  Tax Exempt
+                </label>
               </div>
             </div>
 
-            {/* Right — Contacts */}
+            {/* Right — Contacts + Notes */}
             <div>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
@@ -254,6 +293,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                       onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
                   </div>
                 ))}
+              </div>
+              {/* Notes */}
+              <div style={{marginTop:12}}>
+                <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Notes</label>
+                <textarea style={{...ic,minHeight:80,resize:"vertical",lineHeight:1.4}} value={client.notes||""} onChange={e=>updateClient({notes:e.target.value})}/>
               </div>
             </div>
           </div>

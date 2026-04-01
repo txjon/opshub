@@ -4,6 +4,36 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 const DEFAULT_CURVE = {S:5.13,M:20.57,L:38.14,XL:25.90,"2XL":7.69,"3XL":2.56};
 
+// Auto-detect QB garment_type from supplier category + item name
+function detectGarmentType(category, name) {
+  const cat = (category || "").toLowerCase();
+  const n = (name || "").toLowerCase();
+  // Category-based (supplier categories)
+  const catMap = {
+    "t-shirts":"tee","short sleeve t-shirts":"tee","long sleeve t-shirts":"longsleeve",
+    "longsleeve t-shirts":"longsleeve","fleece":"hoodie","hoodies":"hoodie",
+    "hooded sweatshirts":"hoodie","sweatshirts":"crewneck","crew sweatshirts":"crewneck",
+    "outerwear":"jacket","zip sweatshirts":"jacket","caps":"hat","headwear":"hat",
+    "pants":"pants","shorts":"shorts","men / unisex":"tee","womens":"tee",
+  };
+  if (catMap[cat]) return catMap[cat];
+  // Name keyword fallback
+  if (n.includes("hoodie") || n.includes("hooded")) return "hoodie";
+  if (n.includes("crew") && (n.includes("sweat") || n.includes("neck"))) return "crewneck";
+  if (n.includes("jacket") || n.includes("windbreaker") || n.includes("coach")) return "jacket";
+  if (n.includes("long sleeve") || n.includes("longsleeve") || n.includes("l/s")) return "longsleeve";
+  if (n.includes("beanie") || n.includes("knit cap")) return "beanie";
+  if (n.includes("hat") || n.includes("cap") || n.includes("snapback") || n.includes("trucker")) return "hat";
+  if (n.includes("pant") || n.includes("jogger") || n.includes("sweatpant")) return "pants";
+  if (n.includes("short") && !n.includes("sleeve")) return "shorts";
+  if (n.includes("tote") || n.includes("bag")) return "tote";
+  if (n.includes("sock")) return "socks";
+  if (n.includes("towel")) return "towel";
+  if (n.includes("bandana")) return "bandana";
+  if (n.includes("tee") || n.includes("t-shirt") || n.includes("tank")) return "tee";
+  return null;
+}
+
 // Shift-click range selection for size pickers
 function handleSizeToggle(sz, e, availableSizes, setSelSizes, lastClickedRef) {
   if (e?.shiftKey && lastClickedRef.current && lastClickedRef.current !== sz) {
@@ -110,13 +140,15 @@ function SSPicker({ onAdd, onClose, isFav, toggleFav }) {
     const allSizes = sortSizes(Object.keys(selSizes));
     const qtys = {}; allSizes.forEach(sz => { qtys[sz] = 0; });
     const blankCosts = {}; allSizes.forEach(sz => { blankCosts[sz] = currentColor.prices[sz] || 0; });
+    const itemFullName = itemName.trim() || `${selStyle.brandName} ${selStyle.styleName} - ${selColor}`;
     onAdd({
       id: Date.now() + Math.random(),
-      name: itemName.trim() || `${selStyle.brandName} ${selStyle.styleName} - ${selColor}`,
+      name: itemFullName,
       blank_vendor: `${selStyle.brandName} ${selStyle.styleName}`,
       blank_sku: selColor,
       style: `${selStyle.brandName} ${selStyle.styleName}`,
       color: selColor,
+      garment_type: detectGarmentType(selStyle.categoryName, itemFullName),
       sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
     });
     setItemName(""); setSelColor(null); setSelSizes({});
@@ -305,13 +337,15 @@ function ASColourPicker({ onAdd, onClose, isFav, toggleFav }) {
       const variant = currentColorVariants.find(v => v.sizeCode === sz);
       if (variant) blankCosts[sz] = pricing[variant.sku] || 0;
     });
+    const itemFullName = itemName.trim() || `AS Colour ${selStyle.styleCode} - ${selColor}`;
     onAdd({
       id: Date.now() + Math.random(),
-      name: itemName.trim() || `AS Colour ${selStyle.styleCode} - ${selColor}`,
+      name: itemFullName,
       blank_vendor: `AS Colour ${selStyle.styleCode}`,
       blank_sku: selColor,
       style: `AS Colour ${selStyle.styleCode}`,
       color: selColor,
+      garment_type: detectGarmentType(selStyle.category, itemFullName + " " + (selStyle.name || "")),
       sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
     });
     setItemName(""); setSelColor(null); setSelSizes({});
@@ -494,13 +528,15 @@ function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
       if (row) blankCosts[sz] = row.case_price;
     }
     const colorLabel = selColorType === "White" ? "White" : selColorType === "Colors" ? "Colors" : selColorType;
+    const itemFullName = itemName.trim() || `LA Apparel ${selStyle.styleCode} - ${colorLabel}`;
     onAdd({
       id: Date.now() + Math.random(),
-      name: itemName.trim() || `LA Apparel ${selStyle.styleCode} - ${colorLabel}`,
+      name: itemFullName,
       blank_vendor: `LA Apparel ${selStyle.styleCode}`,
       blank_sku: colorLabel,
       style: `LA Apparel ${selStyle.styleCode}`,
       color: colorLabel,
+      garment_type: detectGarmentType(selStyle.category, itemFullName + " " + (selStyle.name || "")),
       sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
     });
     setItemName(""); setSelColorType(null); setSelSizes({});
@@ -746,14 +782,15 @@ function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav })
       const variant = currentColorVariants.find(v => v.sizeCode === sz);
       if (variant) blankCosts[sz] = pricing[variant.sku] || variant.price || 0;
     });
-    const prefix = selFav.supplier === "ss" ? "" : "AS Colour ";
+    const itemFullName = itemName.trim() || `${selFav.style_name} - ${selColor}`;
     onAdd({
       id: Date.now() + Math.random(),
-      name: itemName.trim() || `${selFav.style_name} - ${selColor}`,
+      name: itemFullName,
       blank_vendor: selFav.style_name,
       blank_sku: selColor,
       style: selFav.style_name,
       color: selColor,
+      garment_type: detectGarmentType(selFav.source_category, itemFullName + " " + (selFav.style_name || "")),
       sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
     });
     setItemName(""); setSelColor(null); setSelSizes({});

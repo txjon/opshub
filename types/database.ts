@@ -14,6 +14,10 @@ export type Database = {
           client_type: "artist" | "brand" | "corporate" | "label" | null;
           default_terms: "net_15" | "net_30" | "deposit_balance" | "prepaid" | null;
           notes: string | null;
+          website: string | null;
+          billing_address: string | null;
+          shipping_address: string | null;
+          tax_exempt: boolean;
           created_at: string;
         };
         Insert: Omit<Database["public"]["Tables"]["clients"]["Row"], "id" | "created_at">;
