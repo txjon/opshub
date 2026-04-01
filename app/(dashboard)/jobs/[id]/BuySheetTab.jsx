@@ -458,10 +458,10 @@ function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
   const [selCategory, setSelCategory] = useState(null);
   const [selStyle, setSelStyle] = useState(null);
   const [variants, setVariants] = useState([]);
-  const [selColorType, setSelColorType] = useState(null);
+  const [loadingVariants, setLoadingVariants] = useState(false);
+  const [selColor, setSelColor] = useState(null);
   const [selSizes, setSelSizes] = useState({});
   const [itemName, setItemName] = useState("");
-  const [newColor, setNewColor] = useState("");
   const [search, setSearch] = useState("");
   const lastClickedSize = useRef(null);
 
@@ -472,83 +472,56 @@ function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
     });
   }, []);
 
-  const categories = [...new Set(products.map(p => p.category))].sort();
+  const categories = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
   const filteredProducts = products.filter(p => {
-    if (search.trim()) return p.styleCode.includes(search) || p.description.toLowerCase().includes(search.toLowerCase());
+    if (search.trim()) return p.styleCode.toLowerCase().includes(search.toLowerCase()) || (p.name||"").toLowerCase().includes(search.toLowerCase());
     if (selCategory) return p.category === selCategory;
     return true;
   });
 
   async function loadStyle(product) {
-    setSelStyle(product); setSelColorType(null); setSelSizes({}); setVariants([]);
+    setSelStyle(product); setSelColor(null); setSelSizes({}); setVariants([]); setLoadingVariants(true);
     const res = await fetch(`/api/laapparel?endpoint=variants&styleCode=${product.styleCode}`);
     const data = await res.json();
     setVariants(Array.isArray(data) ? data : []);
+    setLoadingVariants(false);
   }
 
-  // Group variants by color_type
-  const colorTypes = [...new Set(variants.map(v => v.color_type))];
-  // Also include any custom colors added to the style
-  const customColors = selStyle?.colors || [];
-  const allColorOptions = [...colorTypes, ...customColors.filter(c => !colorTypes.includes(c))];
+  // Group variants by color
+  const colorGroups = variants.reduce((acc, v) => {
+    if (!v.colour) return acc;
+    if (!acc[v.colour]) acc[v.colour] = [];
+    acc[v.colour].push(v);
+    return acc;
+  }, {});
+  const colorNames = Object.keys(colorGroups).sort();
+  const currentColorVariants = selColor ? (colorGroups[selColor] || []) : [];
 
-  // Get size rows for selected color type
-  const sizeRows = selColorType ? variants.filter(v => v.color_type === selColorType || (v.color_type === "Colors" && !["White"].includes(selColorType) && !colorTypes.includes(selColorType))) : [];
-  // If custom color selected, use "Colors" pricing
-  const effectiveRows = sizeRows.length > 0 ? sizeRows : variants.filter(v => v.color_type === "Colors");
-
-  // Expand size ranges into individual sizes
-  const expandSizes = (sizeStr) => {
-    if (!sizeStr) return [];
-    const s = sizeStr.trim();
-    // Handle ranges like S-XL, XS-3XL
-    const rangeMatch = s.match(/^(\w+)\s*-\s*(\w+)$/);
-    if (rangeMatch) {
-      const SIZE_ORDER = ["3-6M","6-12M","12-18M","18-24M","2T","3T","4T","5T","6T","OSFA","OS","XXS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
-      const start = SIZE_ORDER.indexOf(rangeMatch[1]);
-      const end = SIZE_ORDER.indexOf(rangeMatch[2]);
-      if (start >= 0 && end >= 0 && end >= start) return SIZE_ORDER.slice(start, end + 1);
-    }
-    // Handle comma-separated or single sizes
-    return s.split(",").map(x => x.trim()).filter(Boolean);
-  };
-
-  const laAvailSizes = effectiveRows.flatMap(r => expandSizes(r.sizes)).filter((s,i,a) => a.indexOf(s) === i);
-  const toggleSz = (sz, e) => handleSizeToggle(sz, e, laAvailSizes, setSelSizes, lastClickedSize);
-  const canAdd = selStyle && selColorType && Object.keys(selSizes).length > 0;
+  const toggleSz = (sz, e) => handleSizeToggle(sz, e, currentColorVariants.map(v => v.sizeCode), setSelSizes, lastClickedSize);
+  const canAdd = selStyle && selColor && Object.keys(selSizes).length > 0;
 
   const doAdd = () => {
     if (!canAdd) return;
     const allSizes = sortSizes(Object.keys(selSizes));
     const qtys = {}; allSizes.forEach(sz => { qtys[sz] = 0; });
-    // Find case price — use matching row's price for each size
     const blankCosts = {};
-    for (const sz of allSizes) {
-      const row = effectiveRows.find(r => expandSizes(r.sizes).includes(sz));
-      if (row) blankCosts[sz] = row.case_price;
-    }
-    const colorLabel = selColorType === "White" ? "White" : selColorType === "Colors" ? "Colors" : selColorType;
-    const itemFullName = itemName.trim() || `LA Apparel ${selStyle.styleCode} - ${colorLabel}`;
+    allSizes.forEach(sz => {
+      const variant = currentColorVariants.find(v => v.sizeCode === sz);
+      if (variant) blankCosts[sz] = variant.price || 0;
+    });
+    const itemFullName = itemName.trim() || `LA Apparel ${selStyle.styleCode} - ${selColor}`;
     onAdd({
       id: Date.now() + Math.random(),
       name: itemFullName,
       blank_vendor: `LA Apparel ${selStyle.styleCode}`,
-      blank_sku: colorLabel,
+      blank_sku: selColor,
       style: `LA Apparel ${selStyle.styleCode}`,
-      color: colorLabel,
+      color: selColor,
       garment_type: detectGarmentType(selStyle.category, itemFullName + " " + (selStyle.name || "")),
       sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
     });
-    setItemName(""); setSelColorType(null); setSelSizes({});
+    setItemName(""); setSelColor(null); setSelSizes({});
   };
-
-  async function addColor() {
-    if (!newColor.trim() || !selStyle) return;
-    await fetch(`/api/laapparel?endpoint=add_color&styleCode=${selStyle.styleCode}&color=${encodeURIComponent(newColor.trim())}`);
-    setProducts(prev => prev.map(p => p.styleCode === selStyle.styleCode ? { ...p, colors: [...(p.colors || []), newColor.trim()] } : p));
-    setSelStyle(prev => prev ? { ...prev, colors: [...(prev.colors || []), newColor.trim()] } : prev);
-    setNewColor("");
-  }
 
   const colRow = (label, active, onClick, sub) => (
     <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
@@ -582,7 +555,7 @@ function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
           <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Category")}
             <div style={{ flex: 1, overflowY: "auto" }}>
-              {categories.map(cat => colRow(cat, selCategory === cat, () => { setSelCategory(selCategory === cat ? null : cat); setSelStyle(null); setSelColorType(null); setSelSizes({}); }))}
+              {categories.map(cat => colRow(cat, selCategory === cat, () => { setSelCategory(selCategory === cat ? null : cat); setSelStyle(null); setSelColor(null); setSelSizes({}); }))}
             </div>
           </div>
           {/* Style */}
@@ -595,7 +568,7 @@ function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
                     onMouseEnter={e => { if (selStyle?.styleCode !== p.styleCode) e.currentTarget.style.background = T.surface; }}
                     onMouseLeave={e => { if (selStyle?.styleCode !== p.styleCode) e.currentTarget.style.background = "transparent"; }}>
                     {p.styleCode}
-                    <div style={{ fontSize: 9, color: selStyle?.styleCode === p.styleCode ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{p.description}</div>
+                    <div style={{ fontSize: 9, color: selStyle?.styleCode === p.styleCode ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{p.name || p.description}</div>
                   </div>
                   {isFav && <button onClick={(e) => { e.stopPropagation(); toggleFav("laapparel", p.styleCode, `LA Apparel ${p.styleCode}`, p.description); }}
                     style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 8px", fontSize: 14, color: isFav("laapparel", p.styleCode) ? T.amber : T.faint, flexShrink: 0 }}>
@@ -610,48 +583,40 @@ function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
             {colHead("Color")}
             <div style={{ flex: 1, overflowY: "auto" }}>
               {!selStyle ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint }}>← Style</div>
-                : <>
-                  {allColorOptions.map(c => colRow(c, selColorType === c, () => { setSelColorType(c); setSelSizes({}); }))}
-                  <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}` }}>
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <input value={newColor} onChange={e => setNewColor(e.target.value)} onKeyDown={e => e.key === "Enter" && addColor()}
-                        placeholder="Add color..." style={{ flex: 1, padding: "4px 8px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, outline: "none", fontFamily: font }} />
-                      <button onClick={addColor} disabled={!newColor.trim()}
-                        style={{ fontSize: 9, padding: "4px 8px", borderRadius: 4, border: "none", background: newColor.trim() ? T.accent : T.surface, color: newColor.trim() ? "#fff" : T.faint, cursor: newColor.trim() ? "pointer" : "default" }}>+</button>
-                    </div>
-                  </div>
-                </>}
+                : loadingVariants ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint }}>Loading...</div>
+                : colorNames.map(c => {
+                    const stock = colorGroups[c].reduce((a, v) => a + (v.stock || 0), 0);
+                    return colRow(c, selColor === c, () => { setSelColor(c); setSelSizes({}); }, stock > 0 ? `${stock.toLocaleString()} avail` : undefined);
+                  })
+              }
             </div>
           </div>
           {/* Sizes */}
           <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Sizes")}
             <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
-              {!selColorType ? <div style={{ padding: "6px 2px", fontSize: 10, color: T.faint }}>← Color</div>
+              {!selColor ? <div style={{ padding: "6px 2px", fontSize: 10, color: T.faint, fontFamily: font }}>← Color</div>
                 : <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {(() => {
-                    const allSizes = [];
-                    for (const row of effectiveRows) {
-                      for (const sz of expandSizes(row.sizes)) {
-                        if (!allSizes.find(s => s.size === sz)) allSizes.push({ size: sz, price: row.case_price });
-                      }
-                    }
-                    return sortSizes(allSizes.map(s => s.size)).map(sz => {
-                      const on = selSizes[sz] !== undefined;
-                      const price = allSizes.find(s => s.size === sz)?.price || 0;
-                      return (
-                        <div key={sz} onClick={(e) => toggleSz(sz, e)}
-                          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
+                  {sortSizes(currentColorVariants.map(v => v.sizeCode)).map(sz => {
+                    const on = selSizes[sz] !== undefined;
+                    const variant = currentColorVariants.find(v => v.sizeCode === sz);
+                    const price = variant?.price || 0;
+                    const stock = variant?.stock || 0;
+                    return (
+                      <div key={sz} onClick={(e) => toggleSz(sz, e)}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 9, color: on ? "rgba(255,255,255,0.5)" : stock > 100 ? T.green : stock > 0 ? T.amber : T.red, fontFamily: mono }}>{stock.toLocaleString()}</span>
                           {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${price.toFixed(2)}</span>}
                         </div>
-                      );
-                    });
-                  })()}
+                      </div>
+                    );
+                  })}
                 </div>
               }
             </div>
-            {selColorType && Object.keys(selSizes).length > 0 && (
+            {selColor && Object.keys(selSizes).length > 0 && (
               <div style={{ padding: "5px 10px", borderTop: `1px solid ${T.border}`, fontSize: 10, fontFamily: font, color: T.muted }}>
                 {Object.keys(selSizes).length} size{Object.keys(selSizes).length !== 1 ? "s" : ""} selected
               </div>
@@ -729,34 +694,11 @@ function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav })
       } else if (fav.supplier === "laapparel") {
         const varRes = await fetch(`/api/laapparel?endpoint=variants&styleCode=${fav.style_code}`);
         const varData = await varRes.json();
-        // LA Apparel has color_type (White/Colors) + custom colors array
-        const colorTypes = [...new Set((varData || []).map(v => v.color_type))];
-        const customColors = (varData || []).length > 0 ? (varData[0].colors || []) : [];
-        const allColors = [...colorTypes, ...customColors.filter(c => !colorTypes.includes(c))];
-        // Expand sizes and build variants per color
-        const SIZE_ORDER = ["3-6M","6-12M","12-18M","18-24M","2T","3T","4T","5T","6T","OSFA","OS","XXS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL"];
-        const expandSizes = (s) => {
-          const rangeMatch = s.trim().match(/^(\w+)\s*-\s*(\w+)$/);
-          if (rangeMatch) { const start = SIZE_ORDER.indexOf(rangeMatch[1]); const end = SIZE_ORDER.indexOf(rangeMatch[2]); if (start >= 0 && end >= start) return SIZE_ORDER.slice(start, end + 1); }
-          return s.split(",").map(x => x.trim()).filter(Boolean);
-        };
-        const mapped = [];
-        for (const color of allColors) {
-          // Use "Colors" pricing for custom colors, or matching color_type
-          const rows = varData.filter(v => v.color_type === color || (v.color_type === "Colors" && !["White"].includes(color) && !colorTypes.includes(color)));
-          const effectiveRows = rows.length > 0 ? rows : varData.filter(v => v.color_type === "Colors");
-          for (const row of effectiveRows) {
-            for (const sz of expandSizes(row.sizes)) {
-              if (!mapped.find(m => m.colour === color && m.sizeCode === sz)) {
-                mapped.push({ sku: `${fav.style_code}-${color}-${sz}`, colour: color, sizeCode: sz, price: row.case_price });
-              }
-            }
-          }
-        }
-        setVariants(mapped);
-        const pr = {}; mapped.forEach(v => { pr[v.sku] = v.price || 0; });
+        setVariants(Array.isArray(varData) ? varData : []);
+        const pr = {}; const inv = {};
+        (varData || []).forEach(v => { pr[v.sku] = v.price || 0; inv[v.sku] = v.stock || 0; });
         setPricing(pr);
-        setInventory({});
+        setInventory(inv);
       }
     } catch (e) { console.error("Favorites load error:", e); }
     setLoading(false);
