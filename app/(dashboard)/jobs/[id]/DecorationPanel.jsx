@@ -90,6 +90,47 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
         )}
       </div>
 
+      {/* No vendor selected */}
+      {!p.printVendor && (
+        <div style={{padding:"16px 0",textAlign:"center",fontSize:11,color:T.faint}}>Select a vendor to set up decoration</div>
+      )}
+
+      {/* Vendor without pricing — simple custom cost rows */}
+      {p.printVendor && (!pr.qtys || pr.qtys.length === 0) && (
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          <div style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Decoration Costs</div>
+          {(p.customCosts||[]).map((cc,ci)=>(
+            <div key={ci} style={{display:"flex",alignItems:"center",gap:6,fontSize:11}}>
+              <input value={cc.desc||""} onChange={e=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
+                style={{flex:1,background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,padding:"3px 6px",outline:"none",fontFamily:font}}/>
+              <div style={{display:"flex",gap:2}}>
+                {[{label:"/ unit",flat:false},{label:"flat",flat:true}].map(opt=>{
+                  const sel=cc.flat===opt.flat;
+                  return <button key={opt.label} onClick={()=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],flat:opt.flat};updateProd(i,{...p,customCosts:c});}}
+                    style={{padding:"2px 6px",fontSize:8,fontWeight:600,border:`1px solid ${sel?T.accent:T.border}`,borderRadius:4,cursor:"pointer",background:sel?T.accent:"transparent",color:sel?"#fff":T.faint}}>{opt.label}</button>;
+                })}
+              </div>
+              <div style={{display:"flex",alignItems:"center"}}>
+                <span style={{fontSize:9,color:T.faint,marginRight:1}}>$</span>
+                <input type="text" inputMode="decimal" value={cc.perUnit||cc.amount||""} onChange={e=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],perUnit:e.target.value,amount:e.target.value};updateProd(i,{...p,customCosts:c});}}
+                  style={{width:50,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,fontFamily:mono,outline:"none",padding:"2px"}}/>
+              </div>
+              <button onClick={()=>{const c=(p.customCosts||[]).filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
+                style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:10}}
+                onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+            </div>
+          ))}
+          <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
+            style={{fontSize:10,color:T.faint,background:"none",border:`1px dashed ${T.border}`,borderRadius:4,padding:"6px",cursor:"pointer",fontFamily:font,textAlign:"center"}}
+            onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>
+            + Add cost
+          </button>
+        </div>
+      )}
+
+      {/* Full pricing panel — only when vendor has pricing data */}
+      {p.printVendor && pr.qtys?.length > 0 && <>
+
       {/* Print Location Cards */}
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
         {(()=>{
@@ -425,6 +466,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
         );
       })() : <div/>}
       </div>
+      </>}
     </div>
   );
 }
