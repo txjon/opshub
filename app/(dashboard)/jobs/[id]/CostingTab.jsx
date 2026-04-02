@@ -207,6 +207,7 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
     if(pr){
       const autoScreens=Math.max(0,[1,2,3,4,5,6].reduce((a,loc)=>a+(parseFloat(p.printLocations?.[loc]?.screens)||0),0)-sharedScreensToSkip);
       const activeSizes=(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).length;
+      const sg2={};const activeLocsDeduped=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];if(!ld?.location&&!ld?.screens) return false;if(ld.shared&&ld.shareGroup){const gk=ld.shareGroup.trim().toLowerCase();if(sg2[gk]) return false;sg2[gk]=true;}return true;}).length||0;
       const isScreensKey=(k)=>k==="Screens"||k.toLowerCase()==="screens";
       const isTagScreensKey=(k)=>k==="TagScreens"||k==="Tag Screens"||k.toLowerCase().replace(/\s/g,"")==="tagscreens";
       const getSpecCountCalc=(setupKey)=>{
@@ -214,7 +215,7 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
         const specOnKeys=Object.keys(p.specialtyQtys||{}).filter(sk=>sk.endsWith("_on")&&p.specialtyQtys[sk]);
         for(const sk of specOnKeys){
           const specName=sk.replace("_on","").toLowerCase();
-          if(skLower.includes(specName)) return p.specialtyQtys?.[sk.replace("_on","_count")]||0;
+          if(skLower.includes(specName)) return Math.min(p.specialtyQtys?.[sk.replace("_on","_count")]||0, activeLocsDeduped) || activeLocsDeduped;
         }
         return null;
       };

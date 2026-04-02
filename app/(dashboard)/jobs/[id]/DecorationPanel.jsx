@@ -270,7 +270,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                 } else if (isTagScreens) {
                   autoVal = (p.tagPrint && !p.tagRepeat) ? (p.sizes||[]).length : 0;
                 } else if (specialtyMatch) {
-                  autoVal = p.specialtyQtys?.[specialtyMatch+"_on"] ? (p.specialtyQtys?.[specialtyMatch+"_count"]||0) : 0;
+                  const rawCount = p.specialtyQtys?.[specialtyMatch+"_count"]||0;
+                  autoVal = p.specialtyQtys?.[specialtyMatch+"_on"] ? Math.min(rawCount, activeLocs) || activeLocs : 0;
                 }
                 const val = isAuto ? autoVal : (p.setupFees?.[key]||0);
                 const unitCost = pr.setup[key]||0;
