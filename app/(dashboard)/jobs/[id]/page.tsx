@@ -10,6 +10,7 @@ import { BlanksTab } from "./BlanksTab";
 import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
 import { ArtTab } from "./ArtTab";
+import { ProcessingTab } from "./ProcessingTab";
 import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
@@ -780,7 +781,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* BUYSHEET */}
+      {/* PROCESSING */}
+      {tab==="processing"&&(
+        <ProcessingTab project={job} items={items} onItemsChanged={loadData} />
+      )}
+
+      {/* ART FILES */}
       {tab==="art"&&(
         <ArtTab project={job} items={items} contacts={contacts} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} />
       )}

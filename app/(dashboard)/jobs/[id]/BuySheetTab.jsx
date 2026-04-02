@@ -1269,6 +1269,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const [showAddType, setShowAddType] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
+  const [assignBlankTo, setAssignBlankTo] = useState(null); // item id to assign blank to
   const [favorites, setFavorites] = useState([]);
   useEffect(() => {
     createClient().from("favorites").select("*").order("style_name").then(({ data }) => setFavorites(data || []));
@@ -1407,6 +1408,27 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
 
   const addItem = (item) => { updateLocal([...(workingItems||[]), item]); };
 
+  const assignBlank = (blankData) => {
+    if (!assignBlankTo) return;
+    updateLocal((workingItems||[]).map(it => {
+      if (it.id !== assignBlankTo) return it;
+      return {
+        ...it,
+        blank_vendor: blankData.blank_vendor,
+        blank_sku: blankData.blank_sku,
+        style: blankData.style,
+        color: blankData.color,
+        sizes: blankData.sizes,
+        qtys: blankData.qtys || Object.fromEntries((blankData.sizes||[]).map(sz => [sz, it.qtys?.[sz] || 0])),
+        blankCosts: blankData.blankCosts || {},
+        garment_type: blankData.garment_type || detectGarmentType("", (it.name || "") + " " + (blankData.blank_vendor || "")) || it.garment_type,
+        totalQty: blankData.totalQty || Object.values(blankData.qtys || {}).reduce((a,v)=>a+v,0),
+        curve: blankData.curve || it.curve || DEFAULT_CURVE,
+      };
+    }));
+    setAssignBlankTo(null);
+  };
+
   const addAccessory = () => {
     if (!accName.trim()) return;
     const typeName = accType.trim();
@@ -1452,16 +1474,17 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
           onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); }}>
           <div onClick={e => e.stopPropagation()} style={{ width:"95vw", maxWidth:1000, maxHeight:"90vh", display:"flex", flexDirection:"column" }}>
             <div style={{ marginBottom:8, display:"flex", gap:8, alignItems:"center" }}>
-              <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); setShowAddModal(true); }}
+              <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); if (!assignBlankTo) setShowAddModal(true); setAssignBlankTo(null); }}
                 style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, fontSize:11, fontWeight:600, padding:"4px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
-                ← Sources
+                ← {assignBlankTo ? "Cancel" : "Sources"}
               </button>
+              {assignBlankTo && <span style={{ fontSize:11, color:T.amber, fontWeight:600 }}>Assigning blank to: {(workingItems||[]).find(it=>it.id===assignBlankTo)?.name || "item"}</span>}
             </div>
-            {showPicker && <SSPicker onAdd={item => { addItem(item); }} onClose={() => setShowPicker(false)} isFav={isFav} toggleFav={toggleFav} />}
-            {showASColour && <ASColourPicker onAdd={item => { addItem(item); setShowASColour(false); }} onClose={() => setShowASColour(false)} isFav={isFav} toggleFav={toggleFav} />}
-            {showLAApparel && <LAApparelPicker onAdd={item => { addItem(item); }} onClose={() => setShowLAApparel(false)} isFav={isFav} toggleFav={toggleFav} />}
-            {showFavorites && <FavoritesPicker favorites={favorites} setFavorites={setFavorites} onAdd={item => { addItem(item); }} onClose={() => setShowFavorites(false)} toggleFav={toggleFav} />}
-            {showOtherPicker && <OtherPicker onAdd={item => { addItem(item); }} onClose={() => setShowOtherPicker(false)} />}
+            {showPicker && <SSPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); } else { addItem(item); } }} onClose={() => { setShowPicker(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} />}
+            {showASColour && <ASColourPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); } else { addItem(item); } setShowASColour(false); }} onClose={() => { setShowASColour(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} />}
+            {showLAApparel && <LAApparelPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); } else { addItem(item); } }} onClose={() => { setShowLAApparel(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} />}
+            {showFavorites && <FavoritesPicker favorites={favorites} setFavorites={setFavorites} onAdd={item => { if (assignBlankTo) { assignBlank(item); } else { addItem(item); } }} onClose={() => { setShowFavorites(false); setAssignBlankTo(null); }} toggleFav={toggleFav} />}
+            {showOtherPicker && <OtherPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); } else { addItem(item); } }} onClose={() => { setShowOtherPicker(false); setAssignBlankTo(null); }} />}
           </div>
         </div>
       )}
@@ -1469,10 +1492,10 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
       {/* Add Item Modal */}
       {showAddModal && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center" }}
-          onClick={() => setShowAddModal(false)}>
+          onClick={() => { setShowAddModal(false); setAssignBlankTo(null); }}>
           <div onClick={e => e.stopPropagation()} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"24px", width:420, maxWidth:"90vw" }}>
-            <div style={{ fontSize:16, fontWeight:700, color:T.text, fontFamily:font, marginBottom:4 }}>Add Item</div>
-            <div style={{ fontSize:12, color:T.muted, marginBottom:16 }}>Choose a source</div>
+            <div style={{ fontSize:16, fontWeight:700, color:T.text, fontFamily:font, marginBottom:4 }}>{assignBlankTo ? "Assign Blank" : "Add Item"}</div>
+            <div style={{ fontSize:12, color:T.muted, marginBottom:16 }}>{assignBlankTo ? `Select a blank for: ${(workingItems||[]).find(it=>it.id===assignBlankTo)?.name || "item"}` : "Choose a source"}</div>
             <button onClick={() => { setShowAddModal(false); setShowFavorites(true); }}
               style={{ width:"100%", padding:"12px", borderRadius:8, border:"none", background:"#5795b2", color:"#fff", fontSize:13, fontWeight:700, fontFamily:font, cursor:"pointer", marginBottom:10, transition:"opacity 0.15s" }}
               onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
@@ -1601,7 +1624,17 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
                               style={{ fontSize:12, fontWeight:600, color:"#fff", fontFamily:font, background:"transparent", border:"none", outline:"none", width:"100%", cursor:"text" }}
                             />
                             <div style={{ fontSize:10, color:"rgba(255,255,255,0.6)", fontFamily:font, marginTop:1, display:"flex", alignItems:"center", gap:6 }}>
-                              {item.blank_vendor||item.style}{(item.blank_sku||item.color)?` · ${item.blank_sku||item.color}`:""}
+                              {(item.blank_vendor || item.style) ? (
+                                <span onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }} style={{ cursor:"pointer" }}
+                                  onMouseEnter={e => e.currentTarget.style.color=T.accent} onMouseLeave={e => e.currentTarget.style.color="rgba(255,255,255,0.6)"}>
+                                  {item.blank_vendor||item.style}{(item.blank_sku||item.color)?` · ${item.blank_sku||item.color}`:""}
+                                </span>
+                              ) : (
+                                <button onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }}
+                                  style={{ background:T.accentDim, border:`1px solid ${T.accent}44`, borderRadius:4, color:T.accent, fontSize:9, fontWeight:600, padding:"2px 8px", cursor:"pointer", fontFamily:font }}>
+                                  Assign Blank
+                                </button>
+                              )}
                               {item.stockLevel > 0 && <span style={{ marginLeft:6, color:item.stockLevel>100?T.green:T.amber }}>{item.stockLevel.toLocaleString()} in stock</span>}
                               {item.cost_per_unit > 0 && <span style={{ marginLeft:6, color:T.amber }}>${item.cost_per_unit.toFixed(2)}/unit</span>}
                               <select value={item.garment_type||""} onChange={e => {

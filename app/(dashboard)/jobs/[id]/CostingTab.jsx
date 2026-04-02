@@ -1555,7 +1555,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       for (const f of psdFiles) { if (!psdByItem[f.item_id]) psdByItem[f.item_id] = f; }
 
       const PLACEMENT_MAP = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest','Right Chest':'Right Chest','Left Sleeve':'Left Sleeve','Right Sleeve':'Right Sleeve','Neck':'Neck','Hood':'Hood','Pocket':'Pocket' };
-      const SKIP_GROUPS = ['Shirt Color','Shadows','Highlights','Mask'];
+      const SKIP_GROUPS = ['Shirt Color','Shadows','Highlights','Mask','Client Art'];
 
       for (const [itemId, psdFile] of Object.entries(psdByItem)) {
         try {
@@ -1571,12 +1571,12 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           let hasTag = false;
 
           for (const group of groups) {
-            if (!group.children) continue;
             if (SKIP_GROUPS.includes(group.name)) continue;
             const isTag = (group.name || "").toLowerCase() === "tag" || (group.name || "").toLowerCase() === "tags";
             if (isTag) { hasTag = true; continue; }
+            if (!group.children || group.children.length === 0) continue;
 
-            const colorCount = group.children.filter(l => !['Shirt Color','Shadows','Highlights','Mask'].includes(l.name) && l.name).length;
+            const colorCount = group.children.filter(l => !SKIP_GROUPS.includes(l.name) && l.name).length;
             const locName = PLACEMENT_MAP[group.name] || group.name;
 
             newLocations[String(locIdx)] = {

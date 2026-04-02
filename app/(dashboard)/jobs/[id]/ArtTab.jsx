@@ -137,13 +137,14 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
         const { readPsd } = await import("ag-psd");
         const psd = readPsd(new Uint8Array(buf));
         const PLACEMENT_MAP = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest','Right Chest':'Right Chest','Left Sleeve':'Left Sleeve','Right Sleeve':'Right Sleeve','Neck':'Neck','Hood':'Hood','Pocket':'Pocket' };
-        const SKIP_GROUPS = ['Shirt Color','Shadows','Highlights','Mask'];
+        const SKIP_GROUPS = ['Shirt Color','Shadows','Highlights','Mask','Client Art'];
         const info = [];
         const groups = [...(psd.children || [])].reverse();
         for (const group of groups) {
-          if (!group.children) continue;
           if (SKIP_GROUPS.includes(group.name)) continue;
           const isTag = (group.name||"").toLowerCase()==="tag"||(group.name||"").toLowerCase()==="tags";
+          if (isTag) continue; // tag handled separately, skip for proof locations
+          if (!group.children || group.children.length === 0) continue;
           let minL=Infinity,minT=Infinity,maxR=-Infinity,maxB=-Infinity;
           const colors = [];
           for (const layer of group.children) {

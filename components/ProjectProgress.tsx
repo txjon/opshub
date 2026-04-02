@@ -44,6 +44,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
 
   const steps: Step[] = [
     { id: "overview", label: "Overview", done: true, active: false },
+    { id: "processing", label: "Processing", done: hasItems, active: !hasItems },
     { id: "buysheet", label: "Buy Sheet", done: hasItems, active: !hasItems, detail: hasItems ? `${items.length}` : undefined },
     { id: "costing", label: "Costing", done: hasCosting, active: hasItems && !hasCosting },
     { id: "quote", label: "Quote", done: quoteApproved, active: hasCosting && !quoteApproved },
