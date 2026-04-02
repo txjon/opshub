@@ -448,7 +448,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 return(
                                   <tr key={ci} style={{borderBottom:ci<p.customCosts.length-1?`1px solid ${T.border}`:"none",background:ci%2===0?T.card:T.surface}}>
                                     <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`}}>
-                                      <input value={cc.desc||""} placeholder="Description…" onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
+                                      <input value={cc.desc||""} onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
                                         style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:font}}/>
                                     </td>
                                     <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
@@ -574,8 +574,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         <div style={{flex:1}}>
                           {p.supplier==="New"||p._newSupplier?(
                             <div style={{display:"flex",gap:4}}>
-                              <input autoFocus value={p._newSupplierVal||""} placeholder="Enter supplier…"
-                                onChange={e=>updateProd(i,{...p,_newSupplierVal:e.target.value})}
+                              <input autoFocus value={p._newSupplierVal||""}                                onChange={e=>updateProd(i,{...p,_newSupplierVal:e.target.value})}
                                 onKeyDown={e=>{if(e.key==="Enter"&&p._newSupplierVal?.trim()){updateProd(i,{...p,supplier:p._newSupplierVal.trim(),_newSupplier:false,_newSupplierVal:""});}if(e.key==="Escape"){updateProd(i,{...p,supplier:"",_newSupplier:false,_newSupplierVal:""});}}}
                                 style={{flex:1,background:T.surface,border:`1px solid ${T.accent}`,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none"}}/>
                               <button onClick={()=>{if(p._newSupplierVal?.trim())updateProd(i,{...p,supplier:p._newSupplierVal.trim(),_newSupplier:false,_newSupplierVal:""}); }}
@@ -684,8 +683,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       </div>}
                       <div>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Item notes</div>
-                        <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})} placeholder="Internal notes for this item..."
-                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:72,boxSizing:"border-box"}}/>
+                        <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})}                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:72,boxSizing:"border-box"}}/>
                       </div>
                       {r&&(
                         <div style={{borderRadius:8,border:"1px solid "+T.border,overflow:"hidden",marginTop:4}}>
@@ -792,8 +790,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                     </td>
                                     <td style={{padding:"4px 6px",borderRight:`1px solid ${T.border}`,position:"relative"}}>
                                       <input value={ld.location||""} onChange={e=>updateProd(i,{...p,printLocations:{...(p.printLocations||{}),[loc]:{...ld,location:e.target.value,printer:ld.printer||p.printVendor||""}}})}
-                                        placeholder="Front / Back / Sleeve…"
-                                        list={`loc-opts-${i}-${loc}`}
+                                                                               list={`loc-opts-${i}-${loc}`}
                                         data-costfield
                                         onFocus={e=>e.target.select()}
                                         onKeyDown={e=>{
@@ -882,8 +879,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                     p.tagShared?(
                                       <div style={{display:"flex",alignItems:"center",gap:3,justifyContent:"center"}}>
                                         <input value={p.tagShareGroup||""} onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value.toUpperCase()})}
-                                          placeholder="Grp"
-                                          style={{width:32,textAlign:"center",background:T.surface,border:`1px solid ${T.accent}`,borderRadius:3,color:T.accent,fontFamily:mono,fontSize:10,fontWeight:700,padding:"2px",outline:"none"}}/>
+                                                                                   style={{width:32,textAlign:"center",background:T.surface,border:`1px solid ${T.accent}`,borderRadius:3,color:T.accent,fontFamily:mono,fontSize:10,fontWeight:700,padding:"2px",outline:"none"}}/>
                                         <button onClick={()=>updateProd(i,{...p,tagShared:false,tagShareGroup:""})}
                                           style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:9}}
                                           onMouseEnter={e=>e.currentTarget.style.color=T.red}
@@ -1204,8 +1200,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                     return(
                                     <tr key={ci} style={{borderBottom:ci<p.customCosts.length-1?`1px solid ${T.border}`:"none",background:ci%2===0?T.card:T.surface}}>
                                       <td style={{padding:"5px 8px",borderRight:`1px solid ${T.border}`}}>
-                                        <input value={cc.desc||""} placeholder="Embroidery, DTG, etc…"
-                                          onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
+                                        <input value={cc.desc||""}                                          onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
                                           style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:font}}/>
                                       </td>
                                       <td style={{padding:"3px 4px",borderRight:`1px solid ${T.border}`,textAlign:"center"}}>
@@ -1466,12 +1461,25 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     }
     const blankCostPerUnit = it.cost_per_unit > 0 ? it.cost_per_unit
       : (Object.values(blankCosts).filter(v=>v>0).reduce((a,v,_,arr)=>a+v/arr.length,0));
+    // Auto-detect supplier from blank_vendor
+    const vendor = it.blank_vendor || "";
+    const detectedSupplier = (() => {
+      const v = vendor.toLowerCase();
+      if (v.startsWith("as colour") || v.startsWith("as color")) return "AS Colour";
+      if (v.startsWith("la apparel") || v.startsWith("los angeles")) return "LA Apparel";
+      if (v.startsWith("sanmar") || v.startsWith("port ") || v.startsWith("sport-tek") || v.startsWith("district")) return "Sanmar";
+      // S&S brands: Comfort Colors, Gildan, Bella+Canvas, Next Level, Tultex, Hanes, Champion, etc.
+      const ssBrands = ["comfort colors","gildan","bella","next level","tultex","hanes","champion","jerzees","fruit of the loom","independent trading","alternative","allmade","american apparel","rabbit skins","lat ","m&o ","augusta","badger","boxercraft"];
+      if (ssBrands.some(b => v.startsWith(b))) return "S&S";
+      return "";
+    })();
     return {
       ...EMPTY_COST_PRODUCT(),
       id: it.id,
       name: it.name || "",
-      style: it.blank_vendor || "",
+      style: vendor,
       color: it.blank_sku || "",
+      supplier: detectedSupplier,
       sizes: sortSizes(it.sizes || []),
       qtys: it.qtys || {},
       blankCosts,
@@ -1521,6 +1529,85 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     };
   }, []);
 
+  // Auto-detect print locations from PSD files (runs once on load)
+  const psdDetectedRef = React.useRef(false);
+  useEffect(() => {
+    if (psdDetectedRef.current) return;
+    psdDetectedRef.current = true;
+    // Only process items with no print locations set
+    const itemsNeedingPsd = costProds.filter(cp => {
+      if (cp.garment_type === "accessory") return false;
+      const locs = cp.printLocations || {};
+      const hasLocations = Object.values(locs).some(l => l?.location);
+      return !hasLocations;
+    });
+    if (itemsNeedingPsd.length === 0) return;
+
+    (async () => {
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const ids = itemsNeedingPsd.map(cp => cp.id);
+      const { data: psdFiles } = await supabase.from("item_files").select("item_id, drive_file_id, file_name").in("item_id", ids).ilike("file_name", "%.psd");
+      if (!psdFiles || psdFiles.length === 0) return;
+
+      // Take first PSD per item
+      const psdByItem = {};
+      for (const f of psdFiles) { if (!psdByItem[f.item_id]) psdByItem[f.item_id] = f; }
+
+      const PLACEMENT_MAP = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest','Right Chest':'Right Chest','Left Sleeve':'Left Sleeve','Right Sleeve':'Right Sleeve','Neck':'Neck','Hood':'Hood','Pocket':'Pocket' };
+      const SKIP_GROUPS = ['Shirt Color','Shadows','Highlights','Mask'];
+
+      for (const [itemId, psdFile] of Object.entries(psdByItem)) {
+        try {
+          const res = await fetch(`/api/files/thumbnail?id=${psdFile.drive_file_id}`);
+          if (!res.ok) continue;
+          const buf = await res.arrayBuffer();
+          const { readPsd } = await import("ag-psd");
+          const psd = readPsd(new Uint8Array(buf));
+          const groups = [...(psd.children || [])].reverse();
+
+          const newLocations = {};
+          let locIdx = 1;
+          let hasTag = false;
+
+          for (const group of groups) {
+            if (!group.children) continue;
+            if (SKIP_GROUPS.includes(group.name)) continue;
+            const isTag = (group.name || "").toLowerCase() === "tag" || (group.name || "").toLowerCase() === "tags";
+            if (isTag) { hasTag = true; continue; }
+
+            const colorCount = group.children.filter(l => !['Shirt Color','Shadows','Highlights','Mask'].includes(l.name) && l.name).length;
+            const locName = PLACEMENT_MAP[group.name] || group.name;
+
+            newLocations[String(locIdx)] = {
+              location: locName,
+              screens: colorCount,
+              printer: "",
+            };
+            locIdx++;
+          }
+
+          // Pad remaining slots empty
+          for (let i = locIdx; i <= 6; i++) newLocations[String(i)] = {};
+
+          setCostProds(prev => prev.map(cp => {
+            if (cp.id !== itemId) return cp;
+            const hasExisting = Object.values(cp.printLocations || {}).some(l => l?.location);
+            if (hasExisting) return cp; // Don't overwrite if user already set locations
+            return {
+              ...cp,
+              printLocations: newLocations,
+              printCount: locIdx - 1,
+              tagPrint: hasTag || cp.tagPrint,
+            };
+          }));
+        } catch (e) {
+          console.error("PSD auto-detect error for item", itemId, e);
+        }
+      }
+    })();
+  }, []);
+
   // Sync buy item changes (name, sizes, qtys, adds, removes) into both costProds AND savedCostProds
   // Only runs when buyItems actually changes (compared by serialized snapshot)
   useEffect(() => {
@@ -1536,7 +1623,9 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       const newItems = buyItems.filter(bi => !existingIds.has(bi.id)).map(it => {
         const styleKey = (it.style || it.blank_vendor || "").split("–")[0].trim().replace(/\s+/g, "");
         const blankCosts = it.blankCosts && Object.keys(it.blankCosts).length > 0 ? it.blankCosts : seedBlankCosts(styleKey, it.color || it.blank_sku || "", it.sizes || []);
-        const newItem = { ...EMPTY_COST_PRODUCT(), id: it.id, name: it.name || "", style: it.blank_vendor || "", color: it.blank_sku || "", sizes: sortSizes(it.sizes || []), qtys: it.qtys || {}, blankCosts, totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a, v) => a + v, 0), garment_type: it.garment_type || null };
+        const vnd = (it.blank_vendor || "").toLowerCase();
+        const autoSupplier = vnd.startsWith("as colour")||vnd.startsWith("as color")?"AS Colour":vnd.startsWith("la apparel")||vnd.startsWith("los angeles")?"LA Apparel":vnd.startsWith("sanmar")||vnd.startsWith("port ")||vnd.startsWith("sport-tek")||vnd.startsWith("district")?"Sanmar":["comfort colors","gildan","bella","next level","tultex","hanes","champion","jerzees","fruit of the loom","independent trading","alternative","allmade","american apparel","rabbit skins","lat ","m&o ","augusta","badger","boxercraft"].some(b=>vnd.startsWith(b))?"S&S":"";
+        const newItem = { ...EMPTY_COST_PRODUCT(), id: it.id, name: it.name || "", style: it.blank_vendor || "", color: it.blank_sku || "", sizes: sortSizes(it.sizes || []), qtys: it.qtys || {}, blankCosts, totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a, v) => a + v, 0), garment_type: it.garment_type || null, supplier: autoSupplier };
         if (it.garment_type === "accessory") newItem.customCosts = [{desc:it.blank_vendor||"",perUnit:0,flat:false},{desc:"",perUnit:0,flat:true},{desc:"",perUnit:0,flat:true}];
         return newItem;
       });

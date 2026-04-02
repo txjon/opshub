@@ -86,11 +86,33 @@ function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabel, stag
   );
 }
 
-function ProofModal({ item, clientName, projectTitle, mockupFile, files, onClose, onUpdateItem }) {
+function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem }) {
   const METHODS = ["Screen Print", "DTF", "Embroidery"];
   const INSTRUCTIONS = ["Bulk Fold", "Piece Package", "Back Design Facing Out", "Smooth Plastisol Ink"];
-  const [methods, setMethods] = useState(["Screen Print"]);
-  const [selInstructions, setSelInstructions] = useState([]);
+
+  // Auto-populate from costing data
+  const costProd = (costingData?.costProds || []).find(cp => cp.id === item.id);
+  const decoType = costProd?.decorationType || "";
+  const hasPackaging = costProd?.finishingQtys?.Packaging_on && costProd.finishingQtys.Packaging_on > 0;
+  const locations = costProd?.printLocations || {};
+  const locationNames = Object.values(locations).map(l => (l?.location || "").toLowerCase()).filter(Boolean);
+  const hasBackPrint = locationNames.some(l => l.includes("back"));
+
+  const defaultMethod = decoType === "dtf" || decoType === "DTF" ? "DTF" : decoType === "embroidery" || decoType === "Embroidery" ? "Embroidery" : "Screen Print";
+  const defaultInstructions = (() => {
+    const instr = [];
+    if (hasPackaging) {
+      instr.push("Piece Package");
+      if (hasBackPrint) instr.push("Back Design Facing Out");
+    } else {
+      instr.push("Bulk Fold");
+    }
+    if (defaultMethod === "Screen Print") instr.push("Smooth Plastisol Ink");
+    return instr;
+  })();
+
+  const [methods, setMethods] = useState([defaultMethod]);
+  const [selInstructions, setSelInstructions] = useState(defaultInstructions);
   const [notes, setNotes] = useState("");
   const [callouts, setCallouts] = useState({});
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -339,7 +361,7 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, onClose
   );
 }
 
-function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, onFilesChanged, onUpdateItem }) {
+function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, costingData, onFilesChanged, onUpdateItem }) {
   const [files, setFiles] = useState([]);
   const [sendingFile, setSendingFile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -580,6 +602,7 @@ function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, onFil
           projectTitle={projectTitle}
           mockupFile={files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"))}
           files={files}
+          costingData={costingData}
           onClose={(saved) => { setShowProofModal(false); if (saved) loadFiles(); }}
           onUpdateItem={onUpdateItem}
         />
@@ -1104,7 +1127,7 @@ export function ArtTab({ project, items, contacts, onUpdateItem }) {
         Files are uploaded to Google Drive: <span style={{ fontFamily: mono, color: T.faint }}>OpsHub Files / {clientName} / {projectTitle}</span>
       </div>
       {sorted.map((item, i) => (
-        <ItemArtSection key={item.id} item={{ ...item, _index: i }} clientName={clientName} projectTitle={projectTitle} contacts={contacts} jobId={project.id} onUpdateItem={onUpdateItem} />
+        <ItemArtSection key={item.id} item={{ ...item, _index: i }} clientName={clientName} projectTitle={projectTitle} contacts={contacts} jobId={project.id} costingData={project?.costing_data} onUpdateItem={onUpdateItem} />
       ))}
     </div>
   );
