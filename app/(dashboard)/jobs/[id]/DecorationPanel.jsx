@@ -10,12 +10,13 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
   const activeLocs = Object.values(p.printLocations||{}).filter(l=>l?.location&&l?.screens>0).length;
   const allPrintCount = activeLocs + (p.tagPrint?1:0);
 
-  // Shared qty calculation for a location
+  // Shared qty calculation for a location (counts multiple shared locs on same item)
   const getSharedQty = (shareGroup) => {
     if (!shareGroup) return 0;
+    const groupKey = shareGroup.trim().toLowerCase();
     return costProds.reduce((sum, cp) => {
-      const match = Object.values(cp.printLocations||{}).find(l => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === shareGroup.trim().toLowerCase() && l.screens > 0);
-      return sum + (match ? cp.totalQty||0 : 0);
+      const matchingLocs = Object.values(cp.printLocations||{}).filter(l => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === groupKey && l.screens > 0);
+      return sum + (matchingLocs.length > 0 ? (cp.totalQty||0) * matchingLocs.length : 0);
     }, 0);
   };
 

@@ -127,20 +127,33 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
   })();
   let printTotal=0;
   let sharedScreensToSkip=0;
+  const seenShareGroups={};// track first location per share group on this item
   for(let loc=1;loc<=6;loc++){
     const ld=p.printLocations?.[loc];
     const printer=ld?.printer||p.printVendor;
     if(printer&&ld?.screens>0){
       const isShared=!!(ld.shared)&&ld.shareGroup;
-      const sharedQty=isShared?allProds.reduce((sum,cp)=>{
-        const match=Object.values(cp.printLocations||{}).find(l=>l.shared&&l.shareGroup&&l.shareGroup.trim().toLowerCase()===ld.shareGroup.trim().toLowerCase()&&l.screens>0);
-        return sum+(match?cp.totalQty||0:0);
-      },0):0;
-      // Skip screen fees if not the first item in the share group
+      const groupKey=isShared?ld.shareGroup.trim().toLowerCase():"";
+      let sharedQty=0;
       if(isShared){
-        const firstIdx=allProds.findIndex(cp=>Object.values(cp.printLocations||{}).some(l=>l.shared&&l.shareGroup&&l.shareGroup.trim().toLowerCase()===ld.shareGroup.trim().toLowerCase()&&l.screens>0));
-        const myIdx=allProds.findIndex(cp=>cp.id===p.id);
-        if(firstIdx>=0&&myIdx>firstIdx) sharedScreensToSkip+=(parseFloat(ld.screens)||0);
+        // Count shared locations per item (same group on same item = multiply qty)
+        sharedQty=allProds.reduce((sum,cp)=>{
+          const matchingLocs=Object.values(cp.printLocations||{}).filter(l=>l.shared&&l.shareGroup&&l.shareGroup.trim().toLowerCase()===groupKey&&l.screens>0);
+          return sum+(matchingLocs.length>0?(cp.totalQty||0)*matchingLocs.length:0);
+        },0);
+      }
+      // Skip screen fees if not the first location in the share group (across all items AND within same item)
+      if(isShared){
+        if(seenShareGroups[groupKey]){
+          // Not the first location on this item with this group — skip screens
+          sharedScreensToSkip+=(parseFloat(ld.screens)||0);
+        } else {
+          seenShareGroups[groupKey]=true;
+          // Check if another item earlier in the list has this group
+          const firstIdx=allProds.findIndex(cp=>Object.values(cp.printLocations||{}).some(l=>l.shared&&l.shareGroup&&l.shareGroup.trim().toLowerCase()===groupKey&&l.screens>0));
+          const myIdx=allProds.findIndex(cp=>cp.id===p.id);
+          if(firstIdx>=0&&myIdx>firstIdx) sharedScreensToSkip+=(parseFloat(ld.screens)||0);
+        }
       }
       const effectiveQty=isShared&&sharedQty>0?sharedQty:qty;
       printTotal+=lookupPrintPrice(printer,effectiveQty,ld.screens);
