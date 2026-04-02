@@ -77,7 +77,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
         {Array.from({length:p.printCount||4},(_,idx)=>idx+1).map(loc=>{
           const ld = p.printLocations?.[loc]||{};
-          if (!ld.location && !ld.screens && loc > 1) return null; // hide empty non-first slots
+          const isLastSlot = loc === (p.printCount||4);
+          if (!ld.location && !ld.screens && loc > 1 && !isLastSlot) return null; // hide empty non-last slots
           const isShared = !!ld.shared;
           const shareGroup = ld.shareGroup||"";
           const effectiveQty = isShared && shareGroup ? getSharedQty(shareGroup) : (p.totalQty||0);
