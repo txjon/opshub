@@ -240,7 +240,17 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
 
                 let autoVal = 0;
                 if (isScreens) {
-                  autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>sum+(l?.screens||0),0);
+                  // Sum screens minus shared duplicates (same group = screens counted once)
+                  const seenGroups = {};
+                  autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
+                    if (!l?.screens) return sum;
+                    if (l.shared && l.shareGroup) {
+                      const gk = l.shareGroup.trim().toLowerCase();
+                      if (seenGroups[gk]) return sum; // skip duplicate
+                      seenGroups[gk] = true;
+                    }
+                    return sum + (l.screens||0);
+                  }, 0);
                 } else if (isTagScreens) {
                   autoVal = (p.tagPrint && !p.tagRepeat) ? (p.sizes||[]).length : 0;
                 } else if (specialtyMatch) {
