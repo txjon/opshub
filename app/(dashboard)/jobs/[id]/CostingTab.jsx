@@ -189,12 +189,13 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
   if(p.specialtyQtys&&p.printVendor){
     const pr=PRINTERS[p.printVendor];
     if(pr){
-      const activeLocs=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length||0;
+      const seenSG={};const activeLocsDeduped=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];if(!ld?.location&&!ld?.screens) return false;if(ld.shared&&ld.shareGroup){const gk=ld.shareGroup.trim().toLowerCase();if(seenSG[gk]) return false;seenSG[gk]=true;}return true;}).length||0;
+      const activeLocsRaw=[1,2,3,4,5,6].filter(loc=>{const ld=p.printLocations?.[loc];return ld?.location||ld?.screens>0;}).length||0;
       Object.keys(pr.specialty||{}).forEach(key=>{
         const isFleece=key==="Fleece Upcharge";
         const isOn=isFleece?p.isFleece:p.specialtyQtys[key+"_on"];
         if(isOn){
-          const count=isFleece?(activeLocs+(p.tagPrint?1:0)):(p.specialtyQtys[key+"_count"]!==undefined?p.specialtyQtys[key+"_count"]:activeLocs);
+          const count=isFleece?(activeLocsRaw+(p.tagPrint?1:0)):(p.specialtyQtys[key+"_count"]!==undefined?Math.min(p.specialtyQtys[key+"_count"],activeLocsDeduped):activeLocsDeduped);
           specUnitRate+=(pr.specialty?.[key]||0)*count;
         }
       });

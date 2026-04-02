@@ -7,7 +7,23 @@ const SHARE_GROUPS = ["A","B","C","D"];
 
 export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice }) {
   const pr = PRINTERS[p.printVendor] || {};
-  const activeLocs = Object.values(p.printLocations||{}).filter(l=>l?.location&&l?.screens>0).length;
+  const activeLocsRaw = Object.values(p.printLocations||{}).filter(l=>l?.location&&l?.screens>0).length;
+  // Deduplicated: shared locations in same group count as one
+  const activeLocsDeduped = (()=>{
+    const seen = {};
+    let count = 0;
+    for (const l of Object.values(p.printLocations||{})) {
+      if (!l?.location || !l?.screens) continue;
+      if (l.shared && l.shareGroup) {
+        const gk = l.shareGroup.trim().toLowerCase();
+        if (seen[gk]) continue;
+        seen[gk] = true;
+      }
+      count++;
+    }
+    return count;
+  })();
+  const activeLocs = activeLocsDeduped;
   const allPrintCount = activeLocs + (p.tagPrint?1:0);
 
   // Shared qty calculation for a location (counts multiple shared locs on same item)
