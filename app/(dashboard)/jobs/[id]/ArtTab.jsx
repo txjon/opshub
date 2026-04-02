@@ -127,7 +127,7 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
 
   // Load PSD print info on mount
   useEffect(() => {
-    const psdFile = (files || []).find(f => f.stage === "print_ready" && f.file_name?.toLowerCase().endsWith(".psd"));
+    const psdFile = (files || []).find(f => f.file_name?.toLowerCase().endsWith(".psd"));
     if (!psdFile) return;
     setLoadingPsd(true);
     (async () => {
@@ -143,6 +143,7 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
         for (const group of groups) {
           if (SKIP_GROUPS.includes(group.name)) continue;
           if (!group.children || group.children.length === 0) continue;
+          const isTag = (group.name||"").toLowerCase() === "tag" || (group.name||"").toLowerCase() === "tags";
           let minL=Infinity,minT=Infinity,maxR=-Infinity,maxB=-Infinity;
           const colors = [];
           for (const layer of group.children) {
