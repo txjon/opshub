@@ -142,8 +142,6 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
         const groups = [...(psd.children || [])].reverse();
         for (const group of groups) {
           if (SKIP_GROUPS.includes(group.name)) continue;
-          const isTag = (group.name||"").toLowerCase()==="tag"||(group.name||"").toLowerCase()==="tags";
-          if (isTag) continue; // tag handled separately, skip for proof locations
           if (!group.children || group.children.length === 0) continue;
           let minL=Infinity,minT=Infinity,maxR=-Infinity,maxB=-Infinity;
           const colors = [];
