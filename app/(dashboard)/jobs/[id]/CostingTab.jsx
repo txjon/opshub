@@ -238,7 +238,7 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
     }
     if(p.setupFees.manualCost>0) setupTotal+=p.setupFees.manualCost;
   }
-  const customTotal=(p.customCosts||[]).reduce((a,c)=>{const v=c.perUnit||c.amount||0;return a+(c.flat?v:v*qty);},0);
+  const customTotal=(p.customCosts||[]).reduce((a,c)=>{const v=parseFloat(c.perUnit||c.amount)||0;return a+(c.flat?v:v*qty);},0);
   const perUnitPORate=printTotal+finUnitRate+specUnitRate;
   const poTotal=perUnitPORate*qty+setupTotal+customTotal;
   const shipping=inclShip&&p.garment_type!=="accessory"?qty*(p.isFleece?1.50:0.65):0;
