@@ -375,8 +375,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
       )}
 
       {costTab==="calc"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div>
+        <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
+          <div style={{flex:1,minWidth:0}}>
             {costProds.map((p,i)=>{
               const r=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);
               const mc2=r?(r.margin_pct>=0.30?T.green:r.margin_pct>=0.20?T.amber:T.red):T.faint;
@@ -707,6 +707,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             ["Blanks",   fmtD(r.blankCost),      T.text,    null],
                             ["PO",       fmtD(r.poTotal),        T.text,    null],
                             ["Ship",     fmtD(r.shipping),       T.text,    null],
+                            ...(r.ccFees>0?[["CC Fees", fmtD(r.ccFees), T.text, null]]:[]),
                             ["Profit",   fmtD(r.netProfit),      mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
                             ["Margin",   fmtP(r.margin_pct),     mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
                             ["Per Pc",   fmtD(r.profitPerPiece), mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
@@ -1257,8 +1258,42 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 </div>
               );
             })}
-
           </div>
+
+          {/* Project totals — sticky sidebar */}
+          {results.length>0&&(()=>{
+            const totBlank=results.reduce((a,r)=>a+r.blankCost,0);
+            const totPO=results.reduce((a,r)=>a+r.poTotal,0);
+            const totShip=results.reduce((a,r)=>a+r.shipping,0);
+            const totQty=results.reduce((a,r)=>a+r.qty,0);
+            const profitPc=totQty>0?totProfit/totQty:0;
+            return (
+            <div style={{width:200,flexShrink:0,position:"sticky",top:20}}>
+              <div style={{background:T.card,borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+                <div style={{padding:"6px 10px",background:T.surface,fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:`1px solid ${T.border}`}}>Project Totals</div>
+                <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
+                  <tbody>
+                    {[
+                      ["Revenue",    fmtD(totGross),    T.accent],
+                      ["Blanks",     fmtD(totBlank),    T.text],
+                      ["PO Total",   fmtD(totPO),       T.text],
+                      ["Shipping",   fmtD(totShip),     T.text],
+                      ...(inclCC?[["CC Fees", fmtD(results.reduce((a,r)=>a+(r.ccFees||0),0)), T.text]]:[]),
+                      ["Net Profit", fmtD(totProfit),   mc],
+                      ["Margin",     fmtP(netMarg),     mc],
+                      ["Per Piece",  fmtD(profitPc),    mc],
+                    ].map(([l,v,c],idx)=>(
+                      <tr key={l} style={{background:idx>=4?(mc===T.green?T.greenDim:mc===T.amber?T.amberDim:T.redDim):T.card,borderBottom:idx<6?`1px solid ${T.border}22`:"none"}}>
+                        <td style={{padding:"5px 10px",color:T.muted,fontFamily:font,fontWeight:500}}>{l}</td>
+                        <td style={{padding:"5px 10px",color:c,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{v}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            );
+          })()}
         </div>
       )}
 
