@@ -701,25 +701,21 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})}                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:72,boxSizing:"border-box"}}/>
                       </div>
                       {r&&(
-                        <div style={{borderRadius:8,border:"1px solid "+T.border,overflow:"hidden",marginTop:4}}>
-                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
-                            <tbody>
-                              {[
-                                ["Revenue",        fmtD(r.grossRev),        T.accent],
-                                ["Blanks Cost",    fmtD(r.blankCost),       T.text],
-                                ["PO Total",       fmtD(r.poTotal),         T.text],
-                                ["Shipping",       fmtD(r.shipping),        T.text],
-                                ["Net Profit",     fmtD(r.netProfit),       mc2],
-                                ["Margin",         fmtP(r.margin_pct),      mc2],
-                                ["Profit / Piece", fmtD(r.profitPerPiece),  mc2],
-                              ].map(([l,v,c],idx)=>(
-                                <tr key={l} style={{borderBottom:idx<5?`1px solid ${T.border}22`:"none",background:idx>=3?(mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim):T.surface}}>
-                                  <td style={{padding:"6px 12px",fontSize:11,fontWeight:500,color:T.muted,fontFamily:font,width:"50%"}}>{l}</td>
-                                  <td style={{padding:"6px 12px",fontSize:13,fontWeight:700,color:c,fontFamily:mono,textAlign:"right"}}>{v}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                        <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
+                          {[
+                            ["Revenue",  fmtD(r.grossRev),       T.accent,  null],
+                            ["Blanks",   fmtD(r.blankCost),      T.text,    null],
+                            ["PO",       fmtD(r.poTotal),        T.text,    null],
+                            ["Ship",     fmtD(r.shipping),       T.text,    null],
+                            ["Profit",   fmtD(r.netProfit),      mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
+                            ["Margin",   fmtP(r.margin_pct),     mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
+                            ["Per Pc",   fmtD(r.profitPerPiece), mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
+                          ].map(([l,v,c,bg])=>(
+                            <div key={l} style={{background:bg||T.surface,border:`1px solid ${T.border}22`,borderRadius:6,padding:"4px 8px",minWidth:70}}>
+                              <div style={{fontSize:8,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.05em"}}>{l}</div>
+                              <div style={{fontSize:11,fontWeight:700,color:c,fontFamily:mono}}>{v}</div>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>{/* end blanks panel */}
