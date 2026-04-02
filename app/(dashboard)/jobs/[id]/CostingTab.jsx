@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { DecorationPanel } from "./DecorationPanel";
 
 const BLANK_COSTS = {
   "NL6210_White":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
@@ -512,11 +513,12 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               const bodyDisplay=isCollapsed?"none":"grid";
               const chevron=isCollapsed?"v":"^";
               return(
-                <div key={p.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
+                <div key={p.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",maxWidth:828}}>
                   <div onClick={()=>toggleCollapse(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
                     <span style={{width:24,height:24,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
-                    <div style={{flex:1}}>
+                    <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8}}>
                       <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||("Product "+(i+1))}</span>
+                      {(p.style||p.color)&&<span style={{fontSize:11,color:T.muted,fontFamily:font}}>{p.style}{p.color?` · ${p.color}`:""}</span>}
                     </div>
                     <div style={{display:"flex",gap:0,alignItems:"center"}}>
                       <div style={{textAlign:"right",width:70,flexShrink:0,marginRight:16}}>
@@ -561,9 +563,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                     </div>
                     <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>
                   </div>
-                  <div style={{padding:14,display:bodyDisplay,gridTemplateColumns:"400px 1fr",gap:0,alignItems:"start"}}>
+                  <div style={{padding:14,display:bodyDisplay,gridTemplateColumns:"400px 400px",gap:0,alignItems:"start",width:"fit-content"}}>
                     {/* BLANKS PANEL */}
-                    <div style={{display:"flex",flexDirection:"column",gap:12,paddingRight:16,borderRight:"1px solid "+T.border,width:400,flexShrink:0}}>
+                    <div style={{display:"flex",flexDirection:"column",gap:12,paddingRight:16,borderRight:"1px solid "+T.border,flexShrink:0}}>
                       {/* BLANKS HEADER */}
                       <div style={{fontSize:10,fontWeight:700,color:T.accent,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.1em",paddingBottom:6,borderBottom:`1px solid ${T.border}`}}>Blanks</div>
 
@@ -589,29 +591,14 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             </select>
                           )}
                         </div>
-                        <button onClick={()=>setCostProds(prev=>prev.map((cp,ci)=>ci>i?{...cp,supplier:p.supplier,_newSupplier:false,_newSupplierVal:""}:cp))}
-                          style={{fontSize:10,color:T.accent,fontFamily:font,background:T.accentDim,border:`1px solid ${T.accent}44`,borderRadius:5,cursor:"pointer",padding:"4px 10px",fontWeight:600,whiteSpace:"nowrap",flexShrink:0}}>↓ All</button>
-                      </div>
-                      </div>
-
-                      {/* Line 2: Brand / Style / Color / Fleece */}
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"end"}}>
-                        <div>
-                          <div style={{fontSize:10,color:T.muted,fontFamily:font,marginBottom:4}}>Style</div>
-                          <div style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:font,padding:"6px 0"}}>{p.style||"—"}</div>
-                        </div>
-                        <div>
-                          <div style={{fontSize:10,color:T.muted,fontFamily:font,marginBottom:4}}>Color</div>
-                          <div style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:font,padding:"6px 0"}}>{p.color||"—"}</div>
-                        </div>
-                        <div>
-                          <div style={{fontSize:10,color:T.muted,fontFamily:font,marginBottom:4}}>Fleece</div>
-                          <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${T.border}`}}>
+                        <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+                          <span style={{fontSize:10,color:T.muted,fontFamily:font}}>Fleece</span>
+                          <div style={{display:"flex",borderRadius:5,overflow:"hidden",border:`1px solid ${T.border}`}}>
                             {["Yes","No"].map(opt=>{
                               const sel=(p.isFleece?"Yes":"No")===opt;
                               return(
                                 <button key={opt} onClick={()=>updateProd(i,{...p,isFleece:opt==="Yes"})}
-                                  style={{padding:"5px 12px",fontSize:12,fontFamily:font,fontWeight:600,border:"none",cursor:"pointer",background:sel?(opt==="Yes"?T.accent:T.surface):T.card,color:sel?(opt==="Yes"?"#fff":T.text):T.faint,transition:"all 0.12s"}}>
+                                  style={{padding:"4px 10px",fontSize:11,fontFamily:font,fontWeight:600,border:"none",cursor:"pointer",background:sel?(opt==="Yes"?T.accent:T.surface):T.card,color:sel?(opt==="Yes"?"#fff":T.text):T.faint,transition:"all 0.12s"}}>
                                   {opt}
                                 </button>
                               );
@@ -619,11 +606,17 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           </div>
                         </div>
                       </div>
+                      </div>
                       {/* Collapsible size grid */}
                       <div onClick={()=>updateProd(i,{...p,_blankOpen:!p._blankOpen})} style={{cursor:"pointer",padding:"12px 8px",borderRadius:6,background:p._blankOpen?T.accentDim:T.surface,border:"1px solid "+(p._blankOpen?T.accent+"44":T.border),marginBottom:p._blankOpen?8:0,transition:"all 0.15s"}}>
                         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:!p._blankOpen&&(p.sizes||[]).some(sz=>(p.qtys?.[sz]||0)>0)?6:0}}>
-                          <div style={{fontSize:10,fontWeight:700,color:p._blankOpen?T.accent:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</div>
-                          <span style={{fontSize:11,color:p._blankOpen?T.accent:T.faint,display:"inline-block",transform:p._blankOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.15s"}}>v</span>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <span style={{fontSize:10,fontWeight:700,color:p._blankOpen?T.accent:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</span>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            {!p._blankOpen&&(()=>{const total=(p.sizes||[]).reduce((a,sz)=>{const q=p.qtys?.[sz]||0;const c=p.blankCosts?.[sz]||0;return a+q*c;},0);return total>0?<span style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:mono}}>${total.toFixed(2)}</span>:null;})()}
+                            <span style={{fontSize:11,color:p._blankOpen?T.accent:T.faint,display:"inline-block",transform:p._blankOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.15s"}}>v</span>
+                          </div>
                         </div>
                         {!p._blankOpen&&(p.sizes||[]).some(sz=>(p.qtys?.[sz]||0)>0)&&(
                           <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
@@ -709,7 +702,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       )}
                     </div>{/* end blanks panel */}
                     {/* DECORATION PANEL */}
-                    <div style={{display:"flex",flexDirection:"column",gap:12,paddingLeft:16}}>
+                    <DecorationPanel p={p} i={i} costProds={costProds} PRINTERS={PRINTERS} updateProd={updateProd} setCostProds={setCostProds} lookupPrintPrice={lookupPrintPrice} lookupTagPrice={lookupTagPrice} />
+                    {false && <div style={{display:"flex",flexDirection:"column",gap:12,paddingLeft:16}}>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:6,borderBottom:"1px solid "+T.border}}>
                         <div style={{fontSize:10,fontWeight:700,color:T.amber,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.1em"}}>Decoration</div>
                         {i>0&&costProds[i-1]&&<button onClick={()=>{const prev=costProds[i-1];updateProd(i,{...p,printVendor:prev.printVendor,printLocations:JSON.parse(JSON.stringify(prev.printLocations||{})),printCount:prev.printCount||4,tagPrint:prev.tagPrint,tagRepeat:prev.tagRepeat,tagShared:prev.tagShared,tagShareGroup:prev.tagShareGroup,setupFees:{...prev.setupFees}});}}
@@ -1240,7 +1234,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           )}
                         </div>}
                       </div>
-                    </div>{/* end decoration panel */}
+                    </div>}{/* end old decoration panel */}
                   </div>
                 </div>
               );
