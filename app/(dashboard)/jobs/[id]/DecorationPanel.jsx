@@ -328,7 +328,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                 const isFleece = key.toLowerCase().includes("fleece");
                 const on = isFleece ? p.isFleece : (p.specialtyQtys?.[key+"_on"]>0);
                 const stored = p.specialtyQtys?.[key+"_count"]||0;
-                const count = isFleece ? allPrintCount : (stored > activeLocs && activeLocs > 0 ? activeLocs : (stored > 0 ? stored : activeLocs));
+                const count = isFleece ? allPrintCount : (stored > 0 && stored < activeLocs ? stored : activeLocs);
 
                 return (
                   <div key={key} style={{display:"flex",alignItems:"center",gap:8,fontSize:11}}>

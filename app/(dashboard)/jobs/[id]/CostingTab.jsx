@@ -195,7 +195,8 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
         const isFleece=key==="Fleece Upcharge";
         const isOn=isFleece?p.isFleece:p.specialtyQtys[key+"_on"];
         if(isOn){
-          const count=isFleece?(activeLocsRaw+(p.tagPrint?1:0)):(p.specialtyQtys[key+"_count"]!==undefined?Math.min(p.specialtyQtys[key+"_count"],activeLocsDeduped):activeLocsDeduped);
+          const storedCount=p.specialtyQtys[key+"_count"]||0;
+          const count=isFleece?(activeLocsRaw+(p.tagPrint?1:0)):(storedCount>0&&storedCount<activeLocsDeduped?storedCount:activeLocsDeduped);
           specUnitRate+=(pr.specialty?.[key]||0)*count;
         }
       });
@@ -215,7 +216,7 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
         const specOnKeys=Object.keys(p.specialtyQtys||{}).filter(sk=>sk.endsWith("_on")&&p.specialtyQtys[sk]);
         for(const sk of specOnKeys){
           const specName=sk.replace("_on","").toLowerCase();
-          if(skLower.includes(specName)) return Math.min(p.specialtyQtys?.[sk.replace("_on","_count")]||0, activeLocsDeduped) || activeLocsDeduped;
+          if(skLower.includes(specName)){const sc=p.specialtyQtys?.[sk.replace("_on","_count")]||0;return sc>0&&sc<activeLocsDeduped?sc:activeLocsDeduped;}
         }
         return null;
       };
