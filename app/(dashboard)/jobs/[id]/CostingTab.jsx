@@ -216,7 +216,13 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
         const specOnKeys=Object.keys(p.specialtyQtys||{}).filter(sk=>sk.endsWith("_on")&&p.specialtyQtys[sk]);
         for(const sk of specOnKeys){
           const specName=sk.replace("_on","").toLowerCase();
-          if(skLower.includes(specName)){const sc=p.specialtyQtys?.[sk.replace("_on","_count")]||0;return sc>0&&sc<activeLocsDeduped?sc:activeLocsDeduped;}
+          if(skLower.includes(specName)){
+            // Puff screen = sum puffColors per location (deduped)
+            if(skLower.includes("puff")&&skLower.includes("screen")){
+              const spg={};return [1,2,3,4,5,6].reduce((sum,loc)=>{const ld=p.printLocations?.[loc];if(!ld?.location||!ld?.screens||!ld.puffColors) return sum;if(ld.shared&&ld.shareGroup){const gk=ld.shareGroup.trim().toLowerCase();if(spg[gk]) return sum;spg[gk]=true;}return sum+(ld.puffColors||0);},0);
+            }
+            const sc=p.specialtyQtys?.[sk.replace("_on","_count")]||0;return sc>0&&sc<activeLocsDeduped?sc:activeLocsDeduped;
+          }
         }
         return null;
       };

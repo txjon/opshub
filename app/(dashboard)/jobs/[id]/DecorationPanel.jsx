@@ -124,6 +124,15 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                   <span style={{fontSize:9,color:T.faint}}>colors</span>
                 </div>
 
+                {/* Puff colors — only shown when puff specialty is active and location has screens */}
+                {isActive && p.specialtyQtys && Object.keys(p.specialtyQtys).some(k=>k.toLowerCase().includes("puff")&&k.endsWith("_on")&&p.specialtyQtys[k]) && (
+                  <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
+                    <input type="text" inputMode="numeric" value={ld.puffColors||""} onChange={e=>updateLoc(loc,{puffColors:parseInt(e.target.value)||0})}
+                      style={{width:24,textAlign:"center",background:T.card,border:`1px solid ${T.amber}44`,borderRadius:4,color:T.amber,fontSize:11,fontFamily:mono,outline:"none",padding:"2px"}}/>
+                    <span style={{fontSize:9,color:T.amber}}>puff</span>
+                  </div>
+                )}
+
                 {/* Share group */}
                 <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
                   {!isShared ? (
@@ -270,8 +279,19 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                 } else if (isTagScreens) {
                   autoVal = (p.tagPrint && !p.tagRepeat) ? (p.sizes||[]).length : 0;
                 } else if (specialtyMatch) {
-                  const rawCount = p.specialtyQtys?.[specialtyMatch+"_count"]||0;
-                  autoVal = p.specialtyQtys?.[specialtyMatch+"_on"] ? Math.min(rawCount, activeLocs) || activeLocs : 0;
+                  const isPuffScreen = key.toLowerCase().includes("puff") && key.toLowerCase().includes("screen");
+                  if (isPuffScreen && p.specialtyQtys?.[specialtyMatch+"_on"]) {
+                    // Puff screen up charge = sum of puffColors per location (deduped for share groups)
+                    const seenPG = {};
+                    autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
+                      if (!l?.location || !l?.screens || !l.puffColors) return sum;
+                      if (l.shared && l.shareGroup) { const gk = l.shareGroup.trim().toLowerCase(); if (seenPG[gk]) return sum; seenPG[gk]=true; }
+                      return sum + (l.puffColors||0);
+                    }, 0);
+                  } else {
+                    const rawCount = p.specialtyQtys?.[specialtyMatch+"_count"]||0;
+                    autoVal = p.specialtyQtys?.[specialtyMatch+"_on"] ? (rawCount>0&&rawCount<activeLocs?rawCount:activeLocs) : 0;
+                  }
                 }
                 const val = isAuto ? autoVal : (p.setupFees?.[key]||0);
                 const unitCost = pr.setup[key]||0;
