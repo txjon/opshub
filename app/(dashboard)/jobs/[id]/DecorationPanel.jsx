@@ -76,10 +76,10 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
       {/* Print Location Cards */}
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
         {(()=>{
-          // Show filled slots + one empty slot for next entry
-          const allSlots = Array.from({length:p.printCount||4},(_,idx)=>idx+1);
+          // Show filled slots + one empty slot for next entry, min 2
+          const allSlots = [1,2,3,4,5,6];
           const highestFilled = allSlots.reduce((max,loc)=>{const ld=p.printLocations?.[loc]||{};return (ld.location||ld.screens)?loc:max;},0);
-          const showUpTo = Math.min((highestFilled||0)+1, p.printCount||4);
+          const showUpTo = Math.max(Math.min((highestFilled||0)+1, 6), 2);
           return allSlots.filter(loc=>loc<=showUpTo).map(loc=>{
           const ld = p.printLocations?.[loc]||{};
           const isShared = !!ld.shared;
@@ -139,14 +139,6 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
           );
         })})()}
 
-        {/* Add location */}
-        {(p.printCount||4)<6&&(
-          <button onClick={()=>updateProd(i,{...p,printCount:(p.printCount||4)+1})}
-            style={{fontSize:10,color:T.faint,background:"none",border:`1px dashed ${T.border}`,borderRadius:6,padding:"6px",cursor:"pointer",fontFamily:font,textAlign:"center"}}
-            onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>
-            + Add location
-          </button>
-        )}
       </div>
 
       {/* Tag Print — inline row */}
