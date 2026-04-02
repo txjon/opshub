@@ -30,6 +30,16 @@ function detectGarmentType(category, name) {
   if (n.includes("sock")) return "socks";
   if (n.includes("towel")) return "towel";
   if (n.includes("bandana")) return "bandana";
+  if (n.includes("patch")) return "patch";
+  if (n.includes("sticker")) return "sticker";
+  if (n.includes("poster")) return "poster";
+  if (n.includes("pin") && !n.includes("pine")) return "pin";
+  if (n.includes("koozie") || n.includes("can cooler")) return "koozie";
+  if (n.includes("banner")) return "banner";
+  if (n.includes("flag")) return "flag";
+  if (n.includes("key chain") || n.includes("keychain")) return "key_chain";
+  if (n.includes("water bottle") || n.includes("bottle")) return "water_bottle";
+  if (n.includes("woven label")) return "woven_labels";
   if (n.includes("tee") || n.includes("t-shirt") || n.includes("tank")) return "tee";
   return null;
 }
@@ -862,6 +872,245 @@ function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav })
   );
 }
 
+// ── Other / Custom Blank Picker ──────────────────────────────────────────────
+
+function OtherPicker({ onAdd, onClose }) {
+  const [catalog, setCatalog] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selBrand, setSelBrand] = useState(null);
+  const [selStyle, setSelStyle] = useState(null);
+  const [selColor, setSelColor] = useState(null);
+  const [selSizes, setSelSizes] = useState({});
+  const [itemName, setItemName] = useState("");
+  const [search, setSearch] = useState("");
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const lastClickedSize = useRef(null);
+
+  // New entry form state
+  const [newBrand, setNewBrand] = useState("");
+  const [newStyle, setNewStyle] = useState("");
+  const [newColor, setNewColor] = useState("");
+  const [newSizes, setNewSizes] = useState({});
+  const [newPrices, setNewPrices] = useState({});
+  const newLastClickedSize = useRef(null);
+
+  useEffect(() => { loadCatalog(); }, []);
+  async function loadCatalog() {
+    const supabase = createClient();
+    const { data } = await supabase.from("blank_catalog").select("*").order("brand").order("style");
+    setCatalog(data || []);
+    setLoading(false);
+  }
+
+  const brands = [...new Set(catalog.map(c => c.brand))].sort();
+  const styles = selBrand ? [...new Set(catalog.filter(c => c.brand === selBrand).map(c => c.style))].sort() : [];
+  const colors = selStyle ? catalog.filter(c => c.brand === selBrand && c.style === selStyle) : [];
+  const currentEntry = selColor ? catalog.find(c => c.id === selColor) : null;
+
+  const filteredBrands = search.trim()
+    ? brands.filter(b => b.toLowerCase().includes(search.toLowerCase()) || catalog.some(c => c.brand === b && c.style.toLowerCase().includes(search.toLowerCase())))
+    : brands;
+
+  const toggleSz = (sz, e) => handleSizeToggle(sz, e, currentEntry?.sizes || [], setSelSizes, lastClickedSize);
+  const canAdd = currentEntry && Object.keys(selSizes).length > 0;
+
+  function doAdd() {
+    if (!currentEntry) return;
+    const allSizes = sortSizes(Object.keys(selSizes));
+    const qtys = {}; allSizes.forEach(sz => { qtys[sz] = 0; });
+    const blankCosts = {}; allSizes.forEach(sz => { blankCosts[sz] = currentEntry.costs?.[sz] || 0; });
+    const fullName = itemName.trim() || `${currentEntry.brand} ${currentEntry.style} - ${currentEntry.color}`;
+    onAdd({
+      id: Date.now() + Math.random(),
+      name: fullName,
+      blank_vendor: `${currentEntry.brand} ${currentEntry.style}`,
+      blank_sku: currentEntry.color,
+      style: `${currentEntry.brand} ${currentEntry.style}`,
+      color: currentEntry.color,
+      garment_type: detectGarmentType("", fullName),
+      sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
+    });
+    setItemName(""); setSelColor(null); setSelSizes({});
+  }
+
+  async function saveNewEntry() {
+    if (!newBrand.trim() || !newStyle.trim() || !newColor.trim() || Object.keys(newSizes).length === 0) return;
+    const supabase = createClient();
+    const sizes = sortSizes(Object.keys(newSizes));
+    const costs = {}; sizes.forEach(sz => { costs[sz] = parseFloat(newPrices[sz]) || 0; });
+    await supabase.from("blank_catalog").insert({ brand: newBrand.trim(), style: newStyle.trim(), color: newColor.trim(), sizes, costs });
+    setNewBrand(""); setNewStyle(""); setNewColor(""); setNewSizes({}); setNewPrices({});
+    setShowNewForm(false);
+    loadCatalog();
+  }
+
+  async function deleteEntry(id) {
+    const supabase = createClient();
+    await supabase.from("blank_catalog").delete().eq("id", id);
+    setConfirmDelete(null);
+    if (selColor === id) { setSelColor(null); setSelSizes({}); }
+    loadCatalog();
+  }
+
+  const colRow = (label, active, onClick, sub, onDelete) => (
+    <div style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
+      <div onClick={onClick} style={{ flex: 1, padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, transition: "background 0.1s" }}
+        onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
+        onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+        {label}
+        {sub && <div style={{ fontSize: 9, color: active ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{sub}</div>}
+      </div>
+      {onDelete && <button onClick={e => { e.stopPropagation(); onDelete(); }}
+        style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, padding: "4px 8px", flexShrink: 0 }}
+        onMouseEnter={e => (e.currentTarget.style.color = T.red)} onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>✕</button>}
+    </div>
+  );
+
+  const colHead = (title) => (
+    <div style={{ padding: "5px 11px", background: T.surface, borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: font }}>{title}</div>
+  );
+
+  const ic = { width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, boxSizing: "border-box" };
+
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font }}>Other Suppliers</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 140 }} />
+          <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 140 }} />
+          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>Add →</button>
+          <button onClick={() => setShowNewForm(!showNewForm)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>+ New</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+      </div>
+
+      {/* New entry form */}
+      {showNewForm && (
+        <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <div><label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Brand</label><input value={newBrand} onChange={e => setNewBrand(e.target.value)} style={ic} /></div>
+            <div><label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Style</label><input value={newStyle} onChange={e => setNewStyle(e.target.value)} style={ic} /></div>
+            <div><label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Color</label><input value={newColor} onChange={e => setNewColor(e.target.value)} style={ic} /></div>
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 4 }}>Sizes</label>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {["XS","S","M","L","XL","2XL","3XL","4XL","5XL","OS"].map(sz => {
+                const on = newSizes[sz] !== undefined;
+                return <button key={sz} onClick={e => handleSizeToggle(sz, e, ["XS","S","M","L","XL","2XL","3XL","4XL","5XL","OS"], setNewSizes, newLastClickedSize)}
+                  style={{ padding: "4px 8px", borderRadius: 4, border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accentDim : "transparent", color: on ? T.accent : T.faint, fontSize: 10, fontFamily: mono, cursor: "pointer" }}>{sz}</button>;
+              })}
+            </div>
+          </div>
+          {Object.keys(newSizes).length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+              {sortSizes(Object.keys(newSizes)).map(sz => (
+                <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, color: T.muted, fontFamily: mono }}>{sz}</span>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <span style={{ fontSize: 9, color: T.faint, marginRight: 1 }}>$</span>
+                    <input type="text" inputMode="decimal" value={newPrices[sz] || ""} onChange={e => setNewPrices(p => ({...p, [sz]: e.target.value}))} onFocus={e => e.target.select()}
+                      style={{ width: 44, textAlign: "center", padding: "3px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 10, outline: "none", fontFamily: mono }} />
+                  </div>
+                </div>
+              ))}
+              {Object.keys(newSizes).length > 1 && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, color: T.accent, fontFamily: mono }}>ALL</span>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <span style={{ fontSize: 9, color: T.faint, marginRight: 1 }}>$</span>
+                    <input type="text" inputMode="decimal" onChange={e => { const v = e.target.value; setNewPrices(Object.fromEntries(sortSizes(Object.keys(newSizes)).map(sz => [sz, v]))); }} onFocus={e => e.target.select()}
+                      style={{ width: 44, textAlign: "center", padding: "3px", borderRadius: 4, border: `1px solid ${T.accent}44`, background: T.accentDim, color: T.accent, fontSize: 10, outline: "none", fontFamily: mono }} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <button onClick={saveNewEntry} disabled={!newBrand.trim() || !newStyle.trim() || !newColor.trim() || Object.keys(newSizes).length === 0}
+            style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: newBrand.trim() && newStyle.trim() && newColor.trim() && Object.keys(newSizes).length > 0 ? T.green : T.surface, color: newBrand.trim() && newStyle.trim() ? "#fff" : T.faint, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+            Save to Catalog
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: T.muted }}>Loading catalog...</div>
+      ) : catalog.length === 0 && !showNewForm ? (
+        <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: T.faint }}>No custom items yet — click "+ New" to add one.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", height: 300 }}>
+          {/* Brand */}
+          <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {colHead("Brand")}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {filteredBrands.map(b => colRow(b, selBrand === b, () => { setSelBrand(selBrand === b ? null : b); setSelStyle(null); setSelColor(null); setSelSizes({}); }))}
+            </div>
+          </div>
+          {/* Style */}
+          <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {colHead("Style")}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {!selBrand ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint }}>← Brand</div>
+                : styles.map(s => colRow(s, selStyle === s, () => { setSelStyle(selStyle === s ? null : s); setSelColor(null); setSelSizes({}); }))}
+            </div>
+          </div>
+          {/* Color */}
+          <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {colHead("Color")}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {!selStyle ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint }}>← Style</div>
+                : colors.map(c => colRow(c.color, selColor === c.id, () => { setSelColor(c.id); setSelSizes({}); },
+                  `${c.sizes?.length || 0} sizes · $${Object.values(c.costs || {}).filter(v => v > 0)[0]?.toFixed(2) || "—"}`,
+                  () => setConfirmDelete(c)))}
+            </div>
+          </div>
+          {/* Sizes */}
+          <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {colHead("Sizes")}
+            <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+              {!currentEntry ? <div style={{ padding: "6px 2px", fontSize: 10, color: T.faint, fontFamily: font }}>← Color</div>
+                : <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {sortSizes(currentEntry.sizes || []).map(sz => {
+                    const on = selSizes[sz] !== undefined;
+                    const price = currentEntry.costs?.[sz] || 0;
+                    return (
+                      <div key={sz} onClick={e => toggleSz(sz, e)}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
+                        {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${price.toFixed(2)}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              }
+            </div>
+            {selColor && Object.keys(selSizes).length > 0 && (
+              <div style={{ padding: "5px 10px", borderTop: `1px solid ${T.border}`, fontSize: 10, fontFamily: font, color: T.muted }}>
+                {Object.keys(selSizes).length} size{Object.keys(selSizes).length !== 1 ? "s" : ""} selected
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setConfirmDelete(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 20, width: 340 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 8 }}>Delete "{confirmDelete.brand} {confirmDelete.style} - {confirmDelete.color}"?</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmDelete(null)} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => deleteEntry(confirmDelete.id)} style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: T.red, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main BuySheetTab ─────────────────────────────────────────────────────────
 
 export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSaved }) {
@@ -1016,7 +1265,8 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const [showPicker, setShowPicker] = useState(false);
   const [showASColour, setShowASColour] = useState(false);
   const [showLAApparel, setShowLAApparel] = useState(false);
-  const [showAddType, setShowAddType] = useState(null); // "apparel" | "accessory" | null
+  const [showOtherPicker, setShowOtherPicker] = useState(false);
+  const [showAddType, setShowAddType] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [favorites, setFavorites] = useState([]);
@@ -1167,7 +1417,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
       blank_sku: "",
       style: typeName,
       color: "",
-      garment_type: "accessory",
+      garment_type: detectGarmentType("", accName.trim() + " " + typeName) || "accessory",
       sizes: ["OS"],
       qtys: { OS: parseInt(accQty) || 0 },
       curve: DEFAULT_CURVE,
@@ -1197,12 +1447,12 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
-      {(showPicker || showASColour || showLAApparel || showFavorites) && (
+      {(showPicker || showASColour || showLAApparel || showFavorites || showOtherPicker) && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
-          onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); }}>
+          onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); }}>
           <div onClick={e => e.stopPropagation()} style={{ width:"95vw", maxWidth:1000, maxHeight:"90vh", display:"flex", flexDirection:"column" }}>
             <div style={{ marginBottom:8, display:"flex", gap:8, alignItems:"center" }}>
-              <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowAddModal(true); }}
+              <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); setShowAddModal(true); }}
                 style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, fontSize:11, fontWeight:600, padding:"4px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
                 ← Sources
               </button>
@@ -1211,6 +1461,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
             {showASColour && <ASColourPicker onAdd={item => { addItem(item); setShowASColour(false); }} onClose={() => setShowASColour(false)} isFav={isFav} toggleFav={toggleFav} />}
             {showLAApparel && <LAApparelPicker onAdd={item => { addItem(item); }} onClose={() => setShowLAApparel(false)} isFav={isFav} toggleFav={toggleFav} />}
             {showFavorites && <FavoritesPicker favorites={favorites} setFavorites={setFavorites} onAdd={item => { addItem(item); }} onClose={() => setShowFavorites(false)} toggleFav={toggleFav} />}
+            {showOtherPicker && <OtherPicker onAdd={item => { addItem(item); }} onClose={() => setShowOtherPicker(false)} />}
           </div>
         </div>
       )}
@@ -1234,6 +1485,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
                 { label:"AS Colour", bg:"#000000", color:"#fff", action:() => { setShowAddModal(false); setShowASColour(true); } },
                 { label:"LA Apparel", bg:"#ffffff", color:"#000000", border:true, action:() => { setShowAddModal(false); setShowLAApparel(true); } },
                 { label:"Custom Accessory", bg:T.surface, color:T.text, border:true, action:() => { setShowAddModal(false); setShowAddType("accessory"); } },
+                { label:"Other", bg:T.surface, color:T.text, border:true, action:() => { setShowAddModal(false); setShowOtherPicker(true); } },
               ].map(opt => (
                 <button key={opt.label} onClick={opt.disabled ? undefined : opt.action} disabled={opt.disabled}
                   style={{ padding:"10px 14px", borderRadius:8, border:opt.border?`1px solid ${T.border}`:"none", background:opt.bg,
@@ -1286,7 +1538,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
         </div>
       )}
 
-      {isEmpty && !showPicker && !showASColour && !showLAApparel && !showFavorites && !showAddType && (
+      {isEmpty && !showPicker && !showASColour && !showLAApparel && !showFavorites && !showOtherPicker && !showAddType && (
         <div style={{ padding:"20px 0", textAlign:"center" }}>
           <div style={{ color:T.faint, fontSize:13, fontFamily:font, marginBottom:16 }}>No items yet — add products to start your buy sheet.</div>
           <button onClick={() => setShowAddModal(true)}

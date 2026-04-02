@@ -464,7 +464,7 @@ function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, costi
     files: files.filter(f => f.stage === s.key),
   }));
   const totalFiles = files.length;
-  const pendingProofs = item.artwork_status === "approved" ? 0 : files.filter(f => f.stage === "proof" && f.approval === "pending").length;
+  const hasProof = files.some(f => f.stage === "proof");
   const hasPrintReady = files.some(f => f.stage === "print_ready");
 
   return (
@@ -487,9 +487,9 @@ function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, costi
           {totalFiles > 0 && (
             <span style={{ fontSize: 10, color: T.muted, fontFamily: mono }}>{totalFiles} file{totalFiles !== 1 ? "s" : ""}</span>
           )}
-          {pendingProofs > 0 && (
+          {hasProof && (
             <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.amberDim, color: T.amber }}>
-              {pendingProofs} pending
+              Proof
             </span>
           )}
           {hasPrintReady && (
