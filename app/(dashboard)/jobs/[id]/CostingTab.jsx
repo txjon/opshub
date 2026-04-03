@@ -1480,7 +1480,12 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
 
   const initItems = (buyItems || []).map(it => {
     const saved = savedData?.costProds?.find((p) => p.id === it.id);
-    if (saved) return { ...saved, sizes: sortSizes(it.sizes || []), qtys: it.qtys || saved.qtys || {}, garment_type: it.garment_type || saved.garment_type || null };
+    if (saved) {
+      const updates = { sizes: sortSizes(it.sizes || []), qtys: it.qtys || saved.qtys || {}, garment_type: it.garment_type || saved.garment_type || null };
+      if (it.blank_vendor && it.blank_vendor !== saved.style) { updates.style = it.blank_vendor; updates.color = it.blank_sku || saved.color; }
+      if (it.blankCosts && Object.keys(it.blankCosts).length > 0 && (!saved.blankCosts || Object.keys(saved.blankCosts).length === 0)) { updates.blankCosts = it.blankCosts; updates.blankCostPerUnit = Object.values(it.blankCosts).filter(v=>v>0).reduce((a,v,_,arr)=>a+v/arr.length,0); }
+      return { ...saved, ...updates };
+    }
     let blankCosts = {};
     if (it.blankCosts && Object.keys(it.blankCosts).length > 0) {
       blankCosts = it.blankCosts;
@@ -1642,7 +1647,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   // Only runs when buyItems actually changes (compared by serialized snapshot)
   useEffect(() => {
     if (!buyItems.length) return;
-    const snapshot = JSON.stringify(buyItems.map(b => ({ id:b.id, name:b.name, sizes:b.sizes, qtys:b.qtys, totalQty:b.totalQty, garment_type:b.garment_type })));
+    const snapshot = JSON.stringify(buyItems.map(b => ({ id:b.id, name:b.name, sizes:b.sizes, qtys:b.qtys, totalQty:b.totalQty, garment_type:b.garment_type, blank_vendor:b.blank_vendor, blankCosts:b.blankCosts })));
     if (snapshot === lastBuyItemsRef.current) return;
     lastBuyItemsRef.current = snapshot;
 
@@ -1664,7 +1669,11 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const bi = buyItems.find(b => b.id === cp.id);
         if (!bi) return cp;
         const totalQty = bi.totalQty || Object.values(bi.qtys || {}).reduce((a, v) => a + v, 0);
-        return { ...cp, name: bi.name || cp.name, sizes: sortSizes(bi.sizes || []), qtys: bi.qtys || cp.qtys, totalQty, garment_type: bi.garment_type || cp.garment_type || null };
+        const updates = { name: bi.name || cp.name, sizes: sortSizes(bi.sizes || []), qtys: bi.qtys || cp.qtys, totalQty, garment_type: bi.garment_type || cp.garment_type || null };
+        // Sync blank info if assigned/changed on buy sheet
+        if (bi.blank_vendor && bi.blank_vendor !== cp.style) { updates.style = bi.blank_vendor; updates.color = bi.blank_sku || cp.color; }
+        if (bi.blankCosts && Object.keys(bi.blankCosts).length > 0 && JSON.stringify(bi.blankCosts) !== JSON.stringify(cp.blankCosts)) { updates.blankCosts = bi.blankCosts; updates.blankCostPerUnit = Object.values(bi.blankCosts).filter(v=>v>0).reduce((a,v,_,arr)=>a+v/arr.length,0); }
+        return { ...cp, ...updates };
       });
       return newItems.length > 0 ? [...updated, ...newItems] : updated;
     };
