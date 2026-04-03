@@ -343,36 +343,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
       </div>
       )}
 
-      {results.length>0&&costTab!=="quote"&&(        <div style={{display:"flex",gap:20,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 16px",flexWrap:"wrap",alignItems:"center"}}>
-          {[[fmtD(totGross),"Revenue",T.accent],[fmtD(totProfit),"Net Profit",mc],[fmtP(netMarg),"Net Margin",mc]].map(([v,l,c])=>(
-            <div key={l}><div style={{fontSize:9,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>{l}</div><div style={{fontSize:15,fontWeight:700,color:c,fontFamily:mono}}>{v}</div></div>
-          ))}
-          {(()=>{
-            const totalQty=results.reduce((a,r)=>a+r.qty,0);
-            const avgSell=totalQty>0?totGross/totalQty:0;
-            return avgSell>0?(
-              <div style={{display:"flex",alignItems:"center",gap:8,paddingLeft:16,borderLeft:`1px solid ${T.border}`}}>
-                <div>
-                  <div style={{fontSize:9,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Avg $/unit</div>
-                  <div style={{fontSize:15,fontWeight:700,color:T.green,fontFamily:mono}}>{fmtD(avgSell)}</div>
-                </div>
-              </div>
-            ):null;
-          })()}
-          <div style={{marginLeft:"auto",display:"flex",flexDirection:"column",gap:6,alignItems:"flex-end"}}>
-            <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
-              {["10%","15%","20%","25%","30%"].map(m=>(
-                <button key={m} onClick={()=>setCostMargin(m)}
-                  style={{background:costMargin===m?T.amber:"transparent",color:costMargin===m?"#fff":T.muted,border:"none",borderRadius:4,padding:"2px 8px",fontSize:11,fontFamily:mono,cursor:"pointer"}}>{m}</button>
-              ))}
-            </div>
-            <div style={{display:"flex",gap:12,alignItems:"center"}}>
-              <CToggle label="Shipping" value={inclShip} onChange={setInclShip}/>
-              <CToggle label="CC Fees" value={inclCC} onChange={setInclCC}/>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* margin/toggles moved to project totals sidebar */}
 
       {costTab==="calc"&&(
         <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
@@ -535,7 +506,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               const bodyDisplay=isCollapsed?"none":"grid";
               const chevron=isCollapsed?"v":"^";
               return(
-                <div key={p.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",maxWidth:828}}>
+                <div key={p.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
                   <div onClick={()=>toggleCollapse(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
                     <span style={{width:24,height:24,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
                     <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8}}>
@@ -548,36 +519,38 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                       </div>
                       <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>
-                      <div style={{display:"flex",alignItems:"center",gap:0,flexDirection:"row-reverse"}} onClick={e=>e.stopPropagation()}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}} onClick={e=>e.stopPropagation()}>
+                        <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+                          {p._sellOverride?(
+                            <>
+                              <button onClick={()=>updateProd(i,{...p,sellOverride:parseFloat(p._sellOverrideVal)||null,_sellOverride:false})}
+                                style={{background:T.green,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"}}>save</button>
+                              <button onClick={()=>updateProd(i,{...p,_sellOverride:false,sellOverride:null,_sellOverrideVal:null})}
+                                style={{background:"none",border:"1px solid "+T.border,borderRadius:4,color:T.muted,cursor:"pointer",padding:"2px 0",fontSize:9,fontFamily:font,width:52,textAlign:"center"}}>cancel</button>
+                            </>
+                          ):(
+                            <>
+                              <button onClick={()=>updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""})}
+                                style={{fontSize:9,color:T.amber,fontFamily:font,background:"none",border:"1px solid "+T.amber+"44",borderRadius:4,cursor:"pointer",padding:"2px 0",width:52,textAlign:"center"}}>override</button>
+                              <button onClick={()=>updateProd(i,{...p,sellOverride:null})}
+                                style={{fontSize:9,color:p.sellOverride?T.accent:T.faint,fontFamily:font,background:p.sellOverride?"none":"none",border:"1px solid "+(p.sellOverride?T.accent+"44":T.border),borderRadius:4,cursor:"pointer",padding:"2px 0",width:52,textAlign:"center"}}>{p.sellOverride?"auto":"auto"}</button>
+                            </>
+                          )}
+                        </div>
                         <div style={{textAlign:"right",flexShrink:0}}>
                           <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Sell $/unit</div>
                           {p._sellOverride?(
-                            <div style={{display:"flex",alignItems:"center",gap:4,flexDirection:"row-reverse"}}>
-                              <div style={{background:T.surface,border:"1px solid "+T.amber,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2}}>
-                                <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
-                                <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus
-                                  onChange={e=>updateProd(i,{...p,_sellOverrideVal:e.target.value})}
-                                  style={{width:50,background:"transparent",border:"none",outline:"none",color:T.amber,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
-                              </div>
-                              <div style={{display:"flex",gap:4,marginRight:6}}>
-                                <button onClick={()=>updateProd(i,{...p,sellOverride:parseFloat(p._sellOverrideVal)||null,_sellOverride:false})}
-                                  style={{background:T.green,border:"none",borderRadius:5,color:"#fff",cursor:"pointer",padding:"3px 8px",fontSize:10,fontFamily:font,fontWeight:700}}>✓</button>
-                                <button onClick={()=>updateProd(i,{...p,_sellOverride:false,sellOverride:null,_sellOverrideVal:null})}
-                                  style={{background:"none",border:"1px solid "+T.border,borderRadius:5,color:T.muted,cursor:"pointer",padding:"3px 6px",fontSize:10}}>✕</button>
-                              </div>
+                            <div style={{background:T.surface,border:"1px solid "+T.amber,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box"}}>
+                              <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
+                              <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus
+                                onFocus={e=>e.target.select()}
+                                onChange={e=>updateProd(i,{...p,_sellOverrideVal:e.target.value})}
+                                style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.amber,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
                             </div>
                           ):(
-                            <div style={{display:"flex",alignItems:"center",gap:6,flexDirection:"row-reverse"}}>
-                              <div style={{background:T.surface,border:"1px solid "+(p.sellOverride?T.amber:T.border),borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2}}>
-                                <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
-                                <span style={{fontSize:12,fontWeight:700,color:p.sellOverride?T.amber:r?.sellPerUnit>0?T.green:T.faint,fontFamily:mono}}>{p.sellOverride?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
-                              </div>
-                              <div style={{display:"flex",gap:4,marginRight:6}}>
-                                <button onClick={()=>updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""})}
-                                  style={{fontSize:9,color:T.amber,fontFamily:font,background:"none",border:"1px solid "+T.amber+"44",borderRadius:4,cursor:"pointer",padding:"2px 7px"}}>override</button>
-                                {p.sellOverride&&<button onClick={()=>updateProd(i,{...p,sellOverride:null})}
-                                  style={{fontSize:9,color:T.faint,fontFamily:font,background:"none",border:"1px solid "+T.border,borderRadius:4,cursor:"pointer",padding:"2px 7px"}}>auto</button>}
-                              </div>
+                            <div style={{background:T.surface,border:"1px solid "+(p.sellOverride?T.amber:T.border),borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box"}}>
+                              <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
+                              <span style={{fontSize:12,fontWeight:700,color:p.sellOverride?T.amber:r?.sellPerUnit>0?T.green:T.faint,fontFamily:mono}}>{p.sellOverride?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
                             </div>
                           )}
                         </div>
@@ -1268,7 +1241,17 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             const totQty=results.reduce((a,r)=>a+r.qty,0);
             const profitPc=totQty>0?totProfit/totQty:0;
             return (
-            <div style={{width:200,flexShrink:0,position:"sticky",top:20}}>
+            <div style={{width:200,flexShrink:0,position:"sticky",top:20,display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
+                {["10%","15%","20%","25%","30%"].map(m=>(
+                  <button key={m} onClick={()=>setCostMargin(m)}
+                    style={{background:costMargin===m?T.amber:"transparent",color:costMargin===m?"#fff":T.muted,border:"none",borderRadius:4,padding:"2px 6px",fontSize:10,fontFamily:mono,cursor:"pointer",flex:1}}>{m}</button>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+                <CToggle label="Shipping" value={inclShip} onChange={setInclShip}/>
+                <CToggle label="CC Fees" value={inclCC} onChange={setInclCC}/>
+              </div>
               <div style={{background:T.card,borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                 <div style={{padding:"6px 10px",background:T.surface,fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:`1px solid ${T.border}`}}>Project Totals</div>
                 <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>

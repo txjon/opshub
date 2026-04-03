@@ -69,7 +69,11 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
             if(ld.location||ld.screens) updated[loc]={...ld,printer:v};
             else updated[loc]={...ld};
           });
-          updateProd(i,{...p,printVendor:v,printLocations:updated});
+          const vendorPr = PRINTERS[v] || {};
+          const hasNoPricing = !vendorPr.qtys || vendorPr.qtys.length === 0;
+          const needsDefaultRows = hasNoPricing && (!p.customCosts || p.customCosts.length === 0);
+          const customCosts = needsDefaultRows ? [{desc:"",perUnit:0,flat:false},{desc:"",perUnit:0,flat:false},{desc:"",perUnit:0,flat:false}] : (p.customCosts||[]);
+          updateProd(i,{...p,printVendor:v,printLocations:updated,customCosts});
         }}
           style={{background:T.surface,border:"1px solid "+(p.printVendor?T.accent+"66":T.border),borderRadius:6,color:p.printVendor?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",minWidth:140}}>
           <option value="">Vendor</option>
@@ -120,11 +124,13 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                 onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
             </div>
           ))}
-          <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
-            style={{fontSize:10,color:T.faint,background:"none",border:`1px dashed ${T.border}`,borderRadius:4,padding:"6px",cursor:"pointer",fontFamily:font,textAlign:"center"}}
-            onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>
-            + Add cost
-          </button>
+          {(p.customCosts||[]).length < 6 && (
+            <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
+              style={{fontSize:10,color:T.faint,background:"none",border:`1px dashed ${T.border}`,borderRadius:4,padding:"6px",cursor:"pointer",fontFamily:font,textAlign:"center"}}
+              onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>
+              + Add cost
+            </button>
+          )}
         </div>
       )}
 

@@ -122,6 +122,7 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
   const [error, setError] = useState(null);
   const [psdPrintInfo, setPsdPrintInfo] = useState(null);
   const [loadingPsd, setLoadingPsd] = useState(false);
+  const [mockupDataUrl, setMockupDataUrl] = useState(null);
 
   const mockupThumbUrl = mockupFile ? `/api/files/thumbnail?id=${mockupFile.drive_file_id}` : null;
 
@@ -177,20 +178,27 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
   const toggleMethod = (m) => setMethods(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m]);
   const toggleInstruction = (i) => setSelInstructions(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]);
 
-  async function generate() {
+  // Load mockup image once on mount
+  useEffect(() => {
     if (!mockupThumbUrl) return;
-    setGenerating(true);
-    setError(null);
-    try {
-      const res = await fetch(mockupThumbUrl);
-      const blob = await res.blob();
-      const mockupDataUrl = await new Promise(resolve => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.readAsDataURL(blob);
-      });
+    (async () => {
+      try {
+        const res = await fetch(mockupThumbUrl);
+        const blob = await res.blob();
+        const dataUrl = await new Promise(resolve => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+        setMockupDataUrl(dataUrl);
+      } catch {}
+    })();
+  }, [mockupThumbUrl]);
 
-      // Merge PSD print info with user callouts
+  // Auto-generate preview whenever inputs change
+  useEffect(() => {
+    if (!mockupDataUrl) return;
+    try {
       const printInfo = (psdPrintInfo || []).map(p => ({
         ...p,
         callout: callouts[p.placement] || "",
@@ -210,15 +218,14 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
       });
 
       const pdfBlob = doc.output("blob");
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
       const url = URL.createObjectURL(pdfBlob);
       setPreviewUrl(url);
       setPdfDoc(doc);
     } catch (err) {
       setError(err.message);
-    } finally {
-      setGenerating(false);
     }
-  }
+  }, [mockupDataUrl, psdPrintInfo, methods, selInstructions, notes, callouts]);
 
   async function saveToDrive() {
     if (!pdfDoc) return;
@@ -263,14 +270,14 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
       onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, width: previewUrl ? 900 : 480, maxWidth: "95vw", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, width: 900, maxWidth: "95vw", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: font }}>Generate Proof — {item.name}</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: font }}>Print Proof — {item.name}</div>
           <button onClick={handleClose} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 18 }}>×</button>
         </div>
 
         <div style={{ flex: 1, overflow: "auto", display: "flex" }}>
-          <div style={{ width: previewUrl ? 320 : "100%", flexShrink: 0, padding: "14px 18px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ width: 320, flexShrink: 0, padding: "14px 18px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
             {/* Method toggle buttons */}
             <div>
               <label style={{ fontSize: 11, color: T.muted, marginBottom: 6, display: "block" }}>Print Method</label>
@@ -330,31 +337,20 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
             {error && <div style={{ fontSize: 11, color: T.red, padding: "6px 8px", background: T.redDim, borderRadius: 4 }}>{error}</div>}
 
             <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-              {!previewUrl ? (
-                <button onClick={generate} disabled={generating}
-                  style={{ flex: 1, padding: "8px", borderRadius: 6, border: "none", background: T.amber, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: generating ? 0.5 : 1 }}>
-                  {generating ? "Generating..." : "Generate Preview"}
-                </button>
-              ) : (
-                <>
-                  <button onClick={saveToDrive} disabled={saving}
-                    style={{ flex: 1, padding: "8px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: saving ? 0.5 : 1 }}>
-                    {saving ? "Saving..." : "Save to Drive"}
-                  </button>
-                  <button onClick={() => { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); setPdfDoc(null); }}
-                    style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, fontSize: 12, cursor: "pointer", fontFamily: font }}>
-                    Edit
-                  </button>
-                </>
-              )}
+              <button onClick={saveToDrive} disabled={saving || !pdfDoc}
+                style={{ flex: 1, padding: "8px", borderRadius: 6, border: "none", background: pdfDoc ? T.green : T.surface, color: pdfDoc ? "#fff" : T.faint, fontSize: 12, fontWeight: 600, cursor: pdfDoc ? "pointer" : "default", fontFamily: font, opacity: saving ? 0.5 : 1 }}>
+                {saving ? "Saving..." : "Save to Drive"}
+              </button>
             </div>
           </div>
 
-          {previewUrl && (
-            <div style={{ flex: 1, borderLeft: `1px solid ${T.border}`, background: T.surface }}>
+          <div style={{ flex: 1, borderLeft: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {previewUrl ? (
               <iframe src={previewUrl} style={{ width: "100%", height: "100%", border: "none", minHeight: 500 }} />
-            </div>
-          )}
+            ) : (
+              <div style={{ fontSize: 11, color: T.faint }}>Loading preview...</div>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -58,24 +58,31 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
   });
 
   let sharedScreensToSkip = 0;
+  const seenShareGroups: Record<string, boolean> = {};
   for (const loc of activeLocs) {
     const ld = p.printLocations[loc];
     if (!ld?.location && !ld?.screens) continue;
     const screens = parseFloat(ld.screens) || 0;
     if (screens === 0) continue;
-    // Share group: use combined qty for rate lookup
     const isShared = !!(ld.shared) && ld.shareGroup;
+    const groupKey = isShared ? ld.shareGroup.trim().toLowerCase() : "";
+    // Share group: use combined qty × matching locations per item
     const effectiveQty = isShared ? allProds.reduce((sum: number, cp: any) => {
-      const match = Object.values(cp.printLocations || {}).find((l: any) => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === ld.shareGroup.trim().toLowerCase() && l.screens > 0);
-      return sum + (match ? (cp.totalQty || 0) : 0);
+      const matchingLocs = Object.values(cp.printLocations || {}).filter((l: any) => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === groupKey && l.screens > 0);
+      return sum + (matchingLocs.length > 0 ? (cp.totalQty || 0) * matchingLocs.length : 0);
     }, 0) || qty : qty;
     const rate = getPrintRate(pr, effectiveQty, screens);
     lines.push({ label: ld.location || `Location ${loc}`, qty, rate, total: rate * qty });
-    // Skip screen fees if not first in group
+    // Skip screen fees for duplicate locations in same share group (within + across items)
     if (isShared) {
-      const firstIdx = allProds.findIndex((cp: any) => Object.values(cp.printLocations || {}).some((l: any) => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === ld.shareGroup.trim().toLowerCase() && l.screens > 0));
-      const myIdx = allProds.findIndex((cp: any) => cp.id === p.id);
-      if (firstIdx >= 0 && myIdx > firstIdx) sharedScreensToSkip += screens;
+      if (seenShareGroups[groupKey]) {
+        sharedScreensToSkip += screens;
+      } else {
+        seenShareGroups[groupKey] = true;
+        const firstIdx = allProds.findIndex((cp: any) => Object.values(cp.printLocations || {}).some((l: any) => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === groupKey && l.screens > 0));
+        const myIdx = allProds.findIndex((cp: any) => cp.id === p.id);
+        if (firstIdx >= 0 && myIdx > firstIdx) sharedScreensToSkip += screens;
+      }
     }
   }
 
@@ -124,11 +131,22 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
     }
   }
 
-  // Specialty — dynamic from decorator pricing
+  // Specialty — dynamic from decorator pricing (deduped for share groups)
+  const sg2: Record<string, boolean> = {};
+  const activeLocsDeduped = [1,2,3,4,5,6].filter(loc => {
+    const ld = p.printLocations?.[loc];
+    if (!ld?.location && !ld?.screens) return false;
+    if (ld.shared && ld.shareGroup) { const gk = ld.shareGroup.trim().toLowerCase(); if (sg2[gk]) return false; sg2[gk] = true; }
+    return true;
+  }).length || 0;
+
   if (p.specialtyQtys) {
     for (const key of Object.keys(pr.specialty || {})) {
+      const isFleece = key.toLowerCase().includes("fleece");
+      if (isFleece) continue; // fleece handled above
       if (p.specialtyQtys[key + "_on"]) {
-        const count = p.specialtyQtys[key + "_count"] !== undefined ? p.specialtyQtys[key + "_count"] : activeLocs.length;
+        const stored = p.specialtyQtys[key + "_count"] || 0;
+        const count = stored > 0 && stored < activeLocsDeduped ? stored : activeLocsDeduped;
         const rate = (pr.specialty[key] || 0) * count;
         if (rate > 0) lines.push({ label: key.replace(/([A-Z])/g, " $1").trim(), qty, rate, total: rate * qty });
       }
@@ -148,7 +166,20 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
       for (const sk of Object.keys(p.specialtyQtys || {})) {
         if (sk.endsWith("_on") && p.specialtyQtys[sk]) {
           const specName = sk.replace("_on", "").toLowerCase();
-          if (skLower.includes(specName)) return p.specialtyQtys[sk.replace("_on", "_count")] || 0;
+          if (skLower.includes(specName)) {
+            // Puff screen = sum puffColors per location (deduped)
+            if (skLower.includes("puff") && skLower.includes("screen")) {
+              const spg: Record<string, boolean> = {};
+              return [1,2,3,4,5,6].reduce((sum: number, loc: number) => {
+                const ld = p.printLocations?.[loc];
+                if (!ld?.location || !ld?.screens || !ld.puffColors) return sum;
+                if (ld.shared && ld.shareGroup) { const gk = ld.shareGroup.trim().toLowerCase(); if (spg[gk]) return sum; spg[gk] = true; }
+                return sum + (ld.puffColors || 0);
+              }, 0);
+            }
+            const sc = p.specialtyQtys[sk.replace("_on", "_count")] || 0;
+            return sc > 0 && sc < activeLocsDeduped ? sc : activeLocsDeduped;
+          }
         }
       }
       return null;
