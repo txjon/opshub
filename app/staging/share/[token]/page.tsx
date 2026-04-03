@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
@@ -26,6 +26,13 @@ export default function SharePage({ params }: { params: { token: string } }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [galleryItem, setGalleryItem] = useState<any>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   async function verify() {
     setLoading(true);
@@ -94,20 +101,54 @@ export default function SharePage({ params }: { params: { token: string } }) {
         </div>
 
         {/* Summary */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 20, flexDirection: isMobile ? "column" : "row" }}>
           {[
             { label: "Total Cost", value: fmtD(totals.cost), color: T.text },
             { label: "Total Retail", value: fmtD(totals.gross), color: T.accent },
             { label: "Total Profit", value: fmtD(profit), color: profit >= 0 ? T.green : T.red },
           ].map(s => (
-            <div key={s.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 16px", flex: 1 }}>
+            <div key={s.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: isMobile ? "8px 12px" : "10px 16px", flex: 1, display: isMobile ? "flex" : "block", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: s.color, fontFamily: mono }}>{s.value}</div>
+              <div style={{ fontSize: isMobile ? 15 : 18, fontWeight: 700, color: s.color, fontFamily: mono }}>{s.value}</div>
             </div>
           ))}
         </div>
 
-        {/* Table (read-only) */}
+        {/* Items (read-only) */}
+        {isMobile ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {items.map((item: any, idx: number) => {
+              const qty = item.qty || 0;
+              const unitCost = parseFloat(item.unit_cost) || 0;
+              const retail = parseFloat(item.retail) || 0;
+              const gross = qty * retail;
+              const itemProfit = gross - qty * unitCost;
+              const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
+              return (
+                <div key={item.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    {item.images?.[0]?.url ? (
+                      <img src={item.images[0].url} onClick={() => setGalleryItem(item)}
+                        style={{ width: 50, height: 50, borderRadius: 6, objectFit: "cover", border: `1px solid ${T.border}`, flexShrink: 0, cursor: "pointer" }} />
+                    ) : (
+                      <div style={{ width: 50, height: 50, borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, flexShrink: 0 }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "—"}</div>
+                      <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 11 }}>
+                        <span style={{ color: T.muted, fontFamily: mono }}>{qty || "—"} qty</span>
+                        {gross > 0 && <span style={{ color: T.accent, fontFamily: mono }}>{fmtD(gross)}</span>}
+                        {gross > 0 && <span style={{ color: itemProfit >= 0 ? T.green : T.red, fontFamily: mono }}>{fmtD(itemProfit)}</span>}
+                      </div>
+                    </div>
+                    <span style={{ padding: "2px 6px", borderRadius: 99, fontSize: 9, fontWeight: 600, background: sc.bg, color: sc.text, flexShrink: 0 }}>{item.status || "Pending"}</span>
+                  </div>
+                  {item.notes && <div style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>{item.notes}</div>}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
         <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
@@ -165,6 +206,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
             </tbody>
           </table>
         </div>
+        )}
 
         <div style={{ textAlign: "center", marginTop: 24, fontSize: 10, color: T.faint }}>House Party Distro · housepartydistro.com</div>
       </div>

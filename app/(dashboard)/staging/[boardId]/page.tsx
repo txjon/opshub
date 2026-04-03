@@ -31,6 +31,13 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
   const [deleteItem, setDeleteItem] = useState<any>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
   const [saveStatus, setSaveStatus] = useState<Record<string, string>>({});
   const [galleryItem, setGalleryItem] = useState<any>(null);
   const [dragoverRow, setDragoverRow] = useState<string | null>(null);
@@ -192,37 +199,124 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
   return (
     <div style={{ fontFamily: font, color: T.text }}>
       {/* Summary bar */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexDirection: isMobile ? "column" : "row" }}>
         {[
           { label: "Total Cost", value: fmtD(totals.cost), color: T.text },
           { label: "Total Retail", value: fmtD(totals.gross), color: T.accent },
           { label: "Total Profit", value: fmtD(profit), color: profit >= 0 ? T.green : T.red },
         ].map(s => (
-          <div key={s.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 16px", flex: 1 }}>
+          <div key={s.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: isMobile ? "8px 12px" : "10px 16px", flex: 1, display: isMobile ? "flex" : "block", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: s.color, fontFamily: mono }}>{s.value}</div>
+            <div style={{ fontSize: isMobile ? 15 : 18, fontWeight: 700, color: s.color, fontFamily: mono }}>{s.value}</div>
           </div>
         ))}
       </div>
 
       {/* Toolbar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 12, marginBottom: 16, flexWrap: "wrap" }}>
         <input value={board.name} onChange={e => updateBoardName(e.target.value)}
-          style={{ fontSize: 18, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: font, flex: 1 }} />
-        <span style={{ fontSize: 12, color: T.muted }}>{board.client_name}</span>
+          style={{ fontSize: isMobile ? 15 : 18, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: font, flex: 1, minWidth: 120 }} />
+        {!isMobile && <span style={{ fontSize: 12, color: T.muted }}>{board.client_name}</span>}
         <input value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="Search items..."
-          style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, width: 160 }} />
-        <button onClick={copyShareLink}
-          style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>
-          Copy Share Link
-        </button>
-        <button disabled style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.faint, fontSize: 11, padding: "6px 12px", cursor: "default", fontFamily: font }}>
-          Create Project
-        </button>
+          placeholder="Search..."
+          style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, width: isMobile ? "100%" : 160 }} />
+        {!isMobile && <>
+          <button onClick={copyShareLink}
+            style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>
+            Copy Share Link
+          </button>
+          <button disabled style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.faint, fontSize: 11, padding: "6px 12px", cursor: "default", fontFamily: font }}>
+            Create Project
+          </button>
+        </>}
       </div>
 
-      {/* Items table */}
+      {/* Items — cards on mobile, table on desktop */}
+      {isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {sortedItems.map((item, idx) => {
+            const qty = item.qty || 0;
+            const unitCost = parseFloat(item.unit_cost) || 0;
+            const retail = parseFloat(item.retail) || 0;
+            const totalCost = qty * unitCost;
+            const gross = qty * retail;
+            const itemProfit = gross - totalCost;
+            const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
+            const isExpanded = expandedRow === item.id;
+
+            return (
+              <div key={item.id}
+                onDragOver={e => { e.preventDefault(); setDragoverRow(item.id); }}
+                onDragLeave={() => setDragoverRow(null)}
+                onDrop={e => handleRowDrop(e, item.id)}
+                onClick={() => setExpandedRow(isExpanded ? null : item.id)}
+                style={{ background: isExpanded ? T.surface : T.card, border: `1px solid ${dragoverRow === item.id ? T.accent : T.border}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  {item.images?.[0]?.url ? (
+                    <img src={item.images[0].url} onClick={e => { e.stopPropagation(); setGalleryItem(item); }}
+                      style={{ width: 50, height: 50, borderRadius: 6, objectFit: "cover", border: `1px solid ${T.border}`, flexShrink: 0 }} />
+                  ) : (
+                    <div style={{ width: 50, height: 50, borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <span style={{ fontSize: 8, color: T.faint }}>Drop</span>
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "—"}</div>
+                    <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 11 }}>
+                      <span style={{ color: T.muted, fontFamily: mono }}>{qty || "—"} qty</span>
+                      {gross > 0 && <span style={{ color: T.accent, fontFamily: mono }}>{fmtD(gross)}</span>}
+                      {gross > 0 && <span style={{ color: itemProfit >= 0 ? T.green : T.red, fontFamily: mono }}>{fmtD(itemProfit)}</span>}
+                    </div>
+                  </div>
+                  <span style={{ padding: "2px 6px", borderRadius: 99, fontSize: 9, fontWeight: 600, background: sc.bg, color: sc.text, flexShrink: 0 }}>{item.status || "Pending"}</span>
+                </div>
+
+                {isExpanded && (
+                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }} onClick={e => e.stopPropagation()}>
+                    <input value={item.item_name || ""} onChange={e => updateItemLocal(item.id, "item_name", e.target.value)}
+                      style={{ ...ic, width: "100%", fontFamily: font, fontWeight: 600 }} />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <div>
+                        <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>QTY</label>
+                        <input type="text" inputMode="numeric" value={item.qty ?? ""} onChange={e => updateItemLocal(item.id, "qty", parseInt(e.target.value) || null)} onFocus={e => e.target.select()} style={{ ...ic, width: "100%" }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Unit Cost</label>
+                        <input type="text" inputMode="decimal" value={item.unit_cost ?? ""} onChange={e => updateItemLocal(item.id, "unit_cost", e.target.value)} onBlur={e => updateItemLocal(item.id, "unit_cost", parseFloat(e.target.value) || null)} onFocus={e => e.target.select()} style={{ ...ic, width: "100%" }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Retail</label>
+                        <input type="text" inputMode="decimal" value={item.retail ?? ""} onChange={e => updateItemLocal(item.id, "retail", e.target.value)} onBlur={e => updateItemLocal(item.id, "retail", parseFloat(e.target.value) || null)} onFocus={e => e.target.select()} style={{ ...ic, width: "100%" }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Status</label>
+                        <select value={item.status || "Pending"} onChange={e => updateItemLocal(item.id, "status", e.target.value)}
+                          style={{ width: "100%", padding: "5px 8px", borderRadius: 4, border: `1px solid ${sc.bg}`, background: sc.bg, color: sc.text, fontSize: 11, fontWeight: 600, outline: "none", cursor: "pointer", fontFamily: font }}>
+                          {["Pending", "Approved", "Changes Requested", "Rejected", "In Production", "LANDED", "On Hold", "Locating a Source", "Reference Sample Sent to Factory", "NEED REVISIONS - SWATCHES WORKING", "Done - Awaiting Shipping"].map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Notes</label>
+                      <input value={item.notes || ""} onChange={e => updateItemLocal(item.id, "notes", e.target.value)} style={{ ...ic, width: "100%", fontFamily: font }} />
+                    </div>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
+                      <button onClick={() => setExpandedRow(null)} style={{ fontSize: 10, color: T.accent, background: "none", border: "none", cursor: "pointer", fontFamily: font }}>▲ Close</button>
+                      <button onClick={() => setDeleteItem(item)} style={{ fontSize: 10, color: T.red, background: "none", border: "none", cursor: "pointer", fontFamily: font }}>Delete</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <button onClick={addItem}
+            style={{ background: "none", border: `1px dashed ${T.border}`, borderRadius: 10, color: T.faint, fontSize: 12, padding: "12px", cursor: "pointer", fontFamily: font, textAlign: "center" }}
+            onMouseEnter={e => (e.currentTarget.style.color = T.accent)}
+            onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>
+            + Add Item
+          </button>
+        </div>
+      ) : (
       <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
@@ -346,6 +440,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
           </button>
         </div>
       </div>
+      )}
 
       {/* Delete confirm */}
       <ConfirmDialog
