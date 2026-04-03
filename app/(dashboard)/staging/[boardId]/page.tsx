@@ -1,0 +1,398 @@
+"use client";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { T, font, mono } from "@/lib/theme";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+
+const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  Pending: { bg: T.amberDim, text: T.amber },
+  Approved: { bg: T.greenDim, text: T.green },
+  "Changes Requested": { bg: "#3d2a08", text: "#f5a623" },
+  Rejected: { bg: T.redDim, text: T.red },
+  "In Production": { bg: T.accentDim, text: T.accent },
+  "LANDED": { bg: T.greenDim, text: T.green },
+  "On Hold": { bg: T.redDim, text: T.red },
+  "Locating a Source": { bg: "#2d1f5e", text: T.purple },
+  "Reference Sample Sent to Factory": { bg: "#2d1f5e", text: T.purple },
+  "NEED REVISIONS - SWATCHES WORKING": { bg: T.amberDim, text: T.amber },
+  "Done - Awaiting Shipping": { bg: T.greenDim, text: T.green },
+};
+
+const fmtD = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+export default function BoardDetailPage({ params }: { params: { boardId: string } }) {
+  const router = useRouter();
+  const [board, setBoard] = useState<any>(null);
+  const [items, setItems] = useState<any[]>([]);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [loading, setLoading] = useState(true);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [deleteItem, setDeleteItem] = useState<any>(null);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [saveStatus, setSaveStatus] = useState<Record<string, string>>({});
+  const [galleryItem, setGalleryItem] = useState<any>(null);
+  const [dragoverRow, setDragoverRow] = useState<string | null>(null);
+  const [uploadingRow, setUploadingRow] = useState<string | null>(null);
+  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const latestValues = useRef<Record<string, any>>({});
+
+  useEffect(() => { loadBoard(); }, [params.boardId]);
+
+  async function loadBoard() {
+    const res = await fetch(`/api/staging/boards/${params.boardId}`);
+    const data = await res.json();
+    if (data.items) {
+      setBoard(data);
+      setItems(data.items);
+      data.items.forEach((it: any) => { latestValues.current[it.id] = it; });
+    }
+    setLoading(false);
+  }
+
+  // Auto-save with debounce (same pattern as CostingTab)
+  const saveItem = useCallback((itemId: string, updates: any) => {
+    latestValues.current[itemId] = { ...latestValues.current[itemId], ...updates };
+    setSaveStatus(p => ({ ...p, [itemId]: "saving" }));
+
+    if (saveTimers.current[itemId]) clearTimeout(saveTimers.current[itemId]);
+    saveTimers.current[itemId] = setTimeout(async () => {
+      try {
+        await fetch(`/api/staging/boards/${params.boardId}/items/${itemId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        });
+        setSaveStatus(p => ({ ...p, [itemId]: "saved" }));
+      } catch {
+        setSaveStatus(p => ({ ...p, [itemId]: "error" }));
+      }
+    }, 800);
+  }, [params.boardId]);
+
+  function updateItemLocal(itemId: string, field: string, value: any) {
+    setItems(prev => prev.map(it => it.id === itemId ? { ...it, [field]: value } : it));
+    saveItem(itemId, { [field]: value });
+  }
+
+  async function addItem() {
+    const res = await fetch(`/api/staging/boards/${params.boardId}/items`, { method: "POST" });
+    const item = await res.json();
+    if (item.id) {
+      setItems(prev => [...prev, { ...item, images: [] }]);
+      latestValues.current[item.id] = item;
+    }
+  }
+
+  async function removeItem(itemId: string) {
+    await fetch(`/api/staging/boards/${params.boardId}/items/${itemId}`, { method: "DELETE" });
+    setItems(prev => prev.filter(it => it.id !== itemId));
+    setDeleteItem(null);
+  }
+
+  async function uploadImage(itemId: string, file: File) {
+    setUploadingRow(itemId);
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(`/api/staging/boards/${params.boardId}/items/${itemId}/images`, {
+      method: "POST", body: formData,
+    });
+    const img = await res.json();
+    if (img.id) {
+      setItems(prev => prev.map(it => it.id === itemId ? { ...it, images: [...(it.images || []), img] } : it));
+    }
+    setUploadingRow(null);
+  }
+
+  async function deleteImage(itemId: string, imageId: string) {
+    await fetch(`/api/staging/boards/${params.boardId}/items/${itemId}/images`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageId }),
+    });
+    setItems(prev => prev.map(it => it.id === itemId ? { ...it, images: (it.images || []).filter((img: any) => img.id !== imageId) } : it));
+  }
+
+  function handleRowDrop(e: React.DragEvent, itemId: string) {
+    e.preventDefault();
+    setDragoverRow(null);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+    for (const file of files) uploadImage(itemId, file);
+  }
+
+  function copyShareLink() {
+    if (!board?.share_token) return;
+    navigator.clipboard.writeText(`${window.location.origin}/staging/share/${board.share_token}`);
+  }
+
+  async function updateBoardName(name: string) {
+    setBoard((b: any) => b ? { ...b, name } : b);
+    await fetch(`/api/staging/boards/${params.boardId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  // Computed totals
+  const totals = items.reduce((acc, it) => {
+    const qty = it.qty || 0;
+    const cost = qty * (parseFloat(it.unit_cost) || 0);
+    const gross = qty * (parseFloat(it.retail) || 0);
+    return { cost: acc.cost + cost, gross: acc.gross + gross };
+  }, { cost: 0, gross: 0 });
+  const profit = totals.gross - totals.cost;
+
+  function toggleSort(key: string) {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("asc"); }
+  }
+
+  const filteredItems = search.trim() ? items.filter(it => {
+    const q = search.toLowerCase();
+    return (it.item_name || "").toLowerCase().includes(q) || (it.notes || "").toLowerCase().includes(q) || (it.status || "").toLowerCase().includes(q);
+  }) : items;
+
+  const sortedItems = sortKey ? [...filteredItems].sort((a, b) => {
+    let av: any, bv: any;
+    const qa = a.qty || 0, qb = b.qty || 0;
+    const uca = parseFloat(a.unit_cost) || 0, ucb = parseFloat(b.unit_cost) || 0;
+    const ra = parseFloat(a.retail) || 0, rb = parseFloat(b.retail) || 0;
+    switch (sortKey) {
+      case "item_name": av = (a.item_name || "").toLowerCase(); bv = (b.item_name || "").toLowerCase(); break;
+      case "qty": av = qa; bv = qb; break;
+      case "unit_cost": av = uca; bv = ucb; break;
+      case "total_cost": av = qa * uca; bv = qb * ucb; break;
+      case "retail": av = ra; bv = rb; break;
+      case "gross": av = qa * ra; bv = qb * rb; break;
+      case "profit": av = qa * ra - qa * uca; bv = qb * rb - qb * ucb; break;
+      case "status": av = (a.status || "").toLowerCase(); bv = (b.status || "").toLowerCase(); break;
+      case "notes": av = (a.notes || "").toLowerCase(); bv = (b.notes || "").toLowerCase(); break;
+      default: return 0;
+    }
+    const r = typeof av === "string" ? av.localeCompare(bv) : (av - bv);
+    return sortDir === "asc" ? r : -r;
+  }) : filteredItems;
+
+  const SortTh = ({ col, label, style: s }: { col: string; label: string; style?: any }) => {
+    const active = sortKey === col;
+    return (
+      <th onClick={() => toggleSort(col)} style={{ ...s, padding: "8px 6px", fontSize: 10, color: active ? T.accent : T.muted, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.06em", cursor: "pointer", userSelect: "none" as const }}>
+        {label}{active && <span style={{ marginLeft: 3, fontSize: 8 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}
+      </th>
+    );
+  };
+
+  const ic = { padding: "5px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: mono, boxSizing: "border-box" as const };
+
+  if (loading) return <div style={{ fontFamily: font, color: T.muted, padding: 20 }}>Loading...</div>;
+  if (!board) return <div style={{ fontFamily: font, color: T.red, padding: 20 }}>Board not found</div>;
+
+  return (
+    <div style={{ fontFamily: font, color: T.text }}>
+      {/* Summary bar */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+        {[
+          { label: "Total Cost", value: fmtD(totals.cost), color: T.text },
+          { label: "Total Retail", value: fmtD(totals.gross), color: T.accent },
+          { label: "Total Profit", value: fmtD(profit), color: profit >= 0 ? T.green : T.red },
+        ].map(s => (
+          <div key={s.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 16px", flex: 1 }}>
+            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: s.color, fontFamily: mono }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <input value={board.name} onChange={e => updateBoardName(e.target.value)}
+          style={{ fontSize: 18, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: font, flex: 1 }} />
+        <span style={{ fontSize: 12, color: T.muted }}>{board.client_name}</span>
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search items..."
+          style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, width: 160 }} />
+        <button onClick={copyShareLink}
+          style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>
+          Copy Share Link
+        </button>
+        <button disabled style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.faint, fontSize: 11, padding: "6px 12px", cursor: "default", fontFamily: font }}>
+          Create Project
+        </button>
+      </div>
+
+      {/* Items table */}
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: T.surface }}>
+              <th style={{ padding: "8px 6px", width: 30 }}><input type="checkbox" onChange={e => { if (e.target.checked) setChecked(new Set(items.map(i => i.id))); else setChecked(new Set()); }} checked={checked.size === items.length && items.length > 0} style={{ accentColor: T.accent }} /></th>
+              <th style={{ padding: "8px 6px", width: 90 }} />
+              <SortTh col="item_name" label="Item" style={{ textAlign: "left", padding: "8px 10px" }} />
+              <SortTh col="qty" label="QTY" style={{ textAlign: "center", width: 60 }} />
+              <SortTh col="total_cost" label="Cost" style={{ textAlign: "center", width: 80 }} />
+              <SortTh col="gross" label="Gross" style={{ textAlign: "center", width: 80 }} />
+              <SortTh col="profit" label="Profit" style={{ textAlign: "center", width: 80 }} />
+              <SortTh col="status" label="Status" style={{ textAlign: "center", width: 120 }} />
+              <th style={{ padding: "8px 6px", width: 40 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {sortedItems.map((item, idx) => {
+              const qty = item.qty || 0;
+              const unitCost = parseFloat(item.unit_cost) || 0;
+              const retail = parseFloat(item.retail) || 0;
+              const totalCost = qty * unitCost;
+              const gross = qty * retail;
+              const itemProfit = gross - totalCost;
+              const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
+              const isDragover = dragoverRow === item.id;
+
+              const isExpanded = expandedRow === item.id;
+
+              return (
+                <tr key={item.id}
+                  onDragOver={e => { e.preventDefault(); setDragoverRow(item.id); }}
+                  onDragLeave={() => setDragoverRow(null)}
+                  onDrop={e => handleRowDrop(e, item.id)}
+                  onClick={() => setExpandedRow(isExpanded ? null : item.id)}
+                  style={{ borderBottom: `1px solid ${T.border}`, background: isDragover ? T.accentDim : isExpanded ? T.surface : "transparent", cursor: "pointer", transition: "background 0.1s" }}>
+                  {/* Checkbox */}
+                  <td style={{ padding: "6px", textAlign: "center", verticalAlign: "top" }} onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={checked.has(item.id)} onChange={() => setChecked(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); return n; })} style={{ accentColor: T.accent }} />
+                  </td>
+                  {/* Image */}
+                  <td style={{ padding: "4px", verticalAlign: "top" }} onClick={e => { e.stopPropagation(); if (item.images?.length) setGalleryItem(item); }}>
+                    <div style={{ width: 80, height: 52, borderRadius: 6, overflow: "hidden", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: T.surface, border: `1px solid ${T.border}`, position: "relative" }}>
+                      {item.images?.[0]?.url ? (
+                        <img src={item.images[0].url} style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                      ) : (
+                        <span style={{ fontSize: 9, color: T.faint }}>{uploadingRow === item.id ? "..." : "Drop"}</span>
+                      )}
+                      {item.images?.length > 1 && (
+                        <span style={{ position: "absolute", bottom: 2, right: 2, fontSize: 8, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: 3, padding: "0 3px" }}>+{item.images.length - 1}</span>
+                      )}
+                    </div>
+                  </td>
+                  {/* Name + expanded edit area */}
+                  <td style={{ padding: "8px 10px", verticalAlign: "top" }} colSpan={isExpanded ? 6 : 1} onClick={e => { if (isExpanded) e.stopPropagation(); }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <input value={item.item_name || ""} onChange={e => updateItemLocal(item.id, "item_name", e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                        style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontWeight: 600, fontFamily: font, flex: 1, padding: 0 }} />
+                      {isExpanded && <button onClick={() => setExpandedRow(null)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, flexShrink: 0, fontFamily: font }}
+                        onMouseEnter={e => (e.currentTarget.style.color = T.accent)} onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>▲ Close</button>}
+                    </div>
+                    {isExpanded && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>QTY</label>
+                          <input type="text" inputMode="numeric" value={item.qty ?? ""} onChange={e => updateItemLocal(item.id, "qty", parseInt(e.target.value) || null)} onFocus={e => e.target.select()} onClick={e => e.stopPropagation()} style={{ ...ic, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Unit Cost</label>
+                          <input type="text" inputMode="decimal" value={item.unit_cost ?? ""} onChange={e => updateItemLocal(item.id, "unit_cost", e.target.value)} onBlur={e => updateItemLocal(item.id, "unit_cost", parseFloat(e.target.value) || null)} onFocus={e => e.target.select()} onClick={e => e.stopPropagation()} style={{ ...ic, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Retail</label>
+                          <input type="text" inputMode="decimal" value={item.retail ?? ""} onChange={e => updateItemLocal(item.id, "retail", e.target.value)} onBlur={e => updateItemLocal(item.id, "retail", parseFloat(e.target.value) || null)} onFocus={e => e.target.select()} onClick={e => e.stopPropagation()} style={{ ...ic, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Status</label>
+                          <select value={item.status || "Pending"} onChange={e => updateItemLocal(item.id, "status", e.target.value)} onClick={e => e.stopPropagation()}
+                            style={{ width: "100%", padding: "5px 8px", borderRadius: 4, border: `1px solid ${sc.bg}`, background: sc.bg, color: sc.text, fontSize: 11, fontWeight: 600, outline: "none", cursor: "pointer", fontFamily: font }}>
+                            {["Pending", "Approved", "Changes Requested", "Rejected", "In Production", "LANDED", "On Hold", "Locating a Source", "Reference Sample Sent to Factory", "NEED REVISIONS - SWATCHES WORKING", "Done - Awaiting Shipping"].map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </div>
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Notes</label>
+                          <input value={item.notes || ""} onChange={e => updateItemLocal(item.id, "notes", e.target.value)} onClick={e => e.stopPropagation()}
+                            style={{ ...ic, width: "100%", fontFamily: font }} />
+                        </div>
+                      </div>
+                    )}
+                  </td>
+                  {/* Collapsed KPIs */}
+                  {!isExpanded && <>
+                    <td style={{ padding: "6px", textAlign: "center", fontFamily: mono, fontSize: 12, color: T.text }}>{qty || "—"}</td>
+                    <td style={{ padding: "6px", textAlign: "center", fontFamily: mono, fontSize: 11, color: T.muted }}>{totalCost > 0 ? fmtD(totalCost) : "—"}</td>
+                    <td style={{ padding: "6px", textAlign: "center", fontFamily: mono, fontSize: 11, color: T.accent }}>{gross > 0 ? fmtD(gross) : "—"}</td>
+                    <td style={{ padding: "6px", textAlign: "center", fontFamily: mono, fontSize: 11, color: itemProfit >= 0 ? T.green : T.red }}>{gross > 0 ? fmtD(itemProfit) : "—"}</td>
+                    <td style={{ padding: "6px", textAlign: "center" }}>
+                      <span style={{ padding: "2px 8px", borderRadius: 99, fontSize: 10, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
+                    </td>
+                  </>}
+                  {/* Delete */}
+                  <td style={{ padding: "4px", textAlign: "center", verticalAlign: "top" }} onClick={e => e.stopPropagation()}>
+                    <button onClick={() => setDeleteItem(item)}
+                      style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 11 }}
+                      onMouseEnter={e => (e.currentTarget.style.color = T.red)}
+                      onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>✕</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+
+        <div style={{ padding: "10px 14px", borderTop: `1px solid ${T.border}` }}>
+          <button onClick={addItem}
+            style={{ background: "none", border: `1px dashed ${T.border}`, borderRadius: 6, color: T.faint, fontSize: 11, padding: "6px 14px", cursor: "pointer", fontFamily: font, width: "100%" }}
+            onMouseEnter={e => (e.currentTarget.style.color = T.accent)}
+            onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>
+            + Add Item
+          </button>
+        </div>
+      </div>
+
+      {/* Delete confirm */}
+      <ConfirmDialog
+        open={!!deleteItem}
+        title="Delete item"
+        message={deleteItem ? `Delete "${deleteItem.item_name || "this item"}"?` : ""}
+        confirmLabel="Delete"
+        onConfirm={() => deleteItem && removeItem(deleteItem.id)}
+        onCancel={() => setDeleteItem(null)}
+      />
+
+      {/* Image Gallery Modal */}
+      {galleryItem && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
+          onClick={e => { if (e.target === e.currentTarget) setGalleryItem(null); }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: 600, maxWidth: "90vw", maxHeight: "80vh", overflow: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>{galleryItem.item_name || "Item"} — Images</div>
+              <button onClick={() => setGalleryItem(null)} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 18 }}>×</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
+              {(galleryItem.images || []).map((img: any) => (
+                <div key={img.id} style={{ position: "relative" }}>
+                  <img src={img.url} style={{ width: "100%", borderRadius: 8, border: `1px solid ${T.border}` }} />
+                  <button onClick={() => { deleteImage(galleryItem.id, img.id); setGalleryItem((g: any) => g ? { ...g, images: g.images.filter((i: any) => i.id !== img.id) } : null); }}
+                    style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 4, background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    onMouseEnter={e => (e.currentTarget.style.background = T.red)}
+                    onMouseLeave={e => (e.currentTarget.style.background = "rgba(0,0,0,0.6)")}>✕</button>
+                </div>
+              ))}
+            </div>
+            <label style={{ display: "inline-block", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 14px", fontSize: 11, color: T.muted, cursor: "pointer", fontFamily: font }}>
+              Upload Image
+              <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={async e => {
+                for (const file of Array.from(e.target.files || [])) {
+                  await uploadImage(galleryItem.id, file);
+                }
+                // Refresh gallery
+                const res = await fetch(`/api/staging/boards/${params.boardId}`);
+                const data = await res.json();
+                const updated = data.items?.find((it: any) => it.id === galleryItem.id);
+                if (updated) setGalleryItem(updated);
+              }} />
+            </label>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
