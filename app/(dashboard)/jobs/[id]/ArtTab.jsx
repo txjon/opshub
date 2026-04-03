@@ -128,7 +128,8 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
 
   // Load PSD print info on mount
   useEffect(() => {
-    const psdFile = (files || []).find(f => f.file_name?.toLowerCase().endsWith(".psd"));
+    const psdFile = (files || []).find(f => f.stage === "print_ready" && f.file_name?.toLowerCase().endsWith(".psd"))
+      || [...(files || [])].reverse().find(f => f.file_name?.toLowerCase().endsWith(".psd"));
     if (!psdFile) return;
     setLoadingPsd(true);
     (async () => {
