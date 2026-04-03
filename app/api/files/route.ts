@@ -48,10 +48,9 @@ export async function POST(req: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // If this is a print-ready file, auto-update the item's drive_link for PO
-    if (stage === "print_ready") {
-      await supabase.from("items").update({ drive_link: result.webViewLink }).eq("id", itemId);
-    }
+    // Auto-set item's drive_link to folder (printer needs all files: print file, mockup, proof)
+    const folderUrl = `https://drive.google.com/drive/folders/${folderId}`;
+    await supabase.from("items").update({ drive_link: folderUrl }).eq("id", itemId);
 
     return NextResponse.json({ success: true, file: data });
   } catch (e: any) {

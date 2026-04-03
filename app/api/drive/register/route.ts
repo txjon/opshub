@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { fileId, webViewLink, fileName, mimeType, fileSize, itemId, stage } = await req.json();
+    const { fileId, webViewLink, folderLink, fileName, mimeType, fileSize, itemId, stage } = await req.json();
 
     if (!fileId || !itemId || !stage) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -27,10 +27,9 @@ export async function POST(req: NextRequest) {
 
     if (error) throw new Error(error.message);
 
-    // If print-ready file, auto-set item's drive_link (used by PO PDF)
-    if (stage === "print_ready" && webViewLink) {
-      const folderLink = webViewLink.replace(/\/file\/.*/, "");
-      await supabase.from("items").update({ drive_link: folderLink || webViewLink }).eq("id", itemId);
+    // Auto-set item's drive_link to folder (used by PO PDF — printer needs all files)
+    if (folderLink) {
+      await supabase.from("items").update({ drive_link: folderLink }).eq("id", itemId);
     }
 
     return NextResponse.json({ success: true, file: data });
