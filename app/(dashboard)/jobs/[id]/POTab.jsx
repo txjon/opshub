@@ -147,16 +147,20 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
   },[]);
 
   useEffect(()=>{
-    const fields = {};
-    items.forEach(it=>{
-      fields[it.id] = {
-        packing_notes: it.packing_notes||"",
-        drive_link: it.drive_link||"",
-        incoming_goods: it.incoming_goods || it.blanks_order_number || "",
-        production_notes_po: it.production_notes_po||"",
-      };
+    setItemFields(prev => {
+      const fields = {...prev};
+      items.forEach(it=>{
+        if (!fields[it.id]) {
+          fields[it.id] = {
+            packing_notes: it.packing_notes||"",
+            drive_link: it.drive_link||"",
+            incoming_goods: it.incoming_goods || it.blanks_order_number || "",
+            production_notes_po: it.production_notes_po||"",
+          };
+        }
+      });
+      return fields;
     });
-    setItemFields(fields);
   },[items]);
 
   const costProds = costingData?.costProds||[];
@@ -201,7 +205,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
     for (const it of vItems) {
       if (it.id === sourceItemId) continue;
       updates[it.id] = {...(itemFields[it.id]||{}), [field]: val};
-      await supabase.from("items").update({[field]:val}).eq("id",it.id);
+      const { error } = await supabase.from("items").update({[field]:val}).eq("id",it.id);
+      if (error) console.error("Copy to all save error:", it.id, field, error);
     }
     setItemFields(p=>({...p,...updates}));
   }
