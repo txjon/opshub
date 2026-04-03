@@ -313,14 +313,18 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
 
                 let autoVal = 0;
                 if (isScreens) {
-                  // Sum screens minus shared duplicates (same group = screens counted once)
+                  // Sum screens minus shared duplicates (within item + across items)
                   const seenGroups = {};
+                  const myIdx = costProds.findIndex(cp => cp.id === p.id);
                   autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
                     if (!l?.screens) return sum;
                     if (l.shared && l.shareGroup) {
                       const gk = l.shareGroup.trim().toLowerCase();
-                      if (seenGroups[gk]) return sum; // skip duplicate
+                      if (seenGroups[gk]) return sum; // skip within-item duplicate
                       seenGroups[gk] = true;
+                      // Skip if another item earlier has this group (cross-item)
+                      const firstIdx = costProds.findIndex(cp => Object.values(cp.printLocations||{}).some(cl => cl.shared && cl.shareGroup && cl.shareGroup.trim().toLowerCase() === gk && cl.screens > 0));
+                      if (firstIdx >= 0 && myIdx > firstIdx) return sum;
                     }
                     return sum + (l.screens||0);
                   }, 0);

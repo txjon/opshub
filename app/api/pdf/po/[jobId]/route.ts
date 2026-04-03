@@ -267,7 +267,7 @@ function renderPOHTML(data: any): string {
 
     const thumbHtml = item.mockupThumb ? `<img src="${item.mockupThumb}" style="height:120px;width:auto;object-fit:contain;border-radius:4px;background:#f7f7f7;flex-shrink:0" crossorigin="anonymous" />` : "";
 
-    return `<div style="border-left:3px solid #1a1a1a;padding-left:16px;margin-bottom:16px">
+    return `<div style="border-left:3px solid #1a1a1a;padding-left:16px;margin-bottom:16px;page-break-inside:avoid">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}</div>
         <div style="font-size:10px;color:#888">${item.totalQty.toLocaleString()} units</div>
@@ -465,7 +465,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       .then((r: any) => r).catch(() => ({ data: null, error: null }));
 
     const poData = {
-      job_number: job.job_number,
+      job_number: (job.type_meta as any)?.qb_invoice_number || job.job_number,
       client_name: (job.clients as any)?.name || "—",
       target_ship_date: (() => {
         const ih = (job as any).type_meta?.in_hands_date || (job as any).type_meta?.show_date;

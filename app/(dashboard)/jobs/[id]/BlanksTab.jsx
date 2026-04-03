@@ -143,6 +143,36 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
         </div>
       )}
 
+      {/* Cost variance summary */}
+      {(()=>{
+        let totalExpected = 0, totalActual = 0, hasAny = false;
+        items.forEach(item => {
+          const f = localFields[item.id] || {};
+          const totalUnits = tQty(item.qtys || {});
+          // Expected: use per-size blank costs if available, else cost_per_unit
+          let calcCost = 0;
+          if (item.blank_costs && Object.keys(item.blank_costs).length > 0) {
+            calcCost = Object.entries(item.blank_costs).reduce((a, [sz, c]) => a + (parseFloat(c) || 0) * (item.qtys?.[sz] || 0), 0);
+          } else if (item.cost_per_unit != null) {
+            calcCost = item.cost_per_unit * totalUnits;
+          }
+          const actualCost = f.blanks_order_cost ? parseFloat(String(f.blanks_order_cost).replace(/[^0-9.\-]/g, "")) : 0;
+          totalExpected += calcCost;
+          totalActual += actualCost;
+          if (actualCost > 0) hasAny = true;
+        });
+        if (!hasAny) return null;
+        const variance = totalActual - totalExpected;
+        const color = variance === 0 ? T.muted : variance > 0 ? T.red : T.green;
+        return (
+          <div style={{ display: "flex", gap: 16, alignItems: "center", padding: "8px 14px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+            <div><div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Expected</div><div style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: mono }}>${totalExpected.toFixed(2)}</div></div>
+            <div><div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Actual</div><div style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: mono }}>${totalActual.toFixed(2)}</div></div>
+            <div><div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Variance</div><div style={{ fontSize: 13, fontWeight: 700, color, fontFamily: mono }}>{variance >= 0 ? "+" : ""}${variance.toFixed(2)}</div></div>
+          </div>
+        );
+      })()}
+
       {/* Item list */}
       {items.map((item, i) => {
         const f = localFields[item.id] || {};

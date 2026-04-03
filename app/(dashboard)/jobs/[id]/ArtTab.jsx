@@ -148,10 +148,12 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
           let minL=Infinity,minT=Infinity,maxR=-Infinity,maxB=-Infinity;
           const colors = [];
           for (const layer of group.children) {
+            const isBase = (layer.name||"").toLowerCase() === "base";
             if (isTag) { if(minL===Infinity){minL=layer.left||0;minT=layer.top||0;maxR=layer.right||0;maxB=layer.bottom||0;} }
-            else { minL=Math.min(minL,layer.left||0);minT=Math.min(minT,layer.top||0);maxR=Math.max(maxR,layer.right||0);maxB=Math.max(maxB,layer.bottom||0); }
+            else if (!isBase) { minL=Math.min(minL,layer.left||0);minT=Math.min(minT,layer.top||0);maxR=Math.max(maxR,layer.right||0);maxB=Math.max(maxB,layer.bottom||0); }
             let hex="#888888";
-            if(layer.canvas){const ctx=layer.canvas.getContext("2d");if(ctx){const d=ctx.getImageData(0,0,layer.canvas.width,layer.canvas.height).data;let rS=0,gS=0,bS=0,cnt=0;for(let i=0;i<d.length;i+=40){if(d[i+3]>128){rS+=d[i];gS+=d[i+1];bS+=d[i+2];cnt++;}}if(cnt>0)hex="#"+[rS,gS,bS].map(v=>Math.round(v/cnt).toString(16).padStart(2,"0")).join("");}}
+            if(isBase) hex="#ffffff";
+            else if(layer.canvas){const ctx=layer.canvas.getContext("2d");if(ctx){const d=ctx.getImageData(0,0,layer.canvas.width,layer.canvas.height).data;let rS=0,gS=0,bS=0,cnt=0;for(let i=0;i<d.length;i+=40){if(d[i+3]>128){rS+=d[i];gS+=d[i+1];bS+=d[i+2];cnt++;}}if(cnt>0)hex="#"+[rS,gS,bS].map(v=>Math.round(v/cnt).toString(16).padStart(2,"0")).join("");}}
             colors.push({name:layer.name,hex});
           }
           const artW=maxR-minL,artH=maxB-minT;
