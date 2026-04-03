@@ -117,6 +117,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
               <div style={{display:"flex",alignItems:"center"}}>
                 <span style={{fontSize:9,color:T.faint,marginRight:1}}>$</span>
                 <input type="text" inputMode="decimal" value={cc.perUnit||cc.amount||""} onChange={e=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],perUnit:e.target.value,amount:e.target.value};updateProd(i,{...p,customCosts:c});}}
+                  onBlur={e=>{const v=parseFloat(e.target.value)||0;const c=[...(p.customCosts||[])];c[ci]={...c[ci],perUnit:v,amount:v};updateProd(i,{...p,customCosts:c});}}
                   style={{width:50,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,fontFamily:mono,outline:"none",padding:"2px"}}/>
               </div>
               <button onClick={()=>{const c=(p.customCosts||[]).filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
