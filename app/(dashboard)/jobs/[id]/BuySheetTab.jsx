@@ -1215,8 +1215,8 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
         if (item.garment_type !== prev?.garment_type) dbUpdates.garment_type = item.garment_type || null;
         if (item.cost_per_unit !== prev?.cost_per_unit) dbUpdates.cost_per_unit = item.cost_per_unit || null;
         if (JSON.stringify(item.blankCosts) !== JSON.stringify(prev?.blankCosts)) dbUpdates.blank_costs = item.blankCosts || null;
-        if (item.blank_vendor !== prev?.blank_vendor) dbUpdates.blank_vendor = item.blank_vendor || null;
-        if (item.blank_sku !== prev?.blank_sku) dbUpdates.blank_sku = item.blank_sku || null;
+        if (item.blank_vendor) dbUpdates.blank_vendor = item.blank_vendor;
+        if (item.blank_sku) dbUpdates.blank_sku = item.blank_sku;
         dbUpdates.sort_order = newSortOrder;
         await supabase.from("items").update(dbUpdates).eq("id", item.id);
 
