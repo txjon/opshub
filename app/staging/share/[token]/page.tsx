@@ -153,17 +153,13 @@ export default function SharePage({ params }: { params: { token: string } }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: T.surface }}>
-                <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 30 }}>#</th>
-                <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase" }}>Item</th>
+                <th style={{ padding: "8px 6px", width: 90 }} />
+                <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Item</th>
                 <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 60 }}>QTY</th>
-                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 80 }}>Unit Cost</th>
-                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 80 }}>Total</th>
-                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 80 }}>Retail</th>
+                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 80 }}>Cost</th>
                 <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 80 }}>Gross</th>
                 <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 80 }}>Profit</th>
-                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 110 }}>Status</th>
-                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700 }}>Notes</th>
-                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 80 }}>Images</th>
+                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 120 }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -178,27 +174,25 @@ export default function SharePage({ params }: { params: { token: string } }) {
 
                 return (
                   <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                    <td style={{ padding: "8px 6px", textAlign: "center", color: T.faint, fontSize: 10, fontFamily: mono }}>{idx + 1}</td>
+                    <td style={{ padding: "4px" }}>
+                      <div style={{ width: 80, height: 52, borderRadius: 6, overflow: "hidden", cursor: item.images?.length ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", background: T.surface, border: `1px solid ${T.border}`, position: "relative" }}
+                        onClick={() => item.images?.length && setGalleryItem(item)}>
+                        {item.images?.[0]?.url ? (
+                          <img src={item.images[0].url} style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        ) : null}
+                        {item.images?.length > 1 && (
+                          <span style={{ position: "absolute", bottom: 2, right: 2, fontSize: 8, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: 3, padding: "0 3px" }}>+{item.images.length - 1}</span>
+                        )}
+                      </div>
+                    </td>
                     <td style={{ padding: "8px 10px", fontWeight: 600 }}>{item.item_name || "—"}</td>
                     <td style={{ padding: "8px 6px", textAlign: "center", fontFamily: mono }}>{qty || "—"}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "center", fontFamily: mono }}>{unitCost > 0 ? fmtD(unitCost) : "—"}</td>
                     <td style={{ padding: "8px 6px", textAlign: "center", fontFamily: mono, color: T.muted }}>{totalCost > 0 ? fmtD(totalCost) : "—"}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "center", fontFamily: mono }}>{retail > 0 ? fmtD(retail) : "—"}</td>
                     <td style={{ padding: "8px 6px", textAlign: "center", fontFamily: mono, color: T.accent }}>{gross > 0 ? fmtD(gross) : "—"}</td>
                     <td style={{ padding: "8px 6px", textAlign: "center", fontFamily: mono, color: itemProfit >= 0 ? T.green : T.red }}>{gross > 0 ? fmtD(itemProfit) : "—"}</td>
                     <td style={{ padding: "8px 6px", textAlign: "center" }}>
                       <span style={{ padding: "2px 8px", borderRadius: 99, fontSize: 10, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
-                    </td>
-                    <td style={{ padding: "8px 6px", fontSize: 10, color: T.muted }}>{item.notes || ""}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "center" }}>
-                      <div style={{ display: "flex", gap: 2, justifyContent: "center", cursor: item.images?.length ? "pointer" : "default" }}
-                        onClick={() => item.images?.length && setGalleryItem(item)}>
-                        {(item.images || []).slice(0, 3).map((img: any) => (
-                          <img key={img.id} src={img.url} style={{ width: 24, height: 24, borderRadius: 3, objectFit: "cover", border: `1px solid ${T.border}` }}
-                            onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                        ))}
-                        {(item.images?.length || 0) > 3 && <span style={{ fontSize: 9, color: T.faint }}>+{item.images.length - 3}</span>}
-                      </div>
                     </td>
                   </tr>
                 );
