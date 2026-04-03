@@ -201,7 +201,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
     for (const it of vItems) {
       if (it.id === sourceItemId) continue;
       updates[it.id] = {...(itemFields[it.id]||{}), [field]: val};
-      supabase.from("items").update({[field]:val}).eq("id",it.id);
+      await supabase.from("items").update({[field]:val}).eq("id",it.id);
     }
     setItemFields(p=>({...p,...updates}));
   }
