@@ -90,7 +90,13 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
       }, 0) || qty;
     }
     const minQty = pr.qtys?.[0] || 0;
-    const tagRate = (tagEffQty < minQty && pr.minimums?.tagPrint > 0) ? pr.minimums.tagPrint / tagEffQty : (pr.tagPrices?.[pr.qtys?.findIndex((q: number) => tagEffQty < q) - 1 || 0] || 0);
+    let tagRate = 0;
+    if (tagEffQty < minQty && pr.minimums?.tagPrint > 0) {
+      tagRate = pr.minimums.tagPrint / tagEffQty;
+    } else {
+      let idx = 0; for (let ti = 0; ti < (pr.qtys||[]).length; ti++) { if (tagEffQty >= pr.qtys[ti]) idx = ti; }
+      tagRate = pr.tagPrices?.[idx] || 0;
+    }
     lines.push({ label: "Tag print", qty, rate: tagRate, total: tagRate * qty });
   }
 
