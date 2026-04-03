@@ -221,9 +221,10 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
 
   // Custom costs (per unit × qty, or flat)
   for (const c of (p.customCosts || [])) {
-    const v = c.perUnit || c.amount || 0;
+    const v = parseFloat(c.perUnit || c.amount) || 0;
     if (v > 0) {
-      if (c.flat) lines.push({ label: c.desc || c.label || "Custom", qty: 1, rate: v, total: v });
+      const isFlat = c.flat === true || c.flat === "true";
+      if (isFlat) lines.push({ label: c.desc || c.label || "Custom", qty: 1, rate: v, total: v });
       else lines.push({ label: c.desc || c.label || "Custom", qty, rate: v, total: v * qty });
     }
   }
