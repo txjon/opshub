@@ -26,6 +26,8 @@ export default function SharePage({ params }: { params: { token: string } }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [galleryItem, setGalleryItem] = useState<any>(null);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -87,6 +89,38 @@ export default function SharePage({ params }: { params: { token: string } }) {
     return { cost: acc.cost + cost, gross: acc.gross + gross };
   }, { cost: 0, gross: 0 });
   const profit = totals.gross - totals.cost;
+
+  function toggleSort(key: string) {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("asc"); }
+  }
+
+  const sortedItems = sortKey ? [...items].sort((a: any, b: any) => {
+    let av: any, bv: any;
+    const qa = a.qty || 0, qb = b.qty || 0;
+    const uca = parseFloat(a.unit_cost) || 0, ucb = parseFloat(b.unit_cost) || 0;
+    const ra = parseFloat(a.retail) || 0, rb = parseFloat(b.retail) || 0;
+    switch (sortKey) {
+      case "item_name": av = (a.item_name || "").toLowerCase(); bv = (b.item_name || "").toLowerCase(); break;
+      case "qty": av = qa; bv = qb; break;
+      case "total_cost": av = qa * uca; bv = qb * ucb; break;
+      case "gross": av = qa * ra; bv = qb * rb; break;
+      case "profit": av = qa * ra - qa * uca; bv = qb * rb - qb * ucb; break;
+      case "status": av = (a.status || "").toLowerCase(); bv = (b.status || "").toLowerCase(); break;
+      default: return 0;
+    }
+    const r = typeof av === "string" ? av.localeCompare(bv) : (av - bv);
+    return sortDir === "asc" ? r : -r;
+  }) : items;
+
+  const SortTh = ({ col, label, style: s }: { col: string; label: string; style?: any }) => {
+    const active = sortKey === col;
+    return (
+      <th onClick={() => toggleSort(col)} style={{ ...s, padding: "8px 6px", fontSize: 10, color: active ? T.accent : T.muted, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.06em", cursor: "pointer", userSelect: "none" as const }}>
+        {label}{active && <span style={{ marginLeft: 3, fontSize: 8 }}>{sortDir === "asc" ? "▲" : "▼"}</span>}
+      </th>
+    );
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: T.bg, fontFamily: font, color: T.text }}>
@@ -154,16 +188,16 @@ export default function SharePage({ params }: { params: { token: string } }) {
             <thead>
               <tr style={{ background: T.surface }}>
                 <th style={{ padding: "8px 6px", width: 90 }} />
-                <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Item</th>
-                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 60 }}>QTY</th>
-                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 80 }}>Cost</th>
-                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 80 }}>Gross</th>
-                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 80 }}>Profit</th>
-                <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, width: 120 }}>Status</th>
+                <SortTh col="item_name" label="Item" style={{ textAlign: "left", padding: "8px 10px" }} />
+                <SortTh col="qty" label="QTY" style={{ textAlign: "center", width: 60 }} />
+                <SortTh col="total_cost" label="Cost" style={{ textAlign: "center", width: 80 }} />
+                <SortTh col="gross" label="Gross" style={{ textAlign: "center", width: 80 }} />
+                <SortTh col="profit" label="Profit" style={{ textAlign: "center", width: 80 }} />
+                <SortTh col="status" label="Status" style={{ textAlign: "center", width: 120 }} />
               </tr>
             </thead>
             <tbody>
-              {items.map((item: any, idx: number) => {
+              {sortedItems.map((item: any, idx: number) => {
                 const qty = item.qty || 0;
                 const unitCost = parseFloat(item.unit_cost) || 0;
                 const retail = parseFloat(item.retail) || 0;
