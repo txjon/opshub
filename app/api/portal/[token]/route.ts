@@ -59,7 +59,7 @@ export async function GET(
       const { data: files } = await sb
         .from("item_files")
         .select(
-          "id, item_id, file_name, stage, approval, drive_file_id, drive_link, created_at"
+          "id, item_id, file_name, stage, approval, approved_at, drive_file_id, drive_link, created_at"
         )
         .in("item_id", itemIds)
         .in("stage", ["mockup", "proof"])
@@ -160,6 +160,7 @@ export async function GET(
           stage: f.stage,
           // If item is manually marked approved, treat all its files as approved
           approval: manualApproved ? "approved" : (f.stage === "mockup" && f.approval === "none" ? "approved" : f.approval),
+          approvedAt: f.approved_at || null,
           driveLink: f.drive_link,
           driveFileId: f.drive_file_id,
           createdAt: f.created_at,
@@ -295,7 +296,7 @@ export async function POST(
     if (action === "approve-proof" && fileId) {
       await sb
         .from("item_files")
-        .update({ approval: "approved" })
+        .update({ approval: "approved", approved_at: new Date().toISOString() })
         .eq("id", fileId);
 
       // Get item name for logging

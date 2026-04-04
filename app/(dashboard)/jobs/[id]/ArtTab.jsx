@@ -77,6 +77,11 @@ function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabel, stag
           <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, flexShrink: 0 }}>{formatSize(file.file_size)}</span>
         )}
         <span style={{ fontSize: 9, color: T.faint, flexShrink: 0 }}>{new Date(file.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+        {approval && (
+          <span style={{ fontSize: 8, fontWeight: 600, padding: "1px 7px", borderRadius: 99, background: approval.bg, color: approval.color, flexShrink: 0, whiteSpace: "nowrap" }}>
+            {approval.label}{file.approved_at ? ` · ${new Date(file.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${new Date(file.approved_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : ""}
+          </span>
+        )}
       </div>
       <button onClick={() => onDelete(file)}
         style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, flexShrink: 0, padding: "0 2px" }}

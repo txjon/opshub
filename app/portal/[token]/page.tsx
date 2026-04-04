@@ -305,8 +305,9 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                   {item.proofs.map(proof => {
                     const actionKey = `approve-proof${proof.id}`;
                     const revKey = `request-revision${proof.id}`;
+                    const approvedTime = proof.approvedAt ? fmtDate(proof.approvedAt) : null;
                     const approvalStyle = proof.approval === "approved"
-                      ? { bg: C.greenBg, color: C.green, border: C.greenBorder, label: "Approved" }
+                      ? { bg: C.greenBg, color: C.green, border: C.greenBorder, label: approvedTime ? `Approved ${approvedTime}` : "Approved" }
                       : proof.approval === "revision_requested"
                       ? { bg: C.amberBg, color: C.amber, border: C.amberBorder, label: "Revision Requested" }
                       : { bg: C.amberBg, color: C.amber, border: C.amberBorder, label: "Pending Review" };
