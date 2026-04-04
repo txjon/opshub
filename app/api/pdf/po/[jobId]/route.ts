@@ -3,7 +3,7 @@ export const maxDuration = 60;
 export const preferredRegion = "iad1";
 
 import { NextRequest, NextResponse } from "next/server";
-import { calculateMilestones } from "@/lib/dates";
+// dates — milestones removed, ship date is set manually
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
@@ -463,11 +463,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const poData = {
       job_number: (job.type_meta as any)?.qb_invoice_number || job.job_number,
       client_name: (job.clients as any)?.name || "—",
-      target_ship_date: (() => {
-        const ih = (job as any).type_meta?.in_hands_date || (job as any).type_meta?.show_date;
-        if (ih) return calculateMilestones(ih).decoratorShips;
-        return job.target_ship_date;
-      })(),
+      target_ship_date: job.target_ship_date,
       vendor_name: vendorName,
       vendor_short_code: (decoratorRecord as any)?.short_code || firstDecorator?.short_code || vendorName,
       vendor_email: (decoratorRecord as any)?.email || firstDecorator?.email || "",
