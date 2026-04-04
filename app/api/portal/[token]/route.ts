@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendClientNotification } from "@/lib/auto-email";
+import { buildPrintersMap, calcCostProduct } from "@/lib/pricing";
 
 const admin = () =>
   createClient(
@@ -41,11 +42,11 @@ export async function GET(
       if (client) clientName = client.name;
     }
 
-    // Items with costing summaries
+    // Items (only fields the client should see)
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, garment_type, sell_per_unit, cost_per_unit, pipeline_stage, sort_order, sizes, qtys, blank_vendor, blank_sku"
+        "id, name, sell_per_unit, pipeline_stage, sort_order"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -73,22 +74,54 @@ export async function GET(
       .eq("job_id", job.id)
       .order("created_at", { ascending: false });
 
-    // Recent auto activity (last 20 — hide comments)
-    const { data: activity } = await sb
+    // Recent auto activity — only client-safe events
+    const { data: rawActivity } = await sb
       .from("job_activity")
       .select("id, message, created_at")
       .eq("job_id", job.id)
       .eq("type", "auto")
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(50);
 
-    // Build quote items from costing data
+    // Filter to events the client should see (hide internal ops like POs, blanks, PSD processing)
+    const CLIENT_SAFE_KEYWORDS = [
+      "quote", "proof", "mockup", "payment", "invoice", "approved",
+      "revision", "shipped", "tracking", "delivered", "sent to client",
+    ];
+    const INTERNAL_KEYWORDS = [
+      "PO sent", "blanks", "PSD processed", "Item created from PSD",
+      "costing", "decorator", "stage advanced", "auto-email skipped",
+      "buy sheet", "assigned", "reorder",
+    ];
+    const activity = (rawActivity || []).filter((a: any) => {
+      const msg = (a.message || "").toLowerCase();
+      if (INTERNAL_KEYWORDS.some(k => msg.includes(k.toLowerCase()))) return false;
+      return CLIENT_SAFE_KEYWORDS.some(k => msg.includes(k.toLowerCase()));
+    }).slice(0, 15);
+
+    // Build quote items using shared pricing engine (same as quote PDF)
     const costingData = job.costing_data as any;
     const costingSummary = job.costing_summary as any;
     const quoteItems: any[] = [];
 
     if (costingData?.costProds) {
-      for (const cp of costingData.costProds) {
+      // Load decorator pricing for accurate per-item calculation
+      const vendorKeys = [...new Set(costingData.costProds.map((cp: any) => cp.printVendor).filter(Boolean))];
+      let printers: Record<string, any> = {};
+      if (vendorKeys.length > 0) {
+        const { data: decs } = await sb
+          .from("decorators")
+          .select("name, short_code, pricing_data")
+          .or(vendorKeys.map((k: string) => `short_code.eq.${k},name.eq.${k}`).join(","));
+        printers = buildPrintersMap(decs || []);
+      }
+
+      const costMargin = costingData.margin || "30%";
+      const inclShip = costingData.inclShip ?? false;
+      const inclCC = costingData.inclCC ?? false;
+      const costProds = costingData.costProds;
+
+      for (const cp of costProds) {
         const item = (items || []).find((i: any) => i.id === cp.id);
         const totalQty =
           cp.totalQty ||
@@ -96,14 +129,19 @@ export async function GET(
             (a: number, v: any) => a + (Number(v) || 0),
             0
           );
-        if (totalQty > 0) {
-          quoteItems.push({
-            name: cp.name || item?.name || "Item",
-            qty: totalQty,
-            sellPerUnit: item?.sell_per_unit || 0,
-            total: (item?.sell_per_unit || 0) * totalQty,
-          });
-        }
+        if (totalQty <= 0) continue;
+
+        // Use pricing engine for accurate sell price
+        const r = calcCostProduct(cp, costMargin, inclShip, inclCC, costProds, printers);
+        const sellPerUnit = r ? r.sellPerUnit : (item?.sell_per_unit || 0);
+        const grossRev = r ? r.grossRev : sellPerUnit * totalQty;
+
+        quoteItems.push({
+          name: cp.name || item?.name || "Item",
+          qty: totalQty,
+          sellPerUnit: Math.round(sellPerUnit * 100) / 100,
+          total: Math.round(grossRev * 100) / 100,
+        });
       }
     }
 

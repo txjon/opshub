@@ -23,12 +23,20 @@ export async function POST(req: NextRequest) {
 
     // Simple HTML email (no attachment) — used for proof/mockup links
     if (type === "proof_link" && customBody) {
+      // Append portal link so client can approve directly
+      let proofHtml = customBody;
+      if (jobId) {
+        const portalUrl = await getPortalUrl(jobId);
+        if (portalUrl) {
+          proofHtml += `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px">Review & Approve in Portal</a></p>`;
+        }
+      }
       const { data, error } = await resend.emails.send({
         from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
         to: recipientEmail,
         ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
         subject: subject || "File for Review — House Party Distro",
-        html: customBody,
+        html: proofHtml,
       });
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ success: true, id: data?.id });
