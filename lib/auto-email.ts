@@ -60,7 +60,11 @@ export async function sendClientNotification(params: NotifyParams) {
       .from("job_contacts")
       .select("contact_id, role_on_job")
       .eq("job_id", job.id);
-    if (!jobContacts?.length) return;
+    if (!jobContacts?.length) {
+      console.warn(`[Auto-email] No contacts on job ${job.id} — skipping ${params.type} notification`);
+      await sb.from("job_activity").insert({ job_id: job.id, user_id: null, type: "auto", message: `Auto-email skipped (${params.type}): no contacts on project` });
+      return;
+    }
 
     const contactIds = jobContacts.map((jc: any) => jc.contact_id);
     const { data: contacts } = await sb
@@ -74,7 +78,11 @@ export async function sendClientNotification(params: NotifyParams) {
       (jc: any) => jc.role_on_job === "primary"
     )?.contact_id;
     const primary = contacts.find((c: any) => c.id === primaryContactId) || contacts[0];
-    if (!primary?.email) return;
+    if (!primary?.email) {
+      console.warn(`[Auto-email] Primary contact has no email on job ${job.id} — skipping ${params.type}`);
+      await sb.from("job_activity").insert({ job_id: job.id, user_id: null, type: "auto", message: `Auto-email skipped (${params.type}): primary contact has no email` });
+      return;
+    }
 
     const ccEmails = contacts
       .filter((c: any) => c.id !== primary.id && c.email)
