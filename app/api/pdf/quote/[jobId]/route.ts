@@ -7,40 +7,22 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 
-// ── Pricing — loaded from decorators.pricing_data at request time ─────────────
-let PRINTERS: Record<string,any> = {};
+// ── Pricing — uses shared lib/pricing.ts (single source of truth) ────────────
+import { buildPrintersMap, calcCostProduct as sharedCalc } from "@/lib/pricing";
+
+let PRINTERS: Record<string, any> = {};
 
 async function loadPrinters(supabase: any) {
-  const { data } = await supabase.from("decorators").select("name, short_code, pricing_data").order("name");
-  if (!data) return;
-  for (const d of data) {
-    const key = d.short_code || d.name;
-    if (d.pricing_data) {
-      PRINTERS[key] = d.pricing_data;
-    } else {
-      PRINTERS[key] = { qtys:[], prices:{}, tagPrices:[], finishing:{}, setup:{Screens:0,TagScreens:0,Seps:0,InkChange:0}, specialty:{} };
-    }
-  }
+  const { data } = await supabase.from("decorators").select("name, short_code, pricing_data, capabilities").order("name");
+  PRINTERS = buildPrintersMap(data || []);
 }
-
-function lookupPrintPrice(pk: string, qty: number, colors: number) {
-  const p = PRINTERS[pk]; if (!p || !p.qtys.length) return 0;
-  const minQty = p.qtys[0] || 0;
-  if (qty < minQty && p.minimums?.print > 0) return p.minimums.print / qty;
-  let idx = 0; for (let i = 0; i < p.qtys.length; i++) { if (qty >= p.qtys[i]) idx = i; }
-  const c = Math.min(Math.max(Math.round(colors), 1), 12);
-  return p.prices[c]?.[idx] ?? 0;
-}
-function lookupTagPrice(pk: string, qty: number) {
-  const p = PRINTERS[pk]; if (!p || !p.tagPrices.length) return 0;
-  const minQty = p.qtys[0] || 0;
-  if (qty < minQty && p.minimums?.tagPrint > 0) return p.minimums.tagPrint / qty;
-  let idx = 0; for (let i = 0; i < p.qtys.length; i++) { if (qty >= p.qtys[i]) idx = i; }
-  return p.tagPrices[idx] ?? 0;
-}
-const MARGIN_TIERS: Record<string,number> = {"10%":1.15,"15%":1.26,"20%":1.33,"25%":1.43,"30%":1.53};
 
 function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[]) {
+  return sharedCalc(p, margin, inclShip, inclCC, allProds, PRINTERS);
+}
+
+// Legacy — kept for reference, no longer used
+function _oldCalcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[]) {
   const qty = p.totalQty || 0; if (qty === 0) return null;
   const blankCost = (() => {
     if (p.blankCosts && Object.keys(p.blankCosts).length > 0) {

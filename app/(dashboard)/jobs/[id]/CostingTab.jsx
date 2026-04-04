@@ -4,6 +4,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { DecorationPanel } from "./DecorationPanel";
+import { calcCostProduct as sharedCalcCostProduct, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, buildPrintersMap } from "@/lib/pricing";
 
 const BLANK_COSTS = {
   "NL6210_White":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
@@ -93,29 +94,17 @@ export function loadPricingFromDecorators(decorators) {
 }
 
 export function lookupPrintPrice(pk,qty,colors){
-  const p=PRINTERS[pk]; if(!p||!p.qtys.length)return 0;
-  // Below minimum qty: apply minimum charge per location / qty
-  const minQty=p.qtys[0]||0;
-  if(qty<minQty&&p.minimums?.print>0){
-    return p.minimums.print/qty;
-  }
-  let idx=0; for(let i=0;i<p.qtys.length;i++){if(qty>=p.qtys[i])idx=i;}
-  const c=Math.min(Math.max(Math.round(colors),1),12);
-  return p.prices[c]?.[idx]??0;
+  return sharedLookupPrintPrice(PRINTERS, pk, qty, colors);
 }
 export function lookupTagPrice(pk,qty){
-  const p=PRINTERS[pk]; if(!p||!p.tagPrices.length)return 0;
-  // Below minimum qty: apply tag print minimum / qty
-  const minQty=p.qtys[0]||0;
-  if(qty<minQty&&p.minimums?.tagPrint>0){
-    return p.minimums.tagPrint/qty;
-  }
-  let idx=0; for(let i=0;i<p.qtys.length;i++){if(qty>=p.qtys[i])idx=i;}
-  return p.tagPrices[idx]??0;
+  return sharedLookupTagPrice(PRINTERS, pk, qty);
 }
 function applyMargin(cost,mk){return cost*(MARGIN_TIERS[mk]??1.53);}
 
 export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
+  return sharedCalcCostProduct(p, margin, inclShip, inclCC, allProds, PRINTERS);
+}
+function _oldCalcCostProduct_UNUSED(p,margin,inclShip,inclCC,allProds=[]){
   const qty=p.totalQty||0; if(qty===0)return null;
   const blankCost=(()=>{
     if(p.blankCosts&&Object.keys(p.blankCosts).length>0){

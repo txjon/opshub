@@ -17,30 +17,26 @@ const sortSizes = (sizes: string[]) => [...sizes].sort((a, b) => {
 });
 const fmtD = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// ── Pricing — loaded from decorators.pricing_data at request time ─────────────
+// ── Pricing — uses shared lib/pricing.ts (single source of truth) ────────────
+import { buildPrintersMap, lookupPrintPrice as sharedPrintPrice, lookupTagPrice as sharedTagPrice } from "@/lib/pricing";
+
 let PRINTERS: Record<string, any> = {};
 
 async function loadPrinters(supabase: any) {
-  const { data } = await supabase.from("decorators").select("name, short_code, pricing_data").order("name");
-  if (!data) return;
-  for (const d of data) {
-    const key = d.short_code || d.name;
-    if (d.pricing_data) {
-      PRINTERS[key] = d.pricing_data;
-    } else {
-      PRINTERS[key] = { qtys:[], prices:{}, tagPrices:[], finishing:{}, setup:{Screens:0,TagScreens:0,Seps:0,InkChange:0}, specialty:{} };
-    }
-  }
+  const { data } = await supabase.from("decorators").select("name, short_code, pricing_data, capabilities").order("name");
+  PRINTERS = buildPrintersMap(data || []);
 }
 
 function getPrintRate(pr: any, qty: number, colors: number): number {
+  // Find the key for this printer in PRINTERS
+  const key = Object.keys(PRINTERS).find(k => PRINTERS[k] === pr);
+  if (key) return sharedPrintPrice(PRINTERS, key, qty, colors);
+  // Fallback: direct calculation
   if (!pr?.qtys || !pr?.prices) return 0;
   const minQty = pr.qtys[0] || 0;
   if (qty < minQty && pr.minimums?.print > 0) return pr.minimums.print / qty;
   const c = Math.min(Math.max(colors, 1), 12);
-  const tiers = pr.qtys;
-  let idx = tiers.length - 1;
-  for (let i = 0; i < tiers.length; i++) { if (qty < tiers[i]) { idx = Math.max(0, i - 1); break; } }
+  let idx = 0; for (let i = 0; i < pr.qtys.length; i++) { if (qty >= pr.qtys[i]) idx = i; }
   return pr.prices[c]?.[idx] || 0;
 }
 
