@@ -40,6 +40,8 @@ export function ProcessingTab({ project, items, onItemsChanged }) {
   const [processing, setProcessing] = useState({});
   const [dragoverSlot, setDragoverSlot] = useState(null);
   const [dragoverNew, setDragoverNew] = useState(false);
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
   const supabase = createClient();
   const clientName = project?.clients?.name || "Unknown Client";
   const projectTitle = project?.title || "";
@@ -100,7 +102,7 @@ export function ProcessingTab({ project, items, onItemsChanged }) {
           blob: file, fileName: file.name, mimeType: "application/octet-stream",
           clientName, projectTitle, itemName: slot.name,
         });
-        await registerFileInDb({ ...driveFile, itemId: slot.itemId, stage: "client_art" });
+        await registerFileInDb({ ...driveFile, itemId: slot.itemId, stage: "client_art", notes: JSON.stringify({ psd_locations: locations, psd_has_tag: hasTag }) });
 
         setSlots(prev => prev.map((s, i) => i === slotIdx ? { ...s, fileName: file.name, locations, hasTag, uploaded: true } : s));
         logJobActivity(project.id, `PSD processed for ${slot.name}: ${locations.length} location${locations.length !== 1 ? "s" : ""}`);
@@ -125,7 +127,7 @@ export function ProcessingTab({ project, items, onItemsChanged }) {
             blob: file, fileName: file.name, mimeType: "application/octet-stream",
             clientName, projectTitle, itemName,
           });
-          await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "client_art" });
+          await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "client_art", notes: JSON.stringify({ psd_locations: locations, psd_has_tag: hasTag }) });
 
           setSlots(prev => [...prev, {
             itemId: newItem.id, name: itemName, fileName: file.name,
@@ -142,6 +144,23 @@ export function ProcessingTab({ project, items, onItemsChanged }) {
     } finally {
       setProcessing(p => { const n = { ...p }; delete n[slotIdx ?? "new"]; return n; });
     }
+  }
+
+  async function handleReorder(fromIdx, toIdx) {
+    if (fromIdx === toIdx) return;
+    const newSlots = [...slots];
+    const [moved] = newSlots.splice(fromIdx, 1);
+    newSlots.splice(toIdx, 0, moved);
+    setSlots(newSlots);
+    setDragIdx(null);
+    setDragOverIdx(null);
+    // Update sort orders in DB
+    for (let i = 0; i < newSlots.length; i++) {
+      if (newSlots[i].itemId) {
+        await supabase.from("items").update({ sort_order: i }).eq("id", newSlots[i].itemId);
+      }
+    }
+    if (onItemsChanged) onItemsChanged();
   }
 
   async function removeSlot(idx) {
@@ -171,13 +190,17 @@ export function ProcessingTab({ project, items, onItemsChanged }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10, marginBottom: 10 }}>
         {slots.map((slot, idx) => (
           <div key={slot.itemId || idx}
-            onDragOver={e => { e.preventDefault(); setDragoverSlot(idx); }}
-            onDragLeave={() => setDragoverSlot(null)}
-            onDrop={e => { e.preventDefault(); setDragoverSlot(null); processFile(e.dataTransfer.files[0], idx); }}
+            draggable
+            onDragStart={() => setDragIdx(idx)}
+            onDragOver={e => { e.preventDefault(); if (dragIdx !== null) setDragOverIdx(idx); else setDragoverSlot(idx); }}
+            onDragLeave={() => { setDragoverSlot(null); setDragOverIdx(null); }}
+            onDrop={e => { e.preventDefault(); setDragoverSlot(null); if (dragIdx !== null) { handleReorder(dragIdx, idx); } else { processFile(e.dataTransfer.files[0], idx); } }}
+            onDragEnd={() => { setDragIdx(null); setDragOverIdx(null); }}
             style={{
-              background: T.card, border: `1px solid ${dragoverSlot === idx ? T.accent : T.border}`,
+              background: T.card, border: `1px solid ${dragOverIdx === idx ? T.accent : dragoverSlot === idx ? T.accent : T.border}`,
               borderRadius: 10, padding: "14px", position: "relative",
-              transition: "border-color 0.15s",
+              transition: "border-color 0.15s", cursor: "grab",
+              opacity: dragIdx === idx ? 0.5 : 1,
             }}>
             {/* Remove button */}
             <button onClick={() => removeSlot(idx)}
@@ -185,8 +208,9 @@ export function ProcessingTab({ project, items, onItemsChanged }) {
               onMouseEnter={e => (e.currentTarget.style.color = T.red)}
               onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>✕</button>
 
-            {/* Item number */}
+            {/* Drag handle + Item number */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ color: T.faint, fontSize: 12, cursor: "grab", userSelect: "none" }}>⠿</span>
               <span style={{
                 width: 22, height: 22, borderRadius: 5, background: T.accentDim,
                 display: "flex", alignItems: "center", justifyContent: "center",
@@ -197,10 +221,14 @@ export function ProcessingTab({ project, items, onItemsChanged }) {
               <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{slot.name}</div>
             </div>
 
-            {/* PSD file info */}
+            {/* PSD file info + thumbnail */}
             {slot.fileName && (
-              <div style={{ fontSize: 10, color: T.faint, marginBottom: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {slot.fileName}
+              <div style={{ fontSize: 10, color: T.faint, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                {slot.driveFileId && (
+                  <img src={`/api/files/thumbnail?id=${slot.driveFileId}`} style={{ width: 40, height: 40, borderRadius: 4, objectFit: "cover", border: `1px solid ${T.border}`, flexShrink: 0 }}
+                    onError={e => { e.target.style.display = "none"; }} />
+                )}
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slot.fileName}</span>
               </div>
             )}
 

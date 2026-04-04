@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { fileId, webViewLink, folderLink, fileName, mimeType, fileSize, itemId, stage } = await req.json();
+    const { fileId, webViewLink, folderLink, fileName, mimeType, fileSize, itemId, stage, notes } = await req.json();
 
     if (!fileId || !itemId || !stage) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
       mime_type: mimeType,
       file_size: fileSize,
       approval: stage === "proof" ? "pending" : "none",
+      notes: notes || null,
       uploaded_by: user.id,
     }).select("*").single();
 

@@ -899,7 +899,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
       const ids = itemsNeedingPsd.map(cp => cp.id);
-      const { data: psdFiles } = await supabase.from("item_files").select("item_id, drive_file_id, file_name").in("item_id", ids).ilike("file_name", "%.psd");
+      const { data: psdFiles } = await supabase.from("item_files").select("item_id, drive_file_id, file_name, notes").in("item_id", ids).ilike("file_name", "%.psd");
       if (!psdFiles || psdFiles.length === 0) return;
 
       // Take first PSD per item
@@ -911,6 +911,27 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
 
       for (const [itemId, psdFile] of Object.entries(psdByItem)) {
         try {
+          // Fast path: read cached PSD data from notes (set by Processing tab)
+          let cachedData = null;
+          try { cachedData = psdFile.notes ? JSON.parse(psdFile.notes) : null; } catch {}
+          if (cachedData?.psd_locations) {
+            const newLocations = {};
+            let locIdx = 1;
+            for (const loc of cachedData.psd_locations) {
+              newLocations[String(locIdx)] = { location: PLACEMENT_MAP[loc.placement] || loc.placement, screens: loc.colorCount || 0, printer: "" };
+              locIdx++;
+            }
+            for (let padIdx = locIdx; padIdx <= 6; padIdx++) newLocations[String(padIdx)] = {};
+            setCostProds(prev => prev.map(cp => {
+              if (cp.id !== itemId) return cp;
+              const hasExisting = Object.values(cp.printLocations || {}).some(l => l?.location);
+              if (hasExisting) return cp;
+              return { ...cp, printLocations: newLocations, printCount: locIdx - 1, tagPrint: cachedData.psd_has_tag || cp.tagPrint };
+            }));
+            continue;
+          }
+
+          // Slow path: download and parse PSD from Drive
           const res = await fetch(`/api/files/thumbnail?id=${psdFile.drive_file_id}`);
           if (!res.ok) continue;
           const buf = await res.arrayBuffer();

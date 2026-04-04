@@ -1412,8 +1412,9 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
 
   const assignBlank = (blankData) => {
     if (!assignBlankTo) return;
+    const targetIds = Array.isArray(assignBlankTo) ? assignBlankTo : [assignBlankTo];
     updateLocal((workingItems||[]).map(it => {
-      if (it.id !== assignBlankTo) return it;
+      if (!targetIds.includes(it.id)) return it;
       return {
         ...it,
         blank_vendor: blankData.blank_vendor,
@@ -1480,7 +1481,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
                 style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, fontSize:11, fontWeight:600, padding:"4px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
                 ← {assignBlankTo ? "Cancel" : "Sources"}
               </button>
-              {assignBlankTo && <span style={{ fontSize:11, color:T.amber, fontWeight:600 }}>Assigning blank to: {(workingItems||[]).find(it=>it.id===assignBlankTo)?.name || "item"}</span>}
+              {assignBlankTo && <span style={{ fontSize:11, color:T.amber, fontWeight:600 }}>{Array.isArray(assignBlankTo) ? `Assigning blank to ${assignBlankTo.length} items` : `Assigning blank to: ${(workingItems||[]).find(it=>it.id===assignBlankTo)?.name || "item"}`}</span>}
             </div>
             {showPicker && <SSPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); } else { addItem(item); } }} onClose={() => { setShowPicker(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} />}
             {showASColour && <ASColourPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); } else { addItem(item); } setShowASColour(false); }} onClose={() => { setShowASColour(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} />}
@@ -1497,7 +1498,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
           onClick={() => { setShowAddModal(false); setAssignBlankTo(null); }}>
           <div onClick={e => e.stopPropagation()} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:"24px", width:420, maxWidth:"90vw" }}>
             <div style={{ fontSize:16, fontWeight:700, color:T.text, fontFamily:font, marginBottom:4 }}>{assignBlankTo ? "Assign Blank" : "Add Item"}</div>
-            <div style={{ fontSize:12, color:T.muted, marginBottom:16 }}>{assignBlankTo ? `Select a blank for: ${(workingItems||[]).find(it=>it.id===assignBlankTo)?.name || "item"}` : "Choose a source"}</div>
+            <div style={{ fontSize:12, color:T.muted, marginBottom:16 }}>{assignBlankTo ? (Array.isArray(assignBlankTo) ? `Assign blank to ${assignBlankTo.length} items` : `Select a blank for: ${(workingItems||[]).find(it=>it.id===assignBlankTo)?.name || "item"}`) : "Choose a source"}</div>
             <button onClick={() => { setShowAddModal(false); setShowFavorites(true); }}
               style={{ width:"100%", padding:"12px", borderRadius:8, border:"none", background:"#5795b2", color:"#fff", fontSize:13, fontWeight:700, fontFamily:font, cursor:"pointer", marginBottom:10, transition:"opacity 0.15s" }}
               onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
@@ -1580,6 +1581,15 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
               style={{ background:T.accent, color:"#fff", border:"none", borderRadius:7, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
               + Add Item
             </button>
+            {(()=>{
+              const unassigned = safeItems.filter(it => !it.blank_vendor && !it.style);
+              return unassigned.length > 1 ? (
+                <button onClick={() => { setAssignBlankTo(unassigned.map(it => it.id)); setShowAddModal(true); }}
+                  style={{ background:T.amberDim, color:T.amber, border:`1px solid ${T.amber}44`, borderRadius:7, padding:"6px 14px", fontSize:11, fontFamily:font, fontWeight:600, cursor:"pointer" }}>
+                  Assign Blank to {unassigned.length} items
+                </button>
+              ) : null;
+            })()}
             {grandTotal > 0 && <span style={{ fontSize:12, color:T.green, fontFamily:mono, fontWeight:600 }}>{grandTotal.toLocaleString()} units total</span>}
             <div style={{ marginLeft:"auto", display:"flex", gap:12 }}>
               {[["↑↓←→","Nav"],["Enter","↓"],["Tab","→"]].map(([k,l]) => (
