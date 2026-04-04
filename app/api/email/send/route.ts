@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { getPortalUrl } from "@/lib/auto-email";
 
 export async function POST(req: NextRequest) {
   try {
@@ -94,6 +95,15 @@ export async function POST(req: NextRequest) {
       ? `<p style="margin:20px 0"><a href="${qbPaymentLink}" style="display:inline-block;padding:12px 28px;background:#34c97a;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">Pay Online</a></p>`
       : "";
 
+    // Portal link for client-facing emails (quote, invoice — not PO)
+    let portalButton = "";
+    if (type !== "po") {
+      const portalUrl = await getPortalUrl(jobId);
+      if (portalUrl) {
+        portalButton = `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px">View Project Portal</a></p>`;
+      }
+    }
+
     // Send via Resend
     const { data, error } = await resend.emails.send({
       from: fromAddress,
@@ -101,11 +111,11 @@ export async function POST(req: NextRequest) {
       ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
       subject: defaultSubject,
       html: type === "quote"
-        ? `<p>Hi,</p><p>Here's your quote — take a look and let us know if you have any questions or want to make changes.</p><p>Welcome to the party,<br/>House Party Distro</p>`
+        ? `<p>Hi,</p><p>Here's your quote — take a look and let us know if you have any questions or want to make changes.</p>${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`
         : type === "invoice_proofs"
-        ? `<p>Hi,</p><p>Attached is your invoice along with print proofs for review. Please take a look at the proofs and let us know if everything looks good or if you'd like any revisions.</p>${payButton}<p>Welcome to the party,<br/>House Party Distro</p>`
+        ? `<p>Hi,</p><p>Attached is your invoice along with print proofs for review. Please take a look at the proofs and let us know if everything looks good or if you'd like any revisions.</p>${payButton}${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`
         : type === "invoice"
-        ? `<p>Hi,</p><p>Attached is your invoice. Let us know if you have any questions.</p>${payButton}<p>Welcome to the party,<br/>House Party Distro</p>`
+        ? `<p>Hi,</p><p>Attached is your invoice. Let us know if you have any questions.</p>${payButton}${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`
         : `<p>Hi,</p><p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p><p>Thanks,<br/>House Party Distro</p>`,
       attachments: [
         {

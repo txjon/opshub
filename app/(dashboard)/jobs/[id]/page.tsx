@@ -98,6 +98,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const clientDropdownRef = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const [portalCopied, setPortalCopied] = useState(false);
   const saveErrorTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
   const handleSaveStatus = useCallback((s: string) => {
     if (s === "error") {
@@ -359,6 +360,20 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             )}
             <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.muted}}>
               <span>{totalUnits.toLocaleString()} units</span>
+              {(job as any).portal_token && (
+                <button onClick={()=>{
+                  const base=window.location.origin;
+                  navigator.clipboard.writeText(`${base}/portal/${(job as any).portal_token}`);
+                  setPortalCopied(true);
+                  setTimeout(()=>setPortalCopied(false),2000);
+                }} style={{
+                  background:"none",border:`1px solid ${T.border}`,borderRadius:6,
+                  padding:"2px 8px",cursor:"pointer",fontSize:10,fontWeight:600,
+                  color:portalCopied?T.green:T.accent,
+                }}>
+                  {portalCopied?"Copied!":"Copy Client Portal Link"}
+                </button>
+              )}
             </div>
           </div>
           <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>

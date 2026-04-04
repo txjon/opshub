@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getAccessToken } from "@/lib/quickbooks";
 import { createHmac } from "crypto";
+import { sendClientNotification } from "@/lib/auto-email";
 
 const QB_BASE_URL = "https://quickbooks.api.intuit.com";
 
@@ -118,6 +119,9 @@ export async function POST(req: NextRequest) {
                 }))
               );
             }
+
+            // Auto-email client payment confirmation (fire-and-forget)
+            sendClientNotification({ jobId: job.id, type: "payment_received", amount }).catch(() => {});
 
             console.log(`[QB Webhook] Payment $${amount} recorded for job ${job.id}`);
           }
