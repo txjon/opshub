@@ -139,6 +139,8 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const balance = (quote.total || 0) - totalPaid;
   const hasQuote = quote.items.length > 0;
   const hasProofs = items.some(i => i.proofs.length > 0);
+  const allProofsApproved = hasProofs && items.every(i => i.proofs.length === 0 || i.proofs.every(p => p.approval === "approved"));
+  const pendingProofCount = items.reduce((s, i) => s + i.proofs.filter(p => p.approval === "pending").length, 0);
   const hasPayments = payments.length > 0 || paymentLink;
 
   // Figure out which phase step we're at
@@ -286,7 +288,15 @@ export default function PortalPage({ params }: { params: { token: string } }) {
             background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
             padding: isMobile ? "16px" : "20px 24px", marginBottom: 20,
           }}>
-            <h2 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700 }}>Proofs for Review</h2>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{allProofsApproved ? "Proofs" : "Proofs for Review"}</h2>
+              {allProofsApproved && (
+                <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: C.greenBg, color: C.green, border: `1px solid ${C.greenBorder}` }}>All Approved</span>
+              )}
+              {!allProofsApproved && pendingProofCount > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: C.amberBg, color: C.amber, border: `1px solid ${C.amberBorder}` }}>{pendingProofCount} pending</span>
+              )}
+            </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {items.filter(i => i.proofs.length > 0).map(item => (

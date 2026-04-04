@@ -46,7 +46,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -149,21 +149,23 @@ export async function GET(
     const typeMeta = (job.type_meta || {}) as any;
 
     // Build items with their proof files
-    const itemsWithProofs = (items || []).map((item: any) => ({
-      id: item.id,
-      name: item.name,
-      proofs: proofFiles
+    // Respect both file-level approval AND item-level artwork_status override
+    const itemsWithProofs = (items || []).map((item: any) => {
+      const manualApproved = item.artwork_status === "approved";
+      const itemProofs = proofFiles
         .filter((f: any) => f.item_id === item.id)
         .map((f: any) => ({
           id: f.id,
           fileName: f.file_name,
           stage: f.stage,
-          approval: f.approval,
+          // If item is manually marked approved, treat all its files as approved
+          approval: manualApproved ? "approved" : (f.stage === "mockup" && f.approval === "none" ? "approved" : f.approval),
           driveLink: f.drive_link,
           driveFileId: f.drive_file_id,
           createdAt: f.created_at,
-        })),
-    }));
+        }));
+      return { id: item.id, name: item.name, proofs: itemProofs };
+    });
 
     // Phase display names
     const phaseLabels: Record<string, string> = {
