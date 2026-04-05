@@ -63,7 +63,7 @@ export default function ProductionPage() {
     setLoading(true);
     const { data: jobs } = await supabase
       .from("jobs")
-      .select("id, title, job_number, target_ship_date, phase, clients(name)")
+      .select("id, title, job_number, target_ship_date, phase, type_meta, clients(name)")
       .in("phase", ["production", "receiving", "fulfillment"]);
 
     if (!jobs?.length) { setItems([]); setLoading(false); return; }
@@ -115,7 +115,7 @@ export default function ProductionPage() {
         decoration_type: assignment?.decoration_type || null,
         sizes, qtys,
         ship_qtys: it.ship_qtys || {},
-        ship_notes: it.ship_notes || "",
+        ship_notes: it.ship_notes || job?.type_meta?.shipping_notes || "",
       };
     });
 

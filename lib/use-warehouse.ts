@@ -40,6 +40,7 @@ export type WarehouseJob = {
   ship_to_address: string;
   ship_method: string;
   packing_notes: string;
+  shipping_notes: string;
   contact_name: string;
   contact_phone: string;
   items: WarehouseItem[];
@@ -96,6 +97,7 @@ export function useWarehouse() {
         ship_to_address: typeMeta.venue_address || (j as any).clients?.shipping_address || "",
         ship_method: Object.values(typeMeta.po_ship_methods || {})[0] as string || "",
         packing_notes: packingNotes,
+        shipping_notes: typeMeta.shipping_notes || "",
         contact_name: contactData.name || "",
         contact_phone: contactData.phone || contactData.email || "",
         items: relevant.map((it: any) => {

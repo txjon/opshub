@@ -53,6 +53,13 @@ export default function FulfillmentPage() {
                   })}
                 </div>
 
+                {job.shipping_notes && (
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Shipping Notes</div>
+                    <div style={{ fontSize: 11, color: T.amber, padding: "6px 10px", background: T.amberDim, borderRadius: 6 }}>{job.shipping_notes}</div>
+                  </div>
+                )}
+
                 {(job.fulfillment_status === "shipped" || job.fulfillment_status === "packing") && (
                   <div>
                     <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Outbound tracking</label>
