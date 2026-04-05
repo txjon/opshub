@@ -232,72 +232,74 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
     <div style={{fontFamily:font,color:T.text,display:"flex",flexDirection:"column",gap:12}}>
 
       <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-        {/* Row 1: Vendor buttons + items ready */}
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <div style={{display:"flex",flexDirection:"column",gap:4}}>
-            <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Vendor</div>
-            <div style={{display:"flex",gap:6}}>
-              {vendors.length===0&&<div style={{fontSize:11,color:T.faint,padding:"6px 0"}}>No vendors assigned in costing</div>}
-              {vendors.map(v=>(
-                <button key={v} onClick={()=>setSelectedVendor(v)}
-                  style={{background:active===v?T.accent:T.surface,border:"1px solid "+(active===v?T.accent:T.border),borderRadius:6,color:active===v?"#fff":T.muted,fontFamily:font,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>
-                  {v}
-                </button>
-              ))}
-            </div>
-          </div>
-          {ready&&(
-            <div style={{fontSize:14,fontWeight:600,color:allFilled?T.green:T.amber}}>
-              {vItems.filter(it=>itemFields[it.id]?.packing_notes?.trim()).length}/{vItems.length} items ready
-            </div>
-          )}
-        </div>
-        {/* Row 2: Ship method + Ship to side by side */}
-        <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
-          <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180}}>
-            <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
-            <select value={shipMethods[active]||""} onChange={async e=>{
-              const val=e.target.value;
-              const updated={...shipMethods,[active]:val};
-              setShipMethods(updated);
-              const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
-              const meta = { ...(fresh?.type_meta || {}), po_ship_methods: updated };
-              await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
-              if(onUpdateJob) onUpdateJob({type_meta:meta});
-            }}
-              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
-              <option value="">— select —</option>
-              {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
-            <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship to</span>
-              <span style={{fontSize:9,padding:"1px 6px",borderRadius:99,background:shippingRoute==="drop_ship"?T.greenDim:T.accentDim,color:shippingRoute==="drop_ship"?T.green:T.accent}}>
-                {shippingRoute==="drop_ship"?"Client address":"HPD warehouse"}
-              </span>
-            </div>
-            <textarea value={poShipTo[active]||defaultShipTo} onChange={async e=>{
-              const val=e.target.value;
-              const updated={...poShipTo,[active]:val};
-              setPoShipTo(updated);
-              const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
-              const meta = { ...(fresh?.type_meta || {}), po_ship_to: updated };
-              await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
-              if(onUpdateJob) onUpdateJob({type_meta:meta});
-            }}
-              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"8px 10px",outline:"none",resize:"vertical",minHeight:80,lineHeight:1.4}}/>
+        {/* Row 1: Vendor buttons */}
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Vendor</div>
+          <div style={{display:"flex",gap:6}}>
+            {vendors.length===0&&<div style={{fontSize:11,color:T.faint,padding:"6px 0"}}>No vendors assigned in costing</div>}
+            {vendors.map(v=>(
+              <button key={v} onClick={()=>setSelectedVendor(v)}
+                style={{background:active===v?T.accent:T.surface,border:"1px solid "+(active===v?T.accent:T.border),borderRadius:6,color:active===v?"#fff":T.muted,fontFamily:font,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>
+                {v}
+              </button>
+            ))}
           </div>
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.purple:T.surface,border:"1px solid "+(ready?T.purple:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
-              Send to Decorator
-            </button>
-            <button onClick={()=>{ if(ready) window.open(`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`,"_blank"); }} disabled={!ready}
-              style={{background:ready?T.accent:T.surface,border:"1px solid "+(ready?T.accent:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
-              Preview
-            </button>
+        {/* Row 2: Ship method + Ship to (left) | Items ready + buttons (right) */}
+        <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
+          {/* Left: ship method + address */}
+          <div style={{display:"flex",gap:12,alignItems:"flex-start",flex:"0 0 auto",maxWidth:480}}>
+            <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180}}>
+              <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
+              <select value={shipMethods[active]||""} onChange={async e=>{
+                const val=e.target.value;
+                const updated={...shipMethods,[active]:val};
+                setShipMethods(updated);
+                const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
+                const meta = { ...(fresh?.type_meta || {}), po_ship_methods: updated };
+                await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
+                if(onUpdateJob) onUpdateJob({type_meta:meta});
+              }}
+                style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
+                <option value="">— select —</option>
+                {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4,width:260}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship to</span>
+                <span style={{fontSize:9,padding:"1px 6px",borderRadius:99,background:shippingRoute==="drop_ship"?T.greenDim:T.accentDim,color:shippingRoute==="drop_ship"?T.green:T.accent}}>
+                  {shippingRoute==="drop_ship"?"Client address":"HPD warehouse"}
+                </span>
+              </div>
+              <textarea value={poShipTo[active]||defaultShipTo} onChange={async e=>{
+                const val=e.target.value;
+                const updated={...poShipTo,[active]:val};
+                setPoShipTo(updated);
+                const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
+                const meta = { ...(fresh?.type_meta || {}), po_ship_to: updated };
+                await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
+                if(onUpdateJob) onUpdateJob({type_meta:meta});
+              }}
+                style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"8px 10px",outline:"none",resize:"vertical",minHeight:110,lineHeight:1.4}}/>
+            </div>
+          </div>
+          {/* Right: items ready + buttons */}
+          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8,paddingTop:14}}>
+            {ready&&(
+              <div style={{fontSize:14,fontWeight:600,color:allFilled?T.green:T.amber}}>
+                {vItems.filter(it=>itemFields[it.id]?.packing_notes?.trim()).length}/{vItems.length} items ready
+              </div>
+            )}
+            <div style={{display:"flex",flexDirection:"column",gap:6,width:170}}>
+              <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.purple:T.surface,border:"1px solid "+(ready?T.purple:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
+                Send to Decorator
+              </button>
+              <button onClick={()=>{ if(ready) window.open(`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`,"_blank"); }} disabled={!ready}
+                style={{background:ready?T.accent:T.surface,border:"1px solid "+(ready?T.accent:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
+                Preview
+              </button>
+            </div>
           </div>
         </div>
       </div>
