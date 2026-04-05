@@ -192,12 +192,60 @@ export default function InsightsPage() {
       byGarment[gt].units += 1;
     }
 
+    // Cash flow forecast — expected income from active pipeline by month
+    const forecast: { month: string; expected: number; collected: number }[] = [];
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const endD = new Date(now.getFullYear(), now.getMonth() + i + 1, 0);
+      const label = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+
+      // Expected: revenue from active jobs with ship date in this month
+      const expected = active
+        .filter(j => {
+          if (!j.target_ship_date) return false;
+          const sd = new Date(j.target_ship_date);
+          return sd >= d && sd <= endD;
+        })
+        .reduce((s: number, j: any) => s + (j.costing_summary?.grossRev || 0), 0);
+
+      // Collected: payments received in this month
+      const collected = payments
+        .filter(p => {
+          if (p.status !== "paid" || !p.paid_date) return false;
+          const pd = new Date(p.paid_date);
+          return pd >= d && pd <= endD;
+        })
+        .reduce((s: number, p: any) => s + (p.amount || 0), 0);
+
+      forecast.push({ month: label, expected, collected });
+    }
+
+    // Upcoming commitments — payments due within 30 days
+    const thirtyDaysOut = new Date(now.getTime() + 30 * 86400000).toISOString().split("T")[0];
+    const upcomingPayments = payments
+      .filter(p => p.due_date && p.status !== "paid" && p.status !== "void" && p.due_date >= today && p.due_date <= thirtyDaysOut)
+      .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+      .map((p: any) => {
+        const job = jobs.find(j => j.id === p.job_id);
+        return { ...p, jobTitle: job?.title, clientName: (job?.clients as any)?.name, jobNumber: job?.job_number };
+      });
+
+    // Overdue payments
+    const overduePayments = payments
+      .filter(p => p.due_date && p.status !== "paid" && p.status !== "void" && p.due_date < today)
+      .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+      .map((p: any) => {
+        const job = jobs.find(j => j.id === p.job_id);
+        const daysOver = daysBetween(p.due_date, now.toISOString());
+        return { ...p, daysOver, jobTitle: job?.title, clientName: (job?.clients as any)?.name, jobNumber: job?.job_number };
+      });
+
     return {
       totalRev, totalCost, totalProfit, avgMargin, activeRev, activeProfit, outstanding, totalPaid,
       arBuckets, clientRanking, decoratorRanking, avgPhaseTimes, avgCycleTime,
       bottleneck, phaseCounts, stalledItems, monthlyRev, maxMonthRev,
       activeCount: active.length, completedCount: completed.length, totalJobs: jobs.length,
-      byGarment,
+      byGarment, forecast, upcomingPayments, overduePayments,
     };
   }, [jobs, items, payments]);
 
@@ -324,6 +372,78 @@ export default function InsightsPage() {
               {metrics.stalledItems.length} items stalled 7+ days
             </div>
           )}
+        </Section>
+
+        {/* ── Cash Flow Forecast ── */}
+        <Section title="Cash Flow Forecast (4 months)">
+          <div style={{ display: "flex", gap: 12 }}>
+            {metrics.forecast.map((f, i) => {
+              const maxVal = Math.max(...metrics.forecast.map(x => Math.max(x.expected, x.collected)), 1);
+              return (
+                <div key={i} style={{ flex: 1, textAlign: "center" }}>
+                  <div style={{ fontSize: 10, color: T.muted, marginBottom: 6 }}>{f.month}</div>
+                  <div style={{ height: 80, display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 4 }}>
+                    <div style={{
+                      width: "35%", borderRadius: "3px 3px 0 0",
+                      height: Math.max(2, (f.expected / maxVal) * 70),
+                      background: T.accentDim,
+                    }} title={`Expected: ${fmtD(f.expected)}`} />
+                    <div style={{
+                      width: "35%", borderRadius: "3px 3px 0 0",
+                      height: Math.max(2, (f.collected / maxVal) * 70),
+                      background: T.green,
+                    }} title={`Collected: ${fmtD(f.collected)}`} />
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 700, fontFamily: mono, color: T.text, marginTop: 4 }}>{fmtD(f.expected)}</div>
+                  <div style={{ fontSize: 9, color: T.green }}>{f.collected > 0 ? fmtD(f.collected) + " in" : ""}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 10, color: T.muted }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: T.accentDim }} /> Expected (by ship date)</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 10, height: 10, borderRadius: 2, background: T.green }} /> Collected</div>
+          </div>
+        </Section>
+
+        {/* ── Upcoming & Overdue Payments ── */}
+        <Section title="Payments Attention">
+          {metrics.overduePayments.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.red, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>Overdue</div>
+              {metrics.overduePayments.map((p: any) => (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 8px", background: T.redDim, borderRadius: 6, marginBottom: 4, fontSize: 11 }}>
+                  <div>
+                    <span style={{ fontWeight: 600, color: T.text }}>{p.clientName}</span>
+                    <span style={{ color: T.muted, marginLeft: 6 }}>{p.jobNumber}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: mono, fontWeight: 600, color: T.red }}>{fmtD(p.amount)}</span>
+                    <span style={{ fontSize: 10, color: T.red }}>{p.daysOver}d overdue</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {metrics.upcomingPayments.length > 0 ? (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.amber, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>Due within 30 days</div>
+              {metrics.upcomingPayments.map((p: any) => (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 8px", background: T.surface, borderRadius: 6, marginBottom: 4, fontSize: 11 }}>
+                  <div>
+                    <span style={{ fontWeight: 600, color: T.text }}>{p.clientName}</span>
+                    <span style={{ color: T.muted, marginLeft: 6 }}>{p.jobNumber}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: mono, fontWeight: 600, color: T.text }}>{fmtD(p.amount)}</span>
+                    <span style={{ fontSize: 10, color: T.muted }}>{new Date(p.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : metrics.overduePayments.length === 0 ? (
+            <div style={{ fontSize: 11, color: T.faint }}>No upcoming or overdue payments</div>
+          ) : null}
         </Section>
 
         {/* ── Revenue by Client ── */}
