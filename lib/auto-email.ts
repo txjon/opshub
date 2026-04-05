@@ -204,3 +204,26 @@ export async function getPortalUrl(jobId: string): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Get the vendor portal URL for a decorator. Used by PO email to include portal link.
+ */
+export async function getVendorPortalUrl(vendorName: string): Promise<string | null> {
+  try {
+    const sb = admin();
+    // Look up decorator by name or short_code
+    const { data: dec } = await sb
+      .from("decorators")
+      .select("external_token")
+      .or(`name.eq.${vendorName},short_code.eq.${vendorName}`)
+      .single();
+    if (!dec?.external_token) return null;
+
+    const baseUrl =
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+    return `${baseUrl}/portal/vendor/${dec.external_token}`;
+  } catch {
+    return null;
+  }
+}

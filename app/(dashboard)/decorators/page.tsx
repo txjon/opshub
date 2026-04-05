@@ -519,6 +519,26 @@ export default function DecoratorsPage() {
                         </div>
                       </div>
                       <DecoratorContacts contacts={(d as any).contacts_list||[]} onChange={list=>upd({contacts_list:list} as any)} />
+                      {/* Vendor Portal Link */}
+                      {(d as any).external_token && (
+                        <div style={{ marginTop:12 }}>
+                          <div style={{ fontSize:10, fontWeight:600, color:T.muted, textTransform:"uppercase" as const, letterSpacing:"0.06em", marginBottom:4 }}>Vendor Portal</div>
+                          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                            <input
+                              readOnly
+                              value={`${window.location.origin}/portal/vendor/${(d as any).external_token}`}
+                              style={{ flex:1, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, fontFamily:"monospace", fontSize:10, padding:"5px 8px", outline:"none" }}
+                              onFocus={e=>e.target.select()}
+                            />
+                            <button
+                              onClick={()=>{
+                                navigator.clipboard.writeText(`${window.location.origin}/portal/vendor/${(d as any).external_token}`);
+                              }}
+                              style={{ background:T.accent, border:"none", borderRadius:6, color:"#fff", fontSize:10, fontWeight:600, padding:"5px 10px", cursor:"pointer", whiteSpace:"nowrap" }}
+                            >Copy</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
                       <div>

@@ -17,6 +17,8 @@ import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { Skeleton } from "@/components/Skeleton";
 import { ProjectProgress } from "@/components/ProjectProgress";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
+import { EmailThread } from "@/components/EmailThread";
+import { ComposeEmail } from "@/components/ComposeEmail";
 import { calculatePhase } from "@/lib/lifecycle";
 import { calculatePriority, businessDaysFromNow } from "@/lib/dates";
 
@@ -93,6 +95,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
   const [proofStatus, setProofStatus] = useState<Record<string,{allApproved:boolean}>>({});
   const [allClients, setAllClients] = useState<{id:string,name:string}[]>([]);
+  const [showCompose, setShowCompose] = useState(false);
   const [clientQuery, setClientQuery] = useState("");
   const [showClientDropdown, setShowClientDropdown] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
@@ -765,6 +768,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 )}
               </div>
 
+              {/* Email Thread */}
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+                <EmailThread jobId={job.id} onCompose={()=>setShowCompose(true)} />
+              </div>
+
               {/* Items */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
@@ -977,6 +985,17 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         }}
         onCancel={() => setConfirmDeleteProject(false)}
       />
+
+      {/* Compose Email Modal */}
+      {showCompose && job && (
+        <ComposeEmail
+          jobId={job.id}
+          contacts={contacts.map(c=>({name:c.name,email:c.email,role:c.role_on_job}))}
+          onClose={()=>setShowCompose(false)}
+          onSent={()=>{}}
+          defaultSubject={job.title ? `Re: ${job.title}${job.job_number ? ` (${job.job_number})` : ""}` : ""}
+        />
+      )}
     </div>
   );
 }

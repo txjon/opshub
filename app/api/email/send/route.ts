@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { getPortalUrl } from "@/lib/auto-email";
+import { getPortalUrl, getVendorPortalUrl } from "@/lib/auto-email";
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,10 +31,13 @@ export async function POST(req: NextRequest) {
           proofHtml += `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px">Review & Approve in Portal</a></p>`;
         }
       }
+      const inboundDomain = process.env.RESEND_INBOUND_DOMAIN;
+      const proofReplyTo = (inboundDomain && jobId) ? `reply+${jobId}@${inboundDomain}` : undefined;
       const { data, error } = await resend.emails.send({
         from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
         to: recipientEmail,
         ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
+        ...(proofReplyTo ? { reply_to: proofReplyTo } : {}),
         subject: subject || "File for Review — House Party Distro",
         html: proofHtml,
       });
@@ -112,11 +115,25 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Vendor portal link for PO emails
+    let vendorPortalButton = "";
+    if (type === "po" && vendor) {
+      const vendorPortalUrl = await getVendorPortalUrl(vendor);
+      if (vendorPortalUrl) {
+        vendorPortalButton = `<p style="margin:16px 0"><a href="${vendorPortalUrl}" style="display:inline-block;padding:10px 24px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px">View in Vendor Portal</a></p>`;
+      }
+    }
+
+    // Reply-to routing: replies come back to OpsHub when RESEND_INBOUND_DOMAIN is set
+    const inboundDomain = process.env.RESEND_INBOUND_DOMAIN;
+    const replyTo = (inboundDomain && jobId) ? `reply+${jobId}@${inboundDomain}` : undefined;
+
     // Send via Resend
     const { data, error } = await resend.emails.send({
       from: fromAddress,
       to: recipientEmail,
       ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
+      ...(replyTo ? { reply_to: replyTo } : {}),
       subject: defaultSubject,
       html: type === "quote"
         ? `<p>Hi,</p><p>Here's your quote — take a look and let us know if you have any questions or want to make changes.</p>${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`
@@ -124,7 +141,7 @@ export async function POST(req: NextRequest) {
         ? `<p>Hi,</p><p>Attached is your invoice along with print proofs for review. Please take a look at the proofs and let us know if everything looks good or if you'd like any revisions.</p>${payButton}${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`
         : type === "invoice"
         ? `<p>Hi,</p><p>Attached is your invoice. Let us know if you have any questions.</p>${payButton}${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`
-        : `<p>Hi,</p><p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p><p>Thanks,<br/>House Party Distro</p>`,
+        : `<p>Hi,</p><p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p>${vendorPortalButton}<p>You can confirm receipt, update production status, and enter tracking directly from the portal.</p><p>Thanks,<br/>House Party Distro</p>`,
       attachments: [
         {
           filename,
@@ -136,6 +153,22 @@ export async function POST(req: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Save to email_messages for thread view (fire-and-forget)
+    try {
+      const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      await adminClient.from("email_messages").insert({
+        job_id: jobId,
+        direction: "outbound",
+        from_email: fromAddress,
+        from_name: "House Party Distro",
+        to_emails: [recipientEmail],
+        cc_emails: ccEmails || [],
+        subject: defaultSubject,
+        body_text: type === "po" ? `Purchase order attached (${filename})` : `${type} attached (${filename})`,
+        resend_message_id: data?.id || null,
+      });
+    } catch {} // Non-fatal
 
     return NextResponse.json({ success: true, id: data?.id });
   } catch (e: any) {
