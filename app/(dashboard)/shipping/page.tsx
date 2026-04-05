@@ -24,47 +24,101 @@ export default function ShippingPage() {
           No orders ready to ship. Ship-through orders appear here after all items are received.
         </div>
       ) : (
-        shipThrough.map(job => (
-          <div key={job.id} style={card}>
-            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-              <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
-              <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
-              <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.job_number}</span>
-              <span style={{ marginLeft: "auto", fontSize: 11, color: T.green, fontWeight: 600 }}>All {job.items.length} items received</span>
-            </div>
-            <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Outbound tracking #</label>
-                  <input style={{ ...ic, fontFamily: mono }} value={job.fulfillment_tracking || ""} placeholder="Enter tracking to mark shipped"
-                    onChange={e => debounceFulfillmentTracking(job.id, e.target.value)} />
+        shipThrough.map(job => {
+          const totalUnits = job.items.reduce((a, it) => a + tQty(it.qtys), 0);
+          return (
+            <div key={job.id} style={card}>
+              {/* Header */}
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+                <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
+                <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
+                <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.job_number}</span>
+                <span style={{ marginLeft: "auto", fontSize: 11, color: T.green, fontWeight: 600 }}>{job.items.length} items · {totalUnits.toLocaleString()} units</span>
+              </div>
+
+              <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
+                {/* Ship-to + contact */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Ship To</div>
+                    {job.ship_to_address ? (
+                      <div style={{ fontSize: 12, color: T.text, whiteSpace: "pre-line", lineHeight: 1.4 }}>{job.ship_to_address}</div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: T.red }}>No address on file</div>
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Contact</div>
+                    {job.contact_name ? (
+                      <div>
+                        <div style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{job.contact_name}</div>
+                        {job.contact_phone && <div style={{ fontSize: 11, color: T.muted }}>{job.contact_phone}</div>}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: T.faint }}>No contact</div>
+                    )}
+                    {job.ship_method && (
+                      <div style={{ marginTop: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.accentDim, color: T.accent }}>{job.ship_method}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <button onClick={async () => {
-                  if (!job.fulfillment_tracking) return;
-                  await updateFulfillment(job.id, "shipped");
-                  logJobActivity(job.id, `Ship-through complete — forwarded to client (${job.fulfillment_tracking})`);
-                  await supabase.from("jobs").update({ phase: "complete" }).eq("id", job.id);
-                  setJobs(prev => prev.filter(j => j.id !== job.id));
-                }}
-                  disabled={!job.fulfillment_tracking}
-                  style={{ background: job.fulfillment_tracking ? T.green : T.surface, border: "none", borderRadius: 6, color: job.fulfillment_tracking ? "#fff" : T.faint, fontSize: 11, fontWeight: 600, padding: "8px 16px", cursor: job.fulfillment_tracking ? "pointer" : "default", opacity: job.fulfillment_tracking ? 1 : 0.5 }}>
-                  Mark Shipped
-                </button>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {job.items.map(item => (
-                  <span key={item.id} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: T.surface, color: T.muted, cursor: "pointer" }}
-                    onClick={() => undoReceived(item)}
-                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = T.amber; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = T.muted; }}
-                    title="Click to revert to incoming">
-                    {item.name} · {tQty(item.qtys)} units
-                  </span>
-                ))}
+
+                {/* Items */}
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Items</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {job.items.map(item => (
+                      <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: T.surface, borderRadius: 6 }}>
+                        <div>
+                          <span style={{ fontSize: 12, fontWeight: 500, color: T.text }}>{item.name}</span>
+                          {item.blank_vendor && <span style={{ fontSize: 10, color: T.faint, marginLeft: 6 }}>{item.blank_vendor}</span>}
+                        </div>
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          {item.sizes.map(sz => (
+                            <span key={sz} style={{ fontSize: 9, fontFamily: mono, color: T.muted, padding: "1px 4px", background: T.card, borderRadius: 3 }}>
+                              {sz}:{item.qtys?.[sz] || 0}
+                            </span>
+                          ))}
+                          <span style={{ fontSize: 10, fontWeight: 600, fontFamily: mono, color: T.text, marginLeft: 4 }}>{tQty(item.qtys)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Packing notes */}
+                {job.packing_notes && (
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Packing Notes</div>
+                    <div style={{ fontSize: 11, color: T.amber, padding: "6px 10px", background: T.amberDim, borderRadius: 6 }}>{job.packing_notes}</div>
+                  </div>
+                )}
+
+                {/* Tracking + ship */}
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Outbound Tracking #</label>
+                    <input style={{ ...ic, fontFamily: mono }} value={job.fulfillment_tracking || ""} placeholder="Enter tracking number"
+                      onChange={e => debounceFulfillmentTracking(job.id, e.target.value)} />
+                  </div>
+                  <button onClick={async () => {
+                    if (!job.fulfillment_tracking) return;
+                    await updateFulfillment(job.id, "shipped");
+                    logJobActivity(job.id, `Ship-through complete — forwarded to client (${job.fulfillment_tracking})`);
+                    await supabase.from("jobs").update({ phase: "complete" }).eq("id", job.id);
+                    setJobs(prev => prev.filter(j => j.id !== job.id));
+                  }}
+                    disabled={!job.fulfillment_tracking}
+                    style={{ background: job.fulfillment_tracking ? T.green : T.surface, border: "none", borderRadius: 6, color: job.fulfillment_tracking ? "#fff" : T.faint, fontSize: 12, fontWeight: 600, padding: "8px 20px", cursor: job.fulfillment_tracking ? "pointer" : "default", opacity: job.fulfillment_tracking ? 1 : 0.5 }}>
+                    Mark Shipped
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );

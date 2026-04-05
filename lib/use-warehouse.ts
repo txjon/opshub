@@ -37,6 +37,11 @@ export type WarehouseJob = {
   fulfillment_status: string | null;
   fulfillment_tracking: string | null;
   client_name: string;
+  ship_to_address: string;
+  ship_method: string;
+  packing_notes: string;
+  contact_name: string;
+  contact_phone: string;
   items: WarehouseItem[];
 };
 
@@ -52,7 +57,7 @@ export function useWarehouse() {
     setLoading(true);
     const { data: dbJobs } = await supabase
       .from("jobs")
-      .select("id, title, job_number, shipping_route, fulfillment_status, fulfillment_tracking, phase, clients(name)")
+      .select("id, title, job_number, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
       .not("phase", "in", '("complete","cancelled")')
       .not("shipping_route", "eq", "drop_ship")
       .order("created_at", { ascending: false });
@@ -60,11 +65,12 @@ export function useWarehouse() {
     if (!dbJobs?.length) { setJobs([]); setLoading(false); return; }
 
     const jobIds = dbJobs.map(j => j.id);
-    const { data: allItems } = await supabase
-      .from("items")
-      .select("*, buy_sheet_lines(size, qty_ordered)")
-      .in("job_id", jobIds)
-      .order("sort_order");
+    const [itemsRes, contactsRes] = await Promise.all([
+      supabase.from("items").select("*, buy_sheet_lines(size, qty_ordered)").in("job_id", jobIds).order("sort_order"),
+      supabase.from("job_contacts").select("job_id, role_on_job, contacts(name, phone, email)").in("job_id", jobIds),
+    ]);
+    const allItems = itemsRes.data;
+    const allContacts = contactsRes.data || [];
 
     const mapped: WarehouseJob[] = [];
     for (const j of dbJobs) {
@@ -74,6 +80,11 @@ export function useWarehouse() {
       );
       if (relevant.length === 0) continue;
 
+      const typeMeta = (j as any).type_meta || {};
+      const primaryContact = allContacts.find((c: any) => c.job_id === j.id && c.role_on_job === "primary");
+      const contactData = (primaryContact as any)?.contacts || {};
+      const packingNotes = relevant.map((it: any) => it.packing_notes).filter(Boolean).join(" · ");
+
       mapped.push({
         id: j.id,
         title: j.title,
@@ -82,6 +93,11 @@ export function useWarehouse() {
         fulfillment_status: j.fulfillment_status,
         fulfillment_tracking: j.fulfillment_tracking,
         client_name: (j as any).clients?.name || "",
+        ship_to_address: typeMeta.venue_address || (j as any).clients?.shipping_address || "",
+        ship_method: Object.values(typeMeta.po_ship_methods || {})[0] as string || "",
+        packing_notes: packingNotes,
+        contact_name: contactData.name || "",
+        contact_phone: contactData.phone || contactData.email || "",
         items: relevant.map((it: any) => {
           const lines = it.buy_sheet_lines || [];
           return {
