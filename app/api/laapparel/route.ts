@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
 const LAA_ID = process.env.LAA_API_ID || "";
 const LAA_PW = process.env.LAA_API_PASSWORD || "";
@@ -6,9 +7,17 @@ const PRODUCT_URL = "https://promo.losangelesapparel.net/promoStandards/productD
 const INVENTORY_URL = "https://promo.losangelesapparel.net/promoStandards/inventory.php";
 const PRICING_URL = "https://promo.losangelesapparel.net/promoStandards/productPricingAndConfig.php";
 
-// In-memory cache for product list (refreshes every 30 min)
-let productCache: { data: any[]; ts: number } | null = null;
-const CACHE_TTL = 30 * 60 * 1000;
+const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
+const admin = () => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+async function getCached(key: string): Promise<{ data: any; fresh: boolean } | null> {
+  const { data } = await admin().from("api_cache").select("data, updated_at").eq("key", key).single();
+  if (!data) return null;
+  return { data: data.data, fresh: Date.now() - new Date(data.updated_at).getTime() < CACHE_TTL };
+}
+async function setCache(key: string, value: any) {
+  await admin().from("api_cache").upsert({ key, data: value, updated_at: new Date().toISOString() });
+}
 
 // Simple XML tag extractor (no dependencies)
 function extractTag(xml: string, tag: string): string {
@@ -141,51 +150,40 @@ export async function GET(request: NextRequest) {
   // Product list — returns style codes with names and categories
   if (endpoint === "products") {
     try {
-      if (productCache && Date.now() - productCache.ts < CACHE_TTL) {
-        return NextResponse.json(productCache.data);
+      // Check DB cache first
+      const cached = await getCached("laapparel_products");
+      if (cached) {
+        // Return immediately, refresh in background if stale
+        if (!cached.fresh) {
+          fetchProductList().then(async ids => {
+            let dbProducts: Record<string, any> = {};
+            const { data: catalog } = await admin().from("la_apparel_catalog").select("style_code, description, category").order("style_code");
+            if (catalog) for (const row of catalog) dbProducts[row.style_code] = { name: row.description, category: row.category };
+            const products = ids.map(id => ({ styleCode: id, name: dbProducts[id]?.name || "", category: dbProducts[id]?.category || "", colors: [] }));
+            await setCache("laapparel_products", products);
+          }).catch(() => {});
+        }
+        return NextResponse.json(cached.data);
       }
 
-      // Get product IDs (fast — single API call)
+      // Cold start — fetch from API
       const productIds = await fetchProductList();
-
-      // Try to enrich from Supabase cache first
       let dbProducts: Record<string, any> = {};
       try {
-        const { createClient } = await import("@supabase/supabase-js");
-        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-        const { data: catalog } = await supabase.from("la_apparel_catalog").select("style_code, description, category").order("style_code");
-        if (catalog) {
-          for (const row of catalog) {
-            if (!dbProducts[row.style_code]) dbProducts[row.style_code] = { name: row.description, category: row.category };
-          }
-        }
+        const { data: catalog } = await admin().from("la_apparel_catalog").select("style_code, description, category").order("style_code");
+        if (catalog) for (const row of catalog) dbProducts[row.style_code] = { name: row.description, category: row.category };
       } catch {}
 
-      // Build product list — use DB names if available, otherwise just show style code
       const products = productIds.map(id => ({
-        styleCode: id,
-        name: dbProducts[id]?.name || "",
-        category: dbProducts[id]?.category || "",
-        colors: [],
+        styleCode: id, name: dbProducts[id]?.name || "", category: dbProducts[id]?.category || "", colors: [],
       }));
 
-      // Background: fetch details for products without names (first 20 only, don't block)
-      const missing = products.filter(p => !p.name).slice(0, 20);
-      if (missing.length > 0) {
-        Promise.all(missing.map(p => fetchProduct(p.styleCode).then(r => {
-          const idx = products.findIndex(x => x.styleCode === p.styleCode);
-          if (idx >= 0 && r?.name) {
-            products[idx].name = r.name;
-            products[idx].category = r.categories?.find((c: string) => ["Tees","Hoodies","Crewnecks","Jackets","Long Sleeve","Hats","Pants","Shorts"].includes(c)) || r.categories?.[0] || "";
-          }
-        }).catch(() => {}))).then(() => {
-          productCache = { data: products, ts: Date.now() };
-        });
-      }
-
-      productCache = { data: products, ts: Date.now() };
+      await setCache("laapparel_products", products);
       return NextResponse.json(products);
     } catch (e: any) {
+      // Fallback to stale cache
+      const stale = await getCached("laapparel_products");
+      if (stale) return NextResponse.json(stale.data);
       return NextResponse.json({ error: e.message || "Failed to fetch products" }, { status: 500 });
     }
   }

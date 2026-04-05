@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
 const AC_BASE = "https://api.ascolour.com/v1";
 const getSubKey = () => process.env.ASCOLOUR_SUBSCRIPTION_KEY || "";
+const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
 
-// Token cache
+const admin = () => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+// Token cache (OK in-memory — only used during active refresh)
 let cachedToken: string | null = null;
 let tokenExpiry = 0;
-
-// Data caches (30 min TTL)
-const CACHE_TTL = 30 * 60 * 1000;
-let productCache: { data: any[]; ts: number } | null = null;
-let pricingCache: { data: any[]; ts: number } | null = null;
 
 async function getAuthToken(): Promise<string> {
   if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
@@ -46,6 +45,19 @@ async function paginate(url: string, h: Record<string, string>): Promise<any[]> 
   return all;
 }
 
+async function getCached(key: string): Promise<{ data: any; fresh: boolean } | null> {
+  const sb = admin();
+  const { data } = await sb.from("api_cache").select("data, updated_at").eq("key", key).single();
+  if (!data) return null;
+  const age = Date.now() - new Date(data.updated_at).getTime();
+  return { data: data.data, fresh: age < CACHE_TTL };
+}
+
+async function setCache(key: string, value: any) {
+  const sb = admin();
+  await sb.from("api_cache").upsert({ key, data: value, updated_at: new Date().toISOString() });
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const endpoint = searchParams.get("endpoint");
@@ -56,9 +68,16 @@ export async function GET(request: NextRequest) {
 
   try {
     if (endpoint === "products") {
-      if (productCache && Date.now() - productCache.ts < CACHE_TTL) return NextResponse.json(productCache.data);
+      const cached = await getCached("ascolour_products");
+      if (cached) {
+        // Return cached data immediately, refresh in background if stale
+        if (!cached.fresh) {
+          paginate(`${AC_BASE}/catalog/products`, hdrs()).then(data => setCache("ascolour_products", data)).catch(() => {});
+        }
+        return NextResponse.json(cached.data);
+      }
       const data = await paginate(`${AC_BASE}/catalog/products`, hdrs());
-      productCache = { data, ts: Date.now() };
+      await setCache("ascolour_products", data);
       return NextResponse.json(data);
 
     } else if (endpoint === "variants") {
@@ -70,15 +89,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(await paginate(url, hdrs()));
 
     } else if (endpoint === "pricing") {
-      if (pricingCache && Date.now() - pricingCache.ts < CACHE_TTL) return NextResponse.json(pricingCache.data);
+      const cached = await getCached("ascolour_pricing");
+      if (cached) {
+        if (!cached.fresh) {
+          authHdrs().then(h => paginate(`${AC_BASE}/catalog/pricelist`, h)).then(data => setCache("ascolour_pricing", data)).catch(() => {});
+        }
+        return NextResponse.json(cached.data);
+      }
       const data = await paginate(`${AC_BASE}/catalog/pricelist`, await authHdrs());
-      pricingCache = { data, ts: Date.now() };
+      await setCache("ascolour_pricing", data);
       return NextResponse.json(data);
 
     } else {
       return NextResponse.json({ error: "Unknown endpoint" }, { status: 400 });
     }
   } catch (err) {
+    // If fetch fails, try returning stale cache
+    const fallbackKey = endpoint === "products" ? "ascolour_products" : endpoint === "pricing" ? "ascolour_pricing" : null;
+    if (fallbackKey) {
+      const stale = await getCached(fallbackKey);
+      if (stale) return NextResponse.json(stale.data);
+    }
     return NextResponse.json({ error: "Failed to fetch", detail: String(err) }, { status: 500 });
   }
 }
