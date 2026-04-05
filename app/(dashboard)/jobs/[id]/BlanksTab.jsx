@@ -14,6 +14,8 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
   const [proofStatus, setProofStatus] = useState({});
   const saveTimers = useRef({});
   const pendingSaves = useRef({});
+  const [ssSyncing, setSsSyncing] = useState(false);
+  const [ssResult, setSsResult] = useState(null); // { matched, total } or error string
 
   // Save pending changes on unmount
   useEffect(() => {
@@ -80,6 +82,104 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
     saveTimers.current[key] = setTimeout(doSave, 800);
   }
 
+  // ── S&S Orders sync ──
+  const ssItems = useMemo(() => items.filter(it =>
+    !it.blank_vendor || it.blank_vendor === "S&S Activewear" || it.blank_vendor?.startsWith("S&S")
+  ), [items]);
+  const hasSSItems = ssItems.length > 0;
+
+  async function syncSSOrders() {
+    if (!job?.job_number || ssSyncing) return;
+    setSsSyncing(true);
+    setSsResult(null);
+    try {
+      // Fetch orders matching this project's job number as PO number
+      const res = await fetch(`/api/ss?endpoint=orders&po=${encodeURIComponent(job.job_number)}`);
+      if (!res.ok) throw new Error("Failed to fetch S&S orders");
+      const orders = await res.json();
+
+      // S&S returns array of orders (or single object)
+      const orderList = Array.isArray(orders) ? orders : orders ? [orders] : [];
+      if (orderList.length === 0) {
+        setSsResult({ matched: 0, total: 0, message: `No S&S orders found for PO ${job.job_number}` });
+        setSsSyncing(false);
+        return;
+      }
+
+      let matched = 0;
+
+      for (const order of orderList) {
+        const orderNumber = order.orderNumber || order.OrderNumber || order.order_number || "";
+        const orderTotal = order.total || order.Total || order.orderTotal || 0;
+        const poNumber = order.poNumber || order.PONumber || order.po_number || "";
+        const trackingNumber = order.trackingNumber || order.TrackingNumber || "";
+        const carrier = order.shippingCarrier || order.ShippingCarrier || "";
+        const status = order.orderStatus || order.OrderStatus || order.status || "";
+
+        // Match to items: PO number might be "HPD-2603-014" (whole project)
+        // or "HPD-2603-014A" (specific item letter)
+        const itemLetter = poNumber.replace(job.job_number, "").trim().toUpperCase();
+
+        let matchedItems = [];
+        if (itemLetter && itemLetter.length === 1) {
+          // Specific item: match by letter index (A=0, B=1, etc)
+          const idx = itemLetter.charCodeAt(0) - 65;
+          if (idx >= 0 && idx < ssItems.length) {
+            matchedItems = [ssItems[idx]];
+          }
+        } else if (ssItems.length === 1) {
+          // Only one S&S item — auto-match
+          matchedItems = [ssItems[0]];
+        } else {
+          // Multiple items, no letter suffix — try to match by line items in order
+          // For now, apply to all S&S items that don't have an order yet
+          matchedItems = ssItems.filter(it => !localFields[it.id]?.blanks_order_number);
+          if (matchedItems.length === 0) matchedItems = ssItems;
+        }
+
+        for (const item of matchedItems) {
+          if (!item) continue;
+          const updates = {};
+
+          if (orderNumber) {
+            updates.blanks_order_number = String(orderNumber);
+            setLocalFields(p => ({ ...p, [item.id]: { ...p[item.id], blanks_order_number: String(orderNumber) } }));
+            await supabase.from("items").update({ blanks_order_number: String(orderNumber) }).eq("id", item.id);
+            if (onUpdateItem) onUpdateItem(item.id, { blanks_order_number: String(orderNumber) });
+          }
+
+          if (orderTotal) {
+            const cost = typeof orderTotal === "string" ? parseFloat(orderTotal) : orderTotal;
+            if (cost > 0) {
+              const costStr = cost.toFixed(2);
+              setLocalFields(p => ({ ...p, [item.id]: { ...p[item.id], blanks_order_cost: costStr } }));
+              await supabase.from("items").update({ blanks_order_cost: cost }).eq("id", item.id);
+              if (onUpdateItem) onUpdateItem(item.id, { blanks_order_cost: cost });
+            }
+          }
+
+          // If shipped, save tracking
+          if (trackingNumber && (status === "Shipped" || status === "Delivered")) {
+            await supabase.from("items").update({
+              incoming_goods: `S&S shipped${carrier ? ` via ${carrier}` : ""} — tracking: ${trackingNumber}`,
+            }).eq("id", item.id);
+            if (onUpdateItem) onUpdateItem(item.id, { incoming_goods: `S&S shipped${carrier ? ` via ${carrier}` : ""} — tracking: ${trackingNumber}` });
+          }
+
+          matched++;
+          logJobActivity(job.id, `S&S order synced for ${item.name} — Order #${orderNumber}${orderTotal ? `, $${parseFloat(orderTotal).toFixed(2)}` : ""}${status ? `, status: ${status}` : ""}`);
+        }
+      }
+
+      setSsResult({ matched, total: orderList.length, message: `${matched} item${matched !== 1 ? "s" : ""} synced from ${orderList.length} S&S order${orderList.length !== 1 ? "s" : ""}` });
+      if (onRecalcPhase) onRecalcPhase();
+    } catch (err) {
+      console.error("S&S sync error:", err);
+      setSsResult({ matched: 0, total: 0, message: `Sync failed: ${err.message}` });
+    }
+    setSsSyncing(false);
+  }
+
   // Gate checks
   const quoteApproved = job?.quote_approved;
   const terms = job?.payment_terms || "";
@@ -143,6 +243,32 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
       {gatesMet && (
         <div style={{ background: T.greenDim, border: `1px solid ${T.green}44`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: T.green, fontWeight: 600 }}>
           All gates met — ready to order blanks
+        </div>
+      )}
+
+      {/* S&S sync button — only for projects with S&S items */}
+      {hasSSItems && job?.job_number && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+          <button
+            onClick={syncSSOrders}
+            disabled={ssSyncing}
+            style={{
+              background: T.accent, border: "none", borderRadius: 6,
+              color: "#fff", fontSize: 11, fontWeight: 600, padding: "6px 14px",
+              cursor: ssSyncing ? "default" : "pointer", opacity: ssSyncing ? 0.5 : 1,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {ssSyncing ? "Syncing..." : "Sync S&S Orders"}
+          </button>
+          <span style={{ fontSize: 10, color: T.muted }}>
+            Auto-fill order numbers, costs & tracking from S&S using PO #{job.job_number}
+          </span>
+          {ssResult && (
+            <span style={{ fontSize: 10, fontWeight: 600, color: ssResult.matched > 0 ? T.green : T.amber, marginLeft: "auto" }}>
+              {ssResult.message}
+            </span>
+          )}
         </div>
       )}
 

@@ -27,13 +27,10 @@ export async function GET(request: NextRequest) {
 
     if (endpoint === "search") {
       if (query && brand) {
-        // Search term within a brand: search for "BrandName query"
         url = `${SS_BASE}/styles?search=${encodeURIComponent(brand + " " + query)}`;
       } else if (brand) {
-        // Browse by brand only
         url = `${SS_BASE}/styles?search=${encodeURIComponent(brand)}`;
       } else if (query) {
-        // Search by keyword or style number
         url = `${SS_BASE}/styles?search=${encodeURIComponent(query)}`;
       } else {
         url = `${SS_BASE}/styles`;
@@ -42,6 +39,21 @@ export async function GET(request: NextRequest) {
       url = `${SS_BASE}/products?styleId=${styleId}`;
     } else if (endpoint === "brands") {
       url = `${SS_BASE}/brands`;
+    } else if (endpoint === "orders") {
+      // Fetch recent orders — optionally filter by PO number
+      const po = searchParams.get("po") || "";
+      if (po) {
+        url = `${SS_BASE}/orders?poNumber=${encodeURIComponent(po)}`;
+      } else {
+        // Last 90 days of orders
+        const since = new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0];
+        url = `${SS_BASE}/orders?startDate=${since}`;
+      }
+    } else if (endpoint === "order") {
+      // Single order by order number
+      const orderNum = searchParams.get("orderNumber") || "";
+      if (!orderNum) return NextResponse.json({ error: "Missing orderNumber" }, { status: 400 });
+      url = `${SS_BASE}/orders/${encodeURIComponent(orderNum)}`;
     } else {
       return NextResponse.json({ error: "Unknown endpoint" }, { status: 400 });
     }
