@@ -11,20 +11,26 @@ const admin = () =>
 
 /**
  * Inbound email webhook — receives replies routed via Resend.
- * Reply-to format: reply+{jobId}@{inbound_domain}
  *
- * Resend inbound webhook sends:
- * { from, to, cc, subject, text, html, headers, ... }
+ * Resend sends: { type: "email.received", data: { email_id, from, to, subject, text, html, ... } }
+ * The "to" field contains the reply+{jobId}@reply.housepartydistro.com address.
  *
- * Setup: Configure RESEND_INBOUND_DOMAIN env var and point MX records to Resend.
- * Then add this endpoint as the webhook URL in Resend dashboard.
+ * Setup: Add webhook in Resend dashboard pointing to this URL with "email.received" event.
+ * MX record for reply.housepartydistro.com → inbound-smtp.resend.com
  */
 export async function POST(req: NextRequest) {
   try {
     const sb = admin();
     const payload = await req.json();
 
-    const { from, to, cc, subject, text, html } = payload;
+    // Resend wraps in { type, data } or sends flat — handle both
+    const emailData = payload.data || payload;
+    const from = emailData.from || emailData.from_address;
+    const to = emailData.to || emailData.to_addresses || [];
+    const cc = emailData.cc || emailData.cc_addresses || [];
+    const subject = emailData.subject;
+    const text = emailData.text;
+    const html = emailData.html;
 
     // Extract jobId from the "to" address
     // Format: reply+{jobId}@domain
@@ -41,7 +47,6 @@ export async function POST(req: NextRequest) {
     }
 
     if (!jobId) {
-      // Can't route this email — log and return 200 (Resend requires 200)
       console.warn("[Inbound] Could not extract jobId from:", toAddresses);
       return NextResponse.json({ received: true, routed: false });
     }
