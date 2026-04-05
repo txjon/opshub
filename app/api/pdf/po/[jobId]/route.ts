@@ -473,7 +473,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       vendor_zip: (decoratorRecord as any)?.zip || firstDecorator?.zip || "",
       payment_terms: (job.payment_terms || "").replace(/_/g, " "),
       ship_method: (job.type_meta as any)?.po_ship_methods?.[vendorName] || orderInfo.shipMethod || "",
-      ship_to_address: (job.type_meta as any)?.venue_address || "",
+      ship_to_address: (job.type_meta as any)?.po_ship_to?.[vendorName]
+        || ((job as any).shipping_route === "drop_ship"
+          ? (job.type_meta as any)?.venue_address || ""
+          : "House Party Distro\n4670 W Silverado Ranch Blvd. STE 120\nLas Vegas, NV 89118"),
       items: vendorItems,
     };
 

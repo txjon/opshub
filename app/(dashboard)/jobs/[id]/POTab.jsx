@@ -135,7 +135,13 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
   const supabase = createClient();
   const [decorators,setDecorators] = useState([]);
   const [shipMethods,setShipMethods] = useState(project?.type_meta?.po_ship_methods || {});
+  const [poShipTo,setPoShipTo] = useState(project?.type_meta?.po_ship_to || {});
   const [selectedVendor,setSelectedVendor] = useState("");
+
+  const HPD_WAREHOUSE = "House Party Distro\n4670 W Silverado Ranch Blvd. STE 120\nLas Vegas, NV 89118";
+  const clientAddress = project?.type_meta?.venue_address || "";
+  const shippingRoute = project?.shipping_route || "ship_through";
+  const defaultShipTo = shippingRoute === "drop_ship" ? clientAddress : HPD_WAREHOUSE;
   const [itemFields,setItemFields] = useState({});
   const [saving,setSaving] = useState({});
   const [showPreview,setShowPreview] = useState(false);
@@ -245,7 +251,6 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
               const val=e.target.value;
               const updated={...shipMethods,[active]:val};
               setShipMethods(updated);
-              // Read fresh type_meta from DB to avoid overwriting other fields
               const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
               const meta = { ...(fresh?.type_meta || {}), po_ship_methods: updated };
               await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
@@ -255,6 +260,24 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
               <option value="">— select —</option>
               {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship to</span>
+              <span style={{fontSize:9,padding:"1px 6px",borderRadius:99,background:shippingRoute==="drop_ship"?T.greenDim:T.accentDim,color:shippingRoute==="drop_ship"?T.green:T.accent}}>
+                {shippingRoute==="drop_ship"?"Client address":"HPD warehouse"}
+              </span>
+            </div>
+            <textarea value={poShipTo[active]||defaultShipTo} onChange={async e=>{
+              const val=e.target.value;
+              const updated={...poShipTo,[active]:val};
+              setPoShipTo(updated);
+              const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
+              const meta = { ...(fresh?.type_meta || {}), po_ship_to: updated };
+              await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
+              if(onUpdateJob) onUpdateJob({type_meta:meta});
+            }}
+              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"6px 10px",outline:"none",resize:"vertical",minHeight:60,lineHeight:1.4}}/>
           </div>
         </div>
         {ready&&(
