@@ -285,7 +285,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
             </div>
           </div>
           {/* Right: items ready + buttons */}
-          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8,paddingTop:14}}>
+          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
             {ready&&(
               <div style={{fontSize:14,fontWeight:600,color:allFilled?T.green:T.amber}}>
                 {vItems.filter(it=>itemFields[it.id]?.packing_notes?.trim()).length}/{vItems.length} items ready
