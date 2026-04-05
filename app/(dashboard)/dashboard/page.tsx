@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { T, font, mono } from "@/lib/theme";
+import { AlertGroups } from "@/components/AlertGroups";
 
 const PHASE_STYLES: Record<string,{bg:string,text:string,label:string}> = {
   intake:         { bg:T.surface,    text:T.muted,   label:"Intake" },
@@ -22,6 +23,8 @@ type Alert = {
   sub: string;
   href: string; // deep link to specific tab
   time?: string;
+  jobId: string;
+  projectName: string;
 };
 
 export default async function DashboardPage() {
@@ -70,21 +73,14 @@ export default async function DashboardPage() {
 
   const activeJobs = jobs || [];
   const alerts: Alert[] = [];
+  const jn = (j: any) => `${(j.clients as any)?.name || ""} — ${j.title}`;
 
   // ── CRITICAL: Revision requests from clients ──
   for (const j of activeJobs) {
     for (const it of (j.items || [])) {
       if (proofMap[it.id]?.hasRevision) {
-        const revisionActivity = (recentNotifs || []).find(n =>
-          n.job_id === j.id && n.message.toLowerCase().includes("revision") && n.message.includes(it.name)
-        );
-        alerts.push({
-          priority: 0, type: "revision", label: "Revision", bg: T.redDim, color: T.red,
-          title: `${(j.clients as any)?.name} — ${it.name}`,
-          sub: "Client requested changes",
-          href: `/jobs/${j.id}?tab=art`,
-          time: revisionActivity?.created_at,
-        });
+        const ra = (recentNotifs || []).find(n => n.job_id === j.id && n.message.toLowerCase().includes("revision") && n.message.includes(it.name));
+        alerts.push({ priority: 0, type: "revision", label: "Revision", bg: T.redDim, color: T.red, title: it.name, sub: "Client requested changes", href: `/jobs/${j.id}?tab=art`, time: ra?.created_at, jobId: j.id, projectName: jn(j) });
       }
     }
   }
@@ -92,77 +88,47 @@ export default async function DashboardPage() {
   // ── CRITICAL: Overdue projects ──
   for (const j of activeJobs.filter(j => j.target_ship_date && new Date(j.target_ship_date) < now)) {
     const days = Math.abs(Math.ceil((new Date(j.target_ship_date!).getTime() - now.getTime()) / 86400000));
-    alerts.push({
-      priority: 0, type: "overdue", label: "Overdue", bg: T.redDim, color: T.red,
-      title: `${(j.clients as any)?.name} — ${j.title}`,
-      sub: `${days}d past ship date · ${(PHASE_STYLES[j.phase] || {}).label || j.phase}`,
-      href: `/jobs/${j.id}`,
-    });
+    alerts.push({ priority: 0, type: "overdue", label: "Overdue", bg: T.redDim, color: T.red, title: jn(j), sub: `${days}d past ship date`, href: `/jobs/${j.id}`, jobId: j.id, projectName: jn(j) });
   }
 
   // ── HIGH: Overdue payments ──
   for (const p of (payments || []).filter(p => p.due_date && new Date(p.due_date) < now)) {
     const days = Math.abs(Math.ceil((new Date(p.due_date).getTime() - now.getTime()) / 86400000));
-    alerts.push({
-      priority: 1, type: "payment_overdue", label: "Payment Overdue", bg: T.redDim, color: T.red,
-      title: `${(p.jobs as any)?.clients?.name || ""} — ${(p.jobs as any)?.title || ""}`,
-      sub: `$${(p.amount || 0).toLocaleString()} · ${days}d overdue`,
-      href: `/jobs/${(p.jobs as any)?.id || ""}?tab=approvals`,
-    });
+    const jid = (p.jobs as any)?.id || "";
+    alerts.push({ priority: 1, type: "payment_overdue", label: "Payment Overdue", bg: T.redDim, color: T.red, title: `$${(p.amount||0).toLocaleString()}`, sub: `${days}d overdue`, href: `/jobs/${jid}?tab=approvals`, jobId: jid, projectName: `${(p.jobs as any)?.clients?.name||""} — ${(p.jobs as any)?.title||""}` });
   }
 
   // ── HIGH: Quote approved — ready to act ──
   for (const j of activeJobs) {
     if ((j as any).quote_approved && j.phase === "pending") {
-      alerts.push({
-        priority: 1, type: "quote_approved", label: "Quote Approved", bg: T.greenDim, color: T.green,
-        title: `${(j.clients as any)?.name} — ${j.title}`,
-        sub: "Send proofs + collect payment",
-        href: `/jobs/${j.id}?tab=approvals`,
-        time: (j as any).quote_approved_at,
-      });
+      alerts.push({ priority: 1, type: "quote_approved", label: "Quote Approved", bg: T.greenDim, color: T.green, title: "Ready to proceed", sub: "Send proofs + collect payment", href: `/jobs/${j.id}?tab=approvals`, time: (j as any).quote_approved_at, jobId: j.id, projectName: jn(j) });
     }
   }
 
-  // ── HIGH: Proofs pending approval (sent but not approved) ──
+  // ── HIGH: Proofs pending ──
   for (const j of activeJobs) {
     if (!(j as any).quote_approved) continue;
     const pending = (j.items || []).filter((it: any) => proofMap[it.id]?.pendingCount > 0);
     if (pending.length > 0) {
-      alerts.push({
-        priority: 1, type: "proofs_pending", label: "Proofs Pending", bg: T.amberDim, color: T.amber,
-        title: `${(j.clients as any)?.name} — ${j.title}`,
-        sub: `${pending.length} item${pending.length !== 1 ? "s" : ""} awaiting client approval`,
-        href: `/jobs/${j.id}?tab=approvals`,
-      });
+      alerts.push({ priority: 1, type: "proofs_pending", label: "Proofs Pending", bg: T.amberDim, color: T.amber, title: `${pending.length} item${pending.length !== 1 ? "s" : ""}`, sub: "Awaiting client approval", href: `/jobs/${j.id}?tab=approvals`, jobId: j.id, projectName: jn(j) });
     }
   }
 
-  // ── HIGH: Payment needed (quote approved, no payment yet) ──
+  // ── HIGH: Payment needed ──
   for (const j of activeJobs) {
     if (!(j as any).quote_approved) continue;
     const terms = j.payment_terms || "";
-    if (terms === "net_15" || terms === "net_30") continue; // Net terms don't need upfront
+    if (terms === "net_15" || terms === "net_30") continue;
     const jobPayments = (payments || []).filter(p => (p.jobs as any)?.id === j.id);
     if (jobPayments.length === 0 && j.phase === "pending") {
-      alerts.push({
-        priority: 1, type: "payment_needed", label: "Payment Needed", bg: T.amberDim, color: T.amber,
-        title: `${(j.clients as any)?.name} — ${j.title}`,
-        sub: `${terms.replace(/_/g, " ")} — no payment recorded`,
-        href: `/jobs/${j.id}?tab=approvals`,
-      });
+      alerts.push({ priority: 1, type: "payment_needed", label: "Payment Needed", bg: T.amberDim, color: T.amber, title: terms.replace(/_/g, " "), sub: "No payment recorded", href: `/jobs/${j.id}?tab=approvals`, jobId: j.id, projectName: jn(j) });
     }
   }
 
-  // ── MEDIUM: Quote not sent/approved ──
+  // ── MEDIUM: Quote not approved ──
   for (const j of activeJobs) {
     if (j.phase === "intake" && !(j as any).quote_approved && (j.items || []).length > 0) {
-      alerts.push({
-        priority: 2, type: "quote_pending", label: "Quote", bg: T.purpleDim, color: T.purple,
-        title: `${(j.clients as any)?.name} — ${j.title}`,
-        sub: "Quote not yet approved",
-        href: `/jobs/${j.id}?tab=quote`,
-      });
+      alerts.push({ priority: 2, type: "quote_pending", label: "Quote", bg: T.purpleDim, color: T.purple, title: "Not yet approved", sub: "", href: `/jobs/${j.id}?tab=quote`, jobId: j.id, projectName: jn(j) });
     }
   }
 
@@ -171,12 +137,7 @@ export default async function DashboardPage() {
     if (j.phase !== "ready") continue;
     const needsBlanks = (j.items || []).filter((it: any) => !it.blanks_order_number);
     if (needsBlanks.length > 0) {
-      alerts.push({
-        priority: 2, type: "blanks", label: "Order Blanks", bg: T.accentDim, color: T.accent,
-        title: `${(j.clients as any)?.name} — ${j.title}`,
-        sub: `${needsBlanks.length} item${needsBlanks.length !== 1 ? "s" : ""} need blanks ordered`,
-        href: `/jobs/${j.id}?tab=blanks`,
-      });
+      alerts.push({ priority: 2, type: "blanks", label: "Order Blanks", bg: T.accentDim, color: T.accent, title: `${needsBlanks.length} item${needsBlanks.length !== 1 ? "s" : ""}`, sub: "", href: `/jobs/${j.id}?tab=blanks`, jobId: j.id, projectName: jn(j) });
     }
   }
 
@@ -188,17 +149,24 @@ export default async function DashboardPage() {
     const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))] as string[];
     const unsent = vendors.filter(v => !poSent.includes(v));
     if (unsent.length > 0 && (j.items || []).some((it: any) => it.blanks_order_number)) {
-      alerts.push({
-        priority: 2, type: "po", label: "Send PO", bg: T.accentDim, color: T.accent,
-        title: `${(j.clients as any)?.name} — ${j.title}`,
-        sub: `PO not sent: ${unsent.join(", ")}`,
-        href: `/jobs/${j.id}?tab=po`,
-      });
+      alerts.push({ priority: 2, type: "po", label: "Send PO", bg: T.accentDim, color: T.accent, title: unsent.join(", "), sub: "", href: `/jobs/${j.id}?tab=po`, jobId: j.id, projectName: jn(j) });
     }
   }
 
-  // Sort: critical first, then high, then medium
   alerts.sort((a, b) => a.priority - b.priority);
+
+  // Group alerts by project
+  const groupedAlerts: { jobId: string; projectName: string; topPriority: number; alerts: Alert[] }[] = [];
+  for (const a of alerts) {
+    let group = groupedAlerts.find(g => g.jobId === a.jobId);
+    if (!group) {
+      group = { jobId: a.jobId, projectName: a.projectName, topPriority: a.priority, alerts: [] };
+      groupedAlerts.push(group);
+    }
+    group.alerts.push(a);
+    if (a.priority < group.topPriority) group.topPriority = a.priority;
+  }
+  groupedAlerts.sort((a, b) => a.topPriority - b.topPriority);
 
   const criticalCount = alerts.filter(a => a.priority === 0).length;
   const highCount = alerts.filter(a => a.priority === 1).length;
@@ -213,15 +181,6 @@ export default async function DashboardPage() {
     const diff = Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000);
     return diff >= -1 && diff <= 7;
   });
-
-  const timeAgo = (iso: string) => {
-    const ms = now.getTime() - new Date(iso).getTime();
-    const m = Math.floor(ms / 60000);
-    if (m < 60) return `${m}m ago`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h}h ago`;
-    return `${Math.floor(h / 24)}d ago`;
-  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, fontFamily: font, color: T.text }}>
@@ -253,40 +212,8 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* ── ALERTS — full width, primary ── */}
-      {alerts.length > 0 && (
-        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Action Required</span>
-            <span style={{ fontSize: 10, color: T.faint }}>{alerts.length} items</span>
-          </div>
-          <div>
-            {alerts.map((alert, i) => (
-              <Link key={`${alert.type}-${i}`} href={alert.href}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
-                  borderBottom: i < alerts.length - 1 ? `1px solid ${T.border}` : "none",
-                  textDecoration: "none", transition: "background 0.1s",
-                  background: alert.priority === 0 ? T.redDim + "33" : "transparent",
-                }}>
-                <span style={{
-                  padding: "3px 10px", borderRadius: 99, fontSize: 10, fontWeight: 600,
-                  background: alert.bg, color: alert.color, whiteSpace: "nowrap", flexShrink: 0,
-                  minWidth: 80, textAlign: "center",
-                }}>{alert.label}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{alert.title}</div>
-                  <div style={{ fontSize: 10, color: T.muted, marginTop: 1 }}>{alert.sub}</div>
-                </div>
-                {alert.time && (
-                  <span style={{ fontSize: 10, color: T.faint, flexShrink: 0 }}>{timeAgo(alert.time)}</span>
-                )}
-                <span style={{ fontSize: 11, color: T.accent, flexShrink: 0 }}>→</span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* ── ALERTS — grouped by project ── */}
+      <AlertGroups groups={groupedAlerts} />
 
       {/* ── SECONDARY: Pipeline + Shipping | Active Projects ── */}
       <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 10 }}>
