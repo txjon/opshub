@@ -557,6 +557,13 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             const totShip=results.reduce((a,r)=>a+r.shipping,0);
             const totQty=results.reduce((a,r)=>a+r.qty,0);
             const profitPc=totQty>0?totProfit/totQty:0;
+            // PO totals by vendor
+            const poByVendor={};
+            costProds.forEach((cp,i)=>{
+              if(!cp.printVendor||!results[i]) return;
+              poByVendor[cp.printVendor]=(poByVendor[cp.printVendor]||0)+results[i].poTotal;
+            });
+            const vendorEntries=Object.entries(poByVendor).sort((a,b)=>b[1]-a[1]);
             return (
             <div style={{width:200,flexShrink:0,position:"sticky",top:20,display:"flex",flexDirection:"column",gap:8}}>
               <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
@@ -577,17 +584,21 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       ["Revenue",    fmtD(totGross),    T.accent],
                       ["Blanks",     fmtD(totBlank),    T.text],
                       ["PO Total",   fmtD(totPO),       T.text],
+                      ...vendorEntries.map(([v,t])=>["  "+v, fmtD(t), T.faint]),
                       ...(inclShip?[["Shipping", fmtD(totShip), T.text]]:[]),
                       ...(inclCC?[["CC Fees", fmtD(results.reduce((a,r)=>a+(r.ccFees||0),0)), T.text]]:[]),
                       ["Net Profit", fmtD(totProfit),   mc],
                       ["Margin",     fmtP(netMarg),     mc],
                       ["Per Piece",  fmtD(profitPc),    mc],
-                    ].map(([l,v,c],idx)=>(
-                      <tr key={l} style={{background:idx>=4?(mc===T.green?T.greenDim:mc===T.amber?T.amberDim:T.redDim):T.card,borderBottom:idx<6?`1px solid ${T.border}22`:"none"}}>
-                        <td style={{padding:"5px 10px",color:T.muted,fontFamily:font,fontWeight:500}}>{l}</td>
-                        <td style={{padding:"5px 10px",color:c,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{v}</td>
+                    ].map(([l,v,c],idx)=>{
+                      const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
+                      const isVendorSub=l.startsWith("  ");
+                      return (
+                      <tr key={l+idx} style={{background:isProfit?(mc===T.green?T.greenDim:mc===T.amber?T.amberDim:T.redDim):T.card,borderBottom:`1px solid ${T.border}22`}}>
+                        <td style={{padding:isVendorSub?"3px 10px 3px 18px":"5px 10px",color:isVendorSub?T.faint:T.muted,fontFamily:font,fontWeight:isVendorSub?400:500,fontSize:isVendorSub?10:11}}>{l}</td>
+                        <td style={{padding:isVendorSub?"3px 10px":"5px 10px",color:c,fontFamily:mono,fontWeight:isVendorSub?500:700,textAlign:"right",fontSize:isVendorSub?10:11}}>{v}</td>
                       </tr>
-                    ))}
+                    );})}
                   </tbody>
                 </table>
               </div>
