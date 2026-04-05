@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
         from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
         to: recipientEmail,
         ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
-        ...(proofReplyTo ? { reply_to: proofReplyTo } : {}),
+        ...(proofReplyTo ? { replyTo: proofReplyTo } : {}),
         subject: subject || "File for Review — House Party Distro",
         html: proofHtml,
       });
@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
       from: fromAddress,
       to: recipientEmail,
       ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
-      ...(replyTo ? { reply_to: replyTo } : {}),
+      ...(replyTo ? { replyTo: replyTo } : {}),
       subject: defaultSubject,
       html: type === "quote"
         ? `<p>Hi,</p><p>Here's your quote — take a look and let us know if you have any questions or want to make changes.</p>${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`

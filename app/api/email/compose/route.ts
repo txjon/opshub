@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       from: fromAddress,
       to: toEmail,
       ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
-      ...(replyTo ? { reply_to: replyTo } : {}),
+      ...(replyTo ? { replyTo: replyTo } : {}),
       subject,
       html: fullHtml,
     });
