@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS outside_shipments (
   received_by UUID REFERENCES auth.users(id),
   received_at TIMESTAMPTZ DEFAULT now(),
   resolved BOOLEAN DEFAULT false,
+  files JSONB DEFAULT '[]',
+  drive_folder_link TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

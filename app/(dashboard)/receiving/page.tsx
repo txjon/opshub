@@ -1,9 +1,10 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { useWarehouse, tQty } from "@/lib/use-warehouse";
+import { uploadToReceiving } from "@/lib/drive-upload-client";
 
 type OutsideShipment = {
   id: string;
@@ -16,6 +17,8 @@ type OutsideShipment = {
   job_id: string | null;
   resolved: boolean;
   received_at: string;
+  files: { name: string; driveLink: string; driveFileId: string }[];
+  drive_folder_link: string | null;
 };
 
 export default function ReceivingPage() {
@@ -26,6 +29,9 @@ export default function ReceivingPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ carrier: "", tracking: "", sender: "", description: "", condition: "good", notes: "" });
   const [saving, setSaving] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [jobs, setJobs] = useState<{ id: string; title: string; client_name: string; job_number: string }[]>([]);
   const [tab, setTab] = useState<"production" | "outside">("production");
   const [conditionNote, setConditionNote] = useState<Record<string, string>>({});
@@ -57,6 +63,31 @@ export default function ReceivingPage() {
   async function submitOutside() {
     if (!form.description.trim()) return;
     setSaving(true);
+
+    // Upload files to Drive if any
+    const uploadedFiles: { name: string; driveLink: string; driveFileId: string }[] = [];
+    let driveFolderLink = null;
+
+    if (pendingFiles.length > 0) {
+      const today = new Date().toISOString().split("T")[0];
+      const label = `${today} — ${form.sender || form.description}`.slice(0, 100);
+
+      for (let i = 0; i < pendingFiles.length; i++) {
+        const file = pendingFiles[i];
+        setUploadStatus(`Uploading ${i + 1}/${pendingFiles.length}...`);
+        try {
+          const result = await uploadToReceiving({
+            blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream", shipmentLabel: label,
+          });
+          uploadedFiles.push({ name: file.name, driveLink: result.webViewLink, driveFileId: result.fileId });
+          if (!driveFolderLink) driveFolderLink = result.folderLink;
+        } catch (err) {
+          console.error("Upload error:", err);
+        }
+      }
+      setUploadStatus("");
+    }
+
     await supabase.from("outside_shipments").insert({
       carrier: form.carrier || null,
       tracking: form.tracking || null,
@@ -64,8 +95,12 @@ export default function ReceivingPage() {
       description: form.description,
       condition: form.condition,
       notes: form.notes || null,
+      files: uploadedFiles.length > 0 ? uploadedFiles : [],
+      drive_folder_link: driveFolderLink,
     });
+
     setForm({ carrier: "", tracking: "", sender: "", description: "", condition: "good", notes: "" });
+    setPendingFiles([]);
     setShowForm(false);
     setSaving(false);
     loadOutside();
@@ -284,10 +319,42 @@ export default function ReceivingPage() {
                 <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Notes</label>
                 <input style={ic} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Any additional details" />
               </div>
+
+              {/* File upload */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Photos / Documents</label>
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; }}
+                  onDragLeave={e => { e.currentTarget.style.borderColor = T.border; }}
+                  onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; setPendingFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]); }}
+                  style={{
+                    border: `2px dashed ${T.border}`, borderRadius: 8, padding: "12px 16px",
+                    textAlign: "center", cursor: "pointer", transition: "border-color 0.15s",
+                  }}>
+                  <div style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>Drop files or click to browse</div>
+                  <div style={{ fontSize: 9, color: T.faint, marginTop: 2 }}>Photos of packaging, packing slips, damage, etc.</div>
+                </div>
+                <input ref={fileInputRef} type="file" multiple style={{ display: "none" }}
+                  onChange={e => { setPendingFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ""; }} />
+                {pendingFiles.length > 0 && (
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                    {pendingFiles.map((f, i) => (
+                      <span key={i} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.surface, color: T.muted, display: "flex", alignItems: "center", gap: 4 }}>
+                        {f.name}
+                        <button onClick={e => { e.stopPropagation(); setPendingFiles(prev => prev.filter((_, j) => j !== i)); }}
+                          style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, padding: 0 }}>x</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {uploadStatus && <div style={{ fontSize: 10, color: T.accent, marginTop: 4 }}>{uploadStatus}</div>}
+              </div>
+
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={submitOutside} disabled={saving || !form.description.trim()}
                   style={{ padding: "8px 20px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 12, fontWeight: 600, opacity: saving || !form.description.trim() ? 0.5 : 1 }}>
-                  {saving ? "Saving..." : "Log Shipment"}
+                  {saving ? (uploadStatus || "Saving...") : "Log Shipment"}
                 </button>
                 <button onClick={() => setShowForm(false)}
                   style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, cursor: "pointer", background: "transparent", color: T.muted, fontSize: 12 }}>
@@ -315,6 +382,22 @@ export default function ReceivingPage() {
                       <span>{new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
                     </div>
                     {s.notes && <div style={{ fontSize: 11, color: T.faint, marginTop: 4 }}>{s.notes}</div>}
+                    {s.files?.length > 0 && (
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                        {s.files.map((f, i) => (
+                          <a key={i} href={f.driveLink} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.accentDim, color: T.accent, textDecoration: "none" }}>
+                            {f.name}
+                          </a>
+                        ))}
+                        {s.drive_folder_link && (
+                          <a href={s.drive_folder_link} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.surface, color: T.muted, textDecoration: "none" }}>
+                            Open folder
+                          </a>
+                        )}
+                      </div>
+                    )}
                     <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
                       <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99,
                         background: s.condition === "good" ? T.greenDim : s.condition === "damaged" ? T.redDim : T.amberDim,

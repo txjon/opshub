@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getDriveToken, getItemFolderIdDirect } from "@/lib/drive-token";
+import { getDriveToken, getItemFolderIdDirect, getReceivingFolderId } from "@/lib/drive-token";
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,7 +8,17 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { clientName, projectTitle, itemName } = await req.json();
+    const body = await req.json();
+
+    // Receiving folder request
+    if (body.receiving && body.shipmentLabel) {
+      const token = await getDriveToken();
+      const folderId = await getReceivingFolderId(token, body.shipmentLabel);
+      return NextResponse.json({ token, folderId });
+    }
+
+    // Standard item folder request
+    const { clientName, projectTitle, itemName } = body;
     if (!clientName || !projectTitle || !itemName) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
