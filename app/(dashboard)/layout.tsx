@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { LogOut } from "lucide-react";
-import { DashboardShell, SidebarNotifications, MainEventStrip } from "@/components/DashboardShell";
+import { DashboardShell, SidebarNotifications } from "@/components/DashboardShell";
 import { GlobalSearch } from "@/components/GlobalSearch";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -109,7 +109,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
       {/* Main */}
       <main className="flex-1 overflow-auto">
         <div className="max-w-7xl mx-auto p-6">
-          <MainEventStrip userId={user.id} />
           {children}
         </div>
       </main>
