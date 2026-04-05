@@ -179,6 +179,7 @@ export default function ProductionPage() {
         pipeline_timestamps: timestamps,
         ship_tracking: bulkTracking || item.ship_tracking || null,
         ship_notes: bulkNotes || item.ship_notes || null,
+        received_at_hpd: false, received_at_hpd_at: null,
       }).eq("id", item.id);
       if (item.decorator_assignment_id) {
         await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
@@ -211,8 +212,17 @@ export default function ProductionPage() {
   }
 
   async function markShipped(item: ProdItem) {
+    // Cancel any pending debounced saves for this item
+    if (saveTimers.current[`sn_${item.id}`]) { clearTimeout(saveTimers.current[`sn_${item.id}`]); delete saveTimers.current[`sn_${item.id}`]; }
+    if (saveTimers.current[`trk_${item.id}`]) { clearTimeout(saveTimers.current[`trk_${item.id}`]); delete saveTimers.current[`trk_${item.id}`]; }
+
     const timestamps = { ...(item.pipeline_timestamps || {}), shipped: new Date().toISOString() };
-    await supabase.from("items").update({ pipeline_stage: "shipped", pipeline_timestamps: timestamps, ship_notes: item.ship_notes || null }).eq("id", item.id);
+    // Clear received_at_hpd so it goes through receiving again
+    await supabase.from("items").update({
+      pipeline_stage: "shipped", pipeline_timestamps: timestamps,
+      ship_notes: item.ship_notes || null, ship_tracking: item.ship_tracking || null,
+      received_at_hpd: false, received_at_hpd_at: null,
+    }).eq("id", item.id);
     if (item.decorator_assignment_id) {
       await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
     }
@@ -225,7 +235,11 @@ export default function ProductionPage() {
   async function undoShipped(item: ProdItem) {
     const timestamps = { ...(item.pipeline_timestamps || {}) };
     delete timestamps.shipped;
-    await supabase.from("items").update({ pipeline_stage: "in_production", pipeline_timestamps: timestamps }).eq("id", item.id);
+    // Clear received_at_hpd so receiving flow resets
+    await supabase.from("items").update({
+      pipeline_stage: "in_production", pipeline_timestamps: timestamps,
+      received_at_hpd: false, received_at_hpd_at: null,
+    }).eq("id", item.id);
     if (item.decorator_assignment_id) {
       await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
     }
