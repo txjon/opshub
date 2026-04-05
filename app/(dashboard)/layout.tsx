@@ -19,18 +19,26 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const role = profile?.role ?? "readonly";
   const isManager = role === "manager";
 
-  const navItems = [
+  type NavItem = { href: string; label: string; roles: string[]; section?: never } | { section: string; href?: never; label?: never; roles?: never };
+  const navItems: NavItem[] = [
+    { section: "INSIGHTS" },
     { href: "/dashboard", label: "Dashboard", roles: ["manager","production","warehouse","shipping","sales","readonly"] },
+    { href: "/insights", label: "Analytics", roles: ["manager"] },
+    { section: "LABS" },
     { href: "/jobs", label: "Projects", roles: ["manager","production","sales"] },
-    { href: "/production", label: "Production", roles: ["manager","production"] },
-    { href: "/warehouse", label: "Warehouse", roles: ["manager","warehouse","shipping"] },
     { href: "/clients", label: "Clients", roles: ["manager","sales"] },
     { href: "/decorators", label: "Decorators", roles: ["manager","production"] },
-    { href: "/reports", label: "Reports", roles: ["manager"] },
-    { href: "/insights", label: "Insights", roles: ["manager"] },
+    { href: "/production", label: "Production", roles: ["manager","production"] },
     { href: "/toolkit", label: "Tool Kit", roles: ["manager","production","sales"] },
     { href: "/staging", label: "Staging", roles: ["manager","sales"] },
-  ].filter(item => item.roles.includes(role));
+    { section: "DISTRO" },
+    { href: "/receiving", label: "Receiving", roles: ["manager","warehouse","shipping"] },
+    { href: "/shipping", label: "Shipping", roles: ["manager","warehouse","shipping"] },
+    { href: "/fulfillment", label: "Fulfillment", roles: ["manager","warehouse","shipping"] },
+    { href: "/ecomm", label: "E-Comm", roles: ["manager","sales"] },
+    { section: "" },
+    { href: "/reports", label: "Reports", roles: ["manager"] },
+  ];
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -54,16 +62,27 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <div className="px-3 pt-3 pb-1">
           <GlobalSearch />
         </div>
-        <nav className="flex-1 p-3 space-y-0.5">
-          {navItems.map(item => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-            >
-              {item.label}
-            </Link>
-          ))}
+        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
+          {navItems.map((item, i) => {
+            if ("section" in item && item.section !== undefined) {
+              if (!item.section) return <div key={`sep-${i}`} className="pt-2" />;
+              return (
+                <div key={item.section} className="pt-3 pb-1 px-3">
+                  <span className="text-[9px] font-bold tracking-[0.12em] text-muted-foreground/50 uppercase">{item.section}</span>
+                </div>
+              );
+            }
+            if (!item.roles?.includes(role)) return null;
+            return (
+              <Link
+                key={item.href}
+                href={item.href!}
+                className="flex items-center px-3 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              >
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="p-3 border-t border-border space-y-1">
