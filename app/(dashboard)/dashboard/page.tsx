@@ -20,15 +20,6 @@ function secLabel(label: string) {
   return <div style={{ fontSize:10, fontWeight:600, color:T.muted, textTransform:"uppercase" as const, letterSpacing:"0.07em", marginBottom:8, fontFamily:font }}>{label}</div>;
 }
 
-function statBox(label: string, value: string, sub?: string, subColor?: string) {
-  return (
-    <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"10px 12px" }}>
-      <div style={{ fontSize:10, color:T.muted, marginBottom:2, fontFamily:font }}>{label}</div>
-      <div style={{ fontSize:16, fontWeight:700, color:T.text, fontFamily:mono, lineHeight:1.2 }}>{value}</div>
-      {sub && <div style={{ fontSize:10, color:subColor||T.muted, marginTop:2, fontFamily:font }}>{sub}</div>}
-    </div>
-  );
-}
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -36,7 +27,7 @@ export default async function DashboardPage() {
 
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("*, clients(name), costing_summary, quote_approved, type_meta, items(id, name, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, buy_sheet_lines(qty_ordered))")
+    .select("*, clients(name), quote_approved, type_meta, costing_data, items(id, name, pipeline_stage, blanks_order_number, ship_tracking, artwork_status, buy_sheet_lines(qty_ordered))")
     .not("phase", "in", '("complete","cancelled")')
     .order("target_ship_date", { ascending: true, nullsFirst: false });
 
@@ -62,28 +53,6 @@ export default async function DashboardPage() {
 
   const activeJobs = jobs || [];
 
-  // KPIs
-  const totalRevenue = activeJobs.reduce((a, j) => {
-    if ((j as any).costing_summary?.grossRev) return a + (j as any).costing_summary.grossRev;
-    return a + (j.items||[]).reduce((b: number, it: any) => {
-      const qty = (it.buy_sheet_lines||[]).reduce((c: number, l: any) => c + (l.qty_ordered||0), 0);
-      return b + (it.sell_per_unit||0) * qty;
-    }, 0);
-  }, 0);
-
-  const totalCost = activeJobs.reduce((a, j) => {
-    if ((j as any).costing_summary?.totalCost) return a + (j as any).costing_summary.totalCost;
-    return a + (j.items||[]).reduce((b: number, it: any) => {
-      const qty = (it.buy_sheet_lines||[]).reduce((c: number, l: any) => c + (l.qty_ordered||0), 0);
-      return b + (it.cost_per_unit||0) * qty;
-    }, 0);
-  }, 0);
-
-  const avgMargin = totalRevenue > 0 ? ((totalRevenue - totalCost) / totalRevenue * 100) : 0;
-  const totalUnits = activeJobs.reduce((a, j) =>
-    a + (j.items||[]).reduce((b: number, it: any) =>
-      b + (it.buy_sheet_lines||[]).reduce((c: number, l: any) => c + (l.qty_ordered||0), 0), 0), 0);
-
   const shippingThisWeek = activeJobs.filter(j => {
     if (!j.target_ship_date) return false;
     const d = new Date(j.target_ship_date);
@@ -100,8 +69,6 @@ export default async function DashboardPage() {
   }, {});
 
   const overduePayments = (payments||[]).filter(p => p.due_date && new Date(p.due_date) < now);
-  const outstandingTotal = (payments||[]).reduce((a, p) => a + (p.amount||0), 0);
-  const overdueTotal = overduePayments.reduce((a, p) => a + (p.amount||0), 0);
 
   // Build workflow-aware "needs action" list
   const needsAction: { type: string; label: string; bg: string; color: string; title: string; sub: string; href: string }[] = [];
@@ -219,17 +186,8 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* KPI row */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:8, alignItems:"stretch" }}>
-        {statBox("Active revenue", totalRevenue > 0 ? "$"+Math.round(totalRevenue/1000)+"K" : "—", "pipeline", T.accent)}
-        {statBox("Avg margin", avgMargin > 0 ? avgMargin.toFixed(1)+"%" : "—", undefined, avgMargin >= 30 ? T.green : avgMargin >= 20 ? T.amber : T.red)}
-        {statBox("Units in pipeline", totalUnits > 0 ? totalUnits.toLocaleString() : "—", `${activeJobs.length} projects`)}
-        {statBox("Outstanding", outstandingTotal > 0 ? "$"+Math.round(outstandingTotal/1000)+"K" : "$0", overdueTotal > 0 ? "$"+Math.round(overdueTotal/1000)+"K overdue" : "All current", overdueTotal > 0 ? T.red : T.green)}
-        {statBox("Shipping this week", shippingThisWeek.length.toString(), shippingThisWeek.filter(j => j.target_ship_date && new Date(j.target_ship_date) < now).length > 0 ? shippingThisWeek.filter(j => j.target_ship_date && new Date(j.target_ship_date) < now).length+" at risk" : "On track", shippingThisWeek.filter(j => j.target_ship_date && new Date(j.target_ship_date) < now).length > 0 ? T.red : T.green)}
-      </div>
-
-      {/* Main 3-column layout */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+      {/* Main 2-column layout */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
 
         {/* Left: Needs action */}
         <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px" }}>
@@ -292,64 +250,33 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {/* Right: Finance + active projects */}
-        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-
-          <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px" }}>
-            {secLabel("Finance")}
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
-              <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"8px 10px" }}>
-                <div style={{ fontSize:10, color:T.muted, marginBottom:2 }}>Outstanding</div>
-                <div style={{ fontSize:15, fontWeight:700, color:T.amber, fontFamily:mono }}>{outstandingTotal > 0 ? "$"+outstandingTotal.toLocaleString() : "$0"}</div>
-              </div>
-              <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"8px 10px" }}>
-                <div style={{ fontSize:10, color:T.muted, marginBottom:2 }}>Overdue</div>
-                <div style={{ fontSize:15, fontWeight:700, color:overdueTotal > 0 ? T.red : T.muted, fontFamily:mono }}>{overdueTotal > 0 ? "$"+overdueTotal.toLocaleString() : "$0"}</div>
-              </div>
-            </div>
-            {(payments||[]).slice(0,3).map((p, i) => {
-              const late = p.due_date && new Date(p.due_date) < now;
+        {/* Right: Active projects */}
+        <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px" }}>
+          {secLabel("All active projects")}
+          <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+            {activeJobs.slice(0,12).map((j, i) => {
+              const ps = PHASE_STYLES[j.phase] || PHASE_STYLES.intake;
+              const daysLeft = j.target_ship_date ? Math.ceil((new Date(j.target_ship_date).getTime()-now.getTime())/(1000*60*60*24)) : null;
               return (
-                <Link key={p.id} href={`/jobs/${(p.jobs as any)?.id || ""}`} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom:i<Math.min((payments||[]).length,3)-1?`1px solid ${T.border}`:"none", textDecoration:"none" }}>
-                  <div style={{ flex:1, fontSize:11, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                    {(p.jobs as any)?.title || "Unknown"}
+                <Link key={j.id} href={`/jobs/${j.id}`} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom:i<Math.min(activeJobs.length,12)-1?`1px solid ${T.border}`:"none", textDecoration:"none" }}>
+                  <span style={{ padding:"1px 7px", borderRadius:99, fontSize:9, fontWeight:600, background:ps.bg, color:ps.text, whiteSpace:"nowrap", flexShrink:0 }}>{ps.label}</span>
+                  <div style={{ flex:1, fontSize:11, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    {(j.clients as any)?.name} — {j.title}
                   </div>
-                  <span style={{ fontSize:11, fontFamily:mono, color:late?T.red:T.amber, flexShrink:0 }}>
-                    ${(p.amount||0).toLocaleString()} · {late ? "overdue" : p.due_date ? new Date(p.due_date).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "—"}
-                  </span>
+                  {daysLeft !== null && (
+                    <span style={{ fontSize:11, fontFamily:mono, color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.muted, flexShrink:0 }}>
+                      {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft+"d"}
+                    </span>
+                  )}
                 </Link>
               );
             })}
-            {(payments||[]).length === 0 && <div style={{ fontSize:12, color:T.muted }}>No outstanding payments.</div>}
           </div>
-
-          <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"12px 14px", flex:1 }}>
-            {secLabel("All active projects")}
-            <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
-              {activeJobs.slice(0,8).map((j, i) => {
-                const ps = PHASE_STYLES[j.phase] || PHASE_STYLES.intake;
-                const daysLeft = j.target_ship_date ? Math.ceil((new Date(j.target_ship_date).getTime()-now.getTime())/(1000*60*60*24)) : null;
-                return (
-                  <Link key={j.id} href={`/jobs/${j.id}`} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom:i<Math.min(activeJobs.length,8)-1?`1px solid ${T.border}`:"none", textDecoration:"none" }}>
-                    <span style={{ padding:"1px 7px", borderRadius:99, fontSize:9, fontWeight:600, background:ps.bg, color:ps.text, whiteSpace:"nowrap", flexShrink:0 }}>{ps.label}</span>
-                    <div style={{ flex:1, fontSize:11, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                      {(j.clients as any)?.name} — {j.title}
-                    </div>
-                    {daysLeft !== null && (
-                      <span style={{ fontSize:11, fontFamily:mono, color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.muted, flexShrink:0 }}>
-                        {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft+"d"}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-            {activeJobs.length > 8 && (
-              <Link href="/jobs" style={{ display:"block", marginTop:8, fontSize:11, color:T.accent, textDecoration:"none" }}>
-                View all {activeJobs.length} projects →
-              </Link>
-            )}
-          </div>
+          {activeJobs.length > 12 && (
+            <Link href="/jobs" style={{ display:"block", marginTop:8, fontSize:11, color:T.accent, textDecoration:"none" }}>
+              View all {activeJobs.length} projects →
+            </Link>
+          )}
         </div>
       </div>
     </div>

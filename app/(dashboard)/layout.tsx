@@ -21,10 +21,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   type NavItem = { href: string; label: string; roles: string[]; section?: never } | { section: string; href?: never; label?: never; roles?: never };
   const navItems: NavItem[] = [
-    { section: "INSIGHTS" },
-    { href: "/dashboard", label: "Dashboard", roles: ["manager","production","warehouse","shipping","sales","readonly"] },
-    { href: "/insights", label: "Analytics", roles: ["manager"] },
     { section: "LABS" },
+    { href: "/dashboard", label: "Dashboard", roles: ["manager","production","warehouse","shipping","sales","readonly"] },
     { href: "/jobs", label: "Projects", roles: ["manager","production","sales"] },
     { href: "/clients", label: "Clients", roles: ["manager","sales"] },
     { href: "/decorators", label: "Decorators", roles: ["manager","production"] },
@@ -37,6 +35,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     { href: "/fulfillment", label: "Fulfillment", roles: ["manager","warehouse","shipping"] },
     { href: "/ecomm", label: "E-Comm", roles: ["manager","sales"] },
     { section: "" },
+    { href: "/insights", label: "Insights", roles: ["manager"] },
     { href: "/reports", label: "Reports", roles: ["manager"] },
   ];
 
