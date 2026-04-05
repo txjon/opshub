@@ -33,6 +33,7 @@ type ProdItem = {
   sizes: string[];
   qtys: Record<string, number>;
   ship_qtys: Record<string, number>;
+  ship_notes: string;
 };
 
 export default function ProductionPage() {
@@ -44,6 +45,11 @@ export default function ProductionPage() {
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterStalled, setFilterStalled] = useState(false);
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastClicked, setLastClicked] = useState<string | null>(null);
+  const [showBulkPanel, setShowBulkPanel] = useState(false);
+  const [bulkTracking, setBulkTracking] = useState("");
+  const [bulkNotes, setBulkNotes] = useState("");
   const [sortState, setSortState] = useState<Record<string, { col: string; dir: "asc" | "desc" }>>({
     in_production: { col: "client", dir: "asc" },
     shipped: { col: "client", dir: "asc" },
@@ -109,6 +115,7 @@ export default function ProductionPage() {
         decoration_type: assignment?.decoration_type || null,
         sizes, qtys,
         ship_qtys: it.ship_qtys || {},
+        ship_notes: it.ship_notes || "",
       };
     });
 
@@ -139,9 +146,73 @@ export default function ProductionPage() {
     }, 800);
   }
 
+  function handleSelect(itemId: string, e: React.MouseEvent, stageItems: ProdItem[]) {
+    const isShift = e.shiftKey;
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (isShift && lastClicked) {
+        const ids = stageItems.map(it => it.id);
+        const from = ids.indexOf(lastClicked);
+        const to = ids.indexOf(itemId);
+        if (from >= 0 && to >= 0) {
+          const [start, end] = from < to ? [from, to] : [to, from];
+          for (let i = start; i <= end; i++) next.add(ids[i]);
+        }
+      } else {
+        if (next.has(itemId)) next.delete(itemId);
+        else next.add(itemId);
+      }
+      return next;
+    });
+    setLastClicked(itemId);
+  }
+
+  async function bulkShip() {
+    const selectedItems = items.filter(it => selected.has(it.id) && it.pipeline_stage === "in_production");
+    if (selectedItems.length === 0) return;
+
+    const ts = new Date().toISOString();
+    for (const item of selectedItems) {
+      const timestamps = { ...(item.pipeline_timestamps || {}), shipped: ts };
+      await supabase.from("items").update({
+        pipeline_stage: "shipped",
+        pipeline_timestamps: timestamps,
+        ship_tracking: bulkTracking || item.ship_tracking || null,
+        ship_notes: bulkNotes || item.ship_notes || null,
+      }).eq("id", item.id);
+      if (item.decorator_assignment_id) {
+        await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
+      }
+      logJobActivity(item.job_id, `${item.name} shipped from decorator${bulkTracking ? ` — tracking: ${bulkTracking}` : ""}`);
+    }
+    // One team notification for the batch
+    const jobIds = [...new Set(selectedItems.map(it => it.job_id))];
+    for (const jid of jobIds) {
+      const jobItems = selectedItems.filter(it => it.job_id === jid);
+      notifyTeam(`${jobItems.length} items shipped from decorator — incoming to warehouse`, "production", jid, "job");
+    }
+
+    setItems(prev => prev.map(it => {
+      if (!selected.has(it.id)) return it;
+      return { ...it, pipeline_stage: "shipped", pipeline_timestamps: { ...(it.pipeline_timestamps || {}), shipped: ts }, ship_tracking: bulkTracking || it.ship_tracking, ship_notes: bulkNotes || it.ship_notes };
+    }));
+    setSelected(new Set());
+    setShowBulkPanel(false);
+    setBulkTracking("");
+    setBulkNotes("");
+  }
+
+  function updateNotesLocal(itemId: string, value: string) {
+    setItems(prev => prev.map(it => it.id === itemId ? { ...it, ship_notes: value } : it));
+    if (saveTimers.current[`sn_${itemId}`]) clearTimeout(saveTimers.current[`sn_${itemId}`]);
+    saveTimers.current[`sn_${itemId}`] = setTimeout(() => {
+      supabase.from("items").update({ ship_notes: value }).eq("id", itemId);
+    }, 800);
+  }
+
   async function markShipped(item: ProdItem) {
     const timestamps = { ...(item.pipeline_timestamps || {}), shipped: new Date().toISOString() };
-    await supabase.from("items").update({ pipeline_stage: "shipped", pipeline_timestamps: timestamps }).eq("id", item.id);
+    await supabase.from("items").update({ pipeline_stage: "shipped", pipeline_timestamps: timestamps, ship_notes: item.ship_notes || null }).eq("id", item.id);
     if (item.decorator_assignment_id) {
       await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
     }
@@ -265,13 +336,58 @@ export default function ProductionPage() {
         </button>
       </div>
 
+      {/* Bulk actions bar */}
+      {selected.size > 0 && (
+        <div style={{ background: T.accent + "22", border: `1px solid ${T.accent}44`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: T.accent }}>{selected.size} selected</span>
+          <button onClick={() => setShowBulkPanel(!showBulkPanel)}
+            style={{ padding: "6px 16px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 12, fontWeight: 600 }}>
+            Bulk Ship
+          </button>
+          <button onClick={() => { setSelected(new Set()); setShowBulkPanel(false); }}
+            style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.border}`, cursor: "pointer", background: "transparent", color: T.muted, fontSize: 12 }}>
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Bulk ship panel */}
+      {showBulkPanel && selected.size > 0 && (
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px" }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ship {selected.size} items as one batch</div>
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
+            <div style={{ width: 200 }}>
+              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Tracking # (all items)</label>
+              <input style={{ ...ic, width: "100%" }} value={bulkTracking} placeholder="Enter tracking"
+                onChange={e => setBulkTracking(e.target.value)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Notes (carries to receiving)</label>
+              <input style={{ ...ic, width: "100%" }} value={bulkNotes} placeholder="e.g. 2 boxes, fragile, check qty on Box B"
+                onChange={e => setBulkNotes(e.target.value)} />
+            </div>
+            <button onClick={bulkShip}
+              style={{ padding: "8px 24px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
+              Ship All
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}>
+            {items.filter(it => selected.has(it.id)).map(it => (
+              <span key={it.id} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.surface, color: T.muted }}>
+                {it.client_name} · {it.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Stage sections */}
       {STAGES.map(stage => {
         const stageItems = sortItems(filtered.filter(it => it.pipeline_stage === stage.id), stage.id);
         if (stageItems.length === 0 && search) return null;
 
         const cols = stage.id === "in_production"
-          ? "1.2fr 1.2fr 1.5fr 1fr 60px 70px 60px 100px"
+          ? "28px 1.2fr 1.2fr 1.5fr 1fr 60px 70px 60px 80px"
           : "1.2fr 1.2fr 1.5fr 1fr 60px 100px 60px 80px";
 
         return (
@@ -288,7 +404,19 @@ export default function ProductionPage() {
             ) : (
               <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
                 {/* Header */}
-                <div style={{ display: "grid", gridTemplateColumns: cols, padding: "6px 14px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ display: "grid", gridTemplateColumns: cols, padding: "6px 14px", background: T.surface, borderBottom: `1px solid ${T.border}`, alignItems: "center" }}>
+                  {stage.id === "in_production" && (
+                    <input type="checkbox"
+                      checked={stageItems.length > 0 && stageItems.every(it => selected.has(it.id))}
+                      onChange={e => {
+                        setSelected(prev => {
+                          const next = new Set(prev);
+                          stageItems.forEach(it => e.target.checked ? next.add(it.id) : next.delete(it.id));
+                          return next;
+                        });
+                      }}
+                      style={{ width: 14, height: 14, cursor: "pointer", accentColor: T.accent }} />
+                  )}
                   {[
                     { label: "Client", key: "client" },
                     { label: "Project", key: "project" },
@@ -320,10 +448,16 @@ export default function ProductionPage() {
                       <div style={{
                         display: "grid", gridTemplateColumns: cols, padding: "8px 14px", alignItems: "center",
                         cursor: stage.id === "in_production" ? "pointer" : "default",
-                        background: isExpanded ? T.surface + "66" : "transparent",
+                        background: isExpanded ? T.surface + "66" : selected.has(item.id) ? T.accent + "11" : "transparent",
                       }}
                         onClick={() => stage.id === "in_production" && setExpandedItem(isExpanded ? null : item.id)}
                       >
+                        {stage.id === "in_production" && (
+                          <input type="checkbox" checked={selected.has(item.id)}
+                            onClick={e => { e.stopPropagation(); handleSelect(item.id, e as any, stageItems); }}
+                            onChange={() => {}}
+                            style={{ width: 14, height: 14, cursor: "pointer", accentColor: T.accent }} />
+                        )}
                         <div style={{ fontSize: 12, color: T.text }}>{item.client_name}</div>
                         <div style={{ fontSize: 12, color: T.muted, cursor: "pointer" }} onClick={e => { e.stopPropagation(); router.push(`/jobs/${item.job_id}`); }}>{item.job_title}</div>
                         <div>
@@ -364,32 +498,42 @@ export default function ProductionPage() {
 
                       {/* Expanded: tracking + shipped qtys */}
                       {isExpanded && stage.id === "in_production" && (
-                        <div style={{ padding: "10px 14px 14px", background: T.surface + "44", borderTop: `1px solid ${T.border}44`, display: "flex", gap: 16, alignItems: "flex-end" }}>
-                          <div style={{ width: 200 }}>
-                            <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Tracking #</label>
-                            <input style={{ ...ic, width: "100%" }} value={item.ship_tracking || ""} placeholder="Enter tracking"
-                              onChange={e => updateTrackingLocal(item.id, e.target.value)}
-                              onClick={e => e.stopPropagation()} />
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Shipped qty per size</label>
-                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                              {item.sizes.map(sz => (
-                                <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-                                  <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{sz}</span>
-                                  <input type="number" min="0" value={item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0}
-                                    onChange={e => updateShipQty(item.id, sz, parseInt(e.target.value) || 0)}
-                                    onFocus={e => e.target.select()}
-                                    onClick={e => e.stopPropagation()}
-                                    style={{ width: 36, textAlign: "center", padding: "2px", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, fontSize: 10, fontFamily: mono, outline: "none" }} />
-                                </div>
-                              ))}
+                        <div style={{ padding: "10px 14px 14px", background: T.surface + "44", borderTop: `1px solid ${T.border}44`, display: "flex", flexDirection: "column", gap: 10 }}>
+                          <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
+                            <div style={{ width: 180 }}>
+                              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Tracking #</label>
+                              <input style={{ ...ic, width: "100%" }} value={item.ship_tracking || ""} placeholder="Enter tracking"
+                                onChange={e => updateTrackingLocal(item.id, e.target.value)}
+                                onClick={e => e.stopPropagation()} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Notes (carries to receiving)</label>
+                              <input style={{ ...ic, width: "100%" }} value={item.ship_notes || ""} placeholder="e.g. 2 boxes, check qty, fragile"
+                                onChange={e => updateNotesLocal(item.id, e.target.value)}
+                                onClick={e => e.stopPropagation()} />
                             </div>
                           </div>
-                          <button onClick={e => { e.stopPropagation(); markShipped(item); }}
-                            style={{ padding: "8px 20px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
-                            Mark Shipped
-                          </button>
+                          <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Shipped qty per size</label>
+                              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                                {item.sizes.map(sz => (
+                                  <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                                    <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{sz}</span>
+                                    <input type="number" min="0" value={item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0}
+                                      onChange={e => updateShipQty(item.id, sz, parseInt(e.target.value) || 0)}
+                                      onFocus={e => e.target.select()}
+                                      onClick={e => e.stopPropagation()}
+                                      style={{ width: 36, textAlign: "center", padding: "2px", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, fontSize: 10, fontFamily: mono, outline: "none" }} />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <button onClick={e => { e.stopPropagation(); markShipped(item); }}
+                              style={{ padding: "8px 20px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
+                              Mark Shipped
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>

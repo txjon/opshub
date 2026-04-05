@@ -102,7 +102,7 @@ export function useWarehouse() {
           const lines = it.buy_sheet_lines || [];
           return {
             id: it.id, name: it.name, blank_vendor: it.blank_vendor, blank_sku: it.blank_sku,
-            job_id: it.job_id, pipeline_stage: it.pipeline_stage, ship_tracking: it.ship_tracking,
+            job_id: it.job_id, pipeline_stage: it.pipeline_stage, ship_tracking: it.ship_tracking, ship_notes: it.ship_notes || "",
             received_at_hpd: it.received_at_hpd || false, received_at_hpd_at: it.received_at_hpd_at,
             sizes: sortSizes(lines.map((l: any) => l.size)),
             qtys: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered])),
