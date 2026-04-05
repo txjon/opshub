@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { sendClientNotification } from "@/lib/auto-email";
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,14 +31,6 @@ export async function POST(req: NextRequest) {
     // Auto-set item's drive_link to folder (used by PO PDF — printer needs all files)
     if (folderLink) {
       await supabase.from("items").update({ drive_link: folderLink }).eq("id", itemId);
-    }
-
-    // Auto-email client when a proof is uploaded (fire-and-forget)
-    if (stage === "proof") {
-      const { data: item } = await supabase.from("items").select("job_id, name").eq("id", itemId).single();
-      if (item?.job_id) {
-        sendClientNotification({ jobId: item.job_id, type: "proof_ready", itemName: item.name }).catch(() => {});
-      }
     }
 
     return NextResponse.json({ success: true, file: data });

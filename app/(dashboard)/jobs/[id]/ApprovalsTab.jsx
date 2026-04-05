@@ -38,13 +38,14 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
       </div>
       {showProofEmail && (
         <SendEmailDialog
-          type="invoice_proofs"
+          type="proof_link"
           jobId={job.id}
           contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
           defaultEmail={contacts.find(c => c.role_on_job === "primary")?.email || ""}
-          defaultSubject={`Proofs for Review — ${job.clients?.name || ""} · ${job.title}`}
+          defaultSubject={`Proofs Ready for Approval — ${job.clients?.name || ""} · ${job.title}`}
+          customBody={`<p>Hi,</p><p>Your proofs are ready for review. You can view and approve all of them from your project portal.</p><p>Let us know if you have any questions or need changes.</p><p>Welcome to the party,<br/>House Party Distro</p>`}
           onClose={() => setShowProofEmail(false)}
-          onSent={() => { logJobActivity(job.id, "Proofs sent to client for approval"); setShowProofEmail(false); }}
+          onSent={() => { logJobActivity(job.id, "Proofs sent to client for approval via portal link"); setShowProofEmail(false); }}
         />
       )}
 
