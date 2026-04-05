@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { CostingTabWrapper } from "./CostingTab";
 import { POTab } from "./POTab.jsx";
 import { BuySheetTab } from "./BuySheetTab";
-import { ProductionTab } from "./ProductionTab";
+// ProductionTab removed — tracking entry lives on standalone Production page
 import { BlanksTab } from "./BlanksTab";
 import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
@@ -928,9 +928,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onRecalcPhase={recalcPhase}
           onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
         />
-      )}
-      {tab==="production"&&(
-        <ProductionTab items={items} onUpdateItem={updItem} onRecalcPhase={recalcPhase} />
       )}
 
         </div>{/* end tab content */}

@@ -53,7 +53,6 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
     { id: "approvals", label: "Approvals", done: allProofsApproved, active: paymentMet && !allProofsApproved },
     { id: "blanks", label: "Blanks", done: allBlanksOrdered, active: paymentMet && allProofsApproved && !allBlanksOrdered, detail: apparelItems.length > 0 && blanksOrdered > 0 ? `${blanksOrdered}/${apparelItems.length}` : undefined },
     { id: "po", label: "PO", done: allPosSent, active: allBlanksOrdered && !allPosSent },
-    { id: "production", label: "Production", done: allShipped, active: atDecorator && !allShipped },
   ];
 
   const completedCount = steps.filter(s => s.done).length;
