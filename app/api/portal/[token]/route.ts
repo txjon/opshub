@@ -342,7 +342,10 @@ export async function POST(
     if (action === "request-revision" && fileId) {
       await sb
         .from("item_files")
-        .update({ approval: "revision_requested" })
+        .update({
+          approval: "revision_requested",
+          ...(note ? { notes: note } : {}),
+        })
         .eq("id", fileId);
 
       const { data: file } = await sb

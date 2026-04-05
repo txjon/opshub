@@ -58,35 +58,41 @@ function formatSize(bytes) {
 
 function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabel, stageColor }) {
   const approval = APPROVAL_LABELS[file.approval];
+  const hasRevisionNote = file.approval === "revision_requested" && file.notes;
 
   return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", borderRadius: 4,
-    }}
+    <div style={{ borderRadius: 4 }}
       onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
       onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-      <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}>
-        {stageLabel && (
-          <span style={{ fontSize: 8, fontWeight: 700, color: stageColor || T.muted, textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0, width: 55 }}>{stageLabel}</span>
-        )}
-        <a href={file.drive_link} target="_blank" rel="noopener noreferrer"
-          style={{ fontSize: 11, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {file.file_name}
-        </a>
-        {formatSize(file.file_size) && (
-          <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, flexShrink: 0 }}>{formatSize(file.file_size)}</span>
-        )}
-        <span style={{ fontSize: 9, color: T.faint, flexShrink: 0 }}>{new Date(file.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-        {approval && (
-          <span style={{ fontSize: 8, fontWeight: 600, padding: "1px 7px", borderRadius: 99, background: approval.bg, color: approval.color, flexShrink: 0, whiteSpace: "nowrap" }}>
-            {approval.label}{file.approved_at ? ` · ${new Date(file.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${new Date(file.approved_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : ""}
-          </span>
-        )}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 6px" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}>
+          {stageLabel && (
+            <span style={{ fontSize: 8, fontWeight: 700, color: stageColor || T.muted, textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0, width: 55 }}>{stageLabel}</span>
+          )}
+          <a href={file.drive_link} target="_blank" rel="noopener noreferrer"
+            style={{ fontSize: 11, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {file.file_name}
+          </a>
+          {formatSize(file.file_size) && (
+            <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, flexShrink: 0 }}>{formatSize(file.file_size)}</span>
+          )}
+          <span style={{ fontSize: 9, color: T.faint, flexShrink: 0 }}>{new Date(file.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+          {approval && (
+            <span style={{ fontSize: 8, fontWeight: 600, padding: "1px 7px", borderRadius: 99, background: approval.bg, color: approval.color, flexShrink: 0, whiteSpace: "nowrap" }}>
+              {approval.label}{file.approved_at ? ` · ${new Date(file.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${new Date(file.approved_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : ""}
+            </span>
+          )}
+        </div>
+        <button onClick={() => onDelete(file)}
+          style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, flexShrink: 0, padding: "0 2px" }}
+          onMouseEnter={e => e.currentTarget.style.color = T.red}
+          onMouseLeave={e => e.currentTarget.style.color = T.faint}>✕</button>
       </div>
-      <button onClick={() => onDelete(file)}
-        style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, flexShrink: 0, padding: "0 2px" }}
-        onMouseEnter={e => e.currentTarget.style.color = T.red}
-        onMouseLeave={e => e.currentTarget.style.color = T.faint}>✕</button>
+      {hasRevisionNote && (
+        <div style={{ padding: "2px 6px 4px 61px", fontSize: 10, color: T.red, lineHeight: 1.3 }}>
+          Client note: "{file.notes}"
+        </div>
+      )}
     </div>
   );
 }
