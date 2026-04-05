@@ -69,7 +69,10 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
       if (onUpdateItem) onUpdateItem(itemId, { [field]: dbVal });
       if (field === "blanks_order_number" && value) {
         const item = items.find(it => it.id === itemId);
-        if (item) logJobActivity(job.id, `Blanks ordered for ${item.name} — ${item.blank_vendor || "Supplier"} #${value}`);
+        if (item) {
+          const supplier = item.blank_vendor?.startsWith("AS Colour") ? "AS Colour" : item.blank_vendor?.startsWith("LA Apparel") ? "LA Apparel" : "S&S";
+          logJobActivity(job.id, `Blanks ordered for ${item.name} — ${supplier} #${value}`);
+        }
       }
       if (onRecalcPhase) onRecalcPhase();
     };
@@ -210,7 +213,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
               )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 <div>
-                  <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>{item.blank_vendor || "Supplier"} Order #</label>
+                  <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>{(item.blank_vendor?.startsWith("AS Colour") ? "AS Colour" : item.blank_vendor?.startsWith("LA Apparel") ? "LA Apparel" : "S&S")} Order #</label>
                   <input style={ic} value={f.blanks_order_number || ""} placeholder="e.g. SO-123456"
                     onChange={e => updateField(item.id, "blanks_order_number", e.target.value)} />
                 </div>
