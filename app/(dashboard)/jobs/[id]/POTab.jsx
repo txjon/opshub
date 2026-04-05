@@ -231,8 +231,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
   return (
     <div style={{fontFamily:font,color:T.text,display:"flex",flexDirection:"column",gap:12}}>
 
-      <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,padding:"12px 14px",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+        {/* Row 1: Vendor buttons + items ready */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
             <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Vendor</div>
             <div style={{display:"flex",gap:6}}>
@@ -245,6 +246,14 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
               ))}
             </div>
           </div>
+          {ready&&(
+            <div style={{fontSize:14,fontWeight:600,color:allFilled?T.green:T.amber}}>
+              {vItems.filter(it=>itemFields[it.id]?.packing_notes?.trim()).length}/{vItems.length} items ready
+            </div>
+          )}
+        </div>
+        {/* Row 2: Ship method + Ship to side by side */}
+        <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
           <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180}}>
             <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
             <select value={shipMethods[active]||""} onChange={async e=>{
@@ -277,16 +286,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
               await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
               if(onUpdateJob) onUpdateJob({type_meta:meta});
             }}
-              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"6px 10px",outline:"none",resize:"vertical",minHeight:60,lineHeight:1.4}}/>
+              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"8px 10px",outline:"none",resize:"vertical",minHeight:80,lineHeight:1.4}}/>
           </div>
         </div>
-        {ready&&(
-          <div style={{flex:1,display:"flex",justifyContent:"center",alignItems:"center"}}>
-            <div style={{fontSize:14,fontWeight:600,color:allFilled?T.green:T.amber}}>
-              {vItems.filter(it=>itemFields[it.id]?.packing_notes?.trim()).length}/{vItems.length} items ready
-            </div>
-          </div>
-        )}
         <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
             <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.purple:T.surface,border:"1px solid "+(ready?T.purple:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
