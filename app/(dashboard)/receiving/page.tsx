@@ -124,7 +124,7 @@ export default function ReceivingPage() {
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, padding: 4, background: T.surface, borderRadius: 8 }}>
         {([
-          { id: "production" as const, label: "Production Returns", count: expectedCount },
+          { id: "production" as const, label: "From Production", count: expectedCount },
           { id: "outside" as const, label: "Outside Shipments", count: outsideShipments.length },
         ]).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
