@@ -88,21 +88,23 @@ export default function ShippingPage() {
                   </div>
                 </div>
 
-                {/* Notes */}
-                {(job.shipping_notes || job.packing_notes) && (
-                  <div style={{ display: "flex", gap: 10 }}>
-                    {job.shipping_notes && (
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Shipping Notes</div>
-                        <div style={{ fontSize: 11, color: T.amber, padding: "6px 10px", background: T.amberDim, borderRadius: 6 }}>{job.shipping_notes}</div>
+                {/* Project-level shipping notes */}
+                {job.shipping_notes && (
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Shipping Notes</div>
+                    <div style={{ fontSize: 11, color: T.amber, padding: "6px 10px", background: T.amberDim, borderRadius: 6 }}>{job.shipping_notes}</div>
+                  </div>
+                )}
+
+                {/* Per-item notes from Production */}
+                {job.items.some(it => (it as any).ship_notes) && (
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Production Notes</div>
+                    {job.items.filter(it => (it as any).ship_notes).map(it => (
+                      <div key={it.id} style={{ fontSize: 11, color: T.amber, padding: "6px 10px", background: T.amberDim, borderRadius: 6, marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600 }}>{it.name}:</span> {(it as any).ship_notes}
                       </div>
-                    )}
-                    {job.packing_notes && (
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Packing Notes</div>
-                        <div style={{ fontSize: 11, color: T.amber, padding: "6px 10px", background: T.amberDim, borderRadius: 6 }}>{job.packing_notes}</div>
-                      </div>
-                    )}
+                    ))}
                   </div>
                 )}
 
