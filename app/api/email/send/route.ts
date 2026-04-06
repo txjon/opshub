@@ -57,26 +57,32 @@ export async function POST(req: NextRequest) {
     let defaultSubject: string;
     let filename: string;
 
+    // Load job for document numbers
+    const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const { data: jobData } = await adminClient.from("jobs").select("job_number, type_meta").eq("id", jobId).single();
+    const qbInvNum = jobData?.type_meta?.qb_invoice_number;
+    const jobNum = jobData?.job_number;
+
     if (type === "quote") {
       pdfUrl = `${baseUrl}/api/pdf/quote/${jobId}`;
       fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-      defaultSubject = subject || "Your Quote from House Party Distro";
-      filename = `quote-${jobId.slice(0, 8)}.pdf`;
+      defaultSubject = subject || `Quote ${jobNum || ""} — House Party Distro`.trim();
+      filename = `quote-${jobNum || jobId.slice(0, 8)}.pdf`;
     } else if (type === "po") {
       pdfUrl = `${baseUrl}/api/pdf/po/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}`;
       fromAddress = process.env.EMAIL_FROM_PO || "onboarding@resend.dev";
-      defaultSubject = subject || "Purchase Order from House Party Distro";
-      filename = `po-${jobId.slice(0, 8)}.pdf`;
+      defaultSubject = subject || `PO ${qbInvNum || jobNum || ""} — House Party Distro`.trim();
+      filename = `po-${qbInvNum || jobNum || jobId.slice(0, 8)}.pdf`;
     } else if (type === "invoice") {
       pdfUrl = `${baseUrl}/api/pdf/invoice/${jobId}?download=1`;
       fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-      defaultSubject = subject || "Invoice from House Party Distro";
-      filename = `invoice-${jobId.slice(0, 8)}.pdf`;
+      defaultSubject = subject || `Invoice ${qbInvNum || ""} — House Party Distro`.trim();
+      filename = `invoice-${qbInvNum || jobId.slice(0, 8)}.pdf`;
     } else if (type === "invoice_proofs") {
       pdfUrl = `${baseUrl}/api/pdf/invoice-proofs/${jobId}?download=1`;
       fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-      defaultSubject = subject || "Invoice & Proofs — House Party Distro";
-      filename = `invoice-proofs-${jobId.slice(0, 8)}.pdf`;
+      defaultSubject = subject || `Invoice ${qbInvNum || ""} & Proofs — House Party Distro`.trim();
+      filename = `invoice-proofs-${qbInvNum || jobId.slice(0, 8)}.pdf`;
     } else {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }

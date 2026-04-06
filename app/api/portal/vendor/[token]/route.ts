@@ -142,7 +142,7 @@ export async function GET(
 
       const order = {
         jobId: job.id,
-        jobNumber: job.job_number,
+        jobNumber: (job.type_meta as any)?.qb_invoice_number || job.job_number,
         jobTitle: job.title,
         clientName: clientMap[job.client_id] || "Client",
         phase: job.phase,
