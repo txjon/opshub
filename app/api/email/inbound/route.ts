@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { Resend } from "resend";
 
 const admin = () =>
   createClient(
@@ -12,30 +13,45 @@ const admin = () =>
 /**
  * Inbound email webhook — receives replies routed via Resend.
  *
- * Resend sends: { type: "email.received", data: { email_id, from, to, subject, text, html, ... } }
- * The "to" field contains the reply+{jobId}@reply.housepartydistro.com address.
- *
- * Setup: Add webhook in Resend dashboard pointing to this URL with "email.received" event.
- * MX record for reply.housepartydistro.com → inbound-smtp.resend.com
+ * Resend webhook sends metadata only. We use the email ID to fetch
+ * the full email body via the Resend API.
  */
 export async function POST(req: NextRequest) {
   try {
     const sb = admin();
     const payload = await req.json();
 
-    // Resend wraps in { type, data } or sends flat — handle both
-    const emailData = payload.data || payload;
-    const from = emailData.from || emailData.from_address;
-    const to = emailData.to || emailData.to_addresses || [];
-    const cc = emailData.cc || emailData.cc_addresses || [];
-    const subject = emailData.subject;
-    const text = emailData.text;
-    const html = emailData.html;
+    // Resend wraps in { type, data } — unwrap
+    const eventData = payload.data || payload;
+
+    // Get email ID to fetch full content
+    const emailId = eventData.email_id || eventData.id || eventData.emailId;
+
+    // Extract basic fields from webhook
+    const from = eventData.from || eventData.from_address;
+    const to = eventData.to || eventData.to_addresses || [];
+    const cc = eventData.cc || eventData.cc_addresses || [];
+    let subject = eventData.subject;
+    let text = eventData.text || eventData.body || null;
+    let html = eventData.html || null;
+
+    // If we have an email ID and no body, fetch the full email from Resend
+    if (emailId && !text && !html) {
+      try {
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        const fullEmail = await (resend as any).emails.get(emailId);
+        if (fullEmail?.data) {
+          text = fullEmail.data.text || fullEmail.data.body || null;
+          html = fullEmail.data.html || null;
+          if (!subject) subject = fullEmail.data.subject;
+        }
+      } catch (fetchErr) {
+        console.warn("[Inbound] Could not fetch full email:", fetchErr);
+      }
+    }
 
     // Extract jobId from the "to" address
-    // Format: reply+{jobId}@domain
     let jobId: string | null = null;
-
     const toAddresses = Array.isArray(to) ? to : [to];
     for (const addr of toAddresses) {
       const email = typeof addr === "string" ? addr : addr?.address || addr?.email || "";
@@ -81,8 +97,8 @@ export async function POST(req: NextRequest) {
       to_emails: toAddresses.map((a: any) => typeof a === "string" ? a : a?.address || a?.email || ""),
       cc_emails: ccEmails,
       subject: subject || "(no subject)",
-      body_text: text || null,
-      body_html: html || null,
+      body_text: text,
+      body_html: html,
     });
 
     // Log to activity
@@ -110,7 +126,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true, routed: true });
   } catch (e: any) {
     console.error("[Inbound] Error:", e);
-    // Always return 200 for webhooks
     return NextResponse.json({ received: true, error: e.message });
   }
 }
