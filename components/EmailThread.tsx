@@ -136,7 +136,7 @@ export function EmailThread({ jobId, onCompose }: { jobId: string; onCompose: ()
                       fontSize: 12, color: T.text, lineHeight: 1.5,
                       whiteSpace: "pre-wrap", wordBreak: "break-word",
                     }}>
-                      {email.body_text || "(no body)"}
+                      {email.body_text || (isIn ? "Reply received — view full message in your email client" : "(no body)")}
                     </div>
                   </div>
                 )}

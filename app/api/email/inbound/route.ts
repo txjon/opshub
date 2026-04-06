@@ -2,7 +2,6 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 
 const admin = () =>
   createClient(
@@ -38,34 +37,10 @@ export async function POST(req: NextRequest) {
     let text = eventData.text || eventData.body || null;
     let html = eventData.html || null;
 
-    // Fetch full email body from Resend API using email_id
-    if (emailId && !text && !html) {
-      try {
-        // Try standard emails endpoint
-        const res1 = await fetch(`https://api.resend.com/emails/${emailId}`, {
-          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
-        });
-        const body1 = res1.ok ? await res1.json() : { error: res1.status };
-
-        // Try received-emails endpoint (Resend specific for inbound)
-        const res2 = await fetch(`https://api.resend.com/received-emails/${emailId}`, {
-          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
-        });
-        const body2 = res2.ok ? await res2.json() : { error: res2.status };
-
-        // Check both responses for body content
-        const apiData = body2.error ? body1 : body2;
-        text = apiData.text || apiData.body || apiData.text_body || apiData.plain_text || null;
-        html = apiData.html || apiData.html_body || null;
-
-        // Debug: dump both responses if still no body
-        if (!text && !html) {
-          text = `[DEBUG] /emails response keys: ${JSON.stringify(Object.keys(body1))}\n\n/emails response: ${JSON.stringify(body1).slice(0, 1500)}\n\n/received-emails response: ${JSON.stringify(body2).slice(0, 1500)}`;
-        }
-      } catch (fetchErr) {
-        text = `[DEBUG] Fetch error: ${fetchErr}`;
-      }
-    }
+    // Resend webhook doesn't include body content.
+    // The body is available via their dashboard, but the API returns 401 for inbound emails.
+    // For now, note that a reply was received — the subject line carries context.
+    // Full body capture requires Resend to update their inbound webhook payload.
 
     // Extract jobId from the "to" address
     let jobId: string | null = null;
@@ -114,7 +89,7 @@ export async function POST(req: NextRequest) {
       to_emails: toAddresses.map((a: any) => typeof a === "string" ? a : a?.address || a?.email || ""),
       cc_emails: ccEmails,
       subject: subject || "(no subject)",
-      body_text: text || JSON.stringify(eventData, null, 2).slice(0, 5000),
+      body_text: text || null,
       body_html: html,
     });
 
