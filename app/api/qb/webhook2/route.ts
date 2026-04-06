@@ -21,11 +21,15 @@ export async function POST(req: NextRequest) {
     const rawBody = await req.text();
     const signature = req.headers.get("intuit-signature") || "";
 
+    console.log("[QB Webhook2] Received POST, body length:", rawBody.length, "signature:", signature ? "present" : "missing");
+
     if (!verifySignature(rawBody, signature)) {
-      console.error("[QB Webhook] Invalid signature");
-      return NextResponse.json({ success: false }, { status: 401 });
+      console.error("[QB Webhook2] Invalid signature — returning 200 anyway (QB requirement)");
+      // QB requires 200 always, even on failed verification
+      return NextResponse.json({ success: true });
     }
 
+    console.log("[QB Webhook2] Signature verified, parsing body");
     const body = JSON.parse(rawBody);
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
