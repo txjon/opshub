@@ -168,20 +168,20 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(cached.data);
       }
 
-      // Cold start — try DB catalog first (fast), then enrich from API in background
+      // Cold start — fetch from API with timeout protection
       let dbProducts: Record<string, any> = {};
       try {
         const { data: catalog } = await admin().from("la_apparel_catalog").select("style_code, description, category").order("style_code");
         if (catalog) for (const row of catalog) dbProducts[row.style_code] = { name: row.description, category: row.category };
       } catch {}
 
-      // If we have catalog data, use it immediately and fetch API list in background
+      // If we have catalog data, use it immediately
       if (Object.keys(dbProducts).length > 0) {
         const products = Object.entries(dbProducts).map(([id, info]) => ({
           styleCode: id, name: info.name || "", category: info.category || "", colors: [],
         }));
         await setCache("laapparel_products", products);
-        // Background: also fetch from API to get any new products
+        // Background: fetch from API to get any new products
         fetchProductList().then(async ids => {
           const merged = ids.map(id => ({ styleCode: id, name: dbProducts[id]?.name || "", category: dbProducts[id]?.category || "", colors: [] }));
           await setCache("laapparel_products", merged);
@@ -189,10 +189,11 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(products);
       }
 
-      // No catalog data — must fetch from API
-      const productIds = await fetchProductList();
+      // No catalog data — fetch from API with race against timeout
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("API timeout")), 25000));
+      const productIds = await Promise.race([fetchProductList(), timeoutPromise]) as string[];
       const products = productIds.map(id => ({
-        styleCode: id, name: dbProducts[id]?.name || "", category: dbProducts[id]?.category || "", colors: [],
+        styleCode: id, name: "", category: "", colors: [],
       }));
       await setCache("laapparel_products", products);
       return NextResponse.json(products);
@@ -208,6 +209,21 @@ export async function GET(request: NextRequest) {
   if (endpoint === "variants") {
     const styleCode = searchParams.get("styleCode");
     if (!styleCode) return NextResponse.json({ error: "Missing styleCode" }, { status: 400 });
+
+    // Check cache first
+    const variantCacheKey = `laapparel_variants_${styleCode}`;
+    const cachedVariants = await getCached(variantCacheKey);
+    if (cachedVariants) {
+      if (!cachedVariants.fresh) {
+        // Refresh in background
+        Promise.all([fetchProduct(styleCode), fetchInventory(styleCode), fetchPartPricing(styleCode)])
+          .then(async ([product, inventory, partPrices]) => {
+            const variants = product.parts.map((p: any) => ({ partId: p.partId, colour: p.color, sizeCode: p.size, price: partPrices[p.partId] || p.price || 0, sku: p.partId, stock: inventory[p.partId] || 0 }));
+            await setCache(variantCacheKey, variants);
+          }).catch(() => {});
+      }
+      return NextResponse.json(cachedVariants.data);
+    }
 
     try {
       const [product, inventory, partPrices] = await Promise.all([
@@ -226,8 +242,11 @@ export async function GET(request: NextRequest) {
         stock: inventory[p.partId] || 0,
       }));
 
+      await setCache(variantCacheKey, variants);
       return NextResponse.json(variants);
     } catch (e: any) {
+      const staleVariants = await getCached(variantCacheKey);
+      if (staleVariants) return NextResponse.json(staleVariants.data);
       return NextResponse.json({ error: e.message || "Failed to fetch variants" }, { status: 500 });
     }
   }
