@@ -217,6 +217,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [favorites, setFavorites] = useState([]);
   const [dragIdx, setDragIdx] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [fileSummary, setFileSummary] = useState({}); // { itemId: { printReady: bool, fileCount: number, hasProof: bool } }
   const [psdProcessing, setPsdProcessing] = useState(null);
   const [distRow, setDistRow] = useState(null);
   const [distTotal, setDistTotal] = useState("");
@@ -235,6 +236,23 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       setAccTypes([...new Set([...SEED_ACC_TYPES, ...(data || []).map(d => d.blank_vendor).filter(Boolean)])].sort());
     });
   }, []);
+
+  // Load file summary for collapsed pills
+  useEffect(() => {
+    const ids = (items || []).map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
+    if (ids.length === 0) return;
+    createClient().from("item_files").select("item_id, stage").in("item_id", ids).then(({ data }) => {
+      const summary = {};
+      for (const f of (data || [])) {
+        if (!summary[f.item_id]) summary[f.item_id] = { printReady: false, fileCount: 0, hasProof: false, hasMockup: false };
+        summary[f.item_id].fileCount++;
+        if (f.stage === "print_ready") summary[f.item_id].printReady = true;
+        if (f.stage === "proof") summary[f.item_id].hasProof = true;
+        if (f.stage === "mockup") summary[f.item_id].hasMockup = true;
+      }
+      setFileSummary(summary);
+    });
+  }, [items]);
 
   const isFav = (supplier, styleCode) => favorites.some(f => f.supplier === supplier && f.style_code === styleCode);
   const toggleFav = async (supplier, styleCode, styleName, sourceCategory) => {
@@ -439,6 +457,11 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{item.color ? ` · ${item.color}` : ""}</span>}
               {!hasBlank && item.garment_type !== "accessory" && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
               <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono, flexShrink: 0, minWidth: 50, textAlign: "right", color: item.totalQty > 0 ? T.text : T.faint }}>{item.totalQty > 0 ? item.totalQty : "—"}</span>
+              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                {fileSummary[item.id]?.printReady && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: T.greenDim, color: T.green }}>Print-ready</span>}
+                {fileSummary[item.id]?.hasProof && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: T.purpleDim, color: T.purple }}>Proof</span>}
+                {fileSummary[item.id]?.fileCount > 0 && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: T.accentDim, color: T.accent }}>{fileSummary[item.id].fileCount} files</span>}
+              </div>
               <span style={{ fontSize: 10, color: T.faint, flexShrink: 0 }}>{isExpanded ? "▴" : "▾"}</span>
             </div>
 
@@ -547,7 +570,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
         )}
       </div>
 
-      {/* Right: Blank → Sizes → Locations → Files */}
+      {/* Middle: Blank → Sizes → Locations */}
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
         {/* Blank */}
         <div>
@@ -634,9 +657,11 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
           </div>
         )}
 
-        {/* Files */}
-        <div style={{ borderTop: `1px solid ${T.border}33`, paddingTop: 10 }}>
-          <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Files</div>
+      </div>
+
+      {/* Right: Files + Drop zone */}
+      <div style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 0 }}>Files</div>
           {uploading && uploadProgress && (
             <div style={{ fontSize: 10, color: T.accent, marginBottom: 4 }}>Uploading {uploadProgress.done + 1}/{uploadProgress.total}: {uploadProgress.current}</div>
           )}
@@ -664,7 +689,6 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
             <span style={{ fontSize: 10, color: T.accent, fontWeight: 600 }}>+ Drop files to add</span>
           </div>
           <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={e => { handleFileDrop(e.target.files); e.target.value = ""; }} />
-        </div>
       </div>
     </div>
   );
