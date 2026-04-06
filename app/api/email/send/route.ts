@@ -31,8 +31,7 @@ export async function POST(req: NextRequest) {
           proofHtml += `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px">Review & Approve in Portal</a></p>`;
         }
       }
-      const inboundDomain = process.env.RESEND_INBOUND_DOMAIN;
-      const proofReplyTo = (inboundDomain && jobId) ? `reply+${jobId}@${inboundDomain}` : undefined;
+      const proofReplyTo = jobId ? `hello+opshub.${jobId}@housepartydistro.com` : undefined;
       const { data, error } = await resend.emails.send({
         from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
         to: recipientEmail,
@@ -123,9 +122,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Reply-to routing: replies come back to OpsHub when RESEND_INBOUND_DOMAIN is set
-    const inboundDomain = process.env.RESEND_INBOUND_DOMAIN;
-    const replyTo = (inboundDomain && jobId) ? `reply+${jobId}@${inboundDomain}` : undefined;
+    // Reply-to routing: replies go to Gmail where OpsHub polls for them
+    const replyTo = jobId ? `hello+opshub.${jobId}@housepartydistro.com` : undefined;
 
     // Send via Resend
     const { data, error } = await resend.emails.send({

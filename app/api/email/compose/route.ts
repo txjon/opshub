@@ -34,11 +34,8 @@ export async function POST(req: NextRequest) {
       .single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
-    // Build reply-to address for routing replies back to this project
-    const inboundDomain = process.env.RESEND_INBOUND_DOMAIN;
-    const replyTo = inboundDomain
-      ? `reply+${jobId}@${inboundDomain}`
-      : undefined;
+    // Reply-to routing: replies go to Gmail where OpsHub polls for them
+    const replyTo = `hello+opshub.${jobId}@housepartydistro.com`;
 
     const fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
 
