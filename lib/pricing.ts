@@ -40,14 +40,16 @@ export function lookupTagPrice(printers: Record<string, any>, pk: string, qty: n
 export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[], printers: Record<string, any>) {
   const qty = p.totalQty || 0; if (qty === 0) return null;
 
-  // Blank cost (3.5% buffer)
+  // Blank cost buffer: LA Apparel 10%, all others 5%
+  const isLAApparel = (p.blank_vendor || p.blankVendor || "").startsWith("LA Apparel");
+  const blankBuffer = isLAApparel ? 1.10 : 1.05;
   const blankCost = (() => {
     if (p.blankCosts && Object.keys(p.blankCosts).length > 0) {
       let total = 0;
-      Object.entries(p.blankCosts).forEach(([sz, cost]: [string, any]) => { total += (cost || 0) * (p.qtys?.[sz] || 0) * 1.035; });
+      Object.entries(p.blankCosts).forEach(([sz, cost]: [string, any]) => { total += (cost || 0) * (p.qtys?.[sz] || 0) * blankBuffer; });
       return total;
     }
-    return (p.blankCostPerUnit || 0) * qty * 1.035;
+    return (p.blankCostPerUnit || 0) * qty * blankBuffer;
   })();
 
   // Print total + shared screen tracking
