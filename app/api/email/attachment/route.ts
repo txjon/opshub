@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse(buffer, {
       headers: {
         "Content-Type": mimeType,
-        "Content-Disposition": `inline; filename="${encodeURIComponent(filename)}"`,
+        "Content-Disposition": `filename="${encodeURIComponent(filename)}"`,
         "Cache-Control": "private, max-age=3600",
       },
     });

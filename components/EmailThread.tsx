@@ -216,10 +216,19 @@ export function EmailThread({ jobId, onCompose }: { jobId: string; onCompose: ()
             }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{previewName}</span>
               <div style={{ display: "flex", gap: 8 }}>
-                <a href={previewUrl} download={previewName} style={{
-                  fontSize: 10, fontWeight: 600, color: T.accent, textDecoration: "none",
+                <button onClick={async () => {
+                  const res = await fetch(previewUrl!);
+                  const blob = await res.blob();
+                  const a = document.createElement("a");
+                  a.href = URL.createObjectURL(blob);
+                  a.download = previewName;
+                  a.click();
+                  URL.revokeObjectURL(a.href);
+                }} style={{
+                  fontSize: 10, fontWeight: 600, color: T.accent, background: "none",
                   padding: "3px 8px", borderRadius: 4, border: `1px solid ${T.border}`,
-                }}>Download</a>
+                  cursor: "pointer", fontFamily: font,
+                }}>Save to Computer</button>
                 <button onClick={() => { setPreviewUrl(null); setPreviewName(""); }} style={{
                   background: "none", border: "none", color: T.muted, fontSize: 16, cursor: "pointer",
                 }}>&times;</button>
