@@ -5,7 +5,12 @@ const AC_BASE = "https://api.ascolour.com/v1";
 const getSubKey = () => process.env.ASCOLOUR_SUBSCRIPTION_KEY || "";
 const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
 
-const admin = () => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+const admin = () => {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+};
 
 // Token cache (OK in-memory — only used during active refresh)
 let cachedToken: string | null = null;
@@ -46,16 +51,22 @@ async function paginate(url: string, h: Record<string, string>): Promise<any[]> 
 }
 
 async function getCached(key: string): Promise<{ data: any; fresh: boolean } | null> {
-  const sb = admin();
-  const { data } = await sb.from("api_cache").select("data, updated_at").eq("key", key).single();
-  if (!data) return null;
-  const age = Date.now() - new Date(data.updated_at).getTime();
-  return { data: data.data, fresh: age < CACHE_TTL };
+  try {
+    const sb = admin();
+    if (!sb) return null;
+    const { data, error } = await sb.from("api_cache").select("data, updated_at").eq("key", key).single();
+    if (error || !data) return null;
+    const age = Date.now() - new Date(data.updated_at).getTime();
+    return { data: data.data, fresh: age < CACHE_TTL };
+  } catch { return null; }
 }
 
 async function setCache(key: string, value: any) {
-  const sb = admin();
-  await sb.from("api_cache").upsert({ key, data: value, updated_at: new Date().toISOString() });
+  try {
+    const sb = admin();
+    if (!sb) return;
+    await sb.from("api_cache").upsert({ key, data: value, updated_at: new Date().toISOString() });
+  } catch {}
 }
 
 export const maxDuration = 60;

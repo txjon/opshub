@@ -8,18 +8,27 @@ const INVENTORY_URL = "https://promo.losangelesapparel.net/promoStandards/invent
 const PRICING_URL = "https://promo.losangelesapparel.net/promoStandards/productPricingAndConfig.php";
 
 const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
-const admin = () => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+const admin = () => {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+};
 
 async function getCached(key: string): Promise<{ data: any; fresh: boolean } | null> {
   try {
-    const { data, error } = await admin().from("api_cache").select("data, updated_at").eq("key", key).single();
+    const sb = admin();
+    if (!sb) return null;
+    const { data, error } = await sb.from("api_cache").select("data, updated_at").eq("key", key).single();
     if (error || !data) return null;
     return { data: data.data, fresh: Date.now() - new Date(data.updated_at).getTime() < CACHE_TTL };
   } catch { return null; }
 }
 async function setCache(key: string, value: any) {
   try {
-    await admin().from("api_cache").upsert({ key, data: value, updated_at: new Date().toISOString() });
+    const sb = admin();
+    if (!sb) return;
+    await sb.from("api_cache").upsert({ key, data: value, updated_at: new Date().toISOString() });
   } catch (e) { console.error("Cache write failed:", e); }
 }
 
@@ -175,9 +184,12 @@ export async function GET(request: NextRequest) {
       // Cold start — load from DB catalog (fast)
       let dbProducts: Record<string, any> = {};
       try {
-        const { data: catalog, error: catErr } = await admin().from("la_apparel_catalog").select("style_code, description, category").order("style_code");
-        if (catErr) console.error("[LA Apparel] Catalog query error:", catErr.message);
-        if (catalog) for (const row of catalog) dbProducts[row.style_code] = { name: row.description, category: row.category };
+        const sb = admin();
+        if (sb) {
+          const { data: catalog, error: catErr } = await sb.from("la_apparel_catalog").select("style_code, description, category").order("style_code");
+          if (catErr) console.error("[LA Apparel] Catalog query error:", catErr.message);
+          if (catalog) for (const row of catalog) dbProducts[row.style_code] = { name: row.description, category: row.category };
+        }
         console.log(`[LA Apparel] Loaded ${Object.keys(dbProducts).length} products from catalog`);
       } catch (e) { console.error("[LA Apparel] Catalog exception:", e); }
 
