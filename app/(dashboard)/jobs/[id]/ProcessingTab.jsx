@@ -5,10 +5,10 @@ import { createClient } from "@/lib/supabase/client";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
-const PLACEMENT_MAP = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest','Right Chest':'Right Chest','Left Sleeve':'Left Sleeve','Right Sleeve':'Right Sleeve','Neck':'Neck','Hood':'Hood','Pocket':'Pocket' };
-const SKIP_GROUPS = ['Shirt Color','Shadows','Highlights','Mask','Client Art'];
+export const PLACEMENT_MAP = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest','Right Chest':'Right Chest','Left Sleeve':'Left Sleeve','Right Sleeve':'Right Sleeve','Neck':'Neck','Hood':'Hood','Pocket':'Pocket' };
+export const SKIP_GROUPS = ['Shirt Color','Shadows','Highlights','Mask','Client Art'];
 
-async function parsePsd(arrayBuffer) {
+export async function parsePsd(arrayBuffer) {
   const { readPsd } = await import("ag-psd");
   const psd = readPsd(new Uint8Array(arrayBuffer));
   const groups = [...(psd.children || [])].reverse();

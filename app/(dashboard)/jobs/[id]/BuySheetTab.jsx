@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
-const DEFAULT_CURVE = {S:5.13,M:20.57,L:38.14,XL:25.90,"2XL":7.69,"3XL":2.56};
+export const DEFAULT_CURVE = {S:5.13,M:20.57,L:38.14,XL:25.90,"2XL":7.69,"3XL":2.56};
 
 // Auto-detect QB garment_type from supplier category + item name
-function detectGarmentType(category, name) {
+export function detectGarmentType(category, name) {
   const cat = (category || "").toLowerCase();
   const n = (name || "").toLowerCase();
   // Category-based (supplier categories)
@@ -45,7 +45,7 @@ function detectGarmentType(category, name) {
 }
 
 // Shift-click range selection for size pickers
-function handleSizeToggle(sz, e, availableSizes, setSelSizes, lastClickedRef) {
+export function handleSizeToggle(sz, e, availableSizes, setSelSizes, lastClickedRef) {
   if (e?.shiftKey && lastClickedRef.current && lastClickedRef.current !== sz) {
     const sorted = sortSizes(availableSizes);
     const a = sorted.indexOf(lastClickedRef.current);
@@ -60,7 +60,7 @@ function handleSizeToggle(sz, e, availableSizes, setSelSizes, lastClickedRef) {
   setSelSizes(p => { const n = { ...p }; if (n[sz] !== undefined) delete n[sz]; else n[sz] = 1; return n; });
 }
 
-function distribute(total, sizes, curve) {
+export function distribute(total, sizes, curve) {
   const relevant = sizes.filter(sz => curve[sz] !== undefined);
   const total_pct = relevant.reduce((a,sz) => a+(curve[sz]||0), 0);
   const result = {}; sizes.forEach(sz => { result[sz] = 0; });
@@ -77,7 +77,7 @@ function distribute(total, sizes, curve) {
 
 // ── S&S Catalog Picker ──────────────────────────────────────────────────────
 
-function SSPicker({ onAdd, onClose, isFav, toggleFav }) {
+export function SSPicker({ onAdd, onClose, isFav, toggleFav }) {
   const [query, setQuery] = useState("");
   const [brands, setBrands] = useState([]);
   const [selBrand, setSelBrand] = useState(null);
@@ -263,7 +263,7 @@ function SSPicker({ onAdd, onClose, isFav, toggleFav }) {
 }
 // ── AS Colour Picker ─────────────────────────────────────────────────────────
 
-function ASColourPicker({ onAdd, onClose, isFav, toggleFav }) {
+export function ASColourPicker({ onAdd, onClose, isFav, toggleFav }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pricing, setPricing] = useState({});  // { sku: price }
@@ -462,7 +462,7 @@ function ASColourPicker({ onAdd, onClose, isFav, toggleFav }) {
 }
 
 // ── LA Apparel Picker ────────────────────────────────────────────────────────
-function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
+export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selCategory, setSelCategory] = useState(null);
@@ -639,7 +639,7 @@ function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
 }
 
 // ── Favorites Picker ─────────────────────────────────────────────────────────
-function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav }) {
+export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav }) {
   const HP_CATEGORIES = ["Crewnecks", "Hats", "Hoodies", "Jackets", "Long Sleeve", "Tees", "Other"];
   const [selCategory, setSelCategory] = useState(null);
   const [selFav, setSelFav] = useState(null);
@@ -874,7 +874,7 @@ function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav })
 
 // ── Other / Custom Blank Picker ──────────────────────────────────────────────
 
-function OtherPicker({ onAdd, onClose }) {
+export function OtherPicker({ onAdd, onClose }) {
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selBrand, setSelBrand] = useState(null);

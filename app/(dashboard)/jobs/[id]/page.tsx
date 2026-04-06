@@ -11,6 +11,7 @@ import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
 import { ArtTab } from "./ArtTab";
 import { ProcessingTab } from "./ProcessingTab";
+import { ProductBuilder } from "./ProductBuilder";
 import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
@@ -804,12 +805,37 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* PROCESSING */}
+      {/* PRODUCT BUILDER (unified Processing + Buy Sheet + Art) */}
+      {tab==="builder"&&(
+        <ProductBuilder
+          project={job}
+          items={items}
+          contacts={contacts}
+          onItemsChanged={loadData}
+          onRegisterSave={(fn: () => Promise<void>) => { saveBuySheetRef.current = fn; }}
+          onSaveStatus={(s: string) => handleSaveStatus(s)}
+          onSaved={(resolved: any[]) => {
+            setItems(prev => {
+              const prevMap = Object.fromEntries(prev.map(it => [it.id, it]));
+              return resolved.map((it: any) => ({
+                ...(prevMap[it.id] || {}),
+                ...it,
+                sizes: it.sizes || [],
+                qtys: it.qtys || {},
+                totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a: number, v: number) => a + v, 0),
+              }));
+            });
+          }}
+          onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
+        />
+      )}
+
+      {/* PROCESSING (legacy — kept during Product Builder testing) */}
       {tab==="processing"&&(
         <ProcessingTab project={job} items={items} onItemsChanged={loadData} />
       )}
 
-      {/* ART FILES */}
+      {/* ART FILES (legacy — kept during Product Builder testing) */}
       {tab==="art"&&(
         <ArtTab project={job} items={items} contacts={contacts} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} />
       )}

@@ -9,7 +9,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 
 // Recursively collect files from drag-and-drop (handles folders)
-async function collectFiles(dataTransferItems) {
+export async function collectFiles(dataTransferItems) {
   const files = [];
   async function readEntry(entry) {
     if (entry.isFile) {
@@ -56,7 +56,7 @@ function formatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
-function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabel, stageColor }) {
+export function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabel, stageColor }) {
   const approval = APPROVAL_LABELS[file.approval];
   const hasRevisionNote = file.approval === "revision_requested" && file.notes;
 
@@ -371,7 +371,7 @@ function ProofModal({ item, clientName, projectTitle, mockupFile, files, costing
   );
 }
 
-function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, costingData, onFilesChanged, onUpdateItem }) {
+export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, costingData, onFilesChanged, onUpdateItem }) {
   const [files, setFiles] = useState([]);
   const [sendingFile, setSendingFile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -645,7 +645,7 @@ function ItemArtSection({ item, clientName, projectTitle, contacts, jobId, costi
   );
 }
 
-function MockupDropZone({ item, clientName, projectTitle, onFilesChanged, onUpdateItem }) {
+export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged, onUpdateItem }) {
   useEffect(() => { preloadLogo(); preloadTemplate(); }, []);
   const [mode, setMode] = useState(null); // null | "auto" | "manual"
   const [mockupData, setMockupData] = useState(null);
