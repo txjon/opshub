@@ -553,7 +553,8 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
   }
 
   return (
-    <div style={{ padding: "14px 16px", display: "flex", gap: 16 }}>
+    <div style={{ padding: "14px 16px", position: "relative" }}>
+      <div style={{ display: "flex", gap: 16 }}>
       {/* Left: Mockup thumbnail (tall, clean) */}
       <div style={{ width: 280, flexShrink: 0 }}>
         {mockupThumb ? (
@@ -582,12 +583,10 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
               </span>
               {item.garment_type && <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 99, background: T.surface, color: T.muted, border: `1px solid ${T.border}` }}>{item.garment_type}</span>}
               <button onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }} style={{ fontSize: 10, color: T.accent, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Change</button>
-              <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }} style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", marginLeft: "auto" }} onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>Delete item</button>
             </div>
           ) : (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }} style={{ fontSize: 12, fontWeight: 600, color: T.accent, cursor: "pointer", padding: "6px 16px", border: `1px dashed ${T.accent}44`, borderRadius: 6, background: "none" }}>Assign Blank →</button>
-              <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }} style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", marginLeft: "auto" }} onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>Delete item</button>
             </div>
           )}
         </div>
@@ -690,6 +689,13 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
           </div>
           <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={e => { handleFileDrop(e.target.files); e.target.value = ""; }} />
       </div>
+      </div>
+      {/* Delete — bottom right corner */}
+      <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }}
+        style={{ position: "absolute", bottom: 14, right: 16, fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer" }}
+        onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>
+        Delete item
+      </button>
     </div>
   );
 }
