@@ -94,12 +94,15 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
                   <div style={{ fontSize: 10, color: T.muted }}>{[item.blank_vendor, item.color || item.blank_sku].filter(Boolean).join(" · ")}</div>
                 </div>
-                {/* Generate Proof button — only if mockup exists and no proof yet */}
-                {mockupFile && !hasProofFile && (
+                {/* Generate Proof button */}
+                {mockupFile && (
                   <button onClick={() => setProofModalItem(item)}
                     style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: T.amber, color: "#fff" }}>
-                    Generate Proof
+                    {hasProofFile ? "Regenerate Proof" : "Generate Proof"}
                   </button>
+                )}
+                {!mockupFile && files.length > 0 && (
+                  <span style={{ fontSize: 9, color: T.faint }}>No mockup</span>
                 )}
                 {hasProofFile && !isApproved && (
                   <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.amberDim, color: T.amber }}>
