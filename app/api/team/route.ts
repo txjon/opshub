@@ -18,7 +18,10 @@ export async function POST(req: NextRequest) {
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     // Invite user via Supabase auth
-    const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email);
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+    const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${siteUrl}/auth/callback`,
+    });
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 });
 
     // Create/update profile
