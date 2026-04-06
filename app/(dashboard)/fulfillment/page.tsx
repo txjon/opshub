@@ -117,7 +117,7 @@ export default function FulfillmentPage() {
       .from("jobs")
       .select("id, title, target_ship_date, shipping_route, clients(name)")
       .in("phase", ["production", "receiving"])
-      .in("shipping_route", ["ship_through", "stage"]);
+      .eq("shipping_route", "stage");
 
     if (jobs?.length) {
       const jobIds = jobs.map(j => j.id);
