@@ -206,7 +206,7 @@ export function EmailThread({ jobId, onCompose }: { jobId: string; onCompose: ()
         >
           <div onClick={e => e.stopPropagation()} style={{
             background: T.card, borderRadius: 12, overflow: "hidden",
-            maxWidth: "90vw", maxHeight: "90vh", display: "flex", flexDirection: "column",
+            maxWidth: 600, width: "95vw", maxHeight: "85vh", display: "flex", flexDirection: "column",
             boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
           }}>
             {/* Header */}
@@ -237,9 +237,9 @@ export function EmailThread({ jobId, onCompose }: { jobId: string; onCompose: ()
             {/* Content */}
             <div style={{ padding: 16, overflow: "auto", maxHeight: "80vh" }}>
               {previewUrl.includes("mimeType=image") ? (
-                <img src={previewUrl} alt={previewName} style={{ maxWidth: "100%", borderRadius: 6 }} />
+                <img src={previewUrl} alt={previewName} style={{ maxWidth: "100%", height: "auto", borderRadius: 6 }} />
               ) : previewUrl.includes("mimeType=application%2Fpdf") ? (
-                <iframe src={previewUrl} style={{ width: "80vw", height: "75vh", border: "none", borderRadius: 6 }} />
+                <iframe src={previewUrl} style={{ width: "100%", height: "70vh", border: "none", borderRadius: 6 }} />
               ) : (
                 <div style={{ textAlign: "center", padding: 40 }}>
                   <div style={{ fontSize: 48, marginBottom: 12 }}>📎</div>
