@@ -142,18 +142,25 @@ export async function GET(req: NextRequest) {
 
         extractParts(fullMsg.data.payload);
 
-        // Clean up text body — strip quoted reply content
+        // Clean up text body — strip signature, quoted replies, forwarded content
         if (textBody) {
-          // Cut at the first "On ... wrote:" line (common reply delimiter)
-          const replyMarker = textBody.search(/\nOn .+wrote:\s*\n/);
+          // Cut at signature delimiter ("-- " or "--" on its own line)
+          const sigMatch = textBody.match(/\n--\s*\n/);
+          if (sigMatch && sigMatch.index && sigMatch.index > 0) {
+            textBody = textBody.slice(0, sigMatch.index).trim();
+          }
+          // Cut at "On ... wrote:" line (Gmail/Apple Mail reply delimiter)
+          const replyMarker = textBody.search(/\n>?\s*On .+wrote:\s*$/m);
           if (replyMarker > 0) {
             textBody = textBody.slice(0, replyMarker).trim();
           }
-          // Also cut at "-- " signature delimiter
-          const sigMarker = textBody.indexOf("\n-- \n");
-          if (sigMarker > 0) {
-            textBody = textBody.slice(0, sigMarker).trim();
+          // Cut at Outlook-style delimiters
+          const outlookMarker = textBody.search(/\n-{3,}\s*Original Message\s*-{3,}/i);
+          if (outlookMarker > 0) {
+            textBody = textBody.slice(0, outlookMarker).trim();
           }
+          // Remove any remaining lines starting with ">" (quoted text)
+          textBody = textBody.split("\n").filter(line => !line.startsWith(">")).join("\n").trim();
         }
 
         // Parse sender

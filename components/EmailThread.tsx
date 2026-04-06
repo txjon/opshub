@@ -34,6 +34,24 @@ const fmtSize = (bytes: number) => {
 const isImage = (mime: string) => mime.startsWith("image/");
 const isPdf = (mime: string) => mime === "application/pdf";
 
+// Strip quoted replies, signatures, and forwarded content from display
+function cleanBody(text: string | null): string | null {
+  if (!text) return null;
+  let clean = text;
+  // Cut at signature
+  const sigMatch = clean.match(/\n--\s*\n/);
+  if (sigMatch?.index && sigMatch.index > 0) clean = clean.slice(0, sigMatch.index);
+  // Cut at "On ... wrote:"
+  const replyMatch = clean.search(/\n>?\s*On .+wrote:\s*$/m);
+  if (replyMatch > 0) clean = clean.slice(0, replyMatch);
+  // Cut at Outlook delimiter
+  const outlookMatch = clean.search(/\n-{3,}\s*Original Message/i);
+  if (outlookMatch > 0) clean = clean.slice(0, outlookMatch);
+  // Remove ">" quoted lines
+  clean = clean.split("\n").filter(l => !l.startsWith(">")).join("\n");
+  return clean.trim() || null;
+}
+
 export function EmailThread({ jobId, onCompose }: { jobId: string; onCompose: () => void }) {
   const supabase = createClient();
   const [emails, setEmails] = useState<Email[]>([]);
@@ -145,18 +163,12 @@ export function EmailThread({ jobId, onCompose }: { jobId: string; onCompose: ()
                     padding: "10px 12px", borderTop: `1px solid ${T.border}`,
                     background: T.surface,
                   }}>
-                    {/* Meta */}
-                    <div style={{ fontSize: 10, color: T.faint, marginBottom: 8 }}>
-                      <div>From: {email.from_name ? `${email.from_name} <${email.from_email}>` : email.from_email}</div>
-                      <div>To: {email.to_emails.join(", ")}</div>
-                      {email.cc_emails?.length > 0 && <div>CC: {email.cc_emails.join(", ")}</div>}
-                    </div>
                     {/* Body */}
                     <div style={{
                       fontSize: 12, color: T.text, lineHeight: 1.5,
                       whiteSpace: "pre-wrap", wordBreak: "break-word",
                     }}>
-                      {email.body_text || (isIn ? "Reply received — view full message in your email client" : "(no body)")}
+                      {cleanBody(email.body_text) || (isIn ? "Reply received — view full message in your email client" : "(no body)")}
                     </div>
                     {/* Attachments */}
                     {email.attachments && email.attachments.length > 0 && (
