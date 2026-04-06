@@ -95,6 +95,9 @@ export async function GET(
       const poSent = (typeMeta.po_sent_vendors || []).includes(decorator.name) ||
                      (typeMeta.po_sent_vendors || []).includes(decorator.short_code);
 
+      // Only show jobs where PO has been sent to this decorator
+      if (!poSent) continue;
+
       // Get ship-to address for this vendor
       const poShipTo = typeMeta.po_ship_to?.[decorator.name] || typeMeta.po_ship_to?.[decorator.short_code] || null;
       const poShipMethod = typeMeta.po_ship_methods?.[decorator.name] || typeMeta.po_ship_methods?.[decorator.short_code] || null;
