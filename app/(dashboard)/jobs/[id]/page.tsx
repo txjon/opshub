@@ -382,8 +382,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               const {data:newJob}=await supabase.from("jobs").insert({
                 title:job.title+" (Copy)",job_type:job.job_type,phase:"intake",priority:job.priority,
                 payment_terms:job.payment_terms,target_ship_date:null,
-                type_meta:job.type_meta||{},notes:job.notes,client_id:job.client_id,job_number:"",
-                costing_data:job.costing_data||null,costing_summary:job.costing_summary||null,
+                type_meta:(()=>{const m={...(job.type_meta||{})}; delete m.qb_invoice_id; delete m.qb_invoice_number; delete m.qb_payment_link; delete m.qb_tax_amount; delete m.qb_total_with_tax; delete m.po_sent_vendors; return m;})(),
+                notes:job.notes,client_id:job.client_id,job_number:"",
+                costing_data:job.costing_data||null,costing_summary:null,
+                quote_approved:false,quote_approved_at:null,
               }).select("id").single();
               if(!newJob) return;
               // Copy items + buy sheet lines
