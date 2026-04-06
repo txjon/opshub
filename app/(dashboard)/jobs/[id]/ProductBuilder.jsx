@@ -532,13 +532,13 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
   return (
     <div style={{ padding: "14px 16px", display: "flex", gap: 16 }}>
       {/* Left: Mockup thumbnail (tall, clean) */}
-      <div style={{ width: 160, flexShrink: 0 }}>
+      <div style={{ width: 280, flexShrink: 0 }}>
         {mockupThumb ? (
           <a href={mockupFile.drive_link} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
-            <img src={mockupThumb} alt="Mockup" style={{ width: 160, maxHeight: 240, objectFit: "contain", borderRadius: 10, border: `1px solid ${T.border}`, display: "block", background: T.surface }} onError={e => { e.target.style.display = "none"; }} />
+            <img src={mockupThumb} alt="Mockup" style={{ width: 280, maxHeight: 240, objectFit: "contain", borderRadius: 10, border: `1px solid ${T.border}`, display: "block", background: T.surface }} onError={e => { e.target.style.display = "none"; }} />
           </a>
         ) : (
-          <div style={{ width: 160, height: 200, borderRadius: 10, border: `1px dashed ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+          <div style={{ width: 280, height: 200, borderRadius: 10, border: `1px dashed ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
             <div>
               <div style={{ fontSize: 10, fontWeight: 600, color: T.accent }}>Build Mockup</div>
               <div style={{ fontSize: 9, color: T.faint, marginTop: 2 }}>from print file</div>
