@@ -3,6 +3,14 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font } from "@/lib/theme";
 
+type Attachment = {
+  filename: string;
+  mimeType: string;
+  size: number;
+  gmailMessageId: string;
+  attachmentId: string;
+};
+
 type Email = {
   id: string;
   direction: "inbound" | "outbound";
@@ -13,13 +21,25 @@ type Email = {
   subject: string | null;
   body_text: string | null;
   body_html: string | null;
+  attachments: Attachment[] | null;
   created_at: string;
 };
+
+const fmtSize = (bytes: number) => {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / 1048576).toFixed(1)}MB`;
+};
+
+const isImage = (mime: string) => mime.startsWith("image/");
+const isPdf = (mime: string) => mime === "application/pdf";
 
 export function EmailThread({ jobId, onCompose }: { jobId: string; onCompose: () => void }) {
   const supabase = createClient();
   const [emails, setEmails] = useState<Email[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewName, setPreviewName] = useState("");
 
   useEffect(() => { load(); }, [jobId]);
 
@@ -138,11 +158,86 @@ export function EmailThread({ jobId, onCompose }: { jobId: string; onCompose: ()
                     }}>
                       {email.body_text || (isIn ? "Reply received — view full message in your email client" : "(no body)")}
                     </div>
+                    {/* Attachments */}
+                    {email.attachments && email.attachments.length > 0 && (
+                      <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {email.attachments.map((att: Attachment, ai: number) => {
+                          const url = `/api/email/attachment?messageId=${encodeURIComponent(att.gmailMessageId)}&attachmentId=${encodeURIComponent(att.attachmentId)}&filename=${encodeURIComponent(att.filename)}&mimeType=${encodeURIComponent(att.mimeType)}`;
+                          return (
+                            <button
+                              key={ai}
+                              onClick={() => {
+                                if (isImage(att.mimeType) || isPdf(att.mimeType)) {
+                                  setPreviewUrl(url);
+                                  setPreviewName(att.filename);
+                                } else {
+                                  window.open(url, "_blank");
+                                }
+                              }}
+                              style={{
+                                display: "inline-flex", alignItems: "center", gap: 6,
+                                padding: "5px 10px", borderRadius: 6,
+                                background: T.card, border: `1px solid ${T.border}`,
+                                color: T.accent, fontSize: 11, fontWeight: 500,
+                                cursor: "pointer", fontFamily: font,
+                              }}
+                            >
+                              <span style={{ fontSize: 13 }}>{isImage(att.mimeType) ? "🖼" : isPdf(att.mimeType) ? "📄" : "📎"}</span>
+                              <span style={{ maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
+                              <span style={{ color: T.faint, fontSize: 9 }}>{fmtSize(att.size)}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Attachment preview modal */}
+      {previewUrl && (
+        <div
+          onClick={() => { setPreviewUrl(null); setPreviewName(""); }}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 9999, cursor: "pointer",
+          }}
+        >
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.card, borderRadius: 12, overflow: "hidden",
+            maxWidth: "90vw", maxHeight: "90vh", display: "flex", flexDirection: "column",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{previewName}</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <a href={previewUrl} download={previewName} style={{
+                  fontSize: 10, fontWeight: 600, color: T.accent, textDecoration: "none",
+                  padding: "3px 8px", borderRadius: 4, border: `1px solid ${T.border}`,
+                }}>Download</a>
+                <button onClick={() => { setPreviewUrl(null); setPreviewName(""); }} style={{
+                  background: "none", border: "none", color: T.muted, fontSize: 16, cursor: "pointer",
+                }}>&times;</button>
+              </div>
+            </div>
+            {/* Content */}
+            <div style={{ padding: 16, overflow: "auto", maxHeight: "80vh" }}>
+              {previewUrl.includes("mimeType=image") ? (
+                <img src={previewUrl} alt={previewName} style={{ maxWidth: "100%", borderRadius: 6 }} />
+              ) : previewUrl.includes("mimeType=application%2Fpdf") ? (
+                <iframe src={previewUrl} style={{ width: "80vw", height: "75vh", border: "none", borderRadius: 6 }} />
+              ) : null}
+            </div>
+          </div>
         </div>
       )}
     </div>

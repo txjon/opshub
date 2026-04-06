@@ -107,9 +107,10 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        // Extract body from message payload
+        // Extract body and attachment metadata from message payload
         let textBody = "";
         let htmlBody = "";
+        const attachments: { filename: string; mimeType: string; size: number; gmailMessageId: string; attachmentId: string }[] = [];
 
         function extractParts(payload: any) {
           if (!payload) return;
@@ -119,6 +120,17 @@ export async function GET(req: NextRequest) {
             textBody = Buffer.from(payload.body.data, "base64url").toString("utf-8");
           } else if (mimeType === "text/html" && payload.body?.data) {
             htmlBody = Buffer.from(payload.body.data, "base64url").toString("utf-8");
+          }
+
+          // Capture attachment metadata (don't download the file)
+          if (payload.filename && payload.body?.attachmentId) {
+            attachments.push({
+              filename: payload.filename,
+              mimeType: mimeType,
+              size: payload.body.size || 0,
+              gmailMessageId: msg.id!,
+              attachmentId: payload.body.attachmentId,
+            });
           }
 
           if (payload.parts) {
@@ -179,6 +191,7 @@ export async function GET(req: NextRequest) {
           body_text: textBody || null,
           body_html: htmlBody || null,
           resend_message_id: messageId || null,
+          attachments: attachments.length > 0 ? attachments : [],
         });
 
         // Log activity
