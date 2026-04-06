@@ -41,24 +41,29 @@ export async function POST(req: NextRequest) {
     // Fetch full email body from Resend API using email_id
     if (emailId && !text && !html) {
       try {
-        const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
+        // Try standard emails endpoint
+        const res1 = await fetch(`https://api.resend.com/emails/${emailId}`, {
           headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
         });
-        if (res.ok) {
-          const full = await res.json();
-          text = full.text || full.body || full.text_body || null;
-          html = full.html || full.html_body || null;
-          if (!subject && full.subject) subject = full.subject;
-          // If still no body, log what we got back
-          if (!text && !html) {
-            console.warn("[Inbound] Full email fetch returned no body. Keys:", Object.keys(full));
-            text = JSON.stringify(full, null, 2).slice(0, 3000);
-          }
-        } else {
-          console.warn("[Inbound] Resend API returned", res.status);
+        const body1 = res1.ok ? await res1.json() : { error: res1.status };
+
+        // Try received-emails endpoint (Resend specific for inbound)
+        const res2 = await fetch(`https://api.resend.com/received-emails/${emailId}`, {
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+        });
+        const body2 = res2.ok ? await res2.json() : { error: res2.status };
+
+        // Check both responses for body content
+        const apiData = body2.error ? body1 : body2;
+        text = apiData.text || apiData.body || apiData.text_body || apiData.plain_text || null;
+        html = apiData.html || apiData.html_body || null;
+
+        // Debug: dump both responses if still no body
+        if (!text && !html) {
+          text = `[DEBUG] /emails response keys: ${JSON.stringify(Object.keys(body1))}\n\n/emails response: ${JSON.stringify(body1).slice(0, 1500)}\n\n/received-emails response: ${JSON.stringify(body2).slice(0, 1500)}`;
         }
       } catch (fetchErr) {
-        console.warn("[Inbound] Could not fetch full email:", fetchErr);
+        text = `[DEBUG] Fetch error: ${fetchErr}`;
       }
     }
 
