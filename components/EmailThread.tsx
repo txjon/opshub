@@ -167,12 +167,8 @@ export function EmailThread({ jobId, onCompose }: { jobId: string; onCompose: ()
                             <button
                               key={ai}
                               onClick={() => {
-                                if (isImage(att.mimeType) || isPdf(att.mimeType)) {
-                                  setPreviewUrl(url);
-                                  setPreviewName(att.filename);
-                                } else {
-                                  window.open(url, "_blank");
-                                }
+                                setPreviewUrl(url);
+                                setPreviewName(att.filename);
                               }}
                               style={{
                                 display: "inline-flex", alignItems: "center", gap: 6,
@@ -235,7 +231,18 @@ export function EmailThread({ jobId, onCompose }: { jobId: string; onCompose: ()
                 <img src={previewUrl} alt={previewName} style={{ maxWidth: "100%", borderRadius: 6 }} />
               ) : previewUrl.includes("mimeType=application%2Fpdf") ? (
                 <iframe src={previewUrl} style={{ width: "80vw", height: "75vh", border: "none", borderRadius: 6 }} />
-              ) : null}
+              ) : (
+                <div style={{ textAlign: "center", padding: 40 }}>
+                  <div style={{ fontSize: 48, marginBottom: 12 }}>📎</div>
+                  <div style={{ fontSize: 14, color: T.text, fontWeight: 600, marginBottom: 4 }}>{previewName}</div>
+                  <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>Preview not available for this file type</div>
+                  <a href={previewUrl} download={previewName} style={{
+                    display: "inline-block", padding: "10px 24px", borderRadius: 8,
+                    background: T.accent, color: "#fff", textDecoration: "none",
+                    fontSize: 13, fontWeight: 600,
+                  }}>Save to Computer</a>
+                </div>
+              )}
             </div>
           </div>
         </div>

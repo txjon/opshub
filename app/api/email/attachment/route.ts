@@ -12,7 +12,7 @@ function getGmailAuth() {
   }
   return new google.auth.GoogleAuth({
     credentials: key,
-    scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+    scopes: ["https://www.googleapis.com/auth/gmail.modify"],
     clientOptions: {
       subject: "hello@housepartydistro.com",
     },
@@ -55,8 +55,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Attachment not found" }, { status: 404 });
     }
 
-    // Gmail returns base64url-encoded data
-    const buffer = Buffer.from(attachment.data.data, "base64url");
+    // Gmail returns base64url-encoded data (may also be standard base64)
+    const raw = attachment.data.data.replace(/-/g, "+").replace(/_/g, "/");
+    const buffer = Buffer.from(raw, "base64");
 
     return new NextResponse(buffer, {
       headers: {
