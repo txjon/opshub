@@ -122,8 +122,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Reply-to routing: replies go to Gmail where OpsHub polls for them
-    const replyTo = jobId ? `hello+opshub.${jobId}@housepartydistro.com` : undefined;
+    // Reply-to routing: POs reply to production@, everything else to hello@ (Gmail inbound capture)
+    const replyTo = type === "po"
+      ? (process.env.EMAIL_FROM_PO || "production@housepartydistro.com")
+      : (jobId ? `hello+opshub.${jobId}@housepartydistro.com` : undefined);
 
     // Send via Resend
     const { data, error } = await resend.emails.send({
