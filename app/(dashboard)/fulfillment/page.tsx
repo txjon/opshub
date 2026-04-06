@@ -172,12 +172,14 @@ export default function FulfillmentPage() {
     const f = logForm[projectId];
     if (!f) return;
     const today = new Date().toISOString().split("T")[0];
+    const starting = parseInt(f.starting) || 0;
+    const remaining = parseInt(f.remaining) || 0;
     await supabase.from("fulfillment_daily_logs").upsert({
       project_id: projectId,
       log_date: today,
-      starting_orders: parseInt(f.starting) || 0,
-      orders_shipped: parseInt(f.shipped) || 0,
-      remaining_orders: parseInt(f.remaining) || 0,
+      starting_orders: starting,
+      orders_shipped: Math.max(0, starting - remaining),
+      remaining_orders: remaining,
       notes: f.notes?.trim() || null,
     }, { onConflict: "project_id,log_date" });
     setLogForm(prev => ({ ...prev, [projectId]: { starting: "", shipped: "", remaining: "", notes: "" } }));
@@ -389,15 +391,16 @@ export default function FulfillmentPage() {
                             onChange={e => setLogForm(prev => ({ ...prev, [proj.id]: { ...lf, starting: e.target.value } }))} onFocus={e => e.target.select()} />
                         </div>
                         <div>
-                          <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 2 }}>Shipped</label>
-                          <input type="number" style={{ ...ic, width: 80, fontFamily: mono, textAlign: "center" }} value={lf.shipped} placeholder="0"
-                            onChange={e => setLogForm(prev => ({ ...prev, [proj.id]: { ...lf, shipped: e.target.value } }))} onFocus={e => e.target.select()} />
-                        </div>
-                        <div>
                           <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 2 }}>Remaining</label>
                           <input type="number" style={{ ...ic, width: 80, fontFamily: mono, textAlign: "center" }} value={lf.remaining} placeholder="0"
                             onChange={e => setLogForm(prev => ({ ...prev, [proj.id]: { ...lf, remaining: e.target.value } }))} onFocus={e => e.target.select()} />
                         </div>
+                        {(parseInt(lf.starting) || 0) > 0 && (parseInt(lf.remaining) || 0) >= 0 && (
+                          <div style={{ padding: "6px 0" }}>
+                            <div style={{ fontSize: 9, color: T.faint, marginBottom: 2 }}>Shipped</div>
+                            <div style={{ fontSize: 14, fontWeight: 700, fontFamily: mono, color: T.green }}>{Math.max(0, (parseInt(lf.starting) || 0) - (parseInt(lf.remaining) || 0))}</div>
+                          </div>
+                        )}
                         <div style={{ flex: 1 }}>
                           <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 2 }}>Notes</label>
                           <input style={ic} value={lf.notes} placeholder="Issues, delays, etc."
