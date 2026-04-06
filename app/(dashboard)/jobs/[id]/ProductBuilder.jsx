@@ -454,7 +454,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 {String.fromCharCode(65 + idx)}
               </span>
               <span style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name || "Untitled"}</span>
-              {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{item.color ? ` · ${item.color}` : ""}</span>}
+              {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}</span>}
               {!hasBlank && item.garment_type !== "accessory" && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
               <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono, flexShrink: 0, minWidth: 50, textAlign: "right", color: item.totalQty > 0 ? T.text : T.faint }}>{item.totalQty > 0 ? item.totalQty : "—"}</span>
               <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
@@ -578,7 +578,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
           {hasBlank ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, color: T.muted, padding: "5px 12px", background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                <strong style={{ color: T.text, fontWeight: 600 }}>{item.blank_vendor}</strong>{item.color ? ` · ${item.color}` : ""}
+                <strong style={{ color: T.text, fontWeight: 600 }}>{item.blank_vendor}</strong>{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}
               </span>
               {item.garment_type && <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 99, background: T.surface, color: T.muted, border: `1px solid ${T.border}` }}>{item.garment_type}</span>}
               <button onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }} style={{ fontSize: 10, color: T.accent, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Change</button>
