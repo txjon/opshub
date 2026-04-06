@@ -4,6 +4,13 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { T, font, mono } from "@/lib/theme";
 
+type ReceivedItem = {
+  name: string;
+  sizes: string[];
+  received_qtys: Record<string, number>;
+  total: number;
+};
+
 type FulfillmentProject = {
   id: string;
   client_id: string | null;
@@ -16,6 +23,7 @@ type FulfillmentProject = {
   created_at: string;
   client_name: string;
   logs: DailyLog[];
+  received_items: ReceivedItem[];
 };
 
 type DailyLog = {
@@ -45,7 +53,8 @@ export default function FulfillmentPage() {
   const [incoming, setIncoming] = useState<IncomingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
-  const [newForm, setNewForm] = useState({ name: "", store_name: "", client_id: "", notes: "" });
+  const [newForm, setNewForm] = useState({ name: "", store_name: "", client_id: "", notes: "", source_job_id: "" });
+  const [labsJobs, setLabsJobs] = useState<{ id: string; title: string; client_name: string }[]>([]);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [logForm, setLogForm] = useState<Record<string, { starting: string; shipped: string; remaining: string; notes: string }>>({});
@@ -56,15 +65,49 @@ export default function FulfillmentPage() {
   async function loadAll() {
     setLoading(true);
 
-    const [projRes, clientRes] = await Promise.all([
+    const [projRes, clientRes, jobsRes] = await Promise.all([
       supabase.from("fulfillment_projects").select("*, clients(name), fulfillment_daily_logs(*)").order("created_at", { ascending: false }),
       supabase.from("clients").select("id, name").order("name"),
+      supabase.from("jobs").select("id, title, clients(name)").not("phase", "in", '("complete","cancelled")').order("created_at", { ascending: false }).limit(50),
     ]);
+    setLabsJobs((jobsRes.data || []).map((j: any) => ({ id: j.id, title: j.title, client_name: (j.clients as any)?.name || "" })));
+
+    // Load received items for projects with source jobs
+    const jobLinkedProjects = (projRes.data || []).filter((p: any) => p.source_job_id);
+    const sourceJobIds = jobLinkedProjects.map((p: any) => p.source_job_id);
+    let receivedByJob: Record<string, ReceivedItem[]> = {};
+
+    if (sourceJobIds.length > 0) {
+      const { data: receivedItems } = await supabase
+        .from("items")
+        .select("job_id, name, received_qtys, received_at_hpd, buy_sheet_lines(size, qty_ordered)")
+        .in("job_id", sourceJobIds)
+        .eq("received_at_hpd", true);
+
+      for (const it of (receivedItems || [])) {
+        if (!receivedByJob[it.job_id]) receivedByJob[it.job_id] = [];
+        const lines = it.buy_sheet_lines || [];
+        const sizes = lines.map((l: any) => l.size);
+        const rq = it.received_qtys || {};
+        // Fall back to ordered qty if no received qty recorded
+        const received: Record<string, number> = {};
+        for (const l of lines) {
+          received[l.size] = rq[l.size] ?? l.qty_ordered ?? 0;
+        }
+        receivedByJob[it.job_id].push({
+          name: it.name,
+          sizes,
+          received_qtys: received,
+          total: Object.values(received).reduce((a, v) => a + v, 0),
+        });
+      }
+    }
 
     const mapped = (projRes.data || []).map((p: any) => ({
       ...p,
       client_name: p.clients?.name || "Unknown",
       logs: (p.fulfillment_daily_logs || []).sort((a: any, b: any) => b.log_date.localeCompare(a.log_date)),
+      received_items: p.source_job_id ? (receivedByJob[p.source_job_id] || []) : [],
     }));
     setProjects(mapped);
     setClients(clientRes.data || []);
@@ -113,8 +156,9 @@ export default function FulfillmentPage() {
       store_name: newForm.store_name.trim() || null,
       client_id: newForm.client_id || null,
       notes: newForm.notes.trim() || null,
+      source_job_id: newForm.source_job_id || null,
     });
-    setNewForm({ name: "", store_name: "", client_id: "", notes: "" });
+    setNewForm({ name: "", store_name: "", client_id: "", notes: "", source_job_id: "" });
     setShowNew(false);
     loadAll();
   }
@@ -199,20 +243,27 @@ export default function FulfillmentPage() {
           {showNew && (
             <div style={{ ...card, padding: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>New Project</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
                 <div>
                   <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Project name *</label>
                   <input style={ic} value={newForm.name} onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Nike Summer Drop" />
-                </div>
-                <div>
-                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Shopify store</label>
-                  <input style={ic} value={newForm.store_name} onChange={e => setNewForm(f => ({ ...f, store_name: e.target.value }))} placeholder="e.g. nike-merch.myshopify.com" />
                 </div>
                 <div>
                   <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Client</label>
                   <select style={ic} value={newForm.client_id} onChange={e => setNewForm(f => ({ ...f, client_id: e.target.value }))}>
                     <option value="">— select —</option>
                     {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Shopify store</label>
+                  <input style={ic} value={newForm.store_name} onChange={e => setNewForm(f => ({ ...f, store_name: e.target.value }))} placeholder="e.g. nike-merch.myshopify.com" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Link to Labs project (optional)</label>
+                  <select style={ic} value={newForm.source_job_id} onChange={e => setNewForm(f => ({ ...f, source_job_id: e.target.value }))}>
+                    <option value="">— none —</option>
+                    {labsJobs.map(j => <option key={j.id} value={j.id}>{j.client_name} — {j.title}</option>)}
                   </select>
                 </div>
               </div>
@@ -265,6 +316,12 @@ export default function FulfillmentPage() {
                   </div>
                   {/* Quick stats */}
                   <div style={{ display: "flex", gap: 16, flexShrink: 0, alignItems: "center" }}>
+                    {proj.received_items.length > 0 && (
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: mono, color: T.text }}>{proj.received_items.reduce((a, ri) => a + ri.total, 0).toLocaleString()}</div>
+                        <div style={{ fontSize: 8, color: T.faint }}>units received</div>
+                      </div>
+                    )}
                     {latestLog && (
                       <>
                         <div style={{ textAlign: "center" }}>
@@ -295,6 +352,30 @@ export default function FulfillmentPage() {
                     </div>
 
                     {proj.notes && <div style={{ fontSize: 11, color: T.muted, padding: "6px 10px", background: T.surface, borderRadius: 6 }}>{proj.notes}</div>}
+
+                    {/* Received inventory breakdown */}
+                    {proj.received_items.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                          Received Inventory — {proj.received_items.reduce((a, ri) => a + ri.total, 0).toLocaleString()} units
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {proj.received_items.map((ri, idx) => (
+                            <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: T.surface, borderRadius: 6 }}>
+                              <span style={{ fontSize: 12, fontWeight: 500, color: T.text }}>{ri.name}</span>
+                              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                {ri.sizes.map(sz => (
+                                  <span key={sz} style={{ fontSize: 9, fontFamily: mono, color: T.muted, padding: "1px 4px", background: T.card, borderRadius: 3 }}>
+                                    {sz}:{ri.received_qtys[sz] || 0}
+                                  </span>
+                                ))}
+                                <span style={{ fontSize: 10, fontWeight: 600, fontFamily: mono, color: T.text, marginLeft: 4 }}>{ri.total}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Daily log entry */}
                     <div>
