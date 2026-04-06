@@ -11,12 +11,16 @@ const CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
 const admin = () => createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 async function getCached(key: string): Promise<{ data: any; fresh: boolean } | null> {
-  const { data } = await admin().from("api_cache").select("data, updated_at").eq("key", key).single();
-  if (!data) return null;
-  return { data: data.data, fresh: Date.now() - new Date(data.updated_at).getTime() < CACHE_TTL };
+  try {
+    const { data, error } = await admin().from("api_cache").select("data, updated_at").eq("key", key).single();
+    if (error || !data) return null;
+    return { data: data.data, fresh: Date.now() - new Date(data.updated_at).getTime() < CACHE_TTL };
+  } catch { return null; }
 }
 async function setCache(key: string, value: any) {
-  await admin().from("api_cache").upsert({ key, data: value, updated_at: new Date().toISOString() });
+  try {
+    await admin().from("api_cache").upsert({ key, data: value, updated_at: new Date().toISOString() });
+  } catch (e) { console.error("Cache write failed:", e); }
 }
 
 // Simple XML tag extractor (no dependencies)
@@ -168,19 +172,21 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(cached.data);
       }
 
-      // Cold start — fetch from API with timeout protection
+      // Cold start — load from DB catalog (fast)
       let dbProducts: Record<string, any> = {};
       try {
-        const { data: catalog } = await admin().from("la_apparel_catalog").select("style_code, description, category").order("style_code");
+        const { data: catalog, error: catErr } = await admin().from("la_apparel_catalog").select("style_code, description, category").order("style_code");
+        if (catErr) console.error("[LA Apparel] Catalog query error:", catErr.message);
         if (catalog) for (const row of catalog) dbProducts[row.style_code] = { name: row.description, category: row.category };
-      } catch {}
+        console.log(`[LA Apparel] Loaded ${Object.keys(dbProducts).length} products from catalog`);
+      } catch (e) { console.error("[LA Apparel] Catalog exception:", e); }
 
-      // If we have catalog data, use it immediately
+      // If we have catalog data, return immediately
       if (Object.keys(dbProducts).length > 0) {
         const products = Object.entries(dbProducts).map(([id, info]) => ({
           styleCode: id, name: info.name || "", category: info.category || "", colors: [],
         }));
-        await setCache("laapparel_products", products);
+        setCache("laapparel_products", products).catch(() => {}); // non-blocking
         // Background: fetch from API to get any new products
         fetchProductList().then(async ids => {
           const merged = ids.map(id => ({ styleCode: id, name: dbProducts[id]?.name || "", category: dbProducts[id]?.category || "", colors: [] }));
