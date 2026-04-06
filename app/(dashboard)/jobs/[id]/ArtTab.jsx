@@ -97,7 +97,7 @@ export function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabe
   );
 }
 
-function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem }) {
+export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem }) {
   const METHODS = ["Screen Print", "DTF", "Embroidery"];
   const INSTRUCTIONS = ["Bulk Fold", "Piece Package", "Back Design Facing Out", "Smooth Plastisol Ink"];
 

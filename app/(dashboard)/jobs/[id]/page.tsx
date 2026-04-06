@@ -4,13 +4,9 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { CostingTabWrapper } from "./CostingTab";
 import { POTab } from "./POTab.jsx";
-import { BuySheetTab } from "./BuySheetTab";
-// ProductionTab removed — tracking entry lives on standalone Production page
 import { BlanksTab } from "./BlanksTab";
 import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
-import { ArtTab } from "./ArtTab";
-import { ProcessingTab } from "./ProcessingTab";
 import { ProductBuilder } from "./ProductBuilder";
 import { T, font, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -830,15 +826,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         />
       )}
 
-      {/* PROCESSING (legacy — kept during Product Builder testing) */}
-      {tab==="processing"&&(
-        <ProcessingTab project={job} items={items} onItemsChanged={loadData} />
-      )}
-
-      {/* ART FILES (legacy — kept during Product Builder testing) */}
-      {tab==="art"&&(
-        <ArtTab project={job} items={items} contacts={contacts} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} />
-      )}
       {tab==="payment"&&(
         <PaymentTab
           job={job}
@@ -859,28 +846,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onRecalcPhase={recalcPhase}
         />
       )}
-      {tab==="buysheet"&&(
-        <BuySheetTab
-          items={items}
-          jobId={params.id}
-          onRegisterSave={(fn: () => Promise<void>) => { saveBuySheetRef.current = fn; }}
-          onSaveStatus={(s: string) => handleSaveStatus(s)}
-          onSaved={(resolved: any[]) => {
-            // Merge buy sheet data into existing items, preserving lifecycle fields
-            setItems(prev => {
-              const prevMap = Object.fromEntries(prev.map(it => [it.id, it]));
-              return resolved.map((it: any) => ({
-                ...(prevMap[it.id] || {}),
-                ...it,
-                sizes: it.sizes || [],
-                qtys: it.qtys || {},
-                totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a: number, v: number) => a + v, 0),
-              }));
-            });
-          }}
-        />
-      )}
-
       {/* COSTING */}
             {tab==="costing"&&(
         <CostingTabWrapper

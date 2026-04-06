@@ -1,18 +1,37 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { ProofModal } from "./ArtTab";
 
 export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, onRecalcPhase }) {
   const supabase = createClient();
   const [showProofEmail, setShowProofEmail] = useState(false);
+  const [proofModalItem, setProofModalItem] = useState(null);
+  const [itemFiles, setItemFiles] = useState({});
 
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" };
+  const clientName = job?.clients?.name || "";
+  const projectTitle = job?.title || "";
 
   const approvedCount = items.filter(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved").length;
   const allApproved = items.length > 0 && approvedCount === items.length;
+
+  // Load files for all items to find mockups for proof generation
+  useEffect(() => {
+    const ids = items.map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
+    if (ids.length === 0) return;
+    supabase.from("item_files").select("*").in("item_id", ids).then(({ data }) => {
+      const byItem = {};
+      for (const f of (data || [])) {
+        if (!byItem[f.item_id]) byItem[f.item_id] = [];
+        byItem[f.item_id].push(f);
+      }
+      setItemFiles(byItem);
+    });
+  }, [items]);
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
@@ -42,7 +61,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
           jobId={job.id}
           contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
           defaultEmail={contacts.find(c => c.role_on_job === "primary")?.email || ""}
-          defaultSubject={`Proofs Ready for Approval — ${job.clients?.name || ""} · ${job.title}`}
+          defaultSubject={`Proofs Ready for Approval — ${clientName} · ${job.title}`}
           customBody={`<p>Hi,</p><p>Your proofs are ready for review. You can view and approve all of them from your project portal.</p><p>Let us know if you have any questions or need changes.</p><p>Welcome to the party,<br/>House Party Distro</p>`}
           onClose={() => setShowProofEmail(false)}
           onSent={() => { logJobActivity(job.id, "Proofs sent to client for approval via portal link"); setShowProofEmail(false); }}
@@ -62,6 +81,10 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             const fileApproved = proofStatus[item.id]?.allApproved;
             const manualApproved = item.artwork_status === "approved";
             const isApproved = fileApproved || manualApproved;
+            const files = itemFiles[item.id] || [];
+            const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
+            const hasProofFile = files.some(f => f.stage === "proof");
+
             return (
               <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.surface, borderRadius: 8, border: `1px solid ${isApproved ? T.green + "44" : T.border}` }}>
                 <span style={{ width: 22, height: 22, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
@@ -69,11 +92,23 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                 </span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
-                  <div style={{ fontSize: 10, color: T.muted }}>{[item.blank_vendor, item.color].filter(Boolean).join(" · ")}</div>
+                  <div style={{ fontSize: 10, color: T.muted }}>{[item.blank_vendor, item.color || item.blank_sku].filter(Boolean).join(" · ")}</div>
                 </div>
-                {fileApproved && (
+                {/* Generate Proof button — only if mockup exists and no proof yet */}
+                {mockupFile && !hasProofFile && (
+                  <button onClick={() => setProofModalItem(item)}
+                    style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: T.amber, color: "#fff" }}>
+                    Generate Proof
+                  </button>
+                )}
+                {hasProofFile && !isApproved && (
+                  <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.amberDim, color: T.amber }}>
+                    Proof Sent
+                  </span>
+                )}
+                {isApproved && (
                   <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>
-                    File Approved
+                    Approved
                   </span>
                 )}
                 <button onClick={async () => {
@@ -95,6 +130,38 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
           })}
         </div>
       </div>
+
+      {/* ── Proof Modal ── */}
+      {proofModalItem && (() => {
+        const files = itemFiles[proofModalItem.id] || [];
+        const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
+        return (
+          <ProofModal
+            item={proofModalItem}
+            clientName={clientName}
+            projectTitle={projectTitle}
+            mockupFile={mockupFile}
+            files={files}
+            costingData={job.costing_data}
+            onClose={(saved) => {
+              setProofModalItem(null);
+              if (saved) {
+                // Reload files to update proof status
+                const ids = items.map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
+                supabase.from("item_files").select("*").in("item_id", ids).then(({ data }) => {
+                  const byItem = {};
+                  for (const f of (data || [])) {
+                    if (!byItem[f.item_id]) byItem[f.item_id] = [];
+                    byItem[f.item_id].push(f);
+                  }
+                  setItemFiles(byItem);
+                });
+              }
+            }}
+            onUpdateItem={onUpdateItem}
+          />
+        );
+      })()}
     </div>
   );
 }
