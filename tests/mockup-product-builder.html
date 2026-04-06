@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Product Builder — v4</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d1117; color: #e8eaf2; font-family: 'Inter', -apple-system, sans-serif; padding: 40px; max-width: 1000px; margin: 0 auto; }
+  .title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #8a92b0; margin-bottom: 20px; }
+
+  .add-zone {
+    border: 2px dashed #313a56; border-radius: 10px; padding: 16px 20px;
+    display: flex; align-items: center; justify-content: center; gap: 16px;
+    cursor: pointer; margin-bottom: 16px; transition: all 0.15s;
+  }
+  .add-zone:hover { border-color: #6c8cff; background: #1e2a4a22; }
+
+  .items { display: flex; flex-direction: column; gap: 6px; }
+
+  /* ── Collapsed ── */
+  .item-collapsed {
+    background: #151923; border: 1px solid #313a56; border-radius: 10px;
+    padding: 10px 16px; display: flex; align-items: center; gap: 10px;
+    cursor: pointer; transition: all 0.1s;
+  }
+  .item-collapsed:hover { background: #1a1f2e; }
+  .drag { color: #515a78; font-size: 12px; cursor: grab; }
+  .badge {
+    width: 22px; height: 22px; border-radius: 5px; background: #1e2a4a;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: #6c8cff;
+    font-family: 'IBM Plex Mono', monospace; flex-shrink: 0;
+  }
+  .name { font-size: 13px; font-weight: 600; flex: 1; }
+  .blank-text { font-size: 11px; color: #8a92b0; flex-shrink: 0; }
+  .units { font-size: 12px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; flex-shrink: 0; min-width: 50px; text-align: right; }
+  .units.empty { color: #515a78; }
+  .pills { display: flex; gap: 4px; flex-shrink: 0; }
+  .pill { font-size: 8px; font-weight: 600; padding: 2px 7px; border-radius: 99px; }
+  .p-green { background: #0e2a1a; color: #34c97a; }
+  .p-blue { background: #1e2a4a; color: #6c8cff; }
+  .p-amber { background: #3d2a08; color: #f5a623; }
+  .p-muted { background: #1a1f2e; color: #515a78; }
+  .chev { color: #515a78; font-size: 10px; flex-shrink: 0; }
+
+  /* ── Expanded ── */
+  .item-expanded {
+    background: #151923; border: 1px solid #6c8cff44; border-radius: 12px; overflow: hidden;
+  }
+  .exp-header {
+    padding: 10px 16px; display: flex; align-items: center; gap: 10px;
+    cursor: pointer; border-bottom: 1px solid #313a5644;
+  }
+  .exp-body { padding: 14px 16px; display: flex; gap: 16px; }
+
+  /* ── Left column: mockup tall ── */
+  .col-mockup { width: 160px; flex-shrink: 0; }
+  .mockup-box {
+    width: 160px; height: 220px; border-radius: 10px; border: 1px solid #313a56;
+    background: #1a1f2e; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.15s; text-align: center;
+  }
+  .mockup-box:hover { border-color: #6c8cff; }
+  .mockup-box img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 9px; }
+  .mock-text { font-size: 10px; color: #6c8cff; font-weight: 600; }
+  .mock-hint { font-size: 9px; color: #515a78; margin-top: 2px; }
+
+  /* ── Middle column: blank + locations + qty ── */
+  .col-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+
+  .section-label {
+    font-size: 9px; font-weight: 600; color: #515a78; text-transform: uppercase;
+    letter-spacing: 0.07em; margin-bottom: 4px;
+  }
+
+  .blank-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .blank-display {
+    font-size: 12px; color: #8a92b0; padding: 5px 12px; background: #1a1f2e;
+    border-radius: 6px; border: 1px solid #313a56;
+  }
+  .blank-display strong { color: #e8eaf2; }
+  .garment-tag { font-size: 9px; padding: 2px 8px; border-radius: 99px; background: #1a1f2e; color: #8a92b0; border: 1px solid #313a56; }
+  .change-btn { font-size: 10px; color: #6c8cff; background: none; border: 1px solid #313a56; border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+  .assign-link {
+    font-size: 12px; font-weight: 600; color: #6c8cff; cursor: pointer;
+    padding: 6px 16px; border: 1px dashed #6c8cff44; border-radius: 6px;
+  }
+
+  .locations { display: flex; gap: 4px; flex-wrap: wrap; }
+  .loc-pill {
+    display: flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px;
+    background: #1a1f2e; font-size: 10px; border: 1px solid #313a5644;
+  }
+  .loc-name { font-weight: 600; color: #e8eaf2; }
+  .loc-colors { color: #8a92b0; font-family: 'IBM Plex Mono', monospace; }
+  .tag-pill { padding: 3px 8px; border-radius: 6px; background: #3d2a08; font-size: 10px; font-weight: 600; color: #f5a623; }
+
+  .qty-row { display: flex; align-items: flex-end; gap: 10px; }
+  .qty-grid { display: flex; gap: 4px; flex-wrap: wrap; }
+  .qty-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .qty-cell .sz { font-size: 9px; color: #515a78; font-family: 'IBM Plex Mono', monospace; }
+  .qty-cell input {
+    width: 44px; text-align: center; padding: 5px; border: 1px solid #313a56;
+    border-radius: 4px; background: #1a1f2e; color: #e8eaf2; font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace; outline: none;
+  }
+  .qty-cell input:focus { border-color: #6c8cff; }
+  .qty-total { font-size: 18px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; }
+  .qty-label { font-size: 9px; color: #8a92b0; }
+  .dist-btn { font-size: 10px; color: #8a92b0; background: none; border: 1px solid #313a56; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+
+  /* ── Files section (below blank/qty) ── */
+  .files-section { border-top: 1px solid #313a5633; padding-top: 12px; }
+  .file-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+  .file-row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 4px; }
+  .file-row:hover { background: #1a1f2e; }
+  .st { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; width: 62px; flex-shrink: 0; }
+  .st-r { color: #34c97a; }
+  .st-v { color: #6c8cff; }
+  .st-a { color: #8a92b0; }
+  .fn { font-size: 11px; color: #e8eaf2; text-decoration: none; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fd { font-size: 9px; color: #515a78; flex-shrink: 0; }
+  .fx { background: none; border: none; color: #515a78; cursor: pointer; font-size: 10px; }
+  .fx:hover { color: #e85d5d; }
+  .mini-drop {
+    border: 1px dashed #313a56; border-radius: 6px; padding: 6px; text-align: center;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .mini-drop:hover { border-color: #6c8cff; }
+  .mini-drop span { font-size: 10px; color: #6c8cff; font-weight: 600; }
+
+  .no-blank { color: #515a78; font-size: 11px; }
+
+  .notes {
+    font-size: 11px; color: #8a92b0; margin-top: 32px; padding: 20px;
+    background: #1a1f2e; border-radius: 10px; border: 1px solid #313a56; line-height: 1.7;
+  }
+  .notes strong { color: #e8eaf2; }
+  .notes .g { color: #34c97a; }
+</style>
+</head>
+<body>
+
+<div class="title">Product Builder</div>
+<div class="subtitle">Drop a PSD or pick from catalog to start building</div>
+
+<div class="add-zone">
+  <span style="font-size:13px; font-weight:600; color:#6c8cff;">+ Drop PSD or click to add item</span>
+  <span style="width:1px; height:24px; background:#313a56;"></span>
+  <span style="font-size:11px; color:#8a92b0;">Favorites &middot; S&S &middot; AS Colour &middot; LA Apparel &middot; Other</span>
+</div>
+
+<div class="items">
+
+  <!-- A — collapsed -->
+  <div class="item-collapsed">
+    <span class="drag">&#10303;</span>
+    <span class="badge">A</span>
+    <span class="name">Front Tee</span>
+    <span class="blank-text">Bella+Canvas 3001 &middot; White</span>
+    <span class="units">240</span>
+    <div class="pills"><span class="pill p-green">Print-ready</span><span class="pill p-blue">3 files</span></div>
+    <span class="chev">&#9662;</span>
+  </div>
+
+  <!-- B — EXPANDED, no blank yet -->
+  <div class="item-expanded">
+    <div class="exp-header">
+      <span class="drag">&#10303;</span>
+      <span class="badge">B</span>
+      <span class="name">Back Hoodie</span>
+      <span class="units empty">—</span>
+      <div class="pills"><span class="pill p-green">Print-ready</span><span class="pill p-amber">No blank</span></div>
+      <span class="chev">&#9652;</span>
+    </div>
+    <div class="exp-body">
+
+      <!-- Left: Mockup (tall) -->
+      <div class="col-mockup">
+        <div class="mockup-box">
+          <div>
+            <div class="mock-text">Build Mockup</div>
+            <div class="mock-hint">from print file</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Blank + Locations + Qty + Files stacked -->
+      <div class="col-main">
+        <!-- Blank -->
+        <div>
+          <div class="section-label">Blank</div>
+          <div class="blank-row">
+            <span class="assign-link">Assign Blank &rarr;</span>
+          </div>
+        </div>
+
+        <!-- Qty (disabled — no blank) -->
+        <div>
+          <div class="section-label">Sizes &amp; Quantities</div>
+          <div class="no-blank">Assign a blank to set sizes</div>
+        </div>
+
+        <!-- Print Locations -->
+        <div>
+          <div class="section-label">Print Locations</div>
+          <div class="locations">
+            <div class="loc-pill"><span class="loc-name">Full Back</span><span class="loc-colors">6c</span></div>
+            <div class="loc-pill"><span class="loc-name">Neck</span><span class="loc-colors">1c</span></div>
+          </div>
+        </div>
+
+        <!-- Files -->
+        <div class="files-section">
+          <div class="section-label">Files</div>
+          <div class="file-list">
+            <div class="file-row">
+              <span class="st st-r">PRINT-READY</span>
+              <a class="fn" href="#">back-hoodie.psd</a>
+              <span class="fd">Apr 4</span>
+              <button class="fx">&times;</button>
+            </div>
+          </div>
+          <div class="mini-drop"><span>+ Drop files to add</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- C — EXPANDED, fully built -->
+  <div class="item-expanded">
+    <div class="exp-header">
+      <span class="drag">&#10303;</span>
+      <span class="badge">C</span>
+      <span class="name">Sleeve Hoodie</span>
+      <span class="blank-text">AS Colour 5101 &middot; Coal</span>
+      <span class="units">336</span>
+      <div class="pills"><span class="pill p-green">Print-ready</span><span class="pill p-blue">2 files</span></div>
+      <span class="chev">&#9652;</span>
+    </div>
+    <div class="exp-body">
+
+      <!-- Left: Mockup (tall, with image) -->
+      <div class="col-mockup">
+        <div class="mockup-box" style="background:#222; border-color:#313a56;">
+          <!-- Placeholder for actual mockup image -->
+          <div style="width:120px; height:180px; background:linear-gradient(180deg, #2a2a3a 0%, #1a1a2a 100%); border-radius:6px; display:flex; align-items:center; justify-content:center;">
+            <div style="width:50px; height:40px; border:2px solid #6c8cff44; border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:8px; color:#6c8cff44;">art</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: everything stacked -->
+      <div class="col-main">
+        <!-- Blank -->
+        <div>
+          <div class="section-label">Blank</div>
+          <div class="blank-row">
+            <div class="blank-display"><strong>AS Colour 5101</strong> &middot; Coal</div>
+            <span class="garment-tag">hoodie</span>
+            <button class="change-btn">Change</button>
+          </div>
+        </div>
+
+        <!-- Sizes & Qty -->
+        <div>
+          <div class="section-label">Sizes &amp; Quantities</div>
+          <div class="qty-row">
+            <div class="qty-grid">
+              <div class="qty-cell"><span class="sz">S</span><input value="24"></div>
+              <div class="qty-cell"><span class="sz">M</span><input value="48"></div>
+              <div class="qty-cell"><span class="sz">L</span><input value="96"></div>
+              <div class="qty-cell"><span class="sz">XL</span><input value="96"></div>
+              <div class="qty-cell"><span class="sz">2XL</span><input value="48"></div>
+              <div class="qty-cell"><span class="sz">3XL</span><input value="24"></div>
+            </div>
+            <div style="text-align:center;">
+              <div class="qty-total">336</div>
+              <div class="qty-label">units</div>
+            </div>
+            <button class="dist-btn">&#10227; Dist</button>
+          </div>
+        </div>
+
+        <!-- Print Locations -->
+        <div>
+          <div class="section-label">Print Locations</div>
+          <div class="locations">
+            <div class="loc-pill"><span class="loc-name">Left Sleeve</span><span class="loc-colors">3c</span></div>
+            <div class="loc-pill"><span class="loc-name">Right Sleeve</span><span class="loc-colors">3c</span></div>
+            <div class="tag-pill">Tag</div>
+          </div>
+        </div>
+
+        <!-- Files -->
+        <div class="files-section">
+          <div class="section-label">Files</div>
+          <div class="file-list">
+            <div class="file-row">
+              <span class="st st-r">PRINT-READY</span>
+              <a class="fn" href="#">sleeve-hoodie.psd</a>
+              <span class="fd">Apr 4</span>
+              <button class="fx">&times;</button>
+            </div>
+            <div class="file-row">
+              <span class="st st-a">CLIENT ART</span>
+              <a class="fn" href="#">sleeve-design-ref.png</a>
+              <span class="fd">Apr 3</span>
+              <button class="fx">&times;</button>
+            </div>
+          </div>
+          <div class="mini-drop"><span>+ Drop files to add</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- D — collapsed -->
+  <div class="item-collapsed">
+    <span class="drag">&#10303;</span>
+    <span class="badge">D</span>
+    <span class="name">PVC Patch</span>
+    <span class="blank-text">Patch - PVC</span>
+    <span class="units">200</span>
+    <div class="pills"><span class="pill p-muted">1 file</span></div>
+    <span class="chev">&#9662;</span>
+  </div>
+
+</div>
+
+<div class="notes">
+  <strong>v4 — Mockup anchored left, content flows right</strong><br><br>
+  <span class="g">Layout:</span> Expanded card is two columns:<br>
+  &bull; <strong>Left:</strong> Mockup thumbnail, tall (160&times;220), anchored top to bottom. Click to build/rebuild from print file.<br>
+  &bull; <strong>Right:</strong> Everything stacked vertically — Blank &rarr; Sizes/Qty &rarr; Print Locations &rarr; Files. Blank and sizes stay together. Print locations are metadata below.<br><br>
+  <span class="g">Flow:</span> The mockup is always visible while Taylor works through the right-side fields. It's the visual anchor — "this is what we're building." Everything else describes it.<br><br>
+  <strong>Collapsed rows</strong> remain clean one-liners with key info at a glance.
+</div>
+
+</body>
+</html>
