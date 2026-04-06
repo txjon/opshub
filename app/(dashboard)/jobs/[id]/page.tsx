@@ -573,42 +573,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
 
-              {/* Hold + Delete */}
-              <div style={{display:"flex",gap:8}}>
-                {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
-                  <button onClick={()=>{upd("phase","on_hold");}}
-                    style={{flex:1,padding:"8px",background:"transparent",border:`1px solid ${T.amber}`,borderRadius:8,color:T.amber,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
-                    onMouseEnter={e=>(e.currentTarget.style.background=T.amberDim)}
-                    onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                    Place on Hold
-                  </button>
-                )}
-                {job.phase==="on_hold"&&(
-                  <button onClick={async()=>{
-                    await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
-                    setJob(j=>j?{...j,phase:"intake"} as any:j);
-                    setTimeout(recalcPhase, 300);
-                  }}
-                    style={{flex:1,padding:"8px",background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,color:T.green,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
-                    onMouseEnter={e=>(e.currentTarget.style.opacity="0.8")}
-                    onMouseLeave={e=>(e.currentTarget.style.opacity="1")}>
-                    Resume
-                  </button>
-                )}
-                <button
-                  onClick={() => setConfirmDeleteProject(true)}
-                  style={{flex:1,padding:"8px",background:"transparent",border:"1px solid #3d1212",borderRadius:8,color:"#f05353",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
-                  onMouseEnter={e=>(e.currentTarget.style.background="#3d1212")}
-                  onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                  Delete project
-                </button>
-              </div>
-            </div>
-
-            {/* Right column: Summary, Contacts, Payments, Items */}
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-
-              {/* Project Summary */}
+              {/* Project Summary — moved from right column */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Project Summary</div>
                 <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -657,6 +622,79 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   })()}
                 </div>
               </div>
+
+              {/* Payment summary — moved from right column */}
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
+                  <button onClick={()=>setTab("payment")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
+                </div>
+                <div style={{marginBottom:8}}>
+                  <label style={{fontSize:10,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
+                  <select style={ic} value={job.payment_terms||""} onChange={e=>upd("payment_terms",e.target.value||null)}>
+                    <option value="">— select —</option>
+                    <option value="prepaid">Prepaid</option>
+                    <option value="deposit_balance">Deposit / Balance</option>
+                    <option value="net_15">Net 15</option>
+                    <option value="net_30">Net 30</option>
+                  </select>
+                </div>
+                {payments.length===0&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
+                {payments.length>0&&(
+                  <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
+                    <thead><tr style={{borderBottom:"1px solid #2a3050"}}>
+                      {["Invoice","Type","Amount","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:T.muted,fontWeight:500}}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>{payments.map(p=>(
+                      <tr key={p.id} style={{borderBottom:"1px solid #2a3050"}}>
+                        <td style={{padding:"6px",fontFamily:"var(--font-mono)",color:T.muted}}>{p.invoice_number||"—"}</td>
+                        <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
+                        <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
+                        <td style={{padding:"6px"}}>
+                          <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
+                            background:p.status==="paid"?"#0e3d24":p.status==="void"?"#3d1212":T.amberDim,
+                            color:p.status==="paid"?"#34c97a":p.status==="void"?"#f05353":T.amber}}>{p.status}</span>
+                        </td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* Hold + Delete */}
+              <div style={{display:"flex",gap:8}}>
+                {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
+                  <button onClick={()=>{upd("phase","on_hold");}}
+                    style={{flex:1,padding:"8px",background:"transparent",border:`1px solid ${T.amber}`,borderRadius:8,color:T.amber,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
+                    onMouseEnter={e=>(e.currentTarget.style.background=T.amberDim)}
+                    onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                    Place on Hold
+                  </button>
+                )}
+                {job.phase==="on_hold"&&(
+                  <button onClick={async()=>{
+                    await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
+                    setJob(j=>j?{...j,phase:"intake"} as any:j);
+                    setTimeout(recalcPhase, 300);
+                  }}
+                    style={{flex:1,padding:"8px",background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,color:T.green,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
+                    onMouseEnter={e=>(e.currentTarget.style.opacity="0.8")}
+                    onMouseLeave={e=>(e.currentTarget.style.opacity="1")}>
+                    Resume
+                  </button>
+                )}
+                <button
+                  onClick={() => setConfirmDeleteProject(true)}
+                  style={{flex:1,padding:"8px",background:"transparent",border:"1px solid #3d1212",borderRadius:8,color:"#f05353",fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
+                  onMouseEnter={e=>(e.currentTarget.style.background="#3d1212")}
+                  onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                  Delete project
+                </button>
+              </div>
+            </div>
+
+            {/* Right column: Contacts, Email, Items */}
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
 
               {/* Contacts */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
@@ -725,44 +763,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     </div>
                   ))}
                 </div>
-              </div>
-
-              {/* Payment summary */}
-              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
-                  <button onClick={()=>setTab("payment")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
-                </div>
-                <div style={{marginBottom:8}}>
-                  <label style={{fontSize:10,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
-                  <select style={ic} value={job.payment_terms||""} onChange={e=>upd("payment_terms",e.target.value||null)}>
-                    <option value="">— select —</option>
-                    <option value="prepaid">Prepaid</option>
-                    <option value="deposit_balance">Deposit / Balance</option>
-                    <option value="net_15">Net 15</option>
-                    <option value="net_30">Net 30</option>
-                  </select>
-                </div>
-                {payments.length===0&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
-                {payments.length>0&&(
-                  <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
-                    <thead><tr style={{borderBottom:"1px solid #2a3050"}}>
-                      {["Invoice","Type","Amount","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:T.muted,fontWeight:500}}>{h}</th>)}
-                    </tr></thead>
-                    <tbody>{payments.map(p=>(
-                      <tr key={p.id} style={{borderBottom:"1px solid #2a3050"}}>
-                        <td style={{padding:"6px",fontFamily:"var(--font-mono)",color:T.muted}}>{p.invoice_number||"—"}</td>
-                        <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
-                        <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
-                        <td style={{padding:"6px"}}>
-                          <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
-                            background:p.status==="paid"?"#0e3d24":p.status==="void"?"#3d1212":T.amberDim,
-                            color:p.status==="paid"?"#34c97a":p.status==="void"?"#f05353":T.amber}}>{p.status}</span>
-                        </td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                )}
               </div>
 
               {/* Email Thread */}
