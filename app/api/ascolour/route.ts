@@ -58,6 +58,8 @@ async function setCache(key: string, value: any) {
   await sb.from("api_cache").upsert({ key, data: value, updated_at: new Date().toISOString() });
 }
 
+export const maxDuration = 60;
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const endpoint = searchParams.get("endpoint");
