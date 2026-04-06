@@ -444,111 +444,16 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 
             {/* ── Expanded body ── */}
             {isExpanded && (
-              <div style={{ padding: "14px 16px", display: "flex", gap: 16 }}>
-                {/* Left: Mockup (tall) */}
-                <div style={{ width: 160, flexShrink: 0 }}>
-                  <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Mockup</div>
-                  <ItemArtSection
-                    item={{ ...item, _index: idx }}
-                    clientName={clientName}
-                    projectTitle={projectTitle}
-                    contacts={contacts || []}
-                    jobId={project.id}
-                    costingData={project.costing_data}
-                    onFilesChanged={() => { if (onItemsChanged) onItemsChanged(); }}
-                    onUpdateItem={onUpdateItem}
-                  />
-                </div>
-
-                {/* Right: Blank → Sizes → Locations → Files */}
-                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-                  {/* Blank */}
-                  <div>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Blank</div>
-                    {hasBlank ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 12, color: T.muted, padding: "5px 12px", background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                          <strong style={{ color: T.text, fontWeight: 600 }}>{item.blank_vendor}</strong>{item.color ? ` · ${item.color}` : ""}
-                        </span>
-                        {item.garment_type && <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 99, background: T.surface, color: T.muted, border: `1px solid ${T.border}` }}>{item.garment_type}</span>}
-                        <button onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }} style={{ fontSize: 10, color: T.accent, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Change</button>
-                        <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }} style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", marginLeft: "auto" }} onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>Delete item</button>
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <button onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }} style={{ fontSize: 12, fontWeight: 600, color: T.accent, cursor: "pointer", padding: "6px 16px", border: `1px dashed ${T.accent}44`, borderRadius: 6, background: "none" }}>Assign Blank →</button>
-                        <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }} style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", marginLeft: "auto" }} onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>Delete item</button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Sizes & Quantities */}
-                  {item.sizes.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Sizes & Quantities</div>
-                      <div style={{ display: "flex", alignItems: "flex-end", gap: 10 }}>
-                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                          {item.sizes.map((sz, ci) => {
-                            const localVal = getLocalQty(item.id, sz);
-                            const displayVal = localVal !== null ? localVal : (item.qtys[sz] || 0);
-                            return (
-                              <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                                <span style={{ fontSize: 9, color: T.faint, fontFamily: mono }}>{sz}</span>
-                                <input
-                                  ref={el => { inputRefs.current[`${idx}_${ci}`] = el; }}
-                                  type="text" inputMode="numeric"
-                                  value={displayVal}
-                                  onChange={e => { setLocalQty(item.id, sz, e.target.value); scheduleCommit(idx, item.id, sz); }}
-                                  onFocus={e => e.target.select()}
-                                  onBlur={() => commitQty(idx, item.id, sz)}
-                                  onKeyDown={e => {
-                                    if (e.key === "Enter" || e.key === "ArrowDown") { commitQty(idx, item.id, sz); const next = inputRefs.current[`${idx + 1}_${ci}`]; if (next) next.focus(); }
-                                    else if (e.key === "ArrowUp") { commitQty(idx, item.id, sz); const prev = inputRefs.current[`${idx - 1}_${ci}`]; if (prev) prev.focus(); }
-                                    else if (e.key === "Tab" || e.key === "ArrowRight") { if (!e.shiftKey) { e.preventDefault(); commitQty(idx, item.id, sz); const next = inputRefs.current[`${idx}_${ci + 1}`] || inputRefs.current[`${idx + 1}_0`]; if (next) next.focus(); } }
-                                    else if (e.key === "ArrowLeft" || (e.key === "Tab" && e.shiftKey)) { e.preventDefault(); commitQty(idx, item.id, sz); const prev = inputRefs.current[`${idx}_${ci - 1}`] || inputRefs.current[`${idx - 1}_${item.sizes.length - 1}`]; if (prev) prev.focus(); }
-                                  }}
-                                  style={{ ...ic, width: 44, textAlign: "center" }}
-                                />
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: 18, fontWeight: 700, fontFamily: mono }}>{item.totalQty}</div>
-                          <div style={{ fontSize: 9, color: T.muted }}>units</div>
-                        </div>
-                        <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 8px", cursor: "pointer" }}>⟳ Dist</button>
-                      </div>
-                      {distRow === idx && (
-                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
-                          <input type="text" inputMode="numeric" value={distTotal} onChange={e => setDistTotal(e.target.value)} onKeyDown={e => e.key === "Enter" && handleDist(idx)} placeholder="Total qty" autoFocus style={{ ...ic, width: 80, textAlign: "center" }} />
-                          <button onClick={() => handleDist(idx)} style={{ fontSize: 10, color: "#fff", background: T.accent, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>Fill</button>
-                          <button onClick={() => setDistRow(null)} style={{ fontSize: 10, color: T.muted, background: "none", border: "none", cursor: "pointer" }}>Cancel</button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {!hasBlank && item.sizes.length === 0 && item.garment_type !== "accessory" && (
-                    <div style={{ fontSize: 11, color: T.faint }}>Assign a blank to set available sizes</div>
-                  )}
-
-                  {/* Print Locations (from PSD, if available) */}
-                  {item.psdLocations && item.psdLocations.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Print Locations</div>
-                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                        {item.psdLocations.map((loc, i) => (
-                          <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, background: T.surface, fontSize: 10, border: `1px solid ${T.border}44` }}>
-                            <span style={{ fontWeight: 600, color: T.text }}>{loc.placement}</span>
-                            <span style={{ color: T.muted, fontFamily: mono }}>{loc.colorCount}c</span>
-                          </span>
-                        ))}
-                        {item.psdHasTag && <span style={{ padding: "3px 8px", borderRadius: 6, background: T.amberDim, fontSize: 10, fontWeight: 600, color: T.amber }}>Tag</span>}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <ExpandedItemBody
+                item={item} idx={idx} clientName={clientName} projectTitle={projectTitle}
+                contacts={contacts} project={project} hasBlank={hasBlank}
+                getLocalQty={getLocalQty} setLocalQty={setLocalQty} commitQty={commitQty}
+                scheduleCommit={scheduleCommit} inputRefs={inputRefs} distRow={distRow}
+                setDistRow={setDistRow} distTotal={distTotal} setDistTotal={setDistTotal}
+                handleDist={handleDist} removeItem={removeItem} setAssignBlankTo={setAssignBlankTo}
+                setShowAddModal={setShowAddModal} onItemsChanged={onItemsChanged} onUpdateItem={onUpdateItem}
+                ic={ic}
+              />
             )}
           </div>
         );
@@ -560,6 +465,207 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           <div style={{ color: T.faint, fontSize: 13, marginBottom: 16 }}>No items yet — drop a PSD or add from catalog.</div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Expanded item body — manages its own file state per item
+// ═══════════════════════════════════════════════════════════════
+function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, ic }) {
+  const [files, setFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => { loadFiles(); }, [item.id]);
+
+  async function loadFiles() {
+    try {
+      const res = await fetch(`/api/files?itemId=${item.id}`);
+      const data = await res.json();
+      setFiles(data.files || []);
+    } catch {}
+  }
+
+  const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup") && /\.(png|jpg|jpeg)$/i.test(f.file_name));
+  const mockupThumb = mockupFile ? `/api/files/thumbnail?id=${mockupFile.drive_file_id}` : null;
+  const nonMockupFiles = files.filter(f => f !== mockupFile);
+
+  const STAGE_COLORS = { client_art: T.muted, vector: T.accent, mockup: T.amber, proof: T.purple, print_ready: T.green };
+  const STAGE_LABELS = { client_art: "CLIENT ART", vector: "VECTOR", mockup: "MOCKUP", proof: "PROOF", print_ready: "PRINT-READY" };
+
+  function detectStage(fileName) {
+    const f = (fileName || "").toLowerCase();
+    if (f.endsWith(".psd")) return "print_ready";
+    if (f.endsWith(".ai") || f.endsWith(".eps") || (f.endsWith(".pdf") && !f.includes("proof"))) return "vector";
+    if (f.endsWith(".pdf") && f.includes("proof")) return "proof";
+    if (/\.(png|jpg|jpeg)$/i.test(f) && f.includes("mockup")) return "mockup";
+    if (/\.(png|jpg|jpeg)$/i.test(f) && f.includes("proof")) return "proof";
+    return "client_art";
+  }
+
+  async function handleFileDrop(fileList) {
+    const allFiles = Array.from(fileList);
+    if (allFiles.length === 0) return;
+    setUploading(true);
+    for (let i = 0; i < allFiles.length; i++) {
+      setUploadProgress({ total: allFiles.length, done: i, current: allFiles[i].name });
+      const stage = detectStage(allFiles[i].name);
+      try {
+        const driveFile = await uploadToDrive({ blob: allFiles[i], fileName: allFiles[i].name, mimeType: allFiles[i].type || "application/octet-stream", clientName, projectTitle, itemName: item.name });
+        await registerFileInDb({ ...driveFile, itemId: item.id, stage });
+      } catch (err) { console.error("Upload error:", err); }
+    }
+    setUploading(false); setUploadProgress(null);
+    loadFiles();
+    logJobActivity(project.id, `${allFiles.length} file${allFiles.length > 1 ? "s" : ""} uploaded for ${item.name}`);
+    if (onItemsChanged) onItemsChanged();
+  }
+
+  async function deleteFile(file) {
+    if (!window.confirm(`Delete "${file.file_name}"?`)) return;
+    await fetch("/api/files", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: file.id, driveFileId: file.drive_file_id }) });
+    loadFiles();
+  }
+
+  return (
+    <div style={{ padding: "14px 16px", display: "flex", gap: 16 }}>
+      {/* Left: Mockup thumbnail (tall, clean) */}
+      <div style={{ width: 160, flexShrink: 0 }}>
+        {mockupThumb ? (
+          <a href={mockupFile.drive_link} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
+            <img src={mockupThumb} alt="Mockup" style={{ width: 160, maxHeight: 240, objectFit: "contain", borderRadius: 10, border: `1px solid ${T.border}`, display: "block", background: T.surface }} onError={e => { e.target.style.display = "none"; }} />
+          </a>
+        ) : (
+          <div style={{ width: 160, height: 200, borderRadius: 10, border: `1px dashed ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: T.accent }}>Build Mockup</div>
+              <div style={{ fontSize: 9, color: T.faint, marginTop: 2 }}>from print file</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Right: Blank → Sizes → Locations → Files */}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* Blank */}
+        <div>
+          <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Blank</div>
+          {hasBlank ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: T.muted, padding: "5px 12px", background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
+                <strong style={{ color: T.text, fontWeight: 600 }}>{item.blank_vendor}</strong>{item.color ? ` · ${item.color}` : ""}
+              </span>
+              {item.garment_type && <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 99, background: T.surface, color: T.muted, border: `1px solid ${T.border}` }}>{item.garment_type}</span>}
+              <button onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }} style={{ fontSize: 10, color: T.accent, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Change</button>
+              <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }} style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", marginLeft: "auto" }} onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>Delete item</button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }} style={{ fontSize: 12, fontWeight: 600, color: T.accent, cursor: "pointer", padding: "6px 16px", border: `1px dashed ${T.accent}44`, borderRadius: 6, background: "none" }}>Assign Blank →</button>
+              <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }} style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", marginLeft: "auto" }} onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>Delete item</button>
+            </div>
+          )}
+        </div>
+
+        {/* Sizes & Quantities */}
+        {item.sizes.length > 0 && (
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Sizes & Quantities</div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 10 }}>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {item.sizes.map((sz, ci) => {
+                  const localVal = getLocalQty(item.id, sz);
+                  const displayVal = localVal !== null ? localVal : (item.qtys[sz] || 0);
+                  return (
+                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                      <span style={{ fontSize: 9, color: T.faint, fontFamily: mono }}>{sz}</span>
+                      <input
+                        ref={el => { inputRefs.current[`${idx}_${ci}`] = el; }}
+                        type="text" inputMode="numeric" value={displayVal}
+                        onChange={e => { setLocalQty(item.id, sz, e.target.value); scheduleCommit(idx, item.id, sz); }}
+                        onFocus={e => e.target.select()}
+                        onBlur={() => commitQty(idx, item.id, sz)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter" || e.key === "ArrowDown") { commitQty(idx, item.id, sz); const next = inputRefs.current[`${idx + 1}_${ci}`]; if (next) next.focus(); }
+                          else if (e.key === "ArrowUp") { commitQty(idx, item.id, sz); const prev = inputRefs.current[`${idx - 1}_${ci}`]; if (prev) prev.focus(); }
+                          else if (e.key === "Tab" || e.key === "ArrowRight") { if (!e.shiftKey) { e.preventDefault(); commitQty(idx, item.id, sz); const next = inputRefs.current[`${idx}_${ci + 1}`] || inputRefs.current[`${idx + 1}_0`]; if (next) next.focus(); } }
+                          else if (e.key === "ArrowLeft" || (e.key === "Tab" && e.shiftKey)) { e.preventDefault(); commitQty(idx, item.id, sz); const prev = inputRefs.current[`${idx}_${ci - 1}`] || inputRefs.current[`${idx - 1}_${item.sizes.length - 1}`]; if (prev) prev.focus(); }
+                        }}
+                        style={{ ...ic, width: 44, textAlign: "center" }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 18, fontWeight: 700, fontFamily: mono }}>{item.totalQty}</div>
+                <div style={{ fontSize: 9, color: T.muted }}>units</div>
+              </div>
+              <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 8px", cursor: "pointer" }}>⟳ Dist</button>
+            </div>
+            {distRow === idx && (
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                <input type="text" inputMode="numeric" value={distTotal} onChange={e => setDistTotal(e.target.value)} onKeyDown={e => e.key === "Enter" && handleDist(idx)} placeholder="Total qty" autoFocus style={{ ...ic, width: 80, textAlign: "center" }} />
+                <button onClick={() => handleDist(idx)} style={{ fontSize: 10, color: "#fff", background: T.accent, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>Fill</button>
+                <button onClick={() => setDistRow(null)} style={{ fontSize: 10, color: T.muted, background: "none", border: "none", cursor: "pointer" }}>Cancel</button>
+              </div>
+            )}
+          </div>
+        )}
+        {!hasBlank && item.sizes.length === 0 && item.garment_type !== "accessory" && (
+          <div style={{ fontSize: 11, color: T.faint }}>Assign a blank to set available sizes</div>
+        )}
+
+        {/* Print Locations */}
+        {item.psdLocations && item.psdLocations.length > 0 && (
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Print Locations</div>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {item.psdLocations.map((loc, i) => (
+                <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, background: T.surface, fontSize: 10, border: `1px solid ${T.border}44` }}>
+                  <span style={{ fontWeight: 600, color: T.text }}>{loc.placement}</span>
+                  <span style={{ color: T.muted, fontFamily: mono }}>{loc.colorCount}c</span>
+                </span>
+              ))}
+              {item.psdHasTag && <span style={{ padding: "3px 8px", borderRadius: 6, background: T.amberDim, fontSize: 10, fontWeight: 600, color: T.amber }}>Tag</span>}
+            </div>
+          </div>
+        )}
+
+        {/* Files */}
+        <div style={{ borderTop: `1px solid ${T.border}33`, paddingTop: 10 }}>
+          <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Files</div>
+          {uploading && uploadProgress && (
+            <div style={{ fontSize: 10, color: T.accent, marginBottom: 4 }}>Uploading {uploadProgress.done + 1}/{uploadProgress.total}: {uploadProgress.current}</div>
+          )}
+          {nonMockupFiles.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 6 }}>
+              {nonMockupFiles.map(f => (
+                <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 6px", borderRadius: 4 }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.surface}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", width: 62, flexShrink: 0, color: STAGE_COLORS[f.stage] || T.muted }}>{STAGE_LABELS[f.stage] || f.stage}</span>
+                  <a href={f.drive_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: T.text, textDecoration: "none", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
+                  <span style={{ fontSize: 9, color: T.faint, flexShrink: 0 }}>{new Date(f.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                  <button onClick={() => deleteFile(f)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, flexShrink: 0 }} onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div
+            onDragOver={e => { e.preventDefault(); e.stopPropagation(); e.currentTarget.style.borderColor = T.accent; }}
+            onDragLeave={e => { e.currentTarget.style.borderColor = T.border; }}
+            onDrop={e => { e.preventDefault(); e.stopPropagation(); e.currentTarget.style.borderColor = T.border; handleFileDrop(e.dataTransfer.files); }}
+            onClick={() => fileInputRef.current?.click()}
+            style={{ border: `1px dashed ${T.border}`, borderRadius: 6, padding: 6, textAlign: "center", cursor: "pointer", transition: "border-color 0.15s" }}
+          >
+            <span style={{ fontSize: 10, color: T.accent, fontWeight: 600 }}>+ Drop files to add</span>
+          </div>
+          <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={e => { handleFileDrop(e.target.files); e.target.value = ""; }} />
+        </div>
+      </div>
     </div>
   );
 }
