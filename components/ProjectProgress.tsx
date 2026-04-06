@@ -34,7 +34,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
 
   const apparelItems = items.filter(it => it.garment_type !== "accessory");
   const blanksOrdered = apparelItems.filter(it => it.blanks_order_number).length;
-  const allBlanksOrdered = apparelItems.length === 0 || blanksOrdered === apparelItems.length;
+  const allBlanksOrdered = items.length > 0 && (apparelItems.length === 0 || blanksOrdered === apparelItems.length);
   const poSentVendors = job.type_meta?.po_sent_vendors || [];
   const costProds = job.costing_data?.costProds || [];
   const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))] as string[];
