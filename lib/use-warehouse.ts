@@ -27,6 +27,7 @@ export type WarehouseItem = {
   qtys: Record<string, number>;
   ship_qtys: Record<string, number>;
   received_qtys: Record<string, number>;
+  ship_notes: string;
 };
 
 export type WarehouseJob = {

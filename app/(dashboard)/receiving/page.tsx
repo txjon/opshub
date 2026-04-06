@@ -223,7 +223,7 @@ export default function ReceivingPage() {
                           </td>
                           <td style={{ padding: "8px" }}>
                             <div style={{ fontFamily: mono, fontSize: 11, color: T.muted }}>{item.ship_tracking || "—"}</div>
-                            {(item as any).ship_notes && <div style={{ fontSize: 10, color: T.amber, marginTop: 2 }}>{(item as any).ship_notes}</div>}
+                            {item.ship_notes && <div style={{ fontSize: 10, color: T.amber, marginTop: 2 }}>{item.ship_notes}</div>}
                           </td>
                           <td style={{ padding: "8px" }}>
                             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>

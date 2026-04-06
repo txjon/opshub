@@ -221,6 +221,7 @@ export default function InsightsPage() {
     }
 
     // Upcoming commitments — payments due within 30 days
+    const today = now.toISOString().split("T")[0];
     const thirtyDaysOut = new Date(now.getTime() + 30 * 86400000).toISOString().split("T")[0];
     const upcomingPayments = payments
       .filter(p => p.due_date && p.status !== "paid" && p.status !== "void" && p.due_date >= today && p.due_date <= thirtyDaysOut)

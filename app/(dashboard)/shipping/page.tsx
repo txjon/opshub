@@ -97,12 +97,12 @@ export default function ShippingPage() {
                 )}
 
                 {/* Per-item notes from Production */}
-                {job.items.some(it => (it as any).ship_notes) && (
+                {job.items.some(it => it.ship_notes) && (
                   <div>
                     <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Production Notes</div>
-                    {job.items.filter(it => (it as any).ship_notes).map(it => (
+                    {job.items.filter(it => it.ship_notes).map(it => (
                       <div key={it.id} style={{ fontSize: 11, color: T.amber, padding: "6px 10px", background: T.amberDim, borderRadius: 6, marginBottom: 4 }}>
-                        <span style={{ fontWeight: 600 }}>{it.name}:</span> {(it as any).ship_notes}
+                        <span style={{ fontWeight: 600 }}>{it.name}:</span> {it.ship_notes}
                       </div>
                     ))}
                   </div>
