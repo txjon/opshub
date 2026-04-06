@@ -21,6 +21,9 @@ export async function POST(req: NextRequest) {
     const sb = admin();
     const payload = await req.json();
 
+    // Log raw payload for debugging
+    console.log("[Inbound] Raw payload:", JSON.stringify(payload).slice(0, 2000));
+
     // Resend wraps in { type, data } — unwrap
     const eventData = payload.data || payload;
 
@@ -88,7 +91,7 @@ export async function POST(req: NextRequest) {
       .map((c: any) => typeof c === "string" ? c : c?.address || c?.email || "")
       .filter(Boolean);
 
-    // Save to email_messages
+    // Save to email_messages — include raw payload for debugging
     await sb.from("email_messages").insert({
       job_id: jobId,
       direction: "inbound",
@@ -97,7 +100,7 @@ export async function POST(req: NextRequest) {
       to_emails: toAddresses.map((a: any) => typeof a === "string" ? a : a?.address || a?.email || ""),
       cc_emails: ccEmails,
       subject: subject || "(no subject)",
-      body_text: text,
+      body_text: text || JSON.stringify(eventData, null, 2).slice(0, 5000),
       body_html: html,
     });
 
