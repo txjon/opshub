@@ -38,15 +38,24 @@ export async function POST(req: NextRequest) {
     let text = eventData.text || eventData.body || null;
     let html = eventData.html || null;
 
-    // If we have an email ID and no body, fetch the full email from Resend
+    // Fetch full email body from Resend API using email_id
     if (emailId && !text && !html) {
       try {
-        const resend = new Resend(process.env.RESEND_API_KEY);
-        const fullEmail = await (resend as any).emails.get(emailId);
-        if (fullEmail?.data) {
-          text = fullEmail.data.text || fullEmail.data.body || null;
-          html = fullEmail.data.html || null;
-          if (!subject) subject = fullEmail.data.subject;
+        const res = await fetch(`https://api.resend.com/emails/${emailId}`, {
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+        });
+        if (res.ok) {
+          const full = await res.json();
+          text = full.text || full.body || full.text_body || null;
+          html = full.html || full.html_body || null;
+          if (!subject && full.subject) subject = full.subject;
+          // If still no body, log what we got back
+          if (!text && !html) {
+            console.warn("[Inbound] Full email fetch returned no body. Keys:", Object.keys(full));
+            text = JSON.stringify(full, null, 2).slice(0, 3000);
+          }
+        } else {
+          console.warn("[Inbound] Resend API returned", res.status);
         }
       } catch (fetchErr) {
         console.warn("[Inbound] Could not fetch full email:", fetchErr);
