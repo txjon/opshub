@@ -31,7 +31,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
   const [deleteItem, setDeleteItem] = useState<any>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<"items" | "production">("items");
+  const [activeTab, setActiveTab] = useState<"items" | "production" | "landed">("items");
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -143,10 +143,12 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
     });
   }
 
-  const tabItems = activeTab === "production"
-    ? items.filter(it => it.status === "In Production")
-    : items.filter(it => it.status !== "In Production");
+  const TAB_STATUSES: Record<string, string> = { production: "In Production", landed: "LANDED" };
+  const tabItems = activeTab === "items"
+    ? items.filter(it => it.status !== "In Production" && it.status !== "LANDED")
+    : items.filter(it => it.status === TAB_STATUSES[activeTab]);
   const productionCount = items.filter(it => it.status === "In Production").length;
+  const landedCount = items.filter(it => it.status === "LANDED").length;
 
   // Computed totals (reflect active tab)
   const totals = tabItems.reduce((acc, it) => {
@@ -240,8 +242,9 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
       {/* Tab pills */}
       <div style={{ display: "flex", gap: 4, marginBottom: 14, background: T.surface, borderRadius: 8, padding: 3, width: "fit-content" }}>
         {([
-          { key: "items" as const, label: "Items", count: items.length - productionCount },
+          { key: "items" as const, label: "Items", count: items.length - productionCount - landedCount },
           { key: "production" as const, label: "In Production", count: productionCount },
+          { key: "landed" as const, label: "Landed", count: landedCount },
         ]).map(tab => {
           const active = activeTab === tab.key;
           return (
