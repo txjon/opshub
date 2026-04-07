@@ -112,7 +112,7 @@ const TERMS_LABELS: Record<string, string> = {
 
 function renderInvoiceHTML(data: {
   invoiceNum: string; today: string; terms: string; shipDate: string;
-  clientName: string; notes: string;
+  clientName: string; shipToAddress: string; notes: string;
   prods: { name: string; style: string; color: string; sizes: string[]; qtys: Record<string,number>; totalQty: number; sellPerUnit: number; grossRev: number; }[];
   quoteTotal: number; taxAmount: number; totalPaid: number; balanceDue: number;
 }): string {
@@ -180,7 +180,8 @@ function renderInvoiceHTML(data: {
       ["Date", data.today],
       ["Terms", data.terms],
       ["Est. ship date", data.shipDate || "TBD"],
-      ["Prepared for", data.clientName || "—"],
+      ["Bill to", data.clientName || "—"],
+      ...(data.shipToAddress ? [["Ship to", data.shipToAddress]] : []),
     ].map(([k, v], i, arr) =>
       `<div style="padding:8px 12px;${i < arr.length - 1 ? "border-right:0.5px solid #e5e7eb" : ""}">
         <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div>
@@ -333,6 +334,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       terms,
       shipDate: job.target_ship_date ? new Date(job.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "",
       clientName,
+      shipToAddress: job.type_meta?.venue_address || (job.clients as any)?.shipping_address || "",
       notes: orderInfo.notes || job.notes || "",
       prods,
       quoteTotal,

@@ -370,7 +370,7 @@ export async function createInvoice(
 export async function updateInvoice(
   invoiceId: string,
   lineItems: QBLineItem[],
-  options: { memo?: string } = {}
+  options: { memo?: string; shipAddress?: string } = {}
 ): Promise<{ taxAmount: number; totalWithTax: number }> {
   // Fetch existing invoice to get SyncToken (required for updates)
   const existing = await qbFetch(`/invoice/${invoiceId}`);
@@ -411,6 +411,15 @@ export async function updateInvoice(
     Line: lines,
   };
   if (options.memo) body.CustomerMemo = { value: options.memo };
+  if (options.shipAddress) {
+    const parts = options.shipAddress.split(",").map(s => s.trim());
+    body.ShipAddr = {
+      Line1: parts[0] || "",
+      City: parts[1] || "",
+      CountrySubDivisionCode: parts[2]?.replace(/\s*\d{5}.*/, "").trim() || "",
+      PostalCode: (parts[2] || "").match(/\d{5}/)?.[0] || "",
+    };
+  }
 
   const data = await qbFetch("/invoice", { method: "POST", body });
   const updated = data.Invoice;

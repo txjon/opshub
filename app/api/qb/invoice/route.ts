@@ -121,10 +121,14 @@ export async function POST(req: NextRequest) {
 
     const existingInvoiceId = job.type_meta?.qb_invoice_id;
 
+    const shipAddr = (job.type_meta as any)?.venue_address
+      || (job.clients as any)?.shipping_address || undefined;
+
     if (existingInvoiceId) {
       // Update existing QB invoice
       const updated = await updateInvoice(existingInvoiceId, lineItems, {
         memo: `${job.title} — ${job.job_number}`,
+        shipAddress: shipAddr,
       });
 
       // Update tax/total in type_meta
@@ -146,8 +150,6 @@ export async function POST(req: NextRequest) {
     }
 
     // Create new invoice in QB
-    const shipAddr = (job.clients as any)?.shipping_address
-      || (job.type_meta as any)?.venue_address || undefined;
     const result = await createInvoice(customerId, lineItems, {
       terms: job.payment_terms || undefined,
       memo: `${job.title} — ${job.job_number}`,
