@@ -23,22 +23,12 @@ function getGmailAuth(impersonate: string) {
   });
 }
 
-type InboxConfig = {
-  email: string;
-  searchPrefix: string;
-  channel: "client" | "production";
-};
-
-const INBOXES: InboxConfig[] = [
-  { email: "hello@housepartydistro.com", searchPrefix: "hello+", channel: "client" },
-  { email: "production@housepartydistro.com", searchPrefix: "production+", channel: "production" },
-];
-
 /**
  * Poll Gmail for inbound replies to OpsHub projects.
- * Checks both hello@ (client) and production@ (decorator) inboxes.
- *   Client: hello+{jobId}@housepartydistro.com
- *   Production: production+{jobId}.{decoratorId}@housepartydistro.com
+ * All replies route through hello@ inbox (Resend rejects production+ format).
+ *   Client: hello+c.{jobId}@housepartydistro.com
+ *   Production: hello+p.{jobId}.{decoratorId}@housepartydistro.com
+ * FROM address still shows production@ to decorators — reply-to is invisible.
  *
  * Called by Vercel cron every 5 minutes.
  */
@@ -55,30 +45,28 @@ export async function GET(req: NextRequest) {
     const sb = admin();
     let totalProcessed = 0;
 
-    for (const inbox of INBOXES) {
-      try {
-        const gmail = google.gmail({ version: "v1", auth: getGmailAuth(inbox.email) });
+    // Single inbox — all replies route through hello@
+    try {
+      const gmail = google.gmail({ version: "v1", auth: getGmailAuth("hello@housepartydistro.com") });
 
-        const listRes = await gmail.users.messages.list({
-          userId: "me",
-          q: `to:${inbox.searchPrefix} is:unread`,
-          maxResults: 20,
-        });
+      const listRes = await gmail.users.messages.list({
+        userId: "me",
+        q: "to:hello+ is:unread",
+        maxResults: 20,
+      });
 
-        const messages = listRes.data.messages || [];
-        if (messages.length === 0) continue;
+      const messages = listRes.data.messages || [];
 
-        for (const msg of messages) {
-          try {
-            const processed = await processMessage(gmail, sb, msg.id!, inbox.channel);
-            if (processed) totalProcessed++;
-          } catch (msgErr) {
-            console.error(`[Gmail] Error processing ${inbox.channel} message:`, msg.id, msgErr);
-          }
+      for (const msg of messages) {
+        try {
+          const processed = await processMessage(gmail, sb, msg.id!);
+          if (processed) totalProcessed++;
+        } catch (msgErr) {
+          console.error("[Gmail] Error processing message:", msg.id, msgErr);
         }
-      } catch (inboxErr) {
-        console.error(`[Gmail] Error polling ${inbox.email}:`, inboxErr);
       }
+    } catch (pollErr) {
+      console.error("[Gmail] Error polling hello@:", pollErr);
     }
 
     return NextResponse.json({ processed: totalProcessed });
@@ -91,8 +79,7 @@ export async function GET(req: NextRequest) {
 async function processMessage(
   gmail: any,
   sb: any,
-  messageId: string,
-  channel: "client" | "production"
+  messageId: string
 ): Promise<boolean> {
   const fullMsg = await gmail.users.messages.get({
     userId: "me",
@@ -108,24 +95,33 @@ async function processMessage(
   const fromHeader = getHeader("From");
   const subjectHeader = getHeader("Subject");
 
-  // Extract jobId (and optionally decoratorId) from to address
-  // Client: hello+{jobId}@...  |  Production: production+{jobId}.{decoratorId}@...
-  // Match the first UUID after a + sign
-  const jobMatch = toHeader.match(/\+([a-f0-9-]{36})/i);
-  if (!jobMatch) {
+  // Extract channel + jobId + decoratorId from to address
+  // Client: hello+c.{jobId}@...  |  Production: hello+p.{jobId}.{decId}@...
+  const isProduction = /\+p\./i.test(toHeader);
+  const channel: "client" | "production" = isProduction ? "production" : "client";
+
+  // Match UUID after +c. or +p.
+  // Try new format first: +c.{uuid} or +p.{uuid}, fall back to legacy +{uuid}
+  let jobId: string | null = null;
+  let decoratorId: string | null = null;
+
+  const newMatch = toHeader.match(/\+[cp]\.([a-f0-9-]{36})/i);
+  if (newMatch) {
+    jobId = newMatch[1];
+    const decMatch = toHeader.match(/\+p\.[a-f0-9-]{36}\.([a-f0-9-]{36})/i);
+    if (decMatch) decoratorId = decMatch[1];
+  } else {
+    const legacyMatch = toHeader.match(/\+([a-f0-9-]{36})/i);
+    if (legacyMatch) jobId = legacyMatch[1];
+  }
+
+  if (!jobId) {
     await gmail.users.messages.modify({
       userId: "me", id: messageId,
       requestBody: { removeLabelIds: ["UNREAD"] },
     });
     return false;
   }
-
-  const jobId = jobMatch[1];
-
-  // Extract decorator ID if present (second UUID after the job ID)
-  let decoratorId: string | null = null;
-  const decMatch = toHeader.match(/\+[a-f0-9-]{36}\.([a-f0-9-]{36})/i);
-  if (decMatch) decoratorId = decMatch[1];
 
   // Verify job exists
   const { data: job } = await sb

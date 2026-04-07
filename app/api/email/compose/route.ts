@@ -33,16 +33,17 @@ export async function POST(req: NextRequest) {
 
     const isProduction = channel === "production";
 
-    // Build reply-to address
-    // Client: hello+{jobId}@  |  Production: production+{jobId}.{decId}@
+    // Build reply-to address — all route through hello@ (Resend rejects production+ format)
+    // Client: hello+c.{jobId}@  |  Production: hello+p.{jobId}.{decId}@
+    // FROM still shows production@ to decorators — reply-to is invisible to them
     const decId = decoratorId && /^[a-f0-9-]{36}$/i.test(decoratorId) ? decoratorId : null;
     let replyToAddr: string;
     if (isProduction) {
       replyToAddr = decId
-        ? `production+${jobId}.${decId}@housepartydistro.com`
-        : `production+${jobId}@housepartydistro.com`;
+        ? `hello+p.${jobId}.${decId}@housepartydistro.com`
+        : `hello+p.${jobId}@housepartydistro.com`;
     } else {
-      replyToAddr = `hello+${jobId}@housepartydistro.com`;
+      replyToAddr = `hello+c.${jobId}@housepartydistro.com`;
     }
 
     const fromAddr = isProduction

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
           proofHtml += `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px">Review & Approve in Portal</a></p>`;
         }
       }
-      const proofReplyTo = jobId ? `hello+${jobId}@housepartydistro.com` : undefined;
+      const proofReplyTo = jobId ? `hello+c.${jobId}@housepartydistro.com` : undefined;
       const { data, error } = await resend.emails.send({
         from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
         to: recipientEmail,
@@ -140,10 +140,10 @@ export async function POST(req: NextRequest) {
         .single();
       const decId = dec?.id || "";
       replyTo = decId
-        ? `production+${jobId}.${decId}@housepartydistro.com`
-        : `production+${jobId}@housepartydistro.com`;
+        ? `hello+p.${jobId}.${decId}@housepartydistro.com`
+        : `hello+p.${jobId}@housepartydistro.com`;
     } else if (jobId) {
-      replyTo = `hello+${jobId}@housepartydistro.com`;
+      replyTo = `hello+c.${jobId}@housepartydistro.com`;
     }
 
     // Send via Resend
