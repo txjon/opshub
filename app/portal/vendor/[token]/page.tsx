@@ -13,6 +13,8 @@ const C = {
 };
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const fmtDateLong = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+const fmtD = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const daysUntil = (iso: string) => {
   const diff = Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
   if (diff < 0) return { text: `${Math.abs(diff)}d overdue`, color: C.red, urgent: true };
@@ -21,19 +23,22 @@ const daysUntil = (iso: string) => {
   return { text: `${diff}d`, color: C.green, urgent: false };
 };
 
+type DecoLine = { label: string; qty: number; rate: number; total: number };
 type Order = {
   jobId: string; jobNumber: string; jobTitle: string; clientName: string;
   phase: string; shipDate: string | null; shippingRoute: string;
   poSent: boolean; shipTo: any; shipMethod: string | null;
+  shippingAccount: string; grandTotal: number; totalUnits: number;
   items: OrderItem[];
 };
 type OrderItem = {
-  id: string; name: string; garmentType: string; blankVendor: string;
+  id: string; name: string; letter: string; garmentType: string; blankVendor: string;
   blankSku: string; pipelineStage: string; driveLink: string | null;
   incomingGoods: string | null; productionNotes: string | null;
   packingNotes: string | null; shipTracking: string | null;
   shipQtys: Record<string, number> | null; sizes: string[]; qtys: Record<string, number>;
-  totalQty: number; printLocations: string[]; blanksOrdered: boolean;
+  totalQty: number; decoLines: DecoLine[]; itemTotal: number;
+  mockupThumb: string | null; blanksOrdered: boolean;
 };
 
 const STAGE_LABELS: Record<string, { label: string; bg: string; color: string }> = {
@@ -44,7 +49,7 @@ const STAGE_LABELS: Record<string, { label: string; bg: string; color: string }>
 };
 
 export default function VendorPortalPage({ params }: { params: { token: string } }) {
-  const [data, setData] = useState<{ decorator: { name: string }; orders: Order[]; completed: Order[] } | null>(null);
+  const [data, setData] = useState<{ decorator: { name: string; shortCode: string }; orders: Order[]; completed: Order[] } | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -218,9 +223,9 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                 </div>
               </div>
 
-              {/* Expanded: items */}
+              {/* Expanded: PO PDF-style layout */}
               {expanded && (
-                <div style={{ padding: isMobile ? "12px 16px" : "16px 20px" }}>
+                <div style={{ padding: isMobile ? "12px 16px" : "20px 24px" }}>
 
                   {/* Bulk confirm button if multiple pending */}
                   {pendingItems.length > 1 && (
@@ -238,129 +243,186 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                     </button>
                   )}
 
-                  {/* PO Info strip */}
+                  {/* ── Info Strip (mirrors PO PDF) ── */}
                   <div style={{
-                    display: "flex", flexWrap: "wrap", gap: 0, borderRadius: 8, overflow: "hidden",
-                    border: `1px solid ${C.border}`, marginBottom: 12,
+                    display: "flex", flexWrap: "wrap", gap: 0, overflow: "hidden",
+                    border: `1px solid ${C.border}`, marginBottom: 16,
                   }}>
-                    {[
-                      ["Ship Date", order.shipDate ? fmtDate(order.shipDate) : "TBD"],
+                    {([
+                      ["Date", new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })],
+                      ["Ship Date", order.shipDate ? fmtDateLong(order.shipDate) : "TBD"],
+                      ["Vendor ID", decorator.shortCode || decorator.name],
                       ["Ship Method", order.shipMethod || "—"],
-                      ["Route", order.shippingRoute === "drop_ship" ? "Drop Ship" : order.shippingRoute === "ship_through" ? "Ship Through" : "Stage"],
-                      ["Items", `${order.items.length} items`],
-                    ].map(([label, val], idx) => (
+                      ["Ship Acct #", order.shippingAccount || "—"],
+                    ] as [string, string][]).map(([label, val], idx) => (
                       <div key={idx} style={{
-                        flex: 1, minWidth: isMobile ? "45%" : 0, padding: "8px 12px",
-                        borderRight: idx < 3 ? `1px solid ${C.border}` : "none",
-                        background: C.bg,
+                        flex: 1, minWidth: isMobile ? "33%" : 0, padding: "6px 10px",
+                        borderRight: idx < 4 ? `1px solid ${C.border}` : "none",
+                        background: C.card,
                       }}>
-                        <div style={{ fontSize: 9, fontWeight: 600, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginTop: 2 }}>{val}</div>
+                        <div style={{ fontSize: 8, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>{label}</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: C.text }}>{val}</div>
                       </div>
                     ))}
                   </div>
 
-                  {/* Ship-to address */}
-                  {order.shipTo && (
-                    <div style={{
-                      padding: "10px 14px", borderRadius: 8, background: C.bg,
-                      marginBottom: 12, fontSize: 12, color: C.muted,
-                    }}>
-                      <span style={{ fontWeight: 600, color: C.text }}>Ship to: </span>
-                      {[order.shipTo.address, order.shipTo.city, order.shipTo.state, order.shipTo.zip].filter(Boolean).join(", ")}
+                  {/* ── Bill To / Ship To ── */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16, fontSize: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Bill to</div>
+                      <div style={{ lineHeight: 1.7, color: C.text }}>
+                        House Party Distro<br/>
+                        hello@housepartydistro.com<br/>
+                        4670 W Silverado Ranch Blvd, STE 120<br/>
+                        Las Vegas, NV 89139
+                      </div>
                     </div>
-                  )}
+                    <div>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Ship to</div>
+                      <div style={{ lineHeight: 1.7, color: C.text, whiteSpace: "pre-wrap" }}>
+                        {order.shipTo
+                          ? [order.shipTo.name, order.shipTo.address, [order.shipTo.city, order.shipTo.state, order.shipTo.zip].filter(Boolean).join(", ")].filter(Boolean).join("\n")
+                          : "—"}
+                      </div>
+                    </div>
+                  </div>
 
+                  {/* ── Dark Info Bar (mirrors PO PDF) ── */}
+                  <div style={{
+                    background: "#1a1d2b", color: "#fff", padding: "6px 12px",
+                    display: "flex", gap: 20, fontSize: 11, marginBottom: 20, borderRadius: 4,
+                  }}>
+                    <div><span style={{ opacity: 0.5, marginRight: 4, textTransform: "uppercase", fontSize: 9, letterSpacing: "0.05em" }}>Client</span>{order.clientName}</div>
+                    <div><span style={{ opacity: 0.5, marginRight: 4, textTransform: "uppercase", fontSize: 9, letterSpacing: "0.05em" }}>Items</span>{order.items.length}</div>
+                    <div><span style={{ opacity: 0.5, marginRight: 4, textTransform: "uppercase", fontSize: 9, letterSpacing: "0.05em" }}>Total units</span>{order.totalUnits.toLocaleString()}</div>
+                  </div>
+
+                  {/* ── Item Blocks (mirrors PO PDF) ── */}
                   {order.items.map(item => {
                     const stage = STAGE_LABELS[item.pipelineStage] || STAGE_LABELS.pending;
-                    const actionKey = item.id;
+                    const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
+                    const sortedSizes = [...item.sizes].filter(s => (item.qtys[s] || 0) > 0).sort((a, b) => {
+                      const ai = SIZE_ORDER.indexOf(a), bi = SIZE_ORDER.indexOf(b);
+                      if (ai === -1 && bi === -1) return a.localeCompare(b);
+                      if (ai === -1) return 1; if (bi === -1) return -1;
+                      return ai - bi;
+                    });
+                    const sizeStr = sortedSizes.map(sz => `${sz} ${item.qtys[sz]}`).join("  ·  ");
+
                     return (
                       <div key={item.id} style={{
-                        border: `1px solid ${C.border}`, borderRadius: 10, padding: isMobile ? 12 : 16,
-                        marginBottom: 10, background: C.bg,
+                        borderLeft: `3px solid #1a1d2b`, paddingLeft: 16, marginBottom: 20,
                       }}>
-                        {/* Item header */}
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                          <div>
-                            <div style={{ fontSize: 14, fontWeight: 600 }}>{item.name}</div>
-                            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-                              {item.blankVendor && `${item.blankVendor} `}{item.blankSku || ""}
-                              {item.garmentType && ` · ${item.garmentType}`}
-                            </div>
+                        {/* Item header: letter — name + units + stage */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <div style={{ fontSize: 15, fontWeight: 700 }}>
+                            {item.letter} — {item.name}
                           </div>
-                          <span style={{
-                            fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 99,
-                            background: stage.bg, color: stage.color,
-                          }}>
-                            {stage.label}
-                          </span>
-                        </div>
-
-                        {/* Qty breakdown */}
-                        <div style={{
-                          display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8,
-                        }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: C.text, marginRight: 4 }}>
-                            {item.totalQty} units
-                          </span>
-                          {item.sizes.map(size => item.qtys[size] > 0 && (
-                            <span key={size} style={{
-                              fontSize: 10, padding: "2px 6px", borderRadius: 4,
-                              background: C.card, border: `1px solid ${C.border}`,
-                              color: C.muted,
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11, color: C.muted }}>{item.totalQty.toLocaleString()} units</span>
+                            <span style={{
+                              fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99,
+                              background: stage.bg, color: stage.color,
                             }}>
-                              {size}: {item.qtys[size]}
+                              {stage.label}
                             </span>
-                          ))}
+                          </div>
                         </div>
 
-                        {/* Print locations */}
-                        {item.printLocations.length > 0 && (
-                          <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>
-                            Print: {item.printLocations.join(", ")}
+                        {/* Meta: Brand / Color */}
+                        <div style={{ display: "flex", gap: 12, marginBottom: 4, fontSize: 11, color: C.muted }}>
+                          {item.blankVendor && (
+                            <div><span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.faint, marginRight: 4 }}>Brand</span>{item.blankVendor}</div>
+                          )}
+                          {item.blankSku && (
+                            <div><span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.faint, marginRight: 4 }}>Color</span>{item.blankSku}</div>
+                          )}
+                        </div>
+
+                        {/* Sizes */}
+                        {sizeStr && (
+                          <div style={{
+                            fontSize: 11, color: C.muted, padding: "4px 8px", background: C.bg,
+                            borderRadius: 4, marginBottom: 6, border: `1px solid ${C.border}`,
+                          }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.faint, marginRight: 6 }}>Sizes</span>
+                            {sizeStr}
                           </div>
                         )}
 
-                        {/* Notes */}
-                        {item.productionNotes && (
-                          <div style={{
-                            padding: "8px 10px", borderRadius: 6, background: C.amberBg,
-                            border: `1px solid ${C.amberBorder}`, fontSize: 12, marginBottom: 6,
-                            color: C.amber,
-                          }}>
-                            <span style={{ fontWeight: 600 }}>Production notes: </span>{item.productionNotes}
-                          </div>
-                        )}
-                        {item.packingNotes && (
-                          <div style={{
-                            padding: "8px 10px", borderRadius: 6, background: C.accentBg,
-                            border: `1px solid ${C.accent}33`, fontSize: 12, marginBottom: 6,
-                            color: C.accent,
-                          }}>
-                            <span style={{ fontWeight: 600 }}>Packing: </span>{item.packingNotes}
-                          </div>
-                        )}
-                        {item.incomingGoods && (
-                          <div style={{ fontSize: 11, color: C.muted, marginBottom: 6 }}>
-                            Incoming: {item.incomingGoods}
-                          </div>
-                        )}
-
-                        {/* Files link */}
+                        {/* Production files link */}
                         {item.driveLink && (
-                          <a href={item.driveLink} target="_blank" rel="noopener noreferrer"
-                            style={{
-                              display: "inline-flex", alignItems: "center", gap: 4,
-                              fontSize: 12, color: C.accent, fontWeight: 600, textDecoration: "none",
-                              marginBottom: 8,
-                            }}>
-                            Production Files ↗
-                          </a>
+                          <div style={{
+                            fontSize: 11, padding: "4px 8px", background: "#eef3ff",
+                            borderRadius: 4, marginBottom: 6,
+                          }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.faint, marginRight: 6 }}>Production folder</span>
+                            <a href={item.driveLink} target="_blank" rel="noopener noreferrer" style={{ color: C.accent, textDecoration: "none" }}>{item.driveLink}</a>
+                          </div>
+                        )}
+
+                        {/* Mockup thumbnail + Decoration table */}
+                        <div style={{ display: "flex", gap: 16, alignItems: "flex-start", marginTop: 6 }}>
+                          {item.mockupThumb && (
+                            <div style={{ flexShrink: 0 }}>
+                              <img src={item.mockupThumb} alt="" style={{
+                                height: 120, width: "auto", objectFit: "contain",
+                                borderRadius: 6, background: C.bg, border: `1px solid ${C.border}`,
+                              }} onError={e => (e.currentTarget.style.display = "none")} />
+                            </div>
+                          )}
+                          {item.decoLines.length > 0 && (
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 6 }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.faint, marginBottom: 4 }}>Print & Decoration</div>
+                                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                                  <tbody>
+                                    {item.decoLines.map((l, li) => (
+                                      <tr key={li}>
+                                        <td style={{ padding: "2px 0", color: C.text }}>{l.label}</td>
+                                        <td style={{ padding: "2px 6px", textAlign: "right", color: C.muted, fontFamily: "ui-monospace, monospace", fontSize: 10 }}>
+                                          {l.qty.toLocaleString()}×{fmtD(l.rate)}
+                                        </td>
+                                        <td style={{ padding: "2px 0", textAlign: "right", fontWeight: 700, fontFamily: "ui-monospace, monospace" }}>{fmtD(l.total)}</td>
+                                      </tr>
+                                    ))}
+                                    <tr style={{ borderTop: `1px solid ${C.border}` }}>
+                                      <td colSpan={2} style={{ padding: "4px 0 2px", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: C.muted }}>Item total</td>
+                                      <td style={{ padding: "4px 0 2px", textAlign: "right", fontSize: 13, fontWeight: 800, fontFamily: "ui-monospace, monospace" }}>{fmtD(item.itemTotal)}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Notes grid (incoming, production notes, packing) */}
+                        {(item.incomingGoods || item.productionNotes || item.packingNotes) && (
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
+                            {item.incomingGoods ? (
+                              <div style={{ background: C.bg, padding: "6px 8px", borderRadius: 4, border: `1px solid ${C.border}` }}>
+                                <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.faint, marginBottom: 2 }}>Incoming goods</div>
+                                <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>{item.incomingGoods}</div>
+                              </div>
+                            ) : <div />}
+                            {item.productionNotes ? (
+                              <div style={{ background: C.amberBg, padding: "6px 8px", borderRadius: 4, border: `1px solid ${C.amberBorder}` }}>
+                                <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.amber, marginBottom: 2 }}>Production notes</div>
+                                <div style={{ fontSize: 11, color: C.amber, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{item.productionNotes}</div>
+                              </div>
+                            ) : <div />}
+                            {item.packingNotes ? (
+                              <div style={{ background: C.accentBg, padding: "6px 8px", borderRadius: 4, border: `1px solid ${C.accent}33` }}>
+                                <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.accent, marginBottom: 2 }}>Packing / shipping</div>
+                                <div style={{ fontSize: 11, color: C.accent, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{item.packingNotes}</div>
+                              </div>
+                            ) : <div />}
+                          </div>
                         )}
 
                         {/* ── Actions ── */}
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
-                          {/* Confirm receipt (pending → in_production) */}
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                           {item.pipelineStage === "pending" && (
                             <button
                               onClick={() => setConfirmAction({ itemId: item.id, action: "confirm_received", label: `Confirm ${item.name} received?` })}
@@ -372,8 +434,6 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                               Confirm Received
                             </button>
                           )}
-
-                          {/* Enter tracking (in_production → shipped) */}
                           {item.pipelineStage === "in_production" && !item.shipTracking && (
                             <button
                               onClick={() => setShowTracking(showTracking === item.id ? null : item.id)}
@@ -385,15 +445,11 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                               Enter Tracking
                             </button>
                           )}
-
-                          {/* Shipped — show tracking */}
                           {item.shipTracking && (
                             <div style={{ fontSize: 12, color: C.green, fontWeight: 600, padding: "8px 0" }}>
                               Tracking: {item.shipTracking}
                             </div>
                           )}
-
-                          {/* Flag issue (any stage) */}
                           {item.pipelineStage !== "shipped" && item.pipelineStage !== "complete" && (
                             <button
                               onClick={() => setShowIssue(showIssue === item.id ? null : item.id)}
@@ -501,6 +557,26 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                       </div>
                     );
                   })}
+
+                  {/* ── PO Total ── */}
+                  {order.grandTotal > 0 && (
+                    <div style={{
+                      borderTop: `2px solid #1a1d2b`, paddingTop: 12, marginBottom: 20,
+                      textAlign: "right",
+                    }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.faint, marginBottom: 4 }}>PO Total — Decoration</div>
+                      <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.5px", fontFamily: "ui-monospace, monospace" }}>{fmtD(order.grandTotal)}</div>
+                    </div>
+                  )}
+
+                  {/* ── Terms ── */}
+                  <div style={{
+                    borderTop: `1px solid ${C.border}`, paddingTop: 10,
+                    fontSize: 10, color: C.faint, lineHeight: 1.6,
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, marginBottom: 3 }}>House Party Distro Purchase Order Conditions</div>
+                    House Party Distro must be notified of any blank shortages or discrepancies within 24 hours of receipt of goods. Outbound shipping is at the sole direction of House Party Distro. Packing lists and tracking numbers must be supplied to House Party Distro immediately after the order has shipped. House Party Distro must be invoiced for any charges within 30 days of the PO date.
+                  </div>
                 </div>
               )}
             </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendClientNotification } from "@/lib/auto-email";
+import { buildPrintersMap, calcDecorationLines } from "@/lib/pricing";
 
 const admin = () =>
   createClient(
@@ -47,7 +48,7 @@ export async function GET(
 
     if (!activeJobs?.length) {
       return NextResponse.json({
-        decorator: { name: decorator.name },
+        decorator: { name: decorator.name, shortCode: decorator.short_code },
         orders: [],
         completed: [],
       });
@@ -64,6 +65,12 @@ export async function GET(
       clientMap = Object.fromEntries((clients || []).map((c: any) => [c.id, c.name]));
     }
 
+    // Load decorator pricing for decoration line calculations
+    const { data: allDecs } = await sb
+      .from("decorators")
+      .select("name, short_code, pricing_data");
+    const printers = buildPrintersMap(allDecs || []);
+
     // For each active job, find items that belong to this decorator
     const orders: any[] = [];
     const completed: any[] = [];
@@ -72,8 +79,10 @@ export async function GET(
       const costingData = job.costing_data as any;
       if (!costingData?.costProds?.length) continue;
 
+      const allCostProds = costingData.costProds;
+
       // Find items in this job assigned to this decorator
-      const decItems = costingData.costProds.filter((cp: any) =>
+      const decItems = allCostProds.filter((cp: any) =>
         cp.printVendor === decorator.name || cp.printVendor === decorator.short_code
       );
 
@@ -98,37 +107,62 @@ export async function GET(
       // Only show jobs where PO has been sent to this decorator
       if (!poSent) continue;
 
+      // Fetch mockup thumbnails for items in this order
+      const { data: mockupFiles } = await sb
+        .from("item_files")
+        .select("item_id, drive_file_id")
+        .in("item_id", itemIds)
+        .eq("stage", "mockup")
+        .order("created_at", { ascending: false });
+      const mockupByItem: Record<string, string> = {};
+      for (const f of (mockupFiles || [])) {
+        if (!mockupByItem[f.item_id]) mockupByItem[f.item_id] = f.drive_file_id;
+      }
+
+      // Get all items in this job for letter assignment (sorted by sort_order)
+      const { data: allJobItems } = await sb
+        .from("items")
+        .select("id, sort_order")
+        .eq("job_id", job.id)
+        .order("sort_order");
+      const letterMap: Record<string, string> = {};
+      (allJobItems || []).forEach((it: any, idx: number) => {
+        letterMap[it.id] = String.fromCharCode(65 + idx);
+      });
+
       // Get ship-to address for this vendor
       const poShipTo = typeMeta.po_ship_to?.[decorator.name] || typeMeta.po_ship_to?.[decorator.short_code] || null;
       const poShipMethod = typeMeta.po_ship_methods?.[decorator.name] || typeMeta.po_ship_methods?.[decorator.short_code] || null;
 
+      let grandTotal = 0;
       const orderItems = items.map((item: any) => {
         const costProd = decItems.find((cp: any) => cp.id === item.id);
-        const assignment = (assignments || []).find((a: any) => a.item_id === item.id);
         const lines = item.buy_sheet_lines || [];
         const sizes = lines.map((l: any) => l.size);
         const qtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
         const totalQty = lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
 
-        // Build decoration summary from costing
-        const printLocations: string[] = [];
-        if (costProd?.printLocations) {
-          for (const [loc, data] of Object.entries(costProd.printLocations)) {
-            if ((data as any)?.location || (data as any)?.screens > 0) {
-              printLocations.push((data as any)?.location || `Location ${loc}`);
-            }
-          }
-        }
+        // Calculate decoration lines using shared pricing engine
+        const decoLines = costProd
+          ? calcDecorationLines({ ...costProd, totalQty }, allCostProds, printers)
+          : [];
+        const itemTotal = decoLines.reduce((a: number, l: any) => a + l.total, 0);
+        grandTotal += itemTotal;
+
+        // Supplier from costing data
+        const supplier = costProd?.supplier || item.blank_vendor || "";
+        const incoming = item.incoming_goods || (supplier ? "Blanks from " + supplier : "");
 
         return {
           id: item.id,
           name: item.name,
+          letter: letterMap[item.id] || "",
           garmentType: item.garment_type,
           blankVendor: item.blank_vendor,
-          blankSku: item.blank_sku,
+          blankSku: item.blank_sku || costProd?.color || "",
           pipelineStage: item.pipeline_stage || "pending",
           driveLink: item.drive_link,
-          incomingGoods: item.incoming_goods,
+          incomingGoods: incoming,
           productionNotes: item.production_notes_po,
           packingNotes: item.packing_notes,
           shipTracking: item.ship_tracking,
@@ -136,16 +170,19 @@ export async function GET(
           sizes,
           qtys,
           totalQty,
-          printLocations,
+          decoLines,
+          itemTotal,
+          mockupThumb: mockupByItem[item.id] ? `https://lh3.googleusercontent.com/d/${mockupByItem[item.id]}=w300` : null,
           blanksOrdered: !!item.blanks_order_number,
         };
       });
 
       const isAllComplete = orderItems.every((i: any) => i.pipelineStage === "shipped" || i.pipelineStage === "complete");
+      const totalUnits = orderItems.reduce((a: number, i: any) => a + i.totalQty, 0);
 
       const order = {
         jobId: job.id,
-        jobNumber: (job.type_meta as any)?.qb_invoice_number || job.job_number,
+        jobNumber: typeMeta.qb_invoice_number || job.job_number,
         jobTitle: job.title,
         clientName: clientMap[job.client_id] || "Client",
         phase: job.phase,
@@ -154,6 +191,9 @@ export async function GET(
         poSent,
         shipTo: poShipTo,
         shipMethod: poShipMethod,
+        shippingAccount: typeMeta.shipping_account || "",
+        grandTotal,
+        totalUnits,
         items: orderItems,
       };
 
@@ -172,7 +212,7 @@ export async function GET(
     });
 
     return NextResponse.json({
-      decorator: { name: decorator.name },
+      decorator: { name: decorator.name, shortCode: decorator.short_code },
       orders,
       completed: completed.slice(0, 10),
     });
