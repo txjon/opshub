@@ -90,14 +90,25 @@ export async function GET(
     ];
     const INTERNAL_KEYWORDS = [
       "PO sent", "blanks", "PSD processed", "Item created from PSD",
-      "costing", "decorator", "stage advanced", "auto-email skipped",
-      "buy sheet", "assigned", "reorder",
+      "costing", "decorator", "stage advanced", "auto-email",
+      "buy sheet", "assigned", "reorder", "QB Invoice", "auto-created",
+      "confirmation sent to", "Print proof generated",
     ];
     const activity = (rawActivity || []).filter((a: any) => {
       const msg = (a.message || "").toLowerCase();
       if (INTERNAL_KEYWORDS.some(k => msg.includes(k.toLowerCase()))) return false;
       return CLIENT_SAFE_KEYWORDS.some(k => msg.includes(k.toLowerCase()));
     }).slice(0, 15);
+
+    // Build thumbnail map: item_id → first mockup/proof driveFileId
+    const thumbnailMap: Record<string, string> = {};
+    const seenThumb = new Set<string>();
+    for (const f of proofFiles) {
+      if (!seenThumb.has(f.item_id) && f.drive_file_id) {
+        seenThumb.add(f.item_id);
+        thumbnailMap[f.item_id] = f.drive_file_id;
+      }
+    }
 
     // Build quote items using shared pricing engine (same as quote PDF)
     const costingData = job.costing_data as any;
@@ -141,6 +152,7 @@ export async function GET(
           qty: totalQty,
           sellPerUnit: Math.round(sellPerUnit * 100) / 100,
           total: Math.round(grossRev * 100) / 100,
+          thumbnailFileId: item ? thumbnailMap[item.id] || null : null,
         });
       }
     }
@@ -289,6 +301,36 @@ export async function POST(
 
       // Auto-email client confirmation (fire-and-forget)
       sendClientNotification({ jobId: job.id, type: "quote_approved" }).catch(() => {});
+
+      // Auto-create QB invoice (fire-and-forget, server-side)
+      if (!job.type_meta?.qb_invoice_number) {
+        const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
+          || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+        fetch(`${baseUrl}/api/qb/invoice`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "" },
+          body: JSON.stringify({ jobId: job.id }),
+        }).then(async r => {
+          const data = await r.json();
+          if (data.invoiceNumber) {
+            await sb.from("job_activity").insert({
+              job_id: job.id, user_id: null, type: "auto",
+              message: `QB Invoice #${data.invoiceNumber} auto-created on quote approval`,
+            });
+            // Notify team
+            const { data: profiles } = await sb.from("profiles").select("id");
+            if (profiles?.length) {
+              await sb.from("notifications").insert(
+                profiles.map((p: any) => ({
+                  user_id: p.id, type: "alert",
+                  message: `Invoice ready — QB #${data.invoiceNumber} · ${clientName} · ${job.title}`,
+                  reference_id: job.id, reference_type: "job",
+                }))
+              );
+            }
+          }
+        }).catch(() => {});
+      }
 
       return NextResponse.json({ success: true });
     }

@@ -110,14 +110,14 @@ export default function ReportsPage() {
   // ── CSV exports ──
   function exportProjects() {
     exportCsv("opshub-projects.csv",
-      ["Job #", "Client", "Title", "Type", "Phase", "Priority", "Ship Date", "Revenue", "Cost", "Margin %", "Units", "Paid"],
+      ["Quote #", "Invoice #", "Client", "Title", "Type", "Phase", "Priority", "Ship Date", "Revenue", "Cost", "Margin %", "Units", "Paid"],
       jobs.map(j => {
         const cs = j.costing_summary;
         const rev = cs?.grossRev || 0;
         const cost = cs?.totalCost || 0;
         const units = (j.items || []).reduce((a, it) => a + (it.buy_sheet_lines || []).reduce((b, l) => b + (l.qty_ordered || 0), 0), 0);
         const paid = (j.payment_records || []).filter(p => p.status === "paid").reduce((a, p) => a + p.amount, 0);
-        return [(j as any).job_number || "", j.clients?.name || "", j.title, j.job_type, j.phase, (j as any).priority || "", j.target_ship_date || "", String(rev), String(cost), rev > 0 ? ((rev - cost) / rev * 100).toFixed(1) : "0", String(units), String(paid)];
+        return [(j as any).job_number || "", (j as any).type_meta?.qb_invoice_number || "", j.clients?.name || "", j.title, j.job_type, j.phase, (j as any).priority || "", j.target_ship_date || "", String(rev), String(cost), rev > 0 ? ((rev - cost) / rev * 100).toFixed(1) : "0", String(units), String(paid)];
       })
     );
   }

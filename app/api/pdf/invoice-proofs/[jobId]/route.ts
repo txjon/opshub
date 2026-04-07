@@ -118,9 +118,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const pdfBytes = await mergedPdf.save();
 
-    const { data: job } = await supabase.from("jobs").select("job_number, title").eq("id", jobId).single();
+    const { data: job } = await supabase.from("jobs").select("job_number, title, type_meta").eq("id", jobId).single();
     const slug = (job?.title || jobId).replace(/\s+/g, "-");
-    const filename = `HPD-Invoice-Proofs-${job?.job_number || jobId.slice(0, 8)}-${slug}.pdf`;
+    const displayNum = (job as any)?.type_meta?.qb_invoice_number || job?.job_number || jobId.slice(0, 8);
+    const filename = `HPD-Invoice-Proofs-${displayNum}-${slug}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
     return new NextResponse(Buffer.from(pdfBytes), {

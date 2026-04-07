@@ -19,7 +19,10 @@ type NotifyParams = {
     | "quote_approved"
     | "payment_received"
     | "tracking_update"
-    | "invoice_ready";
+    | "invoice_ready"
+    | "order_shipped_dropship"
+    | "order_shipped_hpd"
+    | "production_complete";
   itemName?: string;
   trackingNumber?: string;
   carrier?: string;
@@ -39,7 +42,7 @@ export async function sendClientNotification(params: NotifyParams) {
     // Get job details + portal token
     const { data: job } = await sb
       .from("jobs")
-      .select("id, title, job_number, portal_token, client_id")
+      .select("id, title, job_number, type_meta, portal_token, client_id")
       .eq("id", params.jobId)
       .single();
     if (!job) return;
@@ -103,7 +106,8 @@ export async function sendClientNotification(params: NotifyParams) {
     let subject = "";
     let html = "";
     const from = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-    const projectRef = `${job.title}${job.job_number ? ` (${job.job_number})` : ""}`;
+    const displayNum = (job as any).type_meta?.qb_invoice_number || job.job_number;
+    const projectRef = `${job.title}${displayNum ? ` (${displayNum})` : ""}`;
 
     switch (params.type) {
       case "proof_ready":
@@ -151,6 +155,36 @@ ${portalButton}
 ${portalButton}
 <p>Welcome to the party,<br/>House Party Distro</p>`;
         break;
+
+      case "order_shipped_dropship":
+        subject = `Your Order Has Shipped — ${projectRef}`;
+        html = `<p>Hi${primary.name ? ` ${primary.name.split(" ")[0]}` : ""},</p>
+<p>Your order for <strong>${projectRef}</strong> has shipped directly from our production partner.</p>
+${params.carrier ? `<p>Carrier: <strong>${params.carrier}</strong></p>` : ""}
+${params.trackingNumber ? `<p>Tracking: <strong>${params.trackingNumber}</strong></p>` : ""}
+<p>You should receive your order within a few business days.</p>
+${portalButton}
+<p>Welcome to the party,<br/>House Party Distro</p>`;
+        break;
+
+      case "order_shipped_hpd":
+        subject = `Your Order Has Shipped — ${projectRef}`;
+        html = `<p>Hi${primary.name ? ` ${primary.name.split(" ")[0]}` : ""},</p>
+<p>Your order for <strong>${projectRef}</strong> has shipped from House Party Distro.</p>
+${params.carrier ? `<p>Carrier: <strong>${params.carrier}</strong></p>` : ""}
+${params.trackingNumber ? `<p>Tracking: <strong>${params.trackingNumber}</strong></p>` : ""}
+${portalButton}
+<p>Welcome to the party,<br/>House Party Distro</p>`;
+        break;
+
+      case "production_complete":
+        subject = `Production Complete — ${projectRef}`;
+        html = `<p>Hi${primary.name ? ` ${primary.name.split(" ")[0]}` : ""},</p>
+<p>Great news! Production is complete for <strong>${projectRef}</strong>. All items have been received at our facility.</p>
+<p>We'll have your order packed and shipped soon.</p>
+${portalButton}
+<p>Welcome to the party,<br/>House Party Distro</p>`;
+        break;
     }
 
     // Send
@@ -169,6 +203,9 @@ ${portalButton}
       payment_received: `Auto-email: payment confirmation sent to ${primary.email}`,
       tracking_update: `Auto-email: shipping notification sent to ${primary.email}`,
       invoice_ready: `Auto-email: invoice notification sent to ${primary.email}`,
+      order_shipped_dropship: `Auto-email: drop-ship notification sent to ${primary.email}`,
+      order_shipped_hpd: `Auto-email: shipped from HPD notification sent to ${primary.email}`,
+      production_complete: `Auto-email: production complete notification sent to ${primary.email}`,
     };
 
     await sb.from("job_activity").insert({

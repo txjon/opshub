@@ -355,6 +355,66 @@ export async function createInvoice(
   };
 }
 
+// ── Update existing invoice ──
+export async function updateInvoice(
+  invoiceId: string,
+  lineItems: QBLineItem[],
+  options: { memo?: string } = {}
+): Promise<{ taxAmount: number; totalWithTax: number }> {
+  // Fetch existing invoice to get SyncToken (required for updates)
+  const existing = await qbFetch(`/invoice/${invoiceId}`);
+  const invoice = existing.Invoice;
+  if (!invoice) throw new Error("Invoice not found in QuickBooks");
+
+  // Look up QB item IDs
+  const itemCache: Record<string, string> = {};
+  for (const li of lineItems) {
+    if (!itemCache[li.itemName]) {
+      const query = encodeURIComponent(`SELECT * FROM Item WHERE Name = '${li.itemName.replace(/'/g, "\\'")}'`);
+      const data = await qbFetch(`/query?query=${query}`);
+      const items = data?.QueryResponse?.Item;
+      if (items?.length > 0) {
+        itemCache[li.itemName] = items[0].Id;
+      }
+    }
+  }
+
+  const lines = lineItems.map((li, i) => ({
+    LineNum: i + 1,
+    Amount: li.qty * li.unitPrice,
+    DetailType: "SalesItemLineDetail",
+    Description: li.description,
+    SalesItemLineDetail: {
+      ItemRef: itemCache[li.itemName]
+        ? { value: itemCache[li.itemName], name: li.itemName }
+        : { value: "1", name: li.itemName },
+      Qty: li.qty,
+      UnitPrice: li.unitPrice,
+    },
+  }));
+
+  const body: any = {
+    Id: invoiceId,
+    SyncToken: invoice.SyncToken,
+    sparse: true,
+    Line: lines,
+  };
+  if (options.memo) body.CustomerMemo = { value: options.memo };
+
+  const data = await qbFetch("/invoice", { method: "POST", body });
+  const updated = data.Invoice;
+
+  // Read back for tax
+  const readBack = await qbFetch(`/invoice/${invoiceId}`);
+  const full = readBack.Invoice || updated;
+
+  console.log("[QB] Invoice updated:", invoiceId);
+  return {
+    taxAmount: full.TxnTaxDetail?.TotalTax || 0,
+    totalWithTax: full.TotalAmt || 0,
+  };
+}
+
 // ── Check connection status ──
 export async function isConnected(): Promise<boolean> {
   try {

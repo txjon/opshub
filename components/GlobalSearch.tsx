@@ -68,35 +68,37 @@ export function GlobalSearch() {
     // Search jobs
     const { data: jobs } = await supabase
       .from("jobs")
-      .select("id, title, job_number, phase, clients(name)")
-      .or(`title.ilike.%${q}%,job_number.ilike.%${q}%`)
+      .select("id, title, job_number, type_meta, phase, clients(name)")
+      .or(`title.ilike.%${q}%,job_number.ilike.%${q}%,type_meta->>qb_invoice_number.ilike.%${q}%`)
       .limit(5);
 
     for (const j of (jobs || [])) {
+      const displayNum = (j as any).type_meta?.qb_invoice_number || j.job_number;
       results.push({
         type: "project",
         id: j.id,
         href: `/jobs/${j.id}`,
         title: j.title,
-        subtitle: `${(j.clients as any)?.name || ""} · ${j.job_number} · ${j.phase}`,
+        subtitle: `${(j.clients as any)?.name || ""} · ${displayNum} · ${j.phase}`,
       });
     }
 
     // Also search jobs by client name
     const { data: jobsByClient } = await supabase
       .from("jobs")
-      .select("id, title, job_number, phase, clients!inner(name)")
+      .select("id, title, job_number, type_meta, phase, clients!inner(name)")
       .ilike("clients.name", `%${q}%`)
       .limit(5);
 
     for (const j of (jobsByClient || [])) {
       if (!results.some(r => r.id === j.id)) {
+        const displayNum = (j as any).type_meta?.qb_invoice_number || j.job_number;
         results.push({
           type: "project",
           id: j.id,
           href: `/jobs/${j.id}`,
           title: j.title,
-          subtitle: `${(j.clients as any)?.name || ""} · ${j.job_number} · ${j.phase}`,
+          subtitle: `${(j.clients as any)?.name || ""} · ${displayNum} · ${j.phase}`,
         });
       }
     }

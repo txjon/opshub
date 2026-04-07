@@ -524,16 +524,24 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       </div>
                       {r&&(
                         <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
-                          {[
+                          {(()=>{
+                            const bi=buyItems.find(b=>b.id===p.id);
+                            const actualBlank=bi?.blanks_order_cost?parseFloat(bi.blanks_order_cost):null;
+                            const blankDiff=actualBlank!==null?actualBlank-r.blankCost:null;
+                            const actualProfit=actualBlank!==null?r.netProfit-(actualBlank-r.blankCost):null;
+                            const actualMargin=actualProfit!==null&&r.grossRev>0?actualProfit/r.grossRev:null;
+                            return [
                             ["Revenue",  fmtD(r.grossRev),       T.accent,  null],
                             ["Blanks",   fmtD(r.blankCost),      T.text,    null],
+                            ...(actualBlank!==null?[["Actual Blanks",fmtD(actualBlank),blankDiff>0?T.red:T.green,blankDiff>0?T.redDim:T.greenDim]]:[]),
                             ["PO",       fmtD(r.poTotal),        T.text,    null],
                             ...(r.shipping>0?[["Ship", fmtD(r.shipping), T.text, null]]:[]),
                             ...(r.ccFees>0?[["CC Fees", fmtD(r.ccFees), T.text, null]]:[]),
                             ["Profit",   fmtD(r.netProfit),      mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
+                            ...(actualMargin!==null?[["Actual Margin",fmtP(actualMargin*100),actualMargin>=0.3?T.green:actualMargin>=0.2?T.amber:T.red,actualMargin>=0.3?T.greenDim:actualMargin>=0.2?T.amberDim:T.redDim]]:[]),
                             ["Margin",   fmtP(r.margin_pct),     mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
                             ["Per Pc",   fmtD(r.profitPerPiece), mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
-                          ].map(([l,v,c,bg])=>(
+                          ]})().map(([l,v,c,bg])=>(
                             <div key={l} style={{background:bg||T.surface,border:`1px solid ${T.border}22`,borderRadius:6,padding:"4px 8px",minWidth:70}}>
                               <div style={{fontSize:8,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.05em"}}>{l}</div>
                               <div style={{fontSize:11,fontWeight:700,color:c,fontFamily:mono}}>{v}</div>

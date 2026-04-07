@@ -30,7 +30,7 @@ const HPD_LOGO_SVG = `<svg style="height:32px;display:block;margin-bottom:10px" 
 function renderQuoteHTML(data: {
   invoiceNum: string; today: string; validUntil: string; shipDate: string;
   clientName: string; notes: string;
-  prods: { name: string; style: string; color: string; sizes: string[]; qtys: Record<string,number>; totalQty: number; sellPerUnit: number; grossRev: number; }[];
+  prods: { name: string; style: string; color: string; sizes: string[]; qtys: Record<string,number>; totalQty: number; sellPerUnit: number; grossRev: number; thumbnail?: string; }[];
   quoteTotal: number;
 }): string {
   const font = `'Helvetica Neue', Arial, sans-serif`;
@@ -41,14 +41,21 @@ function renderQuoteHTML(data: {
       `<div style="font-size:10px;color:#444;font-family:monospace;white-space:nowrap"><span style="color:#999;margin-right:3px">${sz}</span>${p.qtys[sz].toLocaleString()}</div>`
     ).join("");
 
+    const thumbHtml = p.thumbnail ? `<img src="${p.thumbnail}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid #eee;flex-shrink:0" />` : "";
+
     return `<tr style="border-bottom:0.5px solid #eeeeee">
       <td style="padding:12px 12px 12px 0;vertical-align:top">
-        <div style="display:flex;align-items:baseline;gap:7px">
-          <span style="font-size:10px;font-weight:700;color:#bbb;font-family:monospace;flex-shrink:0">${String.fromCharCode(65 + pi)}</span>
-          <span style="font-size:13px;font-weight:700;color:#1a1a1a">${p.name || "Item " + (pi + 1)}</span>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          ${thumbHtml}
+          <div>
+            <div style="display:flex;align-items:baseline;gap:7px">
+              <span style="font-size:10px;font-weight:700;color:#bbb;font-family:monospace;flex-shrink:0">${String.fromCharCode(65 + pi)}</span>
+              <span style="font-size:13px;font-weight:700;color:#1a1a1a">${p.name || "Item " + (pi + 1)}</span>
+            </div>
+            ${p.style ? `<div style="font-size:10px;color:#555;margin-top:2px;padding-left:17px">${p.style}</div>` : ""}
+            ${p.color ? `<div style="font-size:10px;color:#888;padding-left:17px">${p.color}</div>` : ""}
+          </div>
         </div>
-        ${p.style ? `<div style="font-size:10px;color:#555;margin-top:2px;padding-left:17px">${p.style}</div>` : ""}
-        ${p.color ? `<div style="font-size:10px;color:#888;padding-left:17px">${p.color}</div>` : ""}
       </td>
       <td style="padding:12px 8px;vertical-align:top">
         <div style="display:grid;grid-template-columns:repeat(3,minmax(52px,1fr));gap:3px 6px">
@@ -126,6 +133,7 @@ function renderQuoteHTML(data: {
       <div style="text-align:right">
         <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa;margin-bottom:4px;font-family:${font}">Order total</div>
         <div style="font-size:26px;font-weight:800;letter-spacing:-0.03em;font-family:${font};color:#1a1a1a">${fmtD(data.quoteTotal)}</div>
+        <div style="font-size:9px;color:#999;margin-top:6px;font-family:${font}">Sales tax will be calculated on final invoice</div>
       </div>
     </div>
 
@@ -268,6 +276,42 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     }
 
     const quoteTotal = prods.reduce((a, p) => a + p.grossRev, 0);
+
+    // Fetch mockup thumbnails for each item
+    const itemIds = (items || []).map((it: any) => it.id);
+    const mockupMap: Record<string, string> = {};
+    if (itemIds.length > 0) {
+      const { data: mockupFiles } = await supabase
+        .from("item_files")
+        .select("item_id, drive_file_id")
+        .in("item_id", itemIds)
+        .in("stage", ["mockup", "proof"])
+        .order("created_at", { ascending: false });
+      // Take the latest mockup/proof per item
+      const seen = new Set<string>();
+      for (const f of (mockupFiles || [])) {
+        if (!seen.has(f.item_id) && f.drive_file_id) {
+          seen.add(f.item_id);
+          try {
+            const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+            const res = await fetch(`${baseUrl}/api/files/thumbnail?id=${f.drive_file_id}`, { headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "" } });
+            if (res.ok) {
+              const buf = Buffer.from(await res.arrayBuffer());
+              const mime = res.headers.get("content-type") || "image/png";
+              mockupMap[f.item_id] = `data:${mime};base64,${buf.toString("base64")}`;
+            }
+          } catch {} // Skip if thumbnail fails
+        }
+      }
+    }
+
+    // Attach thumbnails to prods
+    for (const p of prods) {
+      const dbItem = (items || []).find((it: any) => it.id === (p as any).id || it.name === p.name);
+      if (dbItem && mockupMap[dbItem.id]) {
+        (p as any).thumbnail = mockupMap[dbItem.id];
+      }
+    }
 
     const html = renderQuoteHTML({
       invoiceNum: orderInfo.invoiceNum || job.job_number || "",

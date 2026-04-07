@@ -341,7 +341,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
-              <span style={{fontSize:11,color:T.muted,fontFamily:"'IBM Plex Mono',monospace"}}>{job.job_number}</span>
+              <span style={{fontSize:11,color:T.muted,fontFamily:"'IBM Plex Mono',monospace"}}>{(job as any).type_meta?.qb_invoice_number || job.job_number}</span>
+              {(job as any).type_meta?.qb_invoice_number && <span style={{fontSize:10,color:T.faint,fontFamily:"'IBM Plex Mono',monospace"}}>{job.job_number}</span>}
               <span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>
                 {job.phase.replace(/_/g," ")}
               </span>
@@ -350,14 +351,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               {saving&&<span style={{fontSize:11,color:T.muted}}>Saving...</span>}
             </div>
             <h1 style={{fontSize:26,fontWeight:700,margin:"0 0 3px",letterSpacing:"-0.02em",color:T.text,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>{(job.clients as any)?.name||"No client"}</h1>
-            {(job as any).type_meta?.qb_invoice_number ? (
-              <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:6}}>
-                <span style={{fontSize:16,fontWeight:600,color:T.text,fontFamily:"'IBM Plex Mono',monospace"}}>INV-{(job as any).type_meta.qb_invoice_number}</span>
-                {job.title && <span style={{fontSize:13,color:T.faint}}>{job.title}</span>}
-              </div>
-            ) : (
-              <div style={{fontSize:16,color:T.muted,marginBottom:6}}>{job.title}</div>
-            )}
+            <div style={{fontSize:16,color:T.muted,marginBottom:6}}>{job.title}</div>
             <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.muted}}>
               <span>{totalUnits.toLocaleString()} units</span>
               {(job as any).portal_token && (
@@ -454,6 +448,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           if (tab === "buysheet" && t !== "buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
           if ((tab === "costing" || tab === "quote") && t !== "costing" && t !== "quote") {
             if (saveCostingRef.current) { try { await saveCostingRef.current(); } catch(e) { if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return; } }
+          }
+          // Refresh approval + payment status when switching to quote/overview/payment tabs
+          if (["quote","overview","payment"].includes(t)) {
+            const { data: fresh } = await supabase.from("jobs").select("quote_approved, quote_approved_at, type_meta").eq("id", job.id).single();
+            if (fresh) setJob(j => j ? {...j, quote_approved: fresh.quote_approved, quote_approved_at: fresh.quote_approved_at, type_meta: fresh.type_meta} as any : j);
+            if (t === "payment" || t === "overview") {
+              const { data: freshPay } = await supabase.from("payment_records").select("*").eq("job_id", job.id).order("created_at");
+              if (freshPay) setPayments(freshPay);
+            }
           }
           setTab(t);
         }} />
@@ -900,6 +903,20 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 logJobActivity(job.id, "Quote approved");
                 notifyTeam(`Quote approved — ${(job.clients as any)?.name || ""} · ${job.title}`, "approval", job.id, "job");
                 recalcPhase();
+                // Auto-create QB invoice (fire-and-forget)
+                if (!job.type_meta?.qb_invoice_number) {
+                  fetch("/api/qb/invoice", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ jobId: job.id }),
+                  }).then(r => r.json()).then(data => {
+                    if (data.invoiceNumber) {
+                      setJob(j => j ? {...j, type_meta: {...(j as any).type_meta, qb_invoice_id: data.invoiceId, qb_invoice_number: data.invoiceNumber, qb_payment_link: data.paymentLink}} as any : j);
+                      logJobActivity(job.id, `QB Invoice #${data.invoiceNumber} auto-created on quote approval`);
+                      notifyTeam(`Invoice ready — QB #${data.invoiceNumber} · ${(job.clients as any)?.name || ""} · ${job.title}`, "alert", job.id, "job");
+                    }
+                  }).catch(() => {});
+                }
               }} style={{fontSize:12,fontWeight:600,color:"#fff",background:T.green,border:"none",borderRadius:7,padding:"7px 20px",cursor:"pointer"}}>Approve Quote</button>
             </div>
           )}
@@ -986,7 +1003,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           contacts={contacts.map(c=>({name:c.name,email:c.email,role:c.role_on_job}))}
           onClose={()=>setShowCompose(false)}
           onSent={()=>{}}
-          defaultSubject={job.title ? `Re: ${job.title}${job.job_number ? ` (${job.job_number})` : ""}` : ""}
+          defaultSubject={job.title ? `Re: ${job.title} (${(job as any).type_meta?.qb_invoice_number || job.job_number || ""})` : ""}
         />
       )}
     </div>

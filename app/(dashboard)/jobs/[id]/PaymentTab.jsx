@@ -35,9 +35,18 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to push to QuickBooks");
       if (onUpdateJob) onUpdateJob({
-        type_meta: { ...(job.type_meta || {}), qb_invoice_id: data.invoiceId || job.type_meta?.qb_invoice_id, qb_invoice_number: data.invoiceNumber, qb_payment_link: data.paymentLink },
+        type_meta: {
+          ...(job.type_meta || {}),
+          qb_invoice_id: data.invoiceId || job.type_meta?.qb_invoice_id,
+          qb_invoice_number: data.invoiceNumber || job.type_meta?.qb_invoice_number,
+          qb_payment_link: data.paymentLink || job.type_meta?.qb_payment_link,
+        },
       });
-      logJobActivity(job.id, `Invoice #${data.invoiceNumber} created in QuickBooks`);
+      if (data.updated) {
+        logJobActivity(job.id, `QB Invoice #${data.invoiceNumber} updated with new pricing`);
+      } else {
+        logJobActivity(job.id, `Invoice #${data.invoiceNumber} created in QuickBooks`);
+      }
       return data;
     } catch (err) {
       setQbError(err.message);
@@ -52,14 +61,17 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
 
       {/* ── 3 Big Action Buttons ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0 }}>
-        <button onClick={pushToQB} disabled={pushingToQB || !!qbInvoiceNumber}
-          style={{ width: 160, height: 160, borderRadius: 10, border: qbInvoiceNumber ? `2px solid ${T.green}` : "none", cursor: pushingToQB || qbInvoiceNumber ? "default" : "pointer",
+        <button onClick={pushToQB} disabled={pushingToQB}
+          style={{ width: 160, height: 160, borderRadius: 10, border: qbInvoiceNumber ? `2px solid ${T.green}` : "none", cursor: pushingToQB ? "default" : "pointer",
             background: qbInvoiceNumber ? T.greenDim : T.green, color: qbInvoiceNumber ? T.green : "#fff", fontSize: 13, fontWeight: 700, fontFamily: font,
             opacity: pushingToQB ? 0.6 : 1, transition: "opacity 0.15s", textAlign: "center",
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 14 }}
-          onMouseEnter={e => { if (!pushingToQB && !qbInvoiceNumber) e.currentTarget.style.opacity = "0.85"; }}
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 14, gap: 4 }}
+          onMouseEnter={e => { if (!pushingToQB) e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
-          {pushingToQB ? "Creating..." : qbInvoiceNumber ? `✓ QB #${qbInvoiceNumber}` : "Create QuickBooks Invoice"}
+          {pushingToQB ? (qbInvoiceNumber ? "Updating..." : "Creating...") : qbInvoiceNumber ? (
+            <><span>✓ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500, opacity: 0.8 }}>Click to update</span>
+            {job.type_meta?.qb_invoice_created_at && <span style={{ fontSize: 9, fontWeight: 400, opacity: 0.6 }}>{new Date(job.type_meta.qb_invoice_created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}</>
+          ) : "Create QuickBooks Invoice"}
         </button>
         <span style={{ fontSize: 18, color: qbInvoiceNumber ? T.accent : T.faint, padding: "0 12px", flexShrink: 0 }}>→</span>
         <button onClick={() => { window.open(`/api/pdf/invoice/${job.id}`, "_blank"); setPreviewed(true); }} disabled={!qbInvoiceNumber}

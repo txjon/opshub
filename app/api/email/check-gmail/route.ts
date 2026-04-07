@@ -202,7 +202,7 @@ async function processProductionMessage(gmail: any, sb: any, msgId: string): Pro
     return false;
   }
 
-  // Match 1: Job number in subject (HPD-YYMM-NNN pattern)
+  // Match 1a: Job/quote number in subject (HPD-YYMM-NNN pattern)
   const jobNumMatch = subject.match(/HPD-\d{4}-\d{3}/i);
   let jobId: string | null = null;
   let jobTitle: string | null = null;
@@ -210,6 +210,15 @@ async function processProductionMessage(gmail: any, sb: any, msgId: string): Pro
   if (jobNumMatch) {
     const { data: job } = await sb.from("jobs").select("id, title").eq("job_number", jobNumMatch[0].toUpperCase()).single();
     if (job) { jobId = job.id; jobTitle = job.title; }
+  }
+
+  // Match 1b: Invoice number in subject (e.g. "PO 1042" or "Invoice 1042")
+  if (!jobId) {
+    const invMatch = subject.match(/(?:PO|Invoice)\s+(\d+)/i);
+    if (invMatch) {
+      const { data: job } = await sb.from("jobs").select("id, title").eq("type_meta->>qb_invoice_number", invMatch[1]).single();
+      if (job) { jobId = job.id; jobTitle = job.title; }
+    }
   }
 
   // Match 2: If no job number in subject, try matching sender to a decorator contact

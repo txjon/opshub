@@ -311,7 +311,7 @@ function renderPOHTML(data: any): string {
 </head><body>
 <div style="background:#fff;font-family:${font};color:#111;max-width:780px;margin:0 auto">
 
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:18px;border-bottom:2px solid #1a1a1a;margin-bottom:18px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:18px;border-bottom:3px solid #111;margin-bottom:18px">
     <div>
       ${HPD_LOGO_SVG}
       <div style="font-size:11px;color:#666;line-height:1.7;margin-top:8px">
@@ -325,7 +325,7 @@ function renderPOHTML(data: any): string {
   </div>
 
   <div style="display:flex;gap:0;border:0.5px solid #ccc;margin-bottom:16px">
-    ${[["Date",today],["Ship date",shipDate],["Vendor ID",data.vendor_short_code||data.vendor_name],["Ship method",data.ship_method||"—"]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
+    ${[["Date",today],["Ship date",shipDate],["Vendor ID",data.vendor_short_code||data.vendor_name],["Ship method",data.ship_method||"—"],["Ship acct #",data.shipping_account||"—"]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;font-size:10px">
@@ -347,7 +347,7 @@ function renderPOHTML(data: any): string {
 
   ${itemBlocks}
 
-  <div style="border-top:2px solid #1a1a1a;padding-top:12px;margin-bottom:24px;text-align:right">
+  <div style="border-top:1.5px solid #1a1a1a;padding-top:12px;margin-bottom:24px;text-align:right">
     <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:4px">PO Total — Decoration</div>
     <div style="font-size:24px;font-weight:800;letter-spacing:-0.5px;font-family:${mono}">${fmtD(grandTotal)}</div>
   </div>
@@ -473,6 +473,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       vendor_zip: (decoratorRecord as any)?.zip || firstDecorator?.zip || "",
       payment_terms: (job.payment_terms || "").replace(/_/g, " "),
       ship_method: (job.type_meta as any)?.po_ship_methods?.[vendorName] || orderInfo.shipMethod || "",
+      shipping_account: (job.type_meta as any)?.shipping_account || "",
       ship_to_address: (job.type_meta as any)?.po_ship_to?.[vendorName]
         || ((job as any).shipping_route === "drop_ship"
           ? (job.type_meta as any)?.venue_address || ""
@@ -485,7 +486,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const slug = (job.title || jobId).replace(/\s+/g, "-");
     const vendorSlug = vendorName.replace(/\s+/g, "-");
-    const filename = `HPD-PO-${job.job_number}-${vendorSlug}-${slug}.pdf`;
+    const displayNum = (job.type_meta as any)?.qb_invoice_number || job.job_number;
+    const filename = `HPD-PO-${displayNum}-${vendorSlug}-${slug}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
     return new NextResponse(pdfBuffer, {

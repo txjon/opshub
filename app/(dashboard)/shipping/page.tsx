@@ -32,7 +32,7 @@ export default function ShippingPage() {
               <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
                 <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
                 <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
-                <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.job_number}</span>
+                <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.display_number}</span>
                 <span style={{ marginLeft: "auto", fontSize: 11, color: T.green, fontWeight: 600 }}>{job.items.length} items · {totalUnits.toLocaleString()} units</span>
               </div>
 
@@ -120,6 +120,11 @@ export default function ShippingPage() {
                     await updateFulfillment(job.id, "shipped");
                     logJobActivity(job.id, `Ship-through complete — forwarded to client (${job.fulfillment_tracking})`);
                     await supabase.from("jobs").update({ phase: "complete" }).eq("id", job.id);
+                    // Auto-email client shipped notification
+                    fetch("/api/email/notify", {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ jobId: job.id, type: "order_shipped_hpd", trackingNumber: job.fulfillment_tracking }),
+                    }).catch(() => {});
                     setJobs(prev => prev.filter(j => j.id !== job.id));
                   }}
                     disabled={!job.fulfillment_tracking}

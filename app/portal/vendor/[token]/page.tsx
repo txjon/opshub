@@ -238,6 +238,28 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                     </button>
                   )}
 
+                  {/* PO Info strip */}
+                  <div style={{
+                    display: "flex", flexWrap: "wrap", gap: 0, borderRadius: 8, overflow: "hidden",
+                    border: `1px solid ${C.border}`, marginBottom: 12,
+                  }}>
+                    {[
+                      ["Ship Date", order.shipDate ? fmtDate(order.shipDate) : "TBD"],
+                      ["Ship Method", order.shipMethod || "—"],
+                      ["Route", order.shippingRoute === "drop_ship" ? "Drop Ship" : order.shippingRoute === "ship_through" ? "Ship Through" : "Stage"],
+                      ["Items", `${order.items.length} items`],
+                    ].map(([label, val], idx) => (
+                      <div key={idx} style={{
+                        flex: 1, minWidth: isMobile ? "45%" : 0, padding: "8px 12px",
+                        borderRight: idx < 3 ? `1px solid ${C.border}` : "none",
+                        background: C.bg,
+                      }}>
+                        <div style={{ fontSize: 9, fontWeight: 600, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginTop: 2 }}>{val}</div>
+                      </div>
+                    ))}
+                  </div>
+
                   {/* Ship-to address */}
                   {order.shipTo && (
                     <div style={{

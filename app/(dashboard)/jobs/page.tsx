@@ -113,7 +113,8 @@ export default function JobsPage() {
       if (q && !(
         (j.clients?.name || "").toLowerCase().includes(q) ||
         j.title.toLowerCase().includes(q) ||
-        j.job_number.toLowerCase().includes(q)
+        j.job_number.toLowerCase().includes(q) ||
+        (j.type_meta?.qb_invoice_number || "").toLowerCase().includes(q)
       )) return false;
       return true;
     });
@@ -254,21 +255,19 @@ export default function JobsPage() {
                   {job.clients?.name||"No client"}
                 </div>
                 <div style={{ fontSize:12, color:"#9aa3c0", marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                  {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{job.job_number}</span>
+                  {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{invNum || job.job_number}</span>{invNum && <span style={{ color:T.faint, marginLeft:4, fontSize:10 }}>{job.job_number}</span>}
                 </div>
               </div>
 
-              {/* Invoice # */}
-              <div style={{ width:90, flexShrink:0 }}>
-                {invNum ? <span style={{ fontSize:13, fontWeight:600, color:T.text, fontFamily:mono }}>INV-{invNum}</span>
-                  : <span style={{ fontSize:11, color:T.faint }}>—</span>}
+              {/* Status signals */}
+              <div style={{ display:"flex", gap:4, alignItems:"center", flex:1, flexWrap:"wrap" }}>
+                {job.quote_approved && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.greenDim, color:T.green, whiteSpace:"nowrap" }}>Quote Approved</span>}
+                {invNum && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.accentDim, color:T.accent, whiteSpace:"nowrap" }}>Invoice Ready</span>}
+                {job.items?.some((it:any) => it.pipeline_stage === "shipped") && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.purpleDim || "#2d1f5e", color:T.purple || "#a78bfa", whiteSpace:"nowrap" }}>Items Shipped</span>}
               </div>
 
-              <div style={{ flex:1 }}/>
-
-              {/* Units + Revenue — right-justified next to status bar */}
+              {/* Units */}
               <span style={{ fontSize:13, fontWeight:600, color:T.text, fontFamily:mono }}>{totalUnits>0?totalUnits.toLocaleString():"—"} <span style={{ fontSize:11, fontWeight:400, color:T.muted }}>units</span></span>
-              <span style={{ fontSize:13, fontWeight:600, color:totalRevenue>0?T.accent:T.faint, fontFamily:mono, textAlign:"right", minWidth:60 }}>{totalRevenue>0?"$"+Math.round(totalRevenue).toLocaleString():""}</span>
 
               {/* Phase infographic */}
               <div style={{ width:330, flexShrink:0 }}>

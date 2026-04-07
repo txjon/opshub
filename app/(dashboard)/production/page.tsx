@@ -22,7 +22,7 @@ type ProdItem = {
 };
 
 type ProjectGroup = {
-  jobId: string; jobNumber: string; jobTitle: string; clientName: string;
+  jobId: string; jobNumber: string; invoiceNumber: string | null; jobTitle: string; clientName: string;
   shipDate: string | null; phase: string;
   decoratorGroups: DecoratorGroup[];
   totalItems: number; totalUnits: number;
@@ -44,7 +44,7 @@ export default function ProductionPage() {
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterStalled, setFilterStalled] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [showCompose, setShowCompose] = useState<{ jobId: string; decoratorId: string; contacts: any[] } | null>(null);
+  const [showCompose, setShowCompose] = useState<{ jobId: string; decoratorId: string; contacts: any[]; defaultSubject: string } | null>(null);
   const saveTimers = useRef<Record<string, any>>({});
   const now = new Date();
 
@@ -102,7 +102,9 @@ export default function ProductionPage() {
 
       if (!projectMap[it.job_id]) {
         projectMap[it.job_id] = {
-          jobId: job.id, jobNumber: job.job_number, jobTitle: job.title,
+          jobId: job.id, jobNumber: job.job_number,
+          invoiceNumber: (job as any).type_meta?.qb_invoice_number || null,
+          jobTitle: job.title,
           clientName: job.clients?.name || "", shipDate: job.target_ship_date,
           phase: job.phase, decoratorGroups: [], totalItems: 0, totalUnits: 0,
         };
@@ -154,6 +156,11 @@ export default function ProductionPage() {
     }
     logJobActivity(item.job_id, `${item.name} shipped from decorator${item.ship_tracking ? ` — tracking: ${item.ship_tracking}` : ""}`);
     notifyTeam(`Item shipped from decorator — ${item.name} incoming to warehouse`, "production", item.job_id, "job");
+    // Auto-email client for drop-ship orders (fire-and-forget)
+    fetch("/api/email/notify", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId: item.job_id, type: "order_shipped_dropship", trackingNumber: item.ship_tracking || undefined }),
+    }).catch(() => {});
     loadAll();
   }
 
@@ -201,7 +208,7 @@ export default function ProductionPage() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     return projects.filter(p => {
-      if (q && !(p.clientName.toLowerCase().includes(q) || p.jobTitle.toLowerCase().includes(q) || p.jobNumber.toLowerCase().includes(q) ||
+      if (q && !(p.clientName.toLowerCase().includes(q) || p.jobTitle.toLowerCase().includes(q) || p.jobNumber.toLowerCase().includes(q) || (p.invoiceNumber || "").toLowerCase().includes(q) ||
         p.decoratorGroups.some(dg => dg.decoratorName.toLowerCase().includes(q) || dg.items.some(it => it.name.toLowerCase().includes(q))))) return false;
       if (filterDecorator && !p.decoratorGroups.some(dg => dg.decoratorName === filterDecorator)) return false;
       return true;
@@ -292,7 +299,8 @@ export default function ProductionPage() {
               <div style={{ flex: 1 }}>
                 {/* Title row */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{project.jobNumber}</span>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{project.invoiceNumber || project.jobNumber}</span>
+                  {project.invoiceNumber && <span style={{ fontSize: 10, color: T.faint }}>{project.jobNumber}</span>}
                   <span style={{ fontSize: 13, color: T.muted }}>{project.clientName}</span>
                   {allShipped && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>All Shipped</span>}
                 </div>
@@ -351,6 +359,24 @@ export default function ProductionPage() {
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         {dg.inProduction > 0 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.accentDim, color: T.accent }}>{dg.inProduction} in production</span>}
                         {dg.shipped > 0 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>{dg.shipped} shipped</span>}
+                        {dg.inProduction > 1 && (
+                          <button onClick={async (e) => {
+                            e.stopPropagation();
+                            // Copy tracking from first item that has one to all others
+                            const src = dg.items.find(it => it.ship_tracking && it.pipeline_stage !== "shipped");
+                            if (src) {
+                              for (const it of dg.items.filter(it2 => it2.pipeline_stage !== "shipped" && it2.id !== src.id)) {
+                                await supabase.from("items").update({ ship_tracking: src.ship_tracking, ship_notes: src.ship_notes || null }).eq("id", it.id);
+                              }
+                            }
+                            // Ship all unshipped items
+                            for (const it of dg.items.filter(it2 => it2.pipeline_stage !== "shipped")) {
+                              await markShipped(it);
+                            }
+                          }} style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: T.green, color: "#fff", border: "none", cursor: "pointer" }}>
+                            Ship All
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -407,6 +433,39 @@ export default function ProductionPage() {
                                 )}
                               </div>
                             </div>
+                            {/* Per-size ship qty (collapsed, expand on click) */}
+                            {!isShipped && item.sizes.length > 0 && (
+                              <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+                                {item.sizes.map(sz => {
+                                  const ordered = item.qtys[sz] || 0;
+                                  const shipped = (item.ship_qtys || {})[sz] || ordered;
+                                  return (
+                                    <div key={sz} style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 10 }}>
+                                      <span style={{ color: T.faint, width: 24 }}>{sz}</span>
+                                      <input
+                                        type="text" inputMode="numeric" value={shipped}
+                                        onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
+                                        onChange={e => {
+                                          const val = parseInt(e.target.value) || 0;
+                                          const newQtys = { ...(item.ship_qtys || {}), [sz]: val };
+                                          setProjects(prev => prev.map(p => ({
+                                            ...p, decoratorGroups: p.decoratorGroups.map(dg2 => ({
+                                              ...dg2, items: dg2.items.map(it => it.id === item.id ? { ...it, ship_qtys: newQtys } : it)
+                                            }))
+                                          })));
+                                          if (saveTimers.current[`sqty_${item.id}`]) clearTimeout(saveTimers.current[`sqty_${item.id}`]);
+                                          saveTimers.current[`sqty_${item.id}`] = setTimeout(() => {
+                                            supabase.from("items").update({ ship_qtys: newQtys }).eq("id", item.id);
+                                          }, 800);
+                                        }}
+                                        style={{ ...ic, width: 32, padding: "2px 4px", textAlign: "center", fontSize: 10, fontFamily: mono }}
+                                      />
+                                      <span style={{ color: T.faint }}>/{ordered}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -422,6 +481,7 @@ export default function ProductionPage() {
                           jobId: project.jobId,
                           decoratorId: dg.decoratorId || "",
                           contacts: dg.contacts,
+                          defaultSubject: `Re: PO ${project.invoiceNumber || project.jobNumber} — House Party Distro`,
                         })}
                       />
                     </div>
@@ -441,6 +501,7 @@ export default function ProductionPage() {
           decoratorContacts={showCompose.contacts}
           channel="production"
           decoratorId={showCompose.decoratorId}
+          defaultSubject={showCompose.defaultSubject}
           onClose={() => setShowCompose(null)}
           onSent={() => loadAll()}
         />

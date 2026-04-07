@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     );
     const { data: job } = await adminClient
       .from("jobs")
-      .select("id, title, job_number")
+      .select("id, title, job_number, type_meta")
       .eq("id", jobId)
       .single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
@@ -46,7 +46,8 @@ export async function POST(req: NextRequest) {
       .split("\n")
       .map((line: string) => line.trim() === "" ? "<br/>" : `<p>${line}</p>`)
       .join("");
-    const fullHtml = `${htmlBody}<p style="margin-top:24px;font-size:12px;color:#999">—<br/>House Party Distro${job.job_number ? ` · ${job.job_number}` : ""}</p>`;
+    const displayNum = (job as any).type_meta?.qb_invoice_number || job.job_number || "";
+    const fullHtml = `${htmlBody}<p style="margin-top:24px;font-size:12px;color:#999">—<br/>House Party Distro${displayNum ? ` · ${displayNum}` : ""}</p>`;
 
     // Send via Resend
     const { data: emailData, error: emailError } = await resend.emails.send({

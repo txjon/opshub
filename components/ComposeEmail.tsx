@@ -26,8 +26,17 @@ export function ComposeEmail({
   decoratorId?: string;
 }) {
   const [to, setTo] = useState(defaultTo || "");
-  const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(defaultSubject || "");
+
+  // Auto-populate CC with all decorator contacts (minus the To) for production reply-all
+  const getAutoCC = (toEmail: string) => {
+    if (channel !== "production" || !decoratorContacts?.length) return "";
+    return decoratorContacts
+      .filter(c => c.email && c.email !== toEmail)
+      .map(c => c.email)
+      .join(", ");
+  };
+  const [cc, setCc] = useState(() => getAutoCC(defaultTo || ""));
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -109,7 +118,7 @@ export function ComposeEmail({
               {allContacts.length > 0 ? (
                 <select
                   value={to}
-                  onChange={e => setTo(e.target.value)}
+                  onChange={e => { setTo(e.target.value); setCc(getAutoCC(e.target.value)); }}
                   style={{ ...inputStyle, cursor: "pointer" }}
                 >
                   <option value="">Select a contact...</option>
@@ -128,7 +137,7 @@ export function ComposeEmail({
               )}
               {to === "__custom" && (
                 <input
-                  type="email" value="" onChange={e => setTo(e.target.value)}
+                  type="email" value="" onChange={e => { setTo(e.target.value); setCc(getAutoCC(e.target.value)); }}
                   placeholder="email@example.com" style={{ ...inputStyle, marginTop: 6 }}
                   autoFocus
                 />
@@ -187,7 +196,7 @@ export function ComposeEmail({
             </button>
 
             <div style={{ fontSize: 10, color: T.faint, textAlign: "center" }}>
-              Sent from production@housepartydistro.com · Replies route back to this project
+              Sent from {channel === "production" ? "production" : "hello"}@housepartydistro.com · Replies route back to this project
             </div>
           </div>
         )}

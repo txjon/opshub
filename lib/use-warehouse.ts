@@ -34,6 +34,7 @@ export type WarehouseJob = {
   id: string;
   title: string;
   job_number: string;
+  display_number: string;
   shipping_route: string;
   fulfillment_status: string | null;
   fulfillment_tracking: string | null;
@@ -91,6 +92,7 @@ export function useWarehouse() {
         id: j.id,
         title: j.title,
         job_number: j.job_number,
+        display_number: typeMeta.qb_invoice_number || j.job_number,
         shipping_route: j.shipping_route || "ship_through",
         fulfillment_status: j.fulfillment_status,
         fulfillment_tracking: j.fulfillment_tracking,
@@ -162,9 +164,20 @@ export function useWarehouse() {
     const now = new Date().toISOString();
     await supabase.from("items").update({ received_at_hpd: true, received_at_hpd_at: now }).eq("id", item.id);
     logJobActivity(item.job_id, `${item.name} received at warehouse`);
-    setJobs(prev => prev.map(j => ({
-      ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now } : it),
-    })));
+    setJobs(prev => {
+      const updated = prev.map(j => ({
+        ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now } : it),
+      }));
+      // Check if all items in this job are now received → send production complete email
+      const job = updated.find(j => j.items.some(it => it.id === item.id));
+      if (job && job.items.every(it => it.received_at_hpd)) {
+        fetch("/api/email/notify", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: item.job_id, type: "production_complete" }),
+        }).catch(() => {});
+      }
+      return updated;
+    });
     setTimeout(() => recalcJobPhase(item.job_id), 300);
   }
 

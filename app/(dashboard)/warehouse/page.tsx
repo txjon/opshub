@@ -33,6 +33,7 @@ type WarehouseJob = {
   id: string;
   title: string;
   job_number: string;
+  display_number: string;
   shipping_route: string;
   fulfillment_status: string | null;
   fulfillment_tracking: string | null;
@@ -54,7 +55,7 @@ export default function WarehousePage() {
     // Get non-drop-ship active jobs that have shipped items
     const { data: dbJobs } = await supabase
       .from("jobs")
-      .select("id, title, job_number, shipping_route, fulfillment_status, fulfillment_tracking, phase, clients(name)")
+      .select("id, title, job_number, type_meta, shipping_route, fulfillment_status, fulfillment_tracking, phase, clients(name)")
       .not("phase", "in", '("complete","cancelled")')
       .not("shipping_route", "eq", "drop_ship")
       .order("created_at", { ascending: false });
@@ -81,6 +82,7 @@ export default function WarehousePage() {
         id: j.id,
         title: j.title,
         job_number: j.job_number,
+        display_number: (j as any).type_meta?.qb_invoice_number || j.job_number,
         shipping_route: j.shipping_route || "ship_through",
         fulfillment_status: j.fulfillment_status,
         fulfillment_tracking: j.fulfillment_tracking,
@@ -249,7 +251,7 @@ export default function WarehousePage() {
             <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
               <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
               <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
-              <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.job_number}</span>
+              <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.display_number}</span>
               <span style={{ marginLeft: "auto", fontSize: 10, padding: "2px 8px", borderRadius: 99, background: job.shipping_route === "stage" ? T.purpleDim : T.accentDim, color: job.shipping_route === "stage" ? T.purple : T.accent }}>
                 {job.shipping_route === "stage" ? "Stage" : "Ship-through"}
               </span>
@@ -335,7 +337,7 @@ export default function WarehousePage() {
               <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
                 <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
                 <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
-                <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.job_number}</span>
+                <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.display_number}</span>
                 <span style={{ marginLeft: "auto", fontSize: 11, color: T.green, fontWeight: 600 }}>All {job.items.length} items received</span>
               </div>
               <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -386,7 +388,7 @@ export default function WarehousePage() {
                 <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
                   <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
                   <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
-                  <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.job_number}</span>
+                  <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.display_number}</span>
                   <span style={{ marginLeft: "auto", fontSize: 11, color: T.muted }}>{job.items.length} items · {job.items.reduce((a, it) => a + tQty(it.qtys), 0).toLocaleString()} units</span>
                 </div>
                 <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 10 }}>

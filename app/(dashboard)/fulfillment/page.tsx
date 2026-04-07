@@ -116,7 +116,7 @@ export default function FulfillmentPage() {
     const { data: jobs } = await supabase
       .from("jobs")
       .select("id, title, target_ship_date, shipping_route, clients(name)")
-      .in("phase", ["production", "receiving"])
+      .in("phase", ["production", "receiving", "fulfillment"])
       .eq("shipping_route", "stage");
 
     if (jobs?.length) {
@@ -351,6 +351,16 @@ export default function FulfillmentPage() {
                           {s}
                         </button>
                       ))}
+                      <div style={{ flex: 1 }} />
+                      <button onClick={async () => {
+                        if (!confirm("Delete this fulfillment project?")) return;
+                        await supabase.from("fulfillment_projects").delete().eq("id", proj.id);
+                        setProjects(prev => prev.filter(p => p.id !== proj.id));
+                      }} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", border: `1px solid ${T.border}`, background: "transparent", color: T.faint }}
+                        onMouseEnter={e => { e.currentTarget.style.color = T.red; e.currentTarget.style.borderColor = T.red; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = T.faint; e.currentTarget.style.borderColor = T.border; }}>
+                        Delete
+                      </button>
                     </div>
 
                     {proj.notes && <div style={{ fontSize: 11, color: T.muted, padding: "6px 10px", background: T.surface, borderRadius: 6 }}>{proj.notes}</div>}

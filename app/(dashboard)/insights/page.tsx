@@ -228,7 +228,7 @@ export default function InsightsPage() {
       .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
       .map((p: any) => {
         const job = jobs.find(j => j.id === p.job_id);
-        return { ...p, jobTitle: job?.title, clientName: (job?.clients as any)?.name, jobNumber: job?.job_number };
+        return { ...p, jobTitle: job?.title, clientName: (job?.clients as any)?.name, jobNumber: (job as any)?.type_meta?.qb_invoice_number || job?.job_number };
       });
 
     // Overdue payments
@@ -238,7 +238,7 @@ export default function InsightsPage() {
       .map((p: any) => {
         const job = jobs.find(j => j.id === p.job_id);
         const daysOver = daysBetween(p.due_date, now.toISOString());
-        return { ...p, daysOver, jobTitle: job?.title, clientName: (job?.clients as any)?.name, jobNumber: job?.job_number };
+        return { ...p, daysOver, jobTitle: job?.title, clientName: (job?.clients as any)?.name, jobNumber: (job as any)?.type_meta?.qb_invoice_number || job?.job_number };
       });
 
     return {

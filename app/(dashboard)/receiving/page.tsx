@@ -53,11 +53,11 @@ export default function ReceivingPage() {
   async function loadJobs() {
     const { data } = await supabase
       .from("jobs")
-      .select("id, title, job_number, clients(name)")
+      .select("id, title, job_number, type_meta, clients(name)")
       .not("phase", "in", '("complete","cancelled")')
       .order("created_at", { ascending: false })
       .limit(50);
-    setJobs((data || []).map((j: any) => ({ id: j.id, title: j.title, client_name: j.clients?.name || "", job_number: j.job_number })));
+    setJobs((data || []).map((j: any) => ({ id: j.id, title: j.title, client_name: j.clients?.name || "", job_number: j.job_number, display_number: j.type_meta?.qb_invoice_number || j.job_number })));
   }
 
   async function submitOutside() {
@@ -193,8 +193,17 @@ export default function ReceivingPage() {
               <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
                 <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
                 <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
-                <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.job_number}</span>
-                <span style={{ marginLeft: "auto", fontSize: 10, padding: "2px 8px", borderRadius: 99,
+                <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.display_number}</span>
+                {job.items.some(it => !it.received_at_hpd) && (
+                  <button onClick={async () => {
+                    for (const it of job.items.filter(i => !i.received_at_hpd)) {
+                      await markReceived(it);
+                    }
+                  }} style={{ marginLeft: "auto", fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 4, background: T.green, color: "#fff", border: "none", cursor: "pointer" }}>
+                    Receive All
+                  </button>
+                )}
+                <span style={{ marginLeft: job.items.some(it => !it.received_at_hpd) ? 0 : "auto", fontSize: 10, padding: "2px 8px", borderRadius: 99,
                   background: job.shipping_route === "stage" ? "#2d1f5e" : T.accentDim,
                   color: job.shipping_route === "stage" ? "#a78bfa" : T.accent }}>
                   {job.shipping_route === "stage" ? "→ Fulfillment" : "→ Shipping"}

@@ -41,6 +41,26 @@ export async function POST(req: NextRequest) {
         html: proofHtml,
       });
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      // Log to email_messages for thread view
+      if (jobId) {
+        try {
+          const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+          await adminClient.from("email_messages").insert({
+            job_id: jobId,
+            direction: "outbound",
+            channel: "client",
+            from_email: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
+            from_name: "House Party Distro",
+            to_emails: [recipientEmail],
+            cc_emails: ccEmails || [],
+            subject: subject || "File for Review — House Party Distro",
+            body_text: "Proof/mockup sent for review",
+            resend_message_id: data?.id || null,
+          });
+        } catch {} // Non-fatal
+      }
+
       return NextResponse.json({ success: true, id: data?.id });
     }
 
@@ -180,7 +200,13 @@ export async function POST(req: NextRequest) {
         to_emails: [recipientEmail],
         cc_emails: ccEmails || [],
         subject: defaultSubject,
-        body_text: type === "po" ? `Purchase order attached (${filename})` : `${type} attached (${filename})`,
+        body_text: type === "po"
+          ? `Purchase order attached (${filename})\n\nPlease find the attached purchase order. Let us know if you have any questions or need clarification on any items.`
+          : type === "quote"
+          ? `Quote attached (${filename})\n\nHere's your quote — take a look and let us know if you have any questions or want to make changes.`
+          : type === "invoice" || type === "invoice_proofs"
+          ? `Invoice attached (${filename})\n\nAttached is your invoice. Let us know if you have any questions.`
+          : `${type} attached (${filename})`,
         resend_message_id: data?.id || null,
       });
     } catch {} // Non-fatal

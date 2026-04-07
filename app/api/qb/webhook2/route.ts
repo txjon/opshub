@@ -82,25 +82,32 @@ export async function POST(req: NextRequest) {
             if (!jobs?.length) continue;
             const job = jobs[0];
 
-            // Check if we already recorded this payment
+            // Check if we already recorded this payment (match by amount + same day + same job)
+            const today = new Date().toISOString().split("T")[0];
             const { data: existing } = await supabase
               .from("payment_records")
               .select("id")
               .eq("job_id", job.id)
-              .eq("type_meta->>qb_payment_id", paymentId);
+              .eq("amount", amount)
+              .eq("paid_date", today)
+              .eq("status", "paid");
 
             if (existing?.length) continue; // Already recorded
 
             // Record the payment
-            await supabase.from("payment_records").insert({
+            const { error: insertErr } = await supabase.from("payment_records").insert({
               job_id: job.id,
               type: "payment",
               amount,
               status: "paid",
-              paid_date: new Date().toISOString().split("T")[0],
+              paid_date: today,
               invoice_number: (job.type_meta as any)?.qb_invoice_number || null,
-              type_meta: { qb_payment_id: paymentId },
             });
+
+            if (insertErr) {
+              console.error("[QB Webhook] Payment insert error:", insertErr);
+              continue;
+            }
 
             // Log activity
             await supabase.from("job_activity").insert({

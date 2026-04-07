@@ -69,6 +69,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [revisionNote, setRevisionNote] = useState<Record<string, string>>({});
   const [showRevisionInput, setShowRevisionInput] = useState<string | null>(null);
+  const [viewingProof, setViewingProof] = useState<any>(null);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -167,7 +168,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
 
         {/* ── Project Header ── */}
         <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 11, color: C.muted, fontWeight: 500, marginBottom: 4 }}>{client.name} {project.jobNumber && `· ${project.jobNumber}`}</div>
+          <div style={{ fontSize: 11, color: C.muted, fontWeight: 500, marginBottom: 4 }}>{client.name} {(invoiceNumber || project.jobNumber) && `· ${invoiceNumber || project.jobNumber}`}</div>
           <h1 style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700, color: C.text, margin: 0, lineHeight: 1.2 }}>{project.title}</h1>
           {project.shipDate && (
             <div style={{ fontSize: 13, color: C.muted, marginTop: 6 }}>Ship date: {fmtDate(project.shipDate)}</div>
@@ -238,9 +239,17 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 </tr>
               </thead>
               <tbody>
-                {quote.items.map((qi, i) => (
+                {quote.items.map((qi: any, i: number) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <td style={{ padding: "10px 0", fontWeight: 500 }}>{qi.name}</td>
+                    <td style={{ padding: "10px 0", fontWeight: 500 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        {qi.thumbnailFileId && (
+                          <img src={`/api/files/thumbnail?id=${qi.thumbnailFileId}`} alt=""
+                            style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, border: `1px solid ${C.border}`, flexShrink: 0 }} />
+                        )}
+                        <span>{qi.name}</span>
+                      </div>
+                    </td>
                     <td style={{ textAlign: "right", padding: "10px 0", color: C.muted }}>{qi.qty}</td>
                     <td style={{ textAlign: "right", padding: "10px 0", color: C.muted }}>{fmtD(qi.sellPerUnit)}</td>
                     <td style={{ textAlign: "right", padding: "10px 0", fontWeight: 600 }}>{fmtD(qi.total)}</td>
@@ -331,20 +340,22 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                           </span>
                         </div>
 
-                        {/* View link */}
-                        {proof.driveLink && (
-                          <a href={proof.driveLink} target="_blank" rel="noopener noreferrer"
+                        {/* View Proof button — opens modal */}
+                        {proof.driveFileId && (
+                          <button
+                            onClick={() => setViewingProof(proof)}
                             style={{
                               display: "inline-flex", alignItems: "center", gap: 4,
                               fontSize: 12, color: C.accent, textDecoration: "none", fontWeight: 600,
-                              marginBottom: 8,
+                              marginBottom: 8, background: "none", border: `1px solid ${C.accent}44`,
+                              borderRadius: 6, padding: "6px 14px", cursor: "pointer",
                             }}>
-                            View File ↗
-                          </a>
+                            View Proof
+                          </button>
                         )}
 
-                        {/* Action buttons (only if pending) */}
-                        {proof.approval === "pending" && (
+                        {/* Action buttons (if pending or revision_requested) */}
+                        {(proof.approval === "pending" || proof.approval === "revision_requested") && (
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                             <button
                               onClick={() => doAction("approve-proof", { fileId: proof.id })}
@@ -364,7 +375,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                                 background: "transparent", color: C.red, border: `1px solid ${C.redBorder}`,
                                 fontSize: 12, fontWeight: 600, cursor: "pointer",
                               }}>
-                              Request Revision
+                              Request Changes
                             </button>
                           </div>
                         )}
@@ -510,6 +521,84 @@ export default function PortalPage({ params }: { params: { token: string } }) {
           Powered by House Party Distro
         </div>
       </div>
+
+      {/* ── Proof Preview Modal ── */}
+      {viewingProof && (
+        <div onClick={() => setViewingProof(null)} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9999,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: C.card, borderRadius: 16, maxWidth: 640, width: "100%",
+            maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: "14px 20px", borderBottom: `1px solid ${C.border}`,
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{viewingProof.fileName}</div>
+                <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>{viewingProof.stage === "mockup" ? "Mockup" : "Print Proof"}</div>
+              </div>
+              <button onClick={() => setViewingProof(null)} style={{
+                background: "none", border: "none", fontSize: 22, color: C.faint, cursor: "pointer",
+              }}>&times;</button>
+            </div>
+
+            {/* Image */}
+            <div style={{ padding: 20, textAlign: "center" }}>
+              <img
+                src={`/api/files/thumbnail?id=${viewingProof.driveFileId}`}
+                alt={viewingProof.fileName}
+                style={{ maxWidth: "100%", maxHeight: "60vh", borderRadius: 8, objectFit: "contain" }}
+              />
+            </div>
+
+            {/* Action buttons */}
+            {(viewingProof.approval === "pending" || viewingProof.approval === "revision_requested") && (
+              <div style={{
+                padding: "16px 20px", borderTop: `1px solid ${C.border}`,
+                display: "flex", gap: 10, justifyContent: "center",
+              }}>
+                <button
+                  onClick={async () => {
+                    await doAction("approve-proof", { fileId: viewingProof.id });
+                    setViewingProof(null);
+                  }}
+                  disabled={actionLoading === `approve-proof${viewingProof.id}`}
+                  style={{
+                    padding: "12px 32px", borderRadius: 10,
+                    background: C.green, color: "#fff", border: "none",
+                    fontSize: 14, fontWeight: 700, cursor: "pointer",
+                    opacity: actionLoading ? 0.6 : 1,
+                  }}>
+                  Approve
+                </button>
+                <button
+                  onClick={() => { setShowRevisionInput(viewingProof.id); setViewingProof(null); }}
+                  style={{
+                    padding: "12px 32px", borderRadius: 10,
+                    background: "transparent", color: C.red, border: `1px solid ${C.redBorder}`,
+                    fontSize: 14, fontWeight: 700, cursor: "pointer",
+                  }}>
+                  Request Changes
+                </button>
+              </div>
+            )}
+
+            {/* Approved state */}
+            {viewingProof.approval === "approved" && (
+              <div style={{
+                padding: "16px 20px", borderTop: `1px solid ${C.border}`,
+                textAlign: "center", fontSize: 14, fontWeight: 600, color: C.green,
+              }}>
+                Approved {viewingProof.approvedAt ? fmtDate(viewingProof.approvedAt) : ""}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

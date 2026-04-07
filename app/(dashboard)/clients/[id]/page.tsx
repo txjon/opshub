@@ -81,7 +81,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     ...it,
     jobId: j.id,
     jobTitle: j.title,
-    jobNumber: j.job_number,
+    jobNumber: (j as any).type_meta?.qb_invoice_number || j.job_number,
     jobDate: j.target_ship_date || j.created_at,
     totalQty: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0),
     sizes: (it.buy_sheet_lines || []).map((l: any) => l.size),
@@ -332,7 +332,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                       onMouseLeave={(e:any)=>e.currentTarget.style.background=T.surface}>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{j.title}</div>
-                        <div style={{fontSize:10,color:T.muted,marginTop:1}}>{j.job_number} {units>0&&`· ${units.toLocaleString()} units`} {rev>0&&`· $${Math.round(rev).toLocaleString()}`}</div>
+                        <div style={{fontSize:10,color:T.muted,marginTop:1}}>{(j as any).type_meta?.qb_invoice_number || j.job_number} {units>0&&`· ${units.toLocaleString()} units`} {rev>0&&`· $${Math.round(rev).toLocaleString()}`}</div>
                       </div>
                       <span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:phase.bg,color:phase.text,whiteSpace:"nowrap",flexShrink:0}}>{j.phase.replace(/_/g," ")}</span>
                       {j.target_ship_date&&<span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0}}>{new Date(j.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>}

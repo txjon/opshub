@@ -4,7 +4,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { getOrCreateCustomer, createInvoice, type QBLineItem } from "@/lib/quickbooks";
+import { getOrCreateCustomer, createInvoice, updateInvoice, type QBLineItem } from "@/lib/quickbooks";
 
 // Garment type → QB Product/Service name mapping
 const QB_PRODUCT_MAP: Record<string, string> = {
@@ -22,10 +22,13 @@ const QB_PRODUCT_MAP: Record<string, string> = {
 
 export async function POST(req: NextRequest) {
   try {
-    // Auth check
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Auth check — logged-in user OR internal service call
+    const internalKey = req.headers.get("x-internal-key");
+    if (internalKey !== process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const { jobId } = await req.json();
     if (!jobId) return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
@@ -107,7 +110,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No items with quantities" }, { status: 400 });
     }
 
-    // Create invoice in QB
+    const existingInvoiceId = job.type_meta?.qb_invoice_id;
+
+    if (existingInvoiceId) {
+      // Update existing QB invoice
+      const updated = await updateInvoice(existingInvoiceId, lineItems, {
+        memo: `${job.title} — ${job.job_number}`,
+      });
+
+      // Update tax/total in type_meta
+      await admin.from("jobs").update({
+        type_meta: {
+          ...(job.type_meta || {}),
+          qb_tax_amount: updated.taxAmount,
+          qb_total_with_tax: updated.totalWithTax,
+          qb_invoice_updated_at: new Date().toISOString(),
+        },
+      }).eq("id", jobId);
+
+      return NextResponse.json({
+        success: true,
+        updated: true,
+        invoiceNumber: job.type_meta?.qb_invoice_number,
+        paymentLink: job.type_meta?.qb_payment_link,
+      });
+    }
+
+    // Create new invoice in QB
     const result = await createInvoice(customerId, lineItems, {
       terms: job.payment_terms || undefined,
       memo: `${job.title} — ${job.job_number}`,
@@ -123,6 +152,7 @@ export async function POST(req: NextRequest) {
         qb_payment_link: result.paymentLink,
         qb_tax_amount: result.taxAmount,
         qb_total_with_tax: result.totalWithTax,
+        qb_invoice_created_at: new Date().toISOString(),
       },
     }).eq("id", jobId);
 
