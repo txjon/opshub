@@ -561,7 +561,10 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
           value={item.name || ""}
           onChange={e => { onUpdateItem(item.id, { name: e.target.value }); }}
           onFocus={e => e.target.select()}
-          style={{ ...ic, fontSize: 14, fontWeight: 600, borderColor: "transparent", background: "transparent", padding: "4px 6px", width: "100%", color: T.text }}
+          onMouseEnter={e => { e.target.style.borderColor = T.border; e.target.style.background = T.surface; }}
+          onMouseLeave={e => { if (document.activeElement !== e.target) { e.target.style.borderColor = "transparent"; e.target.style.background = "transparent"; } }}
+          onBlur={e => { e.target.style.borderColor = "transparent"; e.target.style.background = "transparent"; }}
+          style={{ ...ic, fontSize: 15, fontWeight: 700, borderColor: "transparent", background: "transparent", padding: "4px 8px", width: "100%", color: T.text, borderRadius: 6, transition: "border-color 0.15s, background 0.15s" }}
           placeholder="Item name"
         />
       </div>
