@@ -36,10 +36,12 @@ export async function POST(req: NextRequest) {
 
     // Reply-to routing: production emails go to production@, client emails to hello@
     const isProduction = channel === "production";
-    const decIdClean = decoratorId && decoratorId.length > 10 ? decoratorId : "";
-    const replyTo = isProduction
-      ? `production+opshub.${jobId}${decIdClean ? `.${decIdClean}` : ""}@housepartydistro.com`
-      : `hello+opshub.${jobId}@housepartydistro.com`;
+    const decIdClean = decoratorId && /^[a-f0-9-]{36}$/.test(decoratorId) ? decoratorId : "";
+    const prodReplyTo = decIdClean
+      ? `production+opshub.${jobId}.${decIdClean}@housepartydistro.com`
+      : `production+opshub.${jobId}@housepartydistro.com`;
+    const replyTo = isProduction ? prodReplyTo : `hello+opshub.${jobId}@housepartydistro.com`;
+    console.log("[Compose] replyTo:", replyTo, "channel:", channel, "decoratorId:", decoratorId);
 
     const fromAddress = isProduction
       ? (process.env.EMAIL_FROM_PO || "production@housepartydistro.com")
