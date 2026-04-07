@@ -481,7 +481,7 @@ export default function ProductionPage() {
                           jobId: project.jobId,
                           decoratorId: dg.decoratorId || "",
                           contacts: dg.contacts,
-                          defaultSubject: `Re: PO ${project.invoiceNumber || project.jobNumber} — House Party Distro`,
+                          defaultSubject: `Re: HPD PO# ${project.invoiceNumber || project.jobNumber} — House Party Distro`,
                         })}
                       />
                     </div>

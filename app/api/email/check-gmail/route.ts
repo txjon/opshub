@@ -214,7 +214,7 @@ async function processProductionMessage(gmail: any, sb: any, msgId: string): Pro
 
   // Match 1b: Invoice number in subject (e.g. "PO 1042" or "Invoice 1042")
   if (!jobId) {
-    const invMatch = subject.match(/(?:PO|Invoice)\s+(\d+)/i);
+    const invMatch = subject.match(/(?:HPD\s+)?(?:PO#?|Invoice)\s+(\d+)/i);
     if (invMatch) {
       const { data: job } = await sb.from("jobs").select("id, title").eq("type_meta->>qb_invoice_number", invMatch[1]).single();
       if (job) { jobId = job.id; jobTitle = job.title; }

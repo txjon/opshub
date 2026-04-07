@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     } else if (type === "po") {
       pdfUrl = `${baseUrl}/api/pdf/po/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}`;
       fromAddress = process.env.EMAIL_FROM_PO || "onboarding@resend.dev";
-      defaultSubject = subject || `PO ${qbInvNum || jobNum || ""} — House Party Distro`.trim();
+      defaultSubject = subject || `HPD PO# ${qbInvNum || jobNum || ""} — House Party Distro`.trim();
       filename = `po-${qbInvNum || jobNum || jobId.slice(0, 8)}.pdf`;
     } else if (type === "invoice") {
       pdfUrl = `${baseUrl}/api/pdf/invoice/${jobId}?download=1`;

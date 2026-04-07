@@ -309,7 +309,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
           vendor={active}
           contacts={getDec(active)?.contacts_list||[]}
           defaultEmail={getDec(active)?.contact_email||""}
-          defaultSubject={`PO ${project.type_meta?.qb_invoice_number || project.job_number || ""} — ${(project.clients?.name||project.title||"")} — ${active}`}
+          defaultSubject={`HPD PO# ${project.type_meta?.qb_invoice_number || project.job_number || ""} — ${(project.clients?.name||project.title||"")} — ${active}`}
           onClose={()=>setShowSendEmail(false)}
           onSent={async()=>{
             logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`);

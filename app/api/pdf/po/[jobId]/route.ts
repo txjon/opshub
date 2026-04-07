@@ -319,7 +319,7 @@ function renderPOHTML(data: any): string {
       </div>
     </div>
     <div style="text-align:right">
-      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#1a1a1a">PO# ${data.job_number || "—"}</div>
+      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#1a1a1a">HPD PO# ${data.job_number || "—"}</div>
       <div style="font-size:10px;color:#888;margin-top:4px">${data.client_name} · ${data.vendor_name}</div>
     </div>
   </div>
