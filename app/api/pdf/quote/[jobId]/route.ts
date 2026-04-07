@@ -277,7 +277,7 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
 
     const quoteTotal = prods.reduce((a, p) => a + p.grossRev, 0);
 
-    // Fetch mockup thumbnails (best-effort, non-blocking)
+    // Fetch mockup thumbnails via Drive export links (no googleapis import)
     try {
       const itemIds = (items || []).map((it: any) => it.id);
       if (itemIds.length > 0) {
@@ -287,30 +287,34 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
           .in("item_id", itemIds)
           .in("stage", ["mockup", "proof"])
           .order("created_at", { ascending: false });
-        const seen = new Set<string>();
-        const { google } = await import("googleapis");
-        let key: any;
-        if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
-        else key = JSON.parse(Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_B64 || "", "base64").toString("utf-8"));
-        const auth = new google.auth.GoogleAuth({ credentials: key, scopes: ["https://www.googleapis.com/auth/drive"], clientOptions: { subject: "jon@housepartydistro.com" } });
-        const drive = google.drive({ version: "v3", auth });
-        for (const f of (mockupFiles || [])) {
-          if (!seen.has(f.item_id) && f.drive_file_id) {
-            seen.add(f.item_id);
-            try {
-              const meta = await drive.files.get({ fileId: f.drive_file_id, fields: "mimeType" });
-              const mime = meta.data.mimeType || "image/png";
-              const res = await drive.files.get({ fileId: f.drive_file_id, alt: "media" }, { responseType: "arraybuffer" });
-              const b64 = Buffer.from(res.data as ArrayBuffer).toString("base64");
-              const dbItem = (items || []).find((it: any) => it.id === f.item_id);
-              const prod = prods.find((p: any) => p.name === dbItem?.name || (p as any).id === f.item_id);
-              if (prod) (prod as any).thumbnail = `data:${mime};base64,${b64}`;
-            } catch {} // Skip individual file errors
+        if (mockupFiles?.length) {
+          // Get Drive access token via service account JWT
+          const { getAccessToken } = await import("@/lib/drive-auth");
+          const token = await getAccessToken();
+          const seen = new Set<string>();
+          for (const f of mockupFiles) {
+            if (!seen.has(f.item_id) && f.drive_file_id) {
+              seen.add(f.item_id);
+              try {
+                const res = await fetch(`https://www.googleapis.com/drive/v3/files/${f.drive_file_id}?alt=media`, {
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                if (res.ok) {
+                  const mime = res.headers.get("content-type") || "image/png";
+                  const buf = Buffer.from(await res.arrayBuffer());
+                  const prod = prods.find((p: any) => {
+                    const dbItem = (items || []).find((it: any) => it.id === f.item_id);
+                    return dbItem && (p.name === dbItem.name || (p as any).id === f.item_id);
+                  });
+                  if (prod) (prod as any).thumbnail = `data:${mime};base64,${buf.toString("base64")}`;
+                }
+              } catch {} // Skip individual file errors
+            }
           }
         }
       }
     } catch (thumbErr) {
-      console.warn("[Quote PDF] Thumbnail fetch failed, generating without images:", (thumbErr as any)?.message);
+      console.warn("[Quote PDF] Thumbnail fetch skipped:", (thumbErr as any)?.message);
     }
 
     const html = renderQuoteHTML({
