@@ -277,7 +277,7 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
 
     const quoteTotal = prods.reduce((a, p) => a + p.grossRev, 0);
 
-    // Fetch mockup thumbnails for each item
+    // Fetch mockup thumbnails for each item (direct Drive API, not HTTP proxy)
     const itemIds = (items || []).map((it: any) => it.id);
     const mockupMap: Record<string, string> = {};
     if (itemIds.length > 0) {
@@ -287,19 +287,25 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
         .in("item_id", itemIds)
         .in("stage", ["mockup", "proof"])
         .order("created_at", { ascending: false });
-      // Take the latest mockup/proof per item
       const seen = new Set<string>();
+      let driveAuth: any = null;
       for (const f of (mockupFiles || [])) {
         if (!seen.has(f.item_id) && f.drive_file_id) {
           seen.add(f.item_id);
           try {
-            const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-            const res = await fetch(`${baseUrl}/api/files/thumbnail?id=${f.drive_file_id}`, { headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "" } });
-            if (res.ok) {
-              const buf = Buffer.from(await res.arrayBuffer());
-              const mime = res.headers.get("content-type") || "image/png";
-              mockupMap[f.item_id] = `data:${mime};base64,${buf.toString("base64")}`;
+            if (!driveAuth) {
+              const { google } = await import("googleapis");
+              let key: any;
+              if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+              else key = JSON.parse(Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_B64 || "", "base64").toString("utf-8"));
+              driveAuth = new google.auth.GoogleAuth({ credentials: key, scopes: ["https://www.googleapis.com/auth/drive"], clientOptions: { subject: "jon@housepartydistro.com" } });
             }
+            const { google } = await import("googleapis");
+            const drive = google.drive({ version: "v3", auth: driveAuth });
+            const meta = await drive.files.get({ fileId: f.drive_file_id, fields: "mimeType" });
+            const mime = meta.data.mimeType || "image/png";
+            const res = await drive.files.get({ fileId: f.drive_file_id, alt: "media" }, { responseType: "arraybuffer" });
+            mockupMap[f.item_id] = `data:${mime};base64,${Buffer.from(res.data as ArrayBuffer).toString("base64")}`;
           } catch {} // Skip if thumbnail fails
         }
       }
