@@ -277,46 +277,40 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
 
     const quoteTotal = prods.reduce((a, p) => a + p.grossRev, 0);
 
-    // Fetch mockup thumbnails for each item (direct Drive API, not HTTP proxy)
-    const itemIds = (items || []).map((it: any) => it.id);
-    const mockupMap: Record<string, string> = {};
-    if (itemIds.length > 0) {
-      const { data: mockupFiles } = await supabase
-        .from("item_files")
-        .select("item_id, drive_file_id")
-        .in("item_id", itemIds)
-        .in("stage", ["mockup", "proof"])
-        .order("created_at", { ascending: false });
-      const seen = new Set<string>();
-      let driveAuth: any = null;
-      for (const f of (mockupFiles || [])) {
-        if (!seen.has(f.item_id) && f.drive_file_id) {
-          seen.add(f.item_id);
-          try {
-            if (!driveAuth) {
-              const { google } = await import("googleapis");
-              let key: any;
-              if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
-              else key = JSON.parse(Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_B64 || "", "base64").toString("utf-8"));
-              driveAuth = new google.auth.GoogleAuth({ credentials: key, scopes: ["https://www.googleapis.com/auth/drive"], clientOptions: { subject: "jon@housepartydistro.com" } });
-            }
-            const { google } = await import("googleapis");
-            const drive = google.drive({ version: "v3", auth: driveAuth });
-            const meta = await drive.files.get({ fileId: f.drive_file_id, fields: "mimeType" });
-            const mime = meta.data.mimeType || "image/png";
-            const res = await drive.files.get({ fileId: f.drive_file_id, alt: "media" }, { responseType: "arraybuffer" });
-            mockupMap[f.item_id] = `data:${mime};base64,${Buffer.from(res.data as ArrayBuffer).toString("base64")}`;
-          } catch {} // Skip if thumbnail fails
+    // Fetch mockup thumbnails (best-effort, non-blocking)
+    try {
+      const itemIds = (items || []).map((it: any) => it.id);
+      if (itemIds.length > 0) {
+        const { data: mockupFiles } = await supabase
+          .from("item_files")
+          .select("item_id, drive_file_id")
+          .in("item_id", itemIds)
+          .in("stage", ["mockup", "proof"])
+          .order("created_at", { ascending: false });
+        const seen = new Set<string>();
+        const { google } = await import("googleapis");
+        let key: any;
+        if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+        else key = JSON.parse(Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_B64 || "", "base64").toString("utf-8"));
+        const auth = new google.auth.GoogleAuth({ credentials: key, scopes: ["https://www.googleapis.com/auth/drive"], clientOptions: { subject: "jon@housepartydistro.com" } });
+        const drive = google.drive({ version: "v3", auth });
+        for (const f of (mockupFiles || [])) {
+          if (!seen.has(f.item_id) && f.drive_file_id) {
+            seen.add(f.item_id);
+            try {
+              const meta = await drive.files.get({ fileId: f.drive_file_id, fields: "mimeType" });
+              const mime = meta.data.mimeType || "image/png";
+              const res = await drive.files.get({ fileId: f.drive_file_id, alt: "media" }, { responseType: "arraybuffer" });
+              const b64 = Buffer.from(res.data as ArrayBuffer).toString("base64");
+              const dbItem = (items || []).find((it: any) => it.id === f.item_id);
+              const prod = prods.find((p: any) => p.name === dbItem?.name || (p as any).id === f.item_id);
+              if (prod) (prod as any).thumbnail = `data:${mime};base64,${b64}`;
+            } catch {} // Skip individual file errors
+          }
         }
       }
-    }
-
-    // Attach thumbnails to prods
-    for (const p of prods) {
-      const dbItem = (items || []).find((it: any) => it.id === (p as any).id || it.name === p.name);
-      if (dbItem && mockupMap[dbItem.id]) {
-        (p as any).thumbnail = mockupMap[dbItem.id];
-      }
+    } catch (thumbErr) {
+      console.warn("[Quote PDF] Thumbnail fetch failed, generating without images:", (thumbErr as any)?.message);
     }
 
     const html = renderQuoteHTML({
