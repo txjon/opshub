@@ -306,9 +306,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         const r = calcCostProduct(p, costMargin, inclShip, inclCC, costProds);
         if (!r || r.grossRev === 0) return null;
         const dbItem = (items || []).find((it: any) => it.id === p.id);
-        // Use saved sell_per_unit (rounded, matches QB) — fall back to calculated
-        const savedSell = dbItem?.sell_per_unit;
-        const finalSell = savedSell > 0 ? savedSell : r.sellPerUnit;
+        // Always use pricing engine result (respects sellOverride from costing_data)
+        const finalSell = r.sellPerUnit;
         const finalRev = Math.round(finalSell * totalQty * 100) / 100;
         return {
           name: p.name || dbItem?.name || "Item",

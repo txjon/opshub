@@ -69,7 +69,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Build line items — sell_per_unit is written by CostingTab on every save
+    // Build line items from costing_data (source of truth for pricing)
+    const costProds: any[] = job.costing_data?.costProds || [];
+    const costingSummary = job.costing_summary || {};
     const lineItems: QBLineItem[] = [];
 
     for (const item of (items || [])) {
@@ -77,7 +79,17 @@ export async function POST(req: NextRequest) {
       const totalQty = lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
       if (totalQty === 0) continue;
 
-      const sellPerUnit = item.sell_per_unit || 0;
+      // Use costing_data sellOverride as primary, then costing_summary-derived, then items table fallback
+      const cp = costProds.find((p: any) => p.id === item.id);
+      let sellPerUnit = 0;
+      if (cp?.sellOverride) {
+        sellPerUnit = cp.sellOverride;
+      } else if (costingSummary.grossRev && costingSummary.totalQty) {
+        // No override — use the auto-calculated price from costing summary
+        sellPerUnit = item.sell_per_unit || 0;
+      } else {
+        sellPerUnit = item.sell_per_unit || 0;
+      }
       const garmentType = item.garment_type || "custom";
       const qbProductName = QB_PRODUCT_MAP[garmentType] || "Custom";
 
