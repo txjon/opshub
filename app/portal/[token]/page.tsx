@@ -245,6 +245,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         {qi.thumbnailFileId && (
                           <img src={`/api/files/thumbnail?id=${qi.thumbnailFileId}`} alt=""
+                            onError={(e: any) => { e.target.style.display = "none"; }}
                             style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, border: `1px solid ${C.border}`, flexShrink: 0 }} />
                         )}
                         <span>{qi.name}</span>
@@ -288,6 +289,15 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 {actionLoading === "approve-quote" ? "Approving..." : "Approve Quote"}
               </button>
             )}
+
+            {/* Download Quote PDF */}
+            <a href={`/api/pdf/quote/${(project as any).id || ""}?portal=${params.token}`} target="_blank" rel="noopener noreferrer"
+              style={{
+                display: "inline-block", marginTop: 12, fontSize: 12, fontWeight: 600,
+                color: C.accent, textDecoration: "none",
+              }}>
+              Download Quote PDF
+            </a>
           </div>
         )}
 
@@ -312,6 +322,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 <div key={item.id}>
                   <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: C.text }}>{item.name}</div>
                   {item.proofs.map(proof => {
+                    const isMockup = proof.stage === "mockup";
                     const actionKey = `approve-proof${proof.id}`;
                     const revKey = `request-revision${proof.id}`;
                     const approvedTime = proof.approvedAt ? fmtDate(proof.approvedAt) : null;
@@ -329,18 +340,21 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                           <div>
                             <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>{proof.fileName}</span>
-                            <span style={{ fontSize: 10, color: C.faint, marginLeft: 8 }}>{proof.stage === "mockup" ? "Mockup" : "Proof"}</span>
+                            <span style={{ fontSize: 10, color: C.faint, marginLeft: 8 }}>{isMockup ? "Mockup" : "Proof"}</span>
                           </div>
-                          <span style={{
-                            fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 99,
-                            background: approvalStyle.bg, color: approvalStyle.color,
-                            border: `1px solid ${approvalStyle.border}`,
-                          }}>
-                            {approvalStyle.label}
-                          </span>
+                          {/* Only show approval pill for proofs, not mockups */}
+                          {!isMockup && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 99,
+                              background: approvalStyle.bg, color: approvalStyle.color,
+                              border: `1px solid ${approvalStyle.border}`,
+                            }}>
+                              {approvalStyle.label}
+                            </span>
+                          )}
                         </div>
 
-                        {/* View Proof button — opens modal */}
+                        {/* View button — different label for mockup vs proof */}
                         {proof.driveFileId && (
                           <button
                             onClick={() => setViewingProof(proof)}
@@ -350,12 +364,12 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                               marginBottom: 8, background: "none", border: `1px solid ${C.accent}44`,
                               borderRadius: 6, padding: "6px 14px", cursor: "pointer",
                             }}>
-                            View Proof
+                            {isMockup ? "View Mockup" : "View Proof"}
                           </button>
                         )}
 
-                        {/* Action buttons (if pending or revision_requested) */}
-                        {(proof.approval === "pending" || proof.approval === "revision_requested") && (
+                        {/* Action buttons only for proofs (not mockups), if pending or revision_requested */}
+                        {!isMockup && (proof.approval === "pending" || proof.approval === "revision_requested") && (
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                             <button
                               onClick={() => doAction("approve-proof", { fileId: proof.id })}
@@ -546,13 +560,20 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               }}>&times;</button>
             </div>
 
-            {/* Image */}
+            {/* Content — images inline, PDFs in iframe */}
             <div style={{ padding: 20, textAlign: "center" }}>
-              <img
-                src={`/api/files/thumbnail?id=${viewingProof.driveFileId}`}
-                alt={viewingProof.fileName}
-                style={{ maxWidth: "100%", maxHeight: "60vh", borderRadius: 8, objectFit: "contain" }}
-              />
+              {/\.pdf$/i.test(viewingProof.fileName) ? (
+                <iframe
+                  src={`/api/files/thumbnail?id=${viewingProof.driveFileId}`}
+                  style={{ width: "100%", height: "65vh", border: "none", borderRadius: 8 }}
+                />
+              ) : (
+                <img
+                  src={`/api/files/thumbnail?id=${viewingProof.driveFileId}`}
+                  alt={viewingProof.fileName}
+                  style={{ maxWidth: "100%", maxHeight: "60vh", borderRadius: 8, objectFit: "contain" }}
+                />
+              )}
             </div>
 
             {/* Action buttons */}

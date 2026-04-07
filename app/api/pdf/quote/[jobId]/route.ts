@@ -166,9 +166,16 @@ function renderQuoteHTML(data: {
 
 // ── Route handler ─────────────────────────────────────────────────────────────
 export async function GET(_req: NextRequest, { params }: { params: { jobId: string } }) {
-  // Auth check — logged-in users or internal server calls
+  // Auth check — logged-in users, internal calls, or portal token
   const internal = _req.headers.get("x-internal-key") === process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!internal) {
+  const portalToken = _req.nextUrl.searchParams.get("portal");
+  let portalAuth = false;
+  if (portalToken && !internal) {
+    const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const { data: pj } = await sb.from("jobs").select("id").eq("portal_token", portalToken).eq("id", params.jobId).single();
+    portalAuth = !!pj;
+  }
+  if (!internal && !portalAuth) {
     const authClient = await createAuthClient();
     const { data: { user } } = await authClient.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

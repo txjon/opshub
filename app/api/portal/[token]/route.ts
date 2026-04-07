@@ -93,11 +93,21 @@ export async function GET(
       "costing", "decorator", "stage advanced", "auto-email",
       "buy sheet", "assigned", "reorder", "QB Invoice", "auto-created",
       "confirmation sent to", "Print proof generated",
+      "created in quickbooks", "via quickbooks", "payment received —",
     ];
     const activity = (rawActivity || []).filter((a: any) => {
       const msg = (a.message || "").toLowerCase();
       if (INTERNAL_KEYWORDS.some(k => msg.includes(k.toLowerCase()))) return false;
       return CLIENT_SAFE_KEYWORDS.some(k => msg.includes(k.toLowerCase()));
+    }).map((a: any) => {
+      let msg = a.message || "";
+      // Rewrite messages for client view
+      if (/quote sent to client/i.test(msg)) msg = "Quote delivered";
+      if (/invoice sent to client/i.test(msg)) {
+        const invNum = typeMeta.qb_invoice_number;
+        msg = invNum ? `Invoice #${invNum} delivered` : "Invoice delivered";
+      }
+      return { ...a, message: msg };
     }).slice(0, 15);
 
     // Build thumbnail map: item_id → first mockup/proof driveFileId
@@ -195,6 +205,7 @@ export async function GET(
 
     return NextResponse.json({
       project: {
+        id: job.id,
         title: job.title,
         jobNumber: job.job_number,
         phase: job.phase,
