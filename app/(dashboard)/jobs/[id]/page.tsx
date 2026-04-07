@@ -917,6 +917,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 logJobActivity(job.id, "Quote approved");
                 notifyTeam(`Quote approved — ${(job.clients as any)?.name || ""} · ${job.title}`, "approval", job.id, "job");
                 recalcPhase();
+                // Force-save costing before creating QB invoice (ensures sell_per_unit is current)
+                if (saveCostingRef.current) { try { await saveCostingRef.current(); } catch {} }
                 // Auto-create QB invoice (fire-and-forget)
                 if (!job.type_meta?.qb_invoice_number) {
                   fetch("/api/qb/invoice", {

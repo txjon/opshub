@@ -69,34 +69,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Build line items
-    const costProds = job.costing_data?.costProds || [];
+    // Build line items — sell_per_unit is written by CostingTab on every save
     const lineItems: QBLineItem[] = [];
-    let printersMap: Record<string, any> | null = null;
 
     for (const item of (items || [])) {
       const lines = item.buy_sheet_lines || [];
       const totalQty = lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
       if (totalQty === 0) continue;
 
-      const cp = costProds.find((p: any) => p.id === item.id);
-      // costing_data is the source of truth — recalculate if available, fall back to items table
-      let sellPerUnit = 0;
-      if (cp) {
-        const { calcCostProduct: sharedCalc, buildPrintersMap } = await import("@/lib/pricing");
-        // Load decorator pricing if not yet loaded
-        if (!printersMap) {
-          const { data: decs } = await admin.from("decorators").select("name, short_code, pricing_data, capabilities").order("name");
-          printersMap = buildPrintersMap(decs || []);
-        }
-        const costMargin = job.costing_data?.costMargin || "30%";
-        const inclShip = job.costing_data?.inclShip !== false;
-        const inclCC = job.costing_data?.inclCC !== false;
-        const r = sharedCalc(cp, costMargin, inclShip, inclCC, costProds, printersMap);
-        sellPerUnit = r?.sellPerUnit || cp?.sellOverride || item.sell_per_unit || 0;
-      } else {
-        sellPerUnit = item.sell_per_unit || 0;
-      }
+      const sellPerUnit = item.sell_per_unit || 0;
       const garmentType = item.garment_type || "custom";
       const qbProductName = QB_PRODUCT_MAP[garmentType] || "Custom";
 
