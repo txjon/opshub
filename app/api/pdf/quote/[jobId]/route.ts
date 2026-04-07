@@ -83,7 +83,7 @@ function renderQuoteHTML(data: {
       <div>
         ${HPD_LOGO_SVG}
         <div style="font-size:11px;color:#666;line-height:1.7;font-family:${font}">
-          4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89118<br/>hello@housepartydistro.com
+          4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89139<br/>hello@housepartydistro.com
         </div>
       </div>
       <div style="text-align:right">

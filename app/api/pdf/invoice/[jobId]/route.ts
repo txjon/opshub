@@ -159,7 +159,7 @@ function renderInvoiceHTML(data: {
       <div>
         ${HPD_LOGO_SVG}
         <div style="font-size:11px;color:#666;line-height:1.7;font-family:${font}">
-          4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89118<br/>hello@housepartydistro.com
+          4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89139<br/>hello@housepartydistro.com
         </div>
       </div>
       <div style="text-align:right">
@@ -234,7 +234,7 @@ function renderInvoiceHTML(data: {
   <div style="padding:20px 36px;border-top:0.5px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-end;font-family:${font}">
     <div>
       <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">House Party Distro</div>
-      <div style="font-size:10px;color:#666;line-height:1.8">hello@housepartydistro.com<br/>4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89118</div>
+      <div style="font-size:10px;color:#666;line-height:1.8">hello@housepartydistro.com<br/>4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89139</div>
     </div>
     <div style="font-size:9px;color:#aaa">Thank you for your business.</div>
   </div>
