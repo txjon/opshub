@@ -308,6 +308,17 @@ export async function createInvoice(
     }
   }
 
+  if (options.shipAddress) {
+    // Parse address string into QB ShipAddr object
+    const parts = options.shipAddress.split(",").map(s => s.trim());
+    body.ShipAddr = {
+      Line1: parts[0] || "",
+      City: parts[1] || "",
+      CountrySubDivisionCode: parts[2]?.replace(/\s*\d{5}.*/, "").trim() || "",
+      PostalCode: (parts[2] || "").match(/\d{5}/)?.[0] || "",
+    };
+  }
+
   if (options.memo) {
     body.CustomerMemo = { value: options.memo };
   }

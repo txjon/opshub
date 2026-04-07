@@ -35,8 +35,8 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    // Load job + items
-    const { data: job } = await admin.from("jobs").select("*, clients(name, default_terms)").eq("id", jobId).single();
+    // Load job + items + client shipping address
+    const { data: job } = await admin.from("jobs").select("*, clients(name, default_terms, shipping_address)").eq("id", jobId).single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
     const { data: items } = await admin.from("items")
@@ -79,8 +79,19 @@ export async function POST(req: NextRequest) {
       if (totalQty === 0) continue;
 
       const cp = costProds.find((p: any) => p.id === item.id);
-      // sell_per_unit is saved by CostingTab on every save — use it as primary source
-      const sellPerUnit = item.sell_per_unit || cp?.sellOverride || 0;
+      // costing_data is the source of truth — recalculate if available, fall back to items table
+      let sellPerUnit = 0;
+      if (cp) {
+        // Use the shared pricing engine for accurate per-unit price
+        const { calcCostProduct: sharedCalc } = await import("@/lib/pricing");
+        const costMargin = job.costing_data?.costMargin || "30%";
+        const inclShip = job.costing_data?.inclShip !== false;
+        const inclCC = job.costing_data?.inclCC !== false;
+        const r = sharedCalc(cp, costMargin, inclShip, inclCC, costProds);
+        sellPerUnit = r?.sellPerUnit || cp?.sellOverride || item.sell_per_unit || 0;
+      } else {
+        sellPerUnit = item.sell_per_unit || 0;
+      }
       const garmentType = item.garment_type || "custom";
       const qbProductName = QB_PRODUCT_MAP[garmentType] || "Custom";
 
@@ -137,10 +148,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Create new invoice in QB
+    const shipAddr = (job.clients as any)?.shipping_address
+      || (job.type_meta as any)?.venue_address || undefined;
     const result = await createInvoice(customerId, lineItems, {
       terms: job.payment_terms || undefined,
       memo: `${job.title} — ${job.job_number}`,
       email: primaryEmail || undefined,
+      shipAddress: shipAddr,
     });
 
     // Save QB invoice data to job
