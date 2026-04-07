@@ -388,13 +388,27 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 const {data:ni}=await supabase.from("items").insert({
                   job_id:newJob.id,name:item.name,blank_vendor:item.blank_vendor,blank_sku:item.blank_sku,
                   cost_per_unit:item.cost_per_unit,sell_per_unit:item.sell_per_unit,status:"tbd",
-                  artwork_status:"not_started",sort_order:item.sort_order,blank_costs:item.blankCosts||null,
+                  artwork_status:"not_started",sort_order:item.sort_order,
+                  blank_costs:(item as any).blank_costs||null,
+                  garment_type:(item as any).garment_type||null,
                 }).select("id").single();
                 if(ni){
                   idMap[item.id]=ni.id;
                   if(item.sizes?.length){
                     await supabase.from("buy_sheet_lines").insert(
                       item.sizes.map((sz:string)=>({item_id:ni.id,size:sz,qty_ordered:item.qtys?.[sz]||0,qty_shipped_from_vendor:0,qty_received_at_hpd:0,qty_shipped_to_customer:0}))
+                    );
+                  }
+                  // Copy artwork/mockups/proofs (same Drive files, new item IDs)
+                  const {data:files}=await supabase.from("item_files").select("*").eq("item_id",item.id);
+                  if(files?.length){
+                    await supabase.from("item_files").insert(
+                      files.map((f:any)=>({
+                        item_id:ni.id,file_name:f.file_name,stage:f.stage,
+                        drive_file_id:f.drive_file_id,drive_link:f.drive_link,
+                        approval:f.stage==="proof"?"pending":f.approval,
+                        approved_at:null,
+                      }))
                     );
                   }
                 }

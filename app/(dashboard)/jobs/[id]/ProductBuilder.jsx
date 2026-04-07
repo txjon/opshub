@@ -474,7 +474,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 scheduleCommit={scheduleCommit} inputRefs={inputRefs} distRow={distRow}
                 setDistRow={setDistRow} distTotal={distTotal} setDistTotal={setDistTotal}
                 handleDist={handleDist} removeItem={removeItem} setAssignBlankTo={setAssignBlankTo}
-                setShowAddModal={setShowAddModal} onItemsChanged={onItemsChanged} onUpdateItem={onUpdateItem}
+                setShowAddModal={setShowAddModal} onItemsChanged={onItemsChanged}
+                onUpdateItem={(id, updates) => { updateLocal(workingItems.map(it => it.id === id ? {...it, ...updates} : it)); onUpdateItem(id, updates); }}
                 ic={ic}
               />
             )}
@@ -554,6 +555,16 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
 
   return (
     <div style={{ padding: "14px 16px", position: "relative" }}>
+      {/* Editable item name */}
+      <div style={{ marginBottom: 10 }}>
+        <input
+          value={item.name || ""}
+          onChange={e => { onUpdateItem(item.id, { name: e.target.value }); }}
+          onFocus={e => e.target.select()}
+          style={{ ...ic, fontSize: 14, fontWeight: 600, borderColor: "transparent", background: "transparent", padding: "4px 6px", width: "100%", color: T.text }}
+          placeholder="Item name"
+        />
+      </div>
       <div style={{ display: "flex", gap: 16 }}>
       {/* Left: Mockup thumbnail (tall, clean) */}
       <div style={{ width: 280, flexShrink: 0 }}>
