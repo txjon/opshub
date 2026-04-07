@@ -83,7 +83,7 @@ function renderQuoteHTML(data: {
       <div>
         ${HPD_LOGO_SVG}
         <div style="font-size:11px;color:#666;line-height:1.7;font-family:${font}">
-          3945 W Reno Ave, Suite A<br/>Las Vegas, NV 89118<br/>jon@housepartydistro.com
+          4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89118<br/>hello@housepartydistro.com
         </div>
       </div>
       <div style="text-align:right">
@@ -145,13 +145,19 @@ function renderQuoteHTML(data: {
     </div>` : ""}
   </div>
 
-  <!-- Footer -->
-  <div style="padding:20px 36px;border-top:0.5px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-end;font-family:${font}">
-    <div>
-      <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">House Party Distro</div>
-      <div style="font-size:10px;color:#666;line-height:1.8">jon@housepartydistro.com<br/>3945 W Reno Ave, Ste A<br/>Las Vegas, NV 89118</div>
+  <!-- Terms & Conditions -->
+  <div style="padding:20px 36px;border-top:0.5px solid #e5e7eb;font-family:${font}">
+    <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:8px">Terms & Conditions</div>
+    <div style="font-size:8.5px;color:#999;line-height:1.8;columns:2;column-gap:24px">
+      <div style="margin-bottom:4px"><strong style="color:#777">Validity:</strong> This quote is valid for 30 days from the date of issue.</div>
+      <div style="margin-bottom:4px"><strong style="color:#777">Payment:</strong> Payment terms as agreed. A deposit may be required before production begins.</div>
+      <div style="margin-bottom:4px"><strong style="color:#777">Production:</strong> Lead times begin after approval of quote, receipt of payment, and approval of all artwork/proofs.</div>
+      <div style="margin-bottom:4px"><strong style="color:#777">Art &amp; Proofs:</strong> Client is responsible for reviewing and approving all proofs prior to production. Changes after approval may incur additional charges.</div>
+      <div style="margin-bottom:4px"><strong style="color:#777">Quantities:</strong> Final quantities may vary +/- 3% from the order due to standard production tolerances.</div>
+      <div style="margin-bottom:4px"><strong style="color:#777">Shipping:</strong> Shipping costs are estimated and may vary. Final shipping charges will appear on the invoice.</div>
+      <div style="margin-bottom:4px"><strong style="color:#777">Sales Tax:</strong> Applicable sales tax will be calculated and added to the final invoice.</div>
+      <div><strong style="color:#777">Cancellation:</strong> Orders cancelled after production begins may be subject to cancellation fees.</div>
     </div>
-    <div style="font-size:9px;color:#aaa">This quote is valid for 30 days unless otherwise noted.</div>
   </div>
 
 </div>
