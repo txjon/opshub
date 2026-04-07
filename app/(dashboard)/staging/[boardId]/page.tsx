@@ -31,6 +31,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
   const [deleteItem, setDeleteItem] = useState<any>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<"items" | "production">("items");
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -142,8 +143,8 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
     });
   }
 
-  // Computed totals
-  const totals = items.reduce((acc, it) => {
+  // Computed totals (reflect active tab)
+  const totals = tabItems.reduce((acc, it) => {
     const qty = it.qty || 0;
     const cost = qty * (parseFloat(it.unit_cost) || 0);
     const gross = qty * (parseFloat(it.retail) || 0);
@@ -156,10 +157,15 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
     else { setSortKey(key); setSortDir("asc"); }
   }
 
-  const filteredItems = search.trim() ? items.filter(it => {
+  const tabItems = activeTab === "production"
+    ? items.filter(it => it.status === "In Production")
+    : items.filter(it => it.status !== "In Production");
+  const productionCount = items.filter(it => it.status === "In Production").length;
+
+  const filteredItems = search.trim() ? tabItems.filter(it => {
     const q = search.toLowerCase();
     return (it.item_name || "").toLowerCase().includes(q) || (it.notes || "").toLowerCase().includes(q) || (it.status || "").toLowerCase().includes(q);
-  }) : items;
+  }) : tabItems;
 
   const sortedItems = sortKey ? [...filteredItems].sort((a, b) => {
     let av: any, bv: any;
@@ -229,6 +235,30 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
             Create Project
           </button>
         </>}
+      </div>
+
+      {/* Tab pills */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 14, background: T.surface, borderRadius: 8, padding: 3, width: "fit-content" }}>
+        {([
+          { key: "items" as const, label: "Items", count: items.length - productionCount },
+          { key: "production" as const, label: "In Production", count: productionCount },
+        ]).map(tab => {
+          const active = activeTab === tab.key;
+          return (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+              style={{
+                padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer",
+                fontSize: 12, fontWeight: 600, fontFamily: font,
+                background: active ? T.card : "transparent",
+                color: active ? T.text : T.muted,
+                boxShadow: active ? `0 1px 3px rgba(0,0,0,0.2)` : "none",
+                transition: "all 0.15s",
+              }}>
+              {tab.label}
+              {tab.count > 0 && <span style={{ marginLeft: 5, fontSize: 10, opacity: 0.7 }}>{tab.count}</span>}
+            </button>
+          );
+        })}
       </div>
 
       {/* Items — cards on mobile, table on desktop */}
