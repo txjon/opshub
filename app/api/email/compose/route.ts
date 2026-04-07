@@ -36,8 +36,9 @@ export async function POST(req: NextRequest) {
 
     // Reply-to routing: production emails go to production@, client emails to hello@
     const isProduction = channel === "production";
+    const decIdClean = decoratorId && decoratorId.length > 10 ? decoratorId : "";
     const replyTo = isProduction
-      ? `production+opshub.${jobId}${decoratorId ? `.${decoratorId}` : ""}@housepartydistro.com`
+      ? `production+opshub.${jobId}${decIdClean ? `.${decIdClean}` : ""}@housepartydistro.com`
       : `hello+opshub.${jobId}@housepartydistro.com`;
 
     const fromAddress = isProduction
