@@ -46,14 +46,16 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
           onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
           Send Proofs to Client
         </button>
-        <button onClick={() => window.open(`/api/pdf/invoice-proofs/${job.id}`, "_blank")}
-          style={{ padding: "14px 24px", borderRadius: 10, border: "none", cursor: "pointer",
-            background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: font,
-            transition: "opacity 0.15s", flexShrink: 0 }}
-          onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
-          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-          Preview
-        </button>
+        {job.portal_token && (
+          <button onClick={() => window.open(`/portal/${job.portal_token}`, "_blank")}
+            style={{ padding: "14px 24px", borderRadius: 10, border: "none", cursor: "pointer",
+              background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: font,
+              transition: "opacity 0.15s", flexShrink: 0 }}
+            onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+            onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+            View Portal
+          </button>
+        )}
       </div>
       {showProofEmail && (
         <SendEmailDialog
@@ -83,7 +85,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             const isApproved = fileApproved || manualApproved;
             const files = itemFiles[item.id] || [];
             const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
-            const hasProofFile = files.some(f => f.stage === "proof");
+            const hasProofFile = files.some(f => f.stage === "proof" && f.approval && f.approval !== "none");
 
             return (
               <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.surface, borderRadius: 8, border: `1px solid ${isApproved ? T.green + "44" : T.border}` }}>
@@ -98,7 +100,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                 {mockupFile && (
                   <button onClick={() => setProofModalItem(item)}
                     style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: T.amber, color: "#fff" }}>
-                    {hasProofFile ? "Regenerate Proof" : "Generate Proof"}
+                    {files.some(f => f.stage === "proof") ? "Regenerate Proof" : "Generate Proof"}
                   </button>
                 )}
                 {!mockupFile && files.length > 0 && (
