@@ -104,7 +104,7 @@ export async function GET(
       // Rewrite messages for client view
       if (/quote sent to client/i.test(msg)) msg = "Quote delivered";
       if (/invoice sent to client/i.test(msg)) {
-        const invNum = typeMeta.qb_invoice_number;
+        const invNum = (job.type_meta as any)?.qb_invoice_number;
         msg = invNum ? `Invoice #${invNum} delivered` : "Invoice delivered";
       }
       return { ...a, message: msg };
