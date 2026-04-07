@@ -439,6 +439,8 @@ export default function ProductionPage() {
           jobId={showCompose.jobId}
           contacts={[]}
           decoratorContacts={showCompose.contacts}
+          channel="production"
+          decoratorId={showCompose.decoratorId}
           onClose={() => setShowCompose(null)}
           onSent={() => loadAll()}
         />

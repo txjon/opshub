@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const resend = new Resend(process.env.RESEND_API_KEY);
-    const { jobId, toEmail, ccEmails, subject, body } = await req.json();
+    const { jobId, toEmail, ccEmails, subject, body, channel, decoratorId } = await req.json();
 
     if (!jobId || !toEmail || !subject || !body) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -34,10 +34,15 @@ export async function POST(req: NextRequest) {
       .single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
-    // Reply-to routing: replies go to Gmail where OpsHub polls for them
-    const replyTo = `hello+opshub.${jobId}@housepartydistro.com`;
+    // Reply-to routing: production emails go to production@, client emails to hello@
+    const isProduction = channel === "production";
+    const replyTo = isProduction
+      ? `production+opshub.${jobId}${decoratorId ? `.${decoratorId}` : ""}@housepartydistro.com`
+      : `hello+opshub.${jobId}@housepartydistro.com`;
 
-    const fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
+    const fromAddress = isProduction
+      ? (process.env.EMAIL_FROM_PO || "production@housepartydistro.com")
+      : (process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev");
 
     // Build HTML body
     const htmlBody = body
@@ -65,6 +70,8 @@ export async function POST(req: NextRequest) {
     await adminClient.from("email_messages").insert({
       job_id: jobId,
       direction: "outbound",
+      channel: isProduction ? "production" : "client",
+      decorator_id: decoratorId || null,
       from_email: fromAddress,
       from_name: "House Party Distro",
       to_emails: [toEmail],

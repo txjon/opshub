@@ -12,6 +12,8 @@ export function ComposeEmail({
   onSent,
   defaultTo,
   defaultSubject,
+  channel,
+  decoratorId,
 }: {
   jobId: string;
   contacts: Contact[];
@@ -20,6 +22,8 @@ export function ComposeEmail({
   onSent?: () => void;
   defaultTo?: string;
   defaultSubject?: string;
+  channel?: "client" | "production";
+  decoratorId?: string;
 }) {
   const [to, setTo] = useState(defaultTo || "");
   const [cc, setCc] = useState("");
@@ -49,6 +53,8 @@ export function ComposeEmail({
           ccEmails: ccList.length > 0 ? ccList : undefined,
           subject: subject.trim(),
           body: body.trim(),
+          channel: channel || "client",
+          decoratorId: decoratorId || null,
         }),
       });
       if (!res.ok) {
