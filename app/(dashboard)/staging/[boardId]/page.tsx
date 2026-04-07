@@ -242,7 +242,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
       {/* Tab pills */}
       <div style={{ display: "flex", gap: 4, marginBottom: 14, background: T.surface, borderRadius: 8, padding: 3, width: "fit-content" }}>
         {([
-          { key: "items" as const, label: "Items", count: items.length - productionCount - landedCount },
+          { key: "items" as const, label: "Pending", count: items.length - productionCount - landedCount },
           { key: "production" as const, label: "In Production", count: productionCount },
           { key: "landed" as const, label: "Landed", count: landedCount },
         ]).map(tab => {
