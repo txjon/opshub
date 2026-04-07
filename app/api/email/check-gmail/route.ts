@@ -25,19 +25,17 @@ function getGmailAuth(impersonate: string) {
 
 /**
  * Poll Gmail for inbound replies to OpsHub projects.
- * All replies route through hello@ inbox (Resend rejects production+ format).
- *   Client: hello+c.{jobId}@housepartydistro.com
- *   Production: hello+p.{jobId}.{decoratorId}@housepartydistro.com
- * FROM address still shows production@ to decorators — reply-to is invisible.
+ *
+ * Two inboxes:
+ *   hello@   — client replies (matched by hello+c.{jobId} plus-addressing)
+ *   production@ — decorator replies (matched by subject job number + sender email)
  *
  * Called by Vercel cron every 5 minutes.
  */
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   const internalKey = req.headers.get("x-internal-key");
-  const validCron = authHeader === `Bearer ${process.env.CRON_SECRET}`;
-  const validInternal = internalKey === process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!validCron && !validInternal) {
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}` && internalKey !== process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -45,29 +43,27 @@ export async function GET(req: NextRequest) {
     const sb = admin();
     let totalProcessed = 0;
 
-    // Single inbox — all replies route through hello@
+    // ── 1. Poll hello@ for client replies (plus-addressed) ──
     try {
       const gmail = google.gmail({ version: "v1", auth: getGmailAuth("hello@housepartydistro.com") });
-
-      const listRes = await gmail.users.messages.list({
-        userId: "me",
-        q: "to:hello+ is:unread",
-        maxResults: 20,
-      });
-
-      const messages = listRes.data.messages || [];
-
-      for (const msg of messages) {
+      const listRes = await gmail.users.messages.list({ userId: "me", q: "to:hello+ is:unread", maxResults: 20 });
+      for (const msg of (listRes.data.messages || [])) {
         try {
-          const processed = await processMessage(gmail, sb, msg.id!);
-          if (processed) totalProcessed++;
-        } catch (msgErr) {
-          console.error("[Gmail] Error processing message:", msg.id, msgErr);
-        }
+          if (await processClientMessage(gmail, sb, msg.id!)) totalProcessed++;
+        } catch (e) { console.error("[Gmail] Client msg error:", msg.id, e); }
       }
-    } catch (pollErr) {
-      console.error("[Gmail] Error polling hello@:", pollErr);
-    }
+    } catch (e) { console.error("[Gmail] hello@ poll error:", e); }
+
+    // ── 2. Poll production@ for decorator replies (smart matching) ──
+    try {
+      const gmail = google.gmail({ version: "v1", auth: getGmailAuth("production@housepartydistro.com") });
+      const listRes = await gmail.users.messages.list({ userId: "me", q: "is:unread", maxResults: 20 });
+      for (const msg of (listRes.data.messages || [])) {
+        try {
+          if (await processProductionMessage(gmail, sb, msg.id!)) totalProcessed++;
+        } catch (e) { console.error("[Gmail] Production msg error:", msg.id, e); }
+      }
+    } catch (e) { console.error("[Gmail] production@ poll error:", e); }
 
     return NextResponse.json({ processed: totalProcessed });
   } catch (e: any) {
@@ -76,97 +72,28 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function processMessage(
-  gmail: any,
-  sb: any,
-  messageId: string
-): Promise<boolean> {
-  const fullMsg = await gmail.users.messages.get({
-    userId: "me",
-    id: messageId,
-    format: "full",
-  });
-
-  const headers = fullMsg.data.payload?.headers || [];
-  const getHeader = (name: string) =>
-    headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
-
-  const toHeader = getHeader("To") || getHeader("Delivered-To");
-  const fromHeader = getHeader("From");
-  const subjectHeader = getHeader("Subject");
-
-  // Extract channel + jobId + decoratorId from to address
-  // Client: hello+c.{jobId}@...  |  Production: hello+p.{jobId}.{decId}@...
-  const isProduction = /\+p\./i.test(toHeader);
-  const channel: "client" | "production" = isProduction ? "production" : "client";
-
-  // Match UUID after +c. or +p.
-  // Try new format first: +c.{uuid} or +p.{uuid}, fall back to legacy +{uuid}
-  let jobId: string | null = null;
-  let decoratorId: string | null = null;
-
-  const newMatch = toHeader.match(/\+[cp]\.([a-f0-9-]{36})/i);
-  if (newMatch) {
-    jobId = newMatch[1];
-    const decMatch = toHeader.match(/\+p\.[a-f0-9-]{36}\.([a-f0-9-]{36})/i);
-    if (decMatch) decoratorId = decMatch[1];
-  } else {
-    const legacyMatch = toHeader.match(/\+([a-f0-9-]{36})/i);
-    if (legacyMatch) jobId = legacyMatch[1];
-  }
-
-  if (!jobId) {
-    await gmail.users.messages.modify({
-      userId: "me", id: messageId,
-      requestBody: { removeLabelIds: ["UNREAD"] },
-    });
-    return false;
-  }
-
-  // Verify job exists
-  const { data: job } = await sb
-    .from("jobs")
-    .select("id, title")
-    .eq("id", jobId)
-    .single();
-
-  if (!job) {
-    await gmail.users.messages.modify({
-      userId: "me", id: messageId,
-      requestBody: { removeLabelIds: ["UNREAD"] },
-    });
-    return false;
-  }
-
-  // Extract body and attachments
+// ── Shared: extract body + attachments from Gmail message ──
+function extractContent(payload: any, msgId: string) {
   let textBody = "";
   let htmlBody = "";
   const attachments: any[] = [];
 
-  function extractParts(payload: any) {
-    if (!payload) return;
-    const mimeType = payload.mimeType || "";
-    if (mimeType === "text/plain" && payload.body?.data) {
-      textBody = Buffer.from(payload.body.data, "base64url").toString("utf-8");
-    } else if (mimeType === "text/html" && payload.body?.data) {
-      htmlBody = Buffer.from(payload.body.data, "base64url").toString("utf-8");
+  function walk(part: any) {
+    if (!part) return;
+    const mime = part.mimeType || "";
+    if (mime === "text/plain" && part.body?.data) {
+      textBody = Buffer.from(part.body.data, "base64url").toString("utf-8");
+    } else if (mime === "text/html" && part.body?.data) {
+      htmlBody = Buffer.from(part.body.data, "base64url").toString("utf-8");
     }
-    if (payload.filename && payload.body?.attachmentId) {
-      attachments.push({
-        filename: payload.filename,
-        mimeType,
-        size: payload.body.size || 0,
-        gmailMessageId: messageId,
-        attachmentId: payload.body.attachmentId,
-      });
+    if (part.filename && part.body?.attachmentId) {
+      attachments.push({ filename: part.filename, mimeType: mime, size: part.body.size || 0, gmailMessageId: msgId, attachmentId: part.body.attachmentId });
     }
-    if (payload.parts) {
-      for (const part of payload.parts) extractParts(part);
-    }
+    if (part.parts) for (const p of part.parts) walk(p);
   }
-  extractParts(fullMsg.data.payload);
+  walk(payload);
 
-  // Clean up text body
+  // Clean text body
   if (textBody) {
     const sigMatch = textBody.match(/\n--\s*\n/);
     if (sigMatch?.index && sigMatch.index > 0) textBody = textBody.slice(0, sigMatch.index).trim();
@@ -177,73 +104,175 @@ async function processMessage(
     textBody = textBody.split("\n").filter(line => !line.startsWith(">")).join("\n").trim();
   }
 
-  // Parse sender
-  const fromMatch = fromHeader.match(/^(.+?)\s*<(.+?)>$/);
-  const fromName = fromMatch ? fromMatch[1].replace(/"/g, "").trim() : null;
-  const fromEmail = fromMatch ? fromMatch[2] : fromHeader;
+  return { textBody, htmlBody, attachments };
+}
 
-  // Deduplicate by Message-ID
-  const msgId = getHeader("Message-ID");
-  if (msgId) {
-    const { data: existing } = await sb
-      .from("email_messages")
-      .select("id")
-      .eq("resend_message_id", msgId)
-      .single();
-    if (existing) {
-      await gmail.users.messages.modify({
-        userId: "me", id: messageId,
-        requestBody: { removeLabelIds: ["UNREAD"] },
-      });
-      return false;
-    }
+function parseFrom(fromHeader: string) {
+  const match = fromHeader.match(/^(.+?)\s*<(.+?)>$/);
+  return { name: match ? match[1].replace(/"/g, "").trim() : null, email: match ? match[2] : fromHeader };
+}
+
+async function saveAndNotify(sb: any, params: {
+  jobId: string; jobTitle: string; channel: "client" | "production"; decoratorId: string | null;
+  fromEmail: string; fromName: string | null; toHeader: string; subject: string;
+  textBody: string; htmlBody: string; attachments: any[]; messageId: string;
+}) {
+  // Deduplicate
+  if (params.messageId) {
+    const { data: existing } = await sb.from("email_messages").select("id").eq("resend_message_id", params.messageId).single();
+    if (existing) return false;
   }
 
-  // Save to email_messages
   await sb.from("email_messages").insert({
-    job_id: jobId,
-    direction: "inbound",
-    channel,
-    decorator_id: decoratorId,
-    from_email: fromEmail,
-    from_name: fromName,
-    to_emails: [toHeader],
-    cc_emails: [],
-    subject: subjectHeader || "(no subject)",
-    body_text: textBody || null,
-    body_html: htmlBody || null,
-    resend_message_id: msgId || null,
-    attachments: attachments.length > 0 ? attachments : [],
+    job_id: params.jobId, direction: "inbound", channel: params.channel,
+    decorator_id: params.decoratorId, from_email: params.fromEmail, from_name: params.fromName,
+    to_emails: [params.toHeader], cc_emails: [], subject: params.subject || "(no subject)",
+    body_text: params.textBody || null, body_html: params.htmlBody || null,
+    resend_message_id: params.messageId || null,
+    attachments: params.attachments.length > 0 ? params.attachments : [],
   });
 
-  // Log activity
-  const channelLabel = channel === "production" ? "Production email" : "Email";
+  const label = params.channel === "production" ? "Production email" : "Email";
   await sb.from("job_activity").insert({
-    job_id: jobId,
-    user_id: null,
-    type: "auto",
-    message: `${channelLabel} received from ${fromName || fromEmail}: "${subjectHeader || "(no subject)"}"`,
+    job_id: params.jobId, user_id: null, type: "auto",
+    message: `${label} received from ${params.fromName || params.fromEmail}: "${params.subject || "(no subject)"}"`,
   });
 
-  // Notify team
   const { data: profiles } = await sb.from("profiles").select("id");
   if (profiles?.length) {
     await sb.from("notifications").insert(
       profiles.map((p: any) => ({
-        user_id: p.id,
-        type: "alert",
-        message: `${channelLabel} reply — ${fromName || fromEmail} · ${job.title}: "${(subjectHeader || "").slice(0, 50)}"`,
-        reference_id: jobId,
-        reference_type: "job",
+        user_id: p.id, type: "alert",
+        message: `${label} reply — ${params.fromName || params.fromEmail} · ${params.jobTitle}: "${(params.subject || "").slice(0, 50)}"`,
+        reference_id: params.jobId, reference_type: "job",
       }))
     );
   }
+  return true;
+}
 
-  // Mark as read
-  await gmail.users.messages.modify({
-    userId: "me", id: messageId,
-    requestBody: { removeLabelIds: ["UNREAD"] },
+// ── Client message: matched by plus-address ──
+async function processClientMessage(gmail: any, sb: any, msgId: string): Promise<boolean> {
+  const full = await gmail.users.messages.get({ userId: "me", id: msgId, format: "full" });
+  const headers = full.data.payload?.headers || [];
+  const h = (n: string) => headers.find((h: any) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+
+  const toHeader = h("To") || h("Delivered-To");
+  const { name: fromName, email: fromEmail } = parseFrom(h("From"));
+
+  // Extract jobId: hello+c.{uuid}@ or hello+{uuid}@ (legacy)
+  const match = toHeader.match(/\+c?\.?([a-f0-9-]{36})/i);
+  if (!match) {
+    await gmail.users.messages.modify({ userId: "me", id: msgId, requestBody: { removeLabelIds: ["UNREAD"] } });
+    return false;
+  }
+
+  const jobId = match[1];
+  const { data: job } = await sb.from("jobs").select("id, title").eq("id", jobId).single();
+  if (!job) {
+    await gmail.users.messages.modify({ userId: "me", id: msgId, requestBody: { removeLabelIds: ["UNREAD"] } });
+    return false;
+  }
+
+  const { textBody, htmlBody, attachments } = extractContent(full.data.payload, msgId);
+
+  const saved = await saveAndNotify(sb, {
+    jobId, jobTitle: job.title, channel: "client", decoratorId: null,
+    fromEmail, fromName, toHeader, subject: h("Subject"),
+    textBody, htmlBody, attachments, messageId: h("Message-ID"),
   });
 
-  return true;
+  await gmail.users.messages.modify({ userId: "me", id: msgId, requestBody: { removeLabelIds: ["UNREAD"] } });
+  return saved;
+}
+
+// ── Production message: matched by job number in subject + sender ──
+async function processProductionMessage(gmail: any, sb: any, msgId: string): Promise<boolean> {
+  const full = await gmail.users.messages.get({ userId: "me", id: msgId, format: "full" });
+  const headers = full.data.payload?.headers || [];
+  const h = (n: string) => headers.find((h: any) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+
+  const toHeader = h("To") || h("Delivered-To");
+  const subject = h("Subject") || "";
+  const { name: fromName, email: fromEmail } = parseFrom(h("From"));
+
+  // Skip emails sent BY OpsHub (outbound from Resend shows up in the inbox)
+  if (fromEmail.includes("housepartydistro.com") && !fromEmail.includes("+")) {
+    await gmail.users.messages.modify({ userId: "me", id: msgId, requestBody: { removeLabelIds: ["UNREAD"] } });
+    return false;
+  }
+
+  // Match 1: Job number in subject (HPD-YYMM-NNN pattern)
+  const jobNumMatch = subject.match(/HPD-\d{4}-\d{3}/i);
+  let jobId: string | null = null;
+  let jobTitle: string | null = null;
+
+  if (jobNumMatch) {
+    const { data: job } = await sb.from("jobs").select("id, title").eq("job_number", jobNumMatch[0].toUpperCase()).single();
+    if (job) { jobId = job.id; jobTitle = job.title; }
+  }
+
+  // Match 2: If no job number in subject, try matching sender to a decorator contact
+  // and find their most recent active job
+  if (!jobId) {
+    const { data: decs } = await sb.from("decorators").select("id, name, contacts_list").not("contacts_list", "is", null);
+    let decoratorId: string | null = null;
+    if (decs) {
+      for (const dec of decs) {
+        const contacts = dec.contacts_list || [];
+        if (contacts.some((c: any) => c.email && fromEmail.toLowerCase().includes(c.email.toLowerCase()))) {
+          decoratorId = dec.id;
+          break;
+        }
+      }
+    }
+    if (decoratorId) {
+      // Find most recent active job with this decorator
+      const { data: assignments } = await sb
+        .from("decorator_assignments")
+        .select("item_id, items(job_id, jobs(id, title, phase))")
+        .eq("decorator_id", decoratorId)
+        .limit(10);
+      if (assignments) {
+        for (const a of assignments) {
+          const job = (a as any).items?.jobs;
+          if (job && ["production", "receiving", "fulfillment"].includes(job.phase)) {
+            jobId = job.id;
+            jobTitle = job.title;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  if (!jobId) {
+    // Can't match — mark as read, skip
+    await gmail.users.messages.modify({ userId: "me", id: msgId, requestBody: { removeLabelIds: ["UNREAD"] } });
+    return false;
+  }
+
+  // Try to match sender to a decorator
+  let decoratorId: string | null = null;
+  const { data: decs } = await sb.from("decorators").select("id, contacts_list").not("contacts_list", "is", null);
+  if (decs) {
+    for (const dec of decs) {
+      const contacts = dec.contacts_list || [];
+      if (contacts.some((c: any) => c.email && fromEmail.toLowerCase().includes(c.email.toLowerCase()))) {
+        decoratorId = dec.id;
+        break;
+      }
+    }
+  }
+
+  const { textBody, htmlBody, attachments } = extractContent(full.data.payload, msgId);
+
+  const saved = await saveAndNotify(sb, {
+    jobId, jobTitle: jobTitle!, channel: "production", decoratorId,
+    fromEmail, fromName, toHeader, subject,
+    textBody, htmlBody, attachments, messageId: h("Message-ID"),
+  });
+
+  await gmail.users.messages.modify({ userId: "me", id: msgId, requestBody: { removeLabelIds: ["UNREAD"] } });
+  return saved;
 }

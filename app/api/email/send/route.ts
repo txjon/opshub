@@ -128,21 +128,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Reply-to routing: POs reply to production@, everything else to hello@ (Gmail inbound capture)
+    // Reply-to: client emails use plus-addressing, PO emails use none
+    // PO replies matched by subject (job number) + sender (decorator contacts) in Gmail poller
     let replyTo: string | undefined;
-    if (type === "po" && jobId) {
-      // Look up decorator ID by vendor name for production email routing
-      const adminClient2 = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-      const { data: dec } = await adminClient2
-        .from("decorators")
-        .select("id")
-        .or(`name.eq.${vendor},short_code.eq.${vendor}`)
-        .single();
-      const decId = dec?.id || "";
-      replyTo = decId
-        ? `hello+p.${jobId}.${decId}@housepartydistro.com`
-        : `hello+p.${jobId}@housepartydistro.com`;
-    } else if (jobId) {
+    if (type !== "po" && jobId) {
       replyTo = `hello+c.${jobId}@housepartydistro.com`;
     }
 

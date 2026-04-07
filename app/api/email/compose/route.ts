@@ -33,18 +33,10 @@ export async function POST(req: NextRequest) {
 
     const isProduction = channel === "production";
 
-    // Build reply-to address — all route through hello@ (Resend rejects production+ format)
-    // Client: hello+c.{jobId}@  |  Production: hello+p.{jobId}.{decId}@
-    // FROM still shows production@ to decorators — reply-to is invisible to them
+    // Reply-to: client emails use plus-addressing, production emails use none
+    // Production replies matched by subject (job number) + sender (decorator contacts)
     const decId = decoratorId && /^[a-f0-9-]{36}$/i.test(decoratorId) ? decoratorId : null;
-    let replyToAddr: string;
-    if (isProduction) {
-      replyToAddr = decId
-        ? `hello+p.${jobId}.${decId}@housepartydistro.com`
-        : `hello+p.${jobId}@housepartydistro.com`;
-    } else {
-      replyToAddr = `hello+c.${jobId}@housepartydistro.com`;
-    }
+    const replyToAddr = isProduction ? null : `hello+c.${jobId}@housepartydistro.com`;
 
     const fromAddr = isProduction
       ? (process.env.EMAIL_FROM_PO || "production@housepartydistro.com")
@@ -61,7 +53,7 @@ export async function POST(req: NextRequest) {
       from: fromAddr,
       to: toEmail,
       ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
-      replyTo: [replyToAddr],
+      ...(replyToAddr ? { replyTo: [replyToAddr] } : {}),
       subject,
       html: fullHtml,
     });
