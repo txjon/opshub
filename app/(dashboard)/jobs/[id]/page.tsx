@@ -391,6 +391,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   artwork_status:"not_started",sort_order:item.sort_order,
                   blank_costs:(item as any).blank_costs||null,
                   garment_type:(item as any).garment_type||null,
+                  drive_link:(item as any).drive_link||null,
                 }).select("id").single();
                 if(ni){
                   idMap[item.id]=ni.id;
