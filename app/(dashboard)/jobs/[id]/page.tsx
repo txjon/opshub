@@ -769,7 +769,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
               {/* Email Thread */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <EmailThread jobId={job.id} onCompose={()=>setShowCompose(true)} />
+                <EmailThread jobId={job.id} channel="client" onCompose={()=>setShowCompose(true)} />
               </div>
 
               {/* Items */}

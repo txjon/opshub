@@ -129,9 +129,22 @@ export async function POST(req: NextRequest) {
     }
 
     // Reply-to routing: POs reply to production@, everything else to hello@ (Gmail inbound capture)
-    const replyTo = type === "po"
-      ? (process.env.EMAIL_FROM_PO || "production@housepartydistro.com")
-      : (jobId ? `hello+opshub.${jobId}@housepartydistro.com` : undefined);
+    let replyTo: string | undefined;
+    if (type === "po" && jobId) {
+      // Look up decorator ID by vendor name for production email routing
+      const adminClient2 = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      const { data: dec } = await adminClient2
+        .from("decorators")
+        .select("id")
+        .or(`name.eq.${vendor},short_code.eq.${vendor}`)
+        .single();
+      const decId = dec?.id || "";
+      replyTo = decId
+        ? `production+opshub.${jobId}.${decId}@housepartydistro.com`
+        : `production+opshub.${jobId}@housepartydistro.com`;
+    } else if (jobId) {
+      replyTo = `hello+opshub.${jobId}@housepartydistro.com`;
+    }
 
     // Send via Resend
     const { data, error } = await resend.emails.send({
@@ -162,9 +175,17 @@ export async function POST(req: NextRequest) {
     // Save to email_messages for thread view (fire-and-forget)
     try {
       const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      // Look up decorator ID for PO emails
+      let emailDecId = null;
+      if (type === "po" && vendor) {
+        const { data: dec2 } = await adminClient.from("decorators").select("id").or(`name.eq.${vendor},short_code.eq.${vendor}`).single();
+        emailDecId = dec2?.id || null;
+      }
       await adminClient.from("email_messages").insert({
         job_id: jobId,
         direction: "outbound",
+        channel: type === "po" ? "production" : "client",
+        decorator_id: emailDecId,
         from_email: fromAddress,
         from_name: "House Party Distro",
         to_emails: [recipientEmail],

@@ -4,56 +4,47 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
+import { EmailThread } from "@/components/EmailThread";
+import { ComposeEmail } from "@/components/ComposeEmail";
 
-const STAGES = [
-  { id: "in_production", label: "In Production" },
-  { id: "shipped", label: "Shipped" },
-];
+const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
 type ProdItem = {
-  id: string;
-  name: string;
-  job_id: string;
-  pipeline_stage: string | null;
-  ship_tracking: string | null;
+  id: string; name: string; job_id: string;
+  pipeline_stage: string | null; ship_tracking: string | null;
   pipeline_timestamps: Record<string, string> | null;
-  sort_order: number;
-  blank_vendor: string | null;
-  blank_sku: string | null;
-  job_title: string;
-  job_number: string;
-  client_name: string;
-  decorator_name: string | null;
-  decorator_short_code: string | null;
-  decorator_assignment_id: string | null;
-  target_ship_date: string | null;
-  total_units: number;
-  proof_status: "none" | "pending" | "approved";
-  decoration_type: string | null;
-  sizes: string[];
-  qtys: Record<string, number>;
-  ship_qtys: Record<string, number>;
-  ship_notes: string;
+  blank_vendor: string | null; blank_sku: string | null;
+  decorator_name: string | null; decorator_short_code: string | null;
+  decorator_id: string | null; decorator_assignment_id: string | null;
+  target_ship_date: string | null; total_units: number;
+  sizes: string[]; qtys: Record<string, number>;
+  ship_qtys: Record<string, number>; ship_notes: string;
+};
+
+type ProjectGroup = {
+  jobId: string; jobNumber: string; jobTitle: string; clientName: string;
+  shipDate: string | null; phase: string;
+  decoratorGroups: DecoratorGroup[];
+  totalItems: number; totalUnits: number;
+};
+
+type DecoratorGroup = {
+  decoratorId: string | null; decoratorName: string; shortCode: string;
+  items: ProdItem[];
+  inProduction: number; shipped: number; totalUnits: number;
+  contacts: { name: string; email: string | null }[];
 };
 
 export default function ProductionPage() {
   const supabase = createClient();
   const router = useRouter();
-  const [items, setItems] = useState<ProdItem[]>([]);
+  const [projects, setProjects] = useState<ProjectGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterStalled, setFilterStalled] = useState(false);
-  const [expandedItem, setExpandedItem] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [lastClicked, setLastClicked] = useState<string | null>(null);
-  const [showBulkPanel, setShowBulkPanel] = useState(false);
-  const [bulkTracking, setBulkTracking] = useState("");
-  const [bulkNotes, setBulkNotes] = useState("");
-  const [sortState, setSortState] = useState<Record<string, { col: string; dir: "asc" | "desc" }>>({
-    in_production: { col: "client", dir: "asc" },
-    shipped: { col: "client", dir: "asc" },
-  });
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [showCompose, setShowCompose] = useState<{ jobId: string; decoratorId: string; contacts: any[] } | null>(null);
   const saveTimers = useRef<Record<string, any>>({});
   const now = new Date();
 
@@ -66,7 +57,7 @@ export default function ProductionPage() {
       .select("id, title, job_number, target_ship_date, phase, type_meta, clients(name)")
       .in("phase", ["production", "receiving", "fulfillment"]);
 
-    if (!jobs?.length) { setItems([]); setLoading(false); return; }
+    if (!jobs?.length) { setProjects([]); setLoading(false); return; }
 
     const jobIds = jobs.map(j => j.id);
     const jobMap: Record<string, any> = {};
@@ -74,150 +65,85 @@ export default function ProductionPage() {
 
     const { data: allItems } = await supabase
       .from("items")
-      .select("*, buy_sheet_lines(size, qty_ordered), decorator_assignments(id, pipeline_stage, decoration_type, decorators(name, short_code))")
+      .select("*, buy_sheet_lines(size, qty_ordered), decorator_assignments(id, pipeline_stage, decoration_type, decorator_id, decorators(id, name, short_code, contacts_list))")
       .in("job_id", jobIds)
       .order("sort_order");
 
-    const itemIds = (allItems || []).map(it => it.id);
-    const { data: files } = itemIds.length > 0
-      ? await supabase.from("item_files").select("item_id, stage, approval").in("item_id", itemIds)
-      : { data: [] };
+    // Group items by job, then by decorator within each job
+    const projectMap: Record<string, ProjectGroup> = {};
 
-    const proofMap: Record<string, "none" | "pending" | "approved"> = {};
     for (const it of (allItems || [])) {
-      const proofs = (files || []).filter(f => f.item_id === it.id && f.stage === "proof");
-      if (proofs.length === 0) proofMap[it.id] = "none";
-      else if (proofs.every(f => f.approval === "approved")) proofMap[it.id] = "approved";
-      else proofMap[it.id] = "pending";
-    }
-
-    const mapped: ProdItem[] = (allItems || []).map(it => {
       const job = jobMap[it.job_id];
+      if (!job) continue;
+
       const assignment = it.decorator_assignments?.[0];
+      const decName = assignment?.decorators?.name || "Unassigned";
+      const decId = assignment?.decorator_id || assignment?.decorators?.id || null;
+      const shortCode = assignment?.decorators?.short_code || "";
+      const contacts = assignment?.decorators?.contacts_list || [];
       const lines = it.buy_sheet_lines || [];
       const sizes = sortSizes(lines.map((l: any) => l.size));
       const qtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
-      return {
+      const totalUnits = lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
+
+      const prodItem: ProdItem = {
         id: it.id, name: it.name, job_id: it.job_id,
         pipeline_stage: it.pipeline_stage === "shipped" ? "shipped" : "in_production",
         ship_tracking: it.ship_tracking,
         pipeline_timestamps: it.pipeline_timestamps || {},
-        sort_order: it.sort_order || 0,
         blank_vendor: it.blank_vendor, blank_sku: it.blank_sku,
-        job_title: job?.title || "", job_number: job?.job_number || "",
-        client_name: job?.clients?.name || "",
-        decorator_name: assignment?.decorators?.name || null,
-        decorator_short_code: assignment?.decorators?.short_code || null,
+        decorator_name: decName, decorator_short_code: shortCode,
+        decorator_id: decId,
         decorator_assignment_id: assignment?.id || null,
-        target_ship_date: job?.target_ship_date || null,
-        total_units: lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0),
-        proof_status: proofMap[it.id] || "none",
-        decoration_type: assignment?.decoration_type || null,
-        sizes, qtys,
-        ship_qtys: it.ship_qtys || {},
-        ship_notes: it.ship_notes || job?.type_meta?.shipping_notes || "",
+        target_ship_date: job.target_ship_date,
+        total_units: totalUnits, sizes, qtys,
+        ship_qtys: it.ship_qtys || {}, ship_notes: it.ship_notes || "",
       };
+
+      if (!projectMap[it.job_id]) {
+        projectMap[it.job_id] = {
+          jobId: job.id, jobNumber: job.job_number, jobTitle: job.title,
+          clientName: job.clients?.name || "", shipDate: job.target_ship_date,
+          phase: job.phase, decoratorGroups: [], totalItems: 0, totalUnits: 0,
+        };
+      }
+      projectMap[it.job_id].totalItems++;
+      projectMap[it.job_id].totalUnits += totalUnits;
+
+      // Find or create decorator group
+      const decKey = decId || decName;
+      let decGroup = projectMap[it.job_id].decoratorGroups.find(
+        g => (g.decoratorId || g.decoratorName) === decKey
+      );
+      if (!decGroup) {
+        decGroup = {
+          decoratorId: decId, decoratorName: decName, shortCode,
+          items: [], inProduction: 0, shipped: 0, totalUnits: 0,
+          contacts: (contacts || []).map((c: any) => ({ name: c.name, email: c.email })),
+        };
+        projectMap[it.job_id].decoratorGroups.push(decGroup);
+      }
+      decGroup.items.push(prodItem);
+      decGroup.totalUnits += totalUnits;
+      if (prodItem.pipeline_stage === "shipped") decGroup.shipped++;
+      else decGroup.inProduction++;
+    }
+
+    // Sort projects by ship date
+    const sorted = Object.values(projectMap).sort((a, b) => {
+      if (!a.shipDate) return 1;
+      if (!b.shipDate) return -1;
+      return new Date(a.shipDate).getTime() - new Date(b.shipDate).getTime();
     });
 
-    setItems(mapped);
+    setProjects(sorted);
     setLoading(false);
   }
 
-  function updateTrackingLocal(itemId: string, value: string) {
-    setItems(prev => prev.map(it => it.id === itemId ? { ...it, ship_tracking: value } : it));
-    if (saveTimers.current[`trk_${itemId}`]) clearTimeout(saveTimers.current[`trk_${itemId}`]);
-    saveTimers.current[`trk_${itemId}`] = setTimeout(() => {
-      supabase.from("items").update({ ship_tracking: value }).eq("id", itemId);
-    }, 800);
-  }
-
-  function updateShipQty(itemId: string, size: string, qty: number) {
-    setItems(prev => prev.map(it => {
-      if (it.id !== itemId) return it;
-      const updated = { ...it.ship_qtys, [size]: qty };
-      return { ...it, ship_qtys: updated };
-    }));
-    if (saveTimers.current[`sq_${itemId}`]) clearTimeout(saveTimers.current[`sq_${itemId}`]);
-    saveTimers.current[`sq_${itemId}`] = setTimeout(() => {
-      const item = items.find(it => it.id === itemId);
-      if (!item) return;
-      const updated = { ...item.ship_qtys, [size]: qty };
-      supabase.from("items").update({ ship_qtys: updated }).eq("id", itemId);
-    }, 800);
-  }
-
-  function handleSelect(itemId: string, e: React.MouseEvent, stageItems: ProdItem[]) {
-    const isShift = e.shiftKey;
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (isShift && lastClicked) {
-        const ids = stageItems.map(it => it.id);
-        const from = ids.indexOf(lastClicked);
-        const to = ids.indexOf(itemId);
-        if (from >= 0 && to >= 0) {
-          const [start, end] = from < to ? [from, to] : [to, from];
-          for (let i = start; i <= end; i++) next.add(ids[i]);
-        }
-      } else {
-        if (next.has(itemId)) next.delete(itemId);
-        else next.add(itemId);
-      }
-      return next;
-    });
-    setLastClicked(itemId);
-  }
-
-  async function bulkShip() {
-    const selectedItems = items.filter(it => selected.has(it.id) && it.pipeline_stage === "in_production");
-    if (selectedItems.length === 0) return;
-
-    const ts = new Date().toISOString();
-    for (const item of selectedItems) {
-      const timestamps = { ...(item.pipeline_timestamps || {}), shipped: ts };
-      await supabase.from("items").update({
-        pipeline_stage: "shipped",
-        pipeline_timestamps: timestamps,
-        ship_tracking: bulkTracking || item.ship_tracking || null,
-        ship_notes: bulkNotes || item.ship_notes || null,
-        received_at_hpd: false, received_at_hpd_at: null,
-      }).eq("id", item.id);
-      if (item.decorator_assignment_id) {
-        await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
-      }
-      logJobActivity(item.job_id, `${item.name} shipped from decorator${bulkTracking ? ` — tracking: ${bulkTracking}` : ""}`);
-    }
-    // One team notification for the batch
-    const jobIds = [...new Set(selectedItems.map(it => it.job_id))];
-    for (const jid of jobIds) {
-      const jobItems = selectedItems.filter(it => it.job_id === jid);
-      notifyTeam(`${jobItems.length} items shipped from decorator — incoming to warehouse`, "production", jid, "job");
-    }
-
-    setItems(prev => prev.map(it => {
-      if (!selected.has(it.id)) return it;
-      return { ...it, pipeline_stage: "shipped", pipeline_timestamps: { ...(it.pipeline_timestamps || {}), shipped: ts }, ship_tracking: bulkTracking || it.ship_tracking, ship_notes: bulkNotes || it.ship_notes };
-    }));
-    setSelected(new Set());
-    setShowBulkPanel(false);
-    setBulkTracking("");
-    setBulkNotes("");
-  }
-
-  function updateNotesLocal(itemId: string, value: string) {
-    setItems(prev => prev.map(it => it.id === itemId ? { ...it, ship_notes: value } : it));
-    if (saveTimers.current[`sn_${itemId}`]) clearTimeout(saveTimers.current[`sn_${itemId}`]);
-    saveTimers.current[`sn_${itemId}`] = setTimeout(() => {
-      supabase.from("items").update({ ship_notes: value }).eq("id", itemId);
-    }, 800);
-  }
-
+  // ── Item actions ──
   async function markShipped(item: ProdItem) {
-    // Cancel any pending debounced saves for this item
-    if (saveTimers.current[`sn_${item.id}`]) { clearTimeout(saveTimers.current[`sn_${item.id}`]); delete saveTimers.current[`sn_${item.id}`]; }
-    if (saveTimers.current[`trk_${item.id}`]) { clearTimeout(saveTimers.current[`trk_${item.id}`]); delete saveTimers.current[`trk_${item.id}`]; }
-
-    const timestamps = { ...(item.pipeline_timestamps || {}), shipped: new Date().toISOString() };
-    // Clear received_at_hpd so it goes through receiving again
+    const ts = new Date().toISOString();
+    const timestamps = { ...(item.pipeline_timestamps || {}), shipped: ts };
     await supabase.from("items").update({
       pipeline_stage: "shipped", pipeline_timestamps: timestamps,
       ship_notes: item.ship_notes || null, ship_tracking: item.ship_tracking || null,
@@ -228,14 +154,12 @@ export default function ProductionPage() {
     }
     logJobActivity(item.job_id, `${item.name} shipped from decorator${item.ship_tracking ? ` — tracking: ${item.ship_tracking}` : ""}`);
     notifyTeam(`Item shipped from decorator — ${item.name} incoming to warehouse`, "production", item.job_id, "job");
-    setItems(prev => prev.map(it => it.id === item.id ? { ...it, pipeline_stage: "shipped", pipeline_timestamps: timestamps } : it));
-    setExpandedItem(null);
+    loadAll();
   }
 
   async function undoShipped(item: ProdItem) {
     const timestamps = { ...(item.pipeline_timestamps || {}) };
     delete timestamps.shipped;
-    // Clear received_at_hpd so receiving flow resets
     await supabase.from("items").update({
       pipeline_stage: "in_production", pipeline_timestamps: timestamps,
       received_at_hpd: false, received_at_hpd_at: null,
@@ -243,36 +167,51 @@ export default function ProductionPage() {
     if (item.decorator_assignment_id) {
       await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
     }
-    setItems(prev => prev.map(it => it.id === item.id ? { ...it, pipeline_stage: "in_production", pipeline_timestamps: timestamps } : it));
+    loadAll();
   }
 
-  const decorators = useMemo(() => [...new Set(items.map(it => it.decorator_name).filter(Boolean))].sort(), [items]);
+  function updateField(itemId: string, field: string, value: string) {
+    setProjects(prev => prev.map(p => ({
+      ...p, decoratorGroups: p.decoratorGroups.map(dg => ({
+        ...dg, items: dg.items.map(it => it.id === itemId ? { ...it, [field]: value } : it)
+      }))
+    })));
+    if (saveTimers.current[`${field}_${itemId}`]) clearTimeout(saveTimers.current[`${field}_${itemId}`]);
+    saveTimers.current[`${field}_${itemId}`] = setTimeout(() => {
+      supabase.from("items").update({ [field]: value || null }).eq("id", itemId);
+    }, 800);
+  }
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    return items.filter(it => {
-      if (q && !(it.name.toLowerCase().includes(q) || it.client_name.toLowerCase().includes(q) || it.job_title.toLowerCase().includes(q) || (it.decorator_name || "").toLowerCase().includes(q))) return false;
-      if (filterDecorator && it.decorator_name !== filterDecorator) return false;
-      if (filterStalled) {
-        const ts = it.pipeline_timestamps?.[it.pipeline_stage || ""];
-        if (!ts) return true;
-        return Math.floor((Date.now() - new Date(ts).getTime()) / 86400000) >= 7;
-      }
-      return true;
-    });
-  }, [items, search, filterDecorator, filterStalled]);
-
-  const atDecorator = items.filter(it => it.pipeline_stage === "in_production").length;
-  const stalled = items.filter(it => {
+  // ── Stats ──
+  const allItems = projects.flatMap(p => p.decoratorGroups.flatMap(dg => dg.items));
+  const atDecorator = allItems.filter(it => it.pipeline_stage === "in_production").length;
+  const stalled = allItems.filter(it => {
     const ts = it.pipeline_timestamps?.[it.pipeline_stage || ""];
     if (!ts) return false;
     return Math.floor((Date.now() - new Date(ts).getTime()) / 86400000) >= 7;
   }).length;
-  const shippingThisWeek = items.filter(it => {
+  const shippingThisWeek = allItems.filter(it => {
     if (!it.target_ship_date) return false;
     const diff = Math.ceil((new Date(it.target_ship_date).getTime() - now.getTime()) / 86400000);
     return diff >= 0 && diff <= 7;
   }).length;
+  const decorators = useMemo(() => [...new Set(allItems.map(it => it.decorator_name).filter(Boolean))].sort(), [projects]);
+
+  // ── Filter ──
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return projects.filter(p => {
+      if (q && !(p.clientName.toLowerCase().includes(q) || p.jobTitle.toLowerCase().includes(q) || p.jobNumber.toLowerCase().includes(q) ||
+        p.decoratorGroups.some(dg => dg.decoratorName.toLowerCase().includes(q) || dg.items.some(it => it.name.toLowerCase().includes(q))))) return false;
+      if (filterDecorator && !p.decoratorGroups.some(dg => dg.decoratorName === filterDecorator)) return false;
+      return true;
+    });
+  }, [projects, search, filterDecorator]);
+
+  const getDaysToShip = (d: string | null) => {
+    if (!d) return null;
+    return Math.ceil((new Date(d).getTime() - now.getTime()) / 86400000);
+  };
 
   const getDaysInStage = (item: ProdItem) => {
     const ts = item.pipeline_timestamps?.[item.pipeline_stage || ""];
@@ -280,37 +219,16 @@ export default function ProductionPage() {
     return Math.floor((Date.now() - new Date(ts).getTime()) / 86400000);
   };
 
-  const getDaysToShip = (item: ProdItem) => {
-    if (!item.target_ship_date) return null;
-    return Math.ceil((new Date(item.target_ship_date).getTime() - now.getTime()) / 86400000);
+  const shipDatePill = (d: string | null) => {
+    const days = getDaysToShip(d);
+    if (days === null) return null;
+    const color = days < 0 ? T.red : days <= 3 ? T.amber : T.green;
+    const bg = days < 0 ? T.redDim : days <= 3 ? T.amberDim : T.greenDim;
+    const label = days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `${days}d`;
+    return { color, bg, label, dateStr: new Date(d!).toLocaleDateString("en-US", { month: "short", day: "numeric" }) };
   };
 
-  const toggleSort = (stageId: string, col: string) => {
-    setSortState(prev => {
-      const cur = prev[stageId] || { col: "client", dir: "asc" };
-      if (cur.col === col) return { ...prev, [stageId]: { col, dir: cur.dir === "asc" ? "desc" : "asc" } };
-      return { ...prev, [stageId]: { col, dir: "asc" } };
-    });
-  };
-
-  const sortItems = (list: ProdItem[], stageId: string) => {
-    const { col, dir } = sortState[stageId] || { col: "client", dir: "asc" };
-    const d = dir === "asc" ? 1 : -1;
-    return [...list].sort((a, b) => {
-      switch (col) {
-        case "units": return (a.total_units - b.total_units) * d;
-        case "shipdate": return ((getDaysToShip(a) ?? 999) - (getDaysToShip(b) ?? 999)) * d;
-        case "instage": return ((getDaysInStage(a) ?? 0) - (getDaysInStage(b) ?? 0)) * d;
-        default: {
-          const av = col === "client" ? a.client_name : col === "project" ? a.job_title : col === "item" ? a.name : (a.decorator_short_code || a.decorator_name || "");
-          const bv = col === "client" ? b.client_name : col === "project" ? b.job_title : col === "item" ? b.name : (b.decorator_short_code || b.decorator_name || "");
-          return (av || "").localeCompare(bv || "") * d;
-        }
-      }
-    });
-  };
-
-  const ic: React.CSSProperties = { padding: "5px 8px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, fontSize: 11, fontFamily: mono, outline: "none" };
+  const ic: React.CSSProperties = { padding: "5px 8px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, fontSize: 11, fontFamily: mono, outline: "none", width: "100%" };
 
   if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading production...</div>;
 
@@ -318,7 +236,7 @@ export default function ProductionPage() {
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Production</h1>
-        <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>{items.length} items across {new Set(items.map(it => it.job_id)).size} projects</div>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>{allItems.length} items across {projects.length} projects</div>
       </div>
 
       {/* Stats */}
@@ -337,227 +255,194 @@ export default function ProductionPage() {
 
       {/* Filters */}
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items, clients, projects..."
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search projects, clients, decorators..."
           style={{ flex: 1, maxWidth: 320, padding: "7px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
         <select value={filterDecorator} onChange={e => setFilterDecorator(e.target.value)}
           style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: filterDecorator ? T.text : T.muted, fontSize: 12, fontFamily: font, outline: "none" }}>
           <option value="">All decorators</option>
           {decorators.map(d => <option key={d} value={d!}>{d}</option>)}
         </select>
-        <button onClick={() => setFilterStalled(!filterStalled)}
-          style={{ padding: "7px 14px", borderRadius: 8, border: `1px solid ${filterStalled ? T.red : T.border}`, background: filterStalled ? T.redDim : T.surface, color: filterStalled ? T.red : T.muted, fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
-          Stalled only
-        </button>
       </div>
 
-      {/* Bulk actions bar */}
-      {selected.size > 0 && (
-        <div style={{ background: T.accent + "22", border: `1px solid ${T.accent}44`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: T.accent }}>{selected.size} selected</span>
-          <button onClick={() => setShowBulkPanel(!showBulkPanel)}
-            style={{ padding: "6px 16px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 12, fontWeight: 600 }}>
-            Bulk Ship
-          </button>
-          <button onClick={() => { setSelected(new Set()); setShowBulkPanel(false); }}
-            style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.border}`, cursor: "pointer", background: "transparent", color: T.muted, fontSize: 12 }}>
-            Clear
-          </button>
-        </div>
+      {/* Project rows */}
+      {filtered.length === 0 && (
+        <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>No active production</div>
       )}
 
-      {/* Bulk ship panel */}
-      {showBulkPanel && selected.size > 0 && (
-        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px" }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12 }}>Ship {selected.size} items as one batch</div>
-          <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
-            <div style={{ width: 200 }}>
-              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Tracking # (all items)</label>
-              <input style={{ ...ic, width: "100%" }} value={bulkTracking} placeholder="Enter tracking"
-                onChange={e => setBulkTracking(e.target.value)} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Notes (carries to receiving)</label>
-              <input style={{ ...ic, width: "100%" }} value={bulkNotes} placeholder="e.g. 2 boxes, fragile, check qty on Box B"
-                onChange={e => setBulkNotes(e.target.value)} />
-            </div>
-            <button onClick={bulkShip}
-              style={{ padding: "8px 24px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
-              Ship All
-            </button>
-          </div>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}>
-            {items.filter(it => selected.has(it.id)).map(it => (
-              <span key={it.id} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.surface, color: T.muted }}>
-                {it.client_name} · {it.name}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Stage sections */}
-      {STAGES.map(stage => {
-        const stageItems = sortItems(filtered.filter(it => it.pipeline_stage === stage.id), stage.id);
-        if (stageItems.length === 0 && search) return null;
-
-        const cols = stage.id === "in_production"
-          ? "28px 1.2fr 1.2fr 1.5fr 1fr 60px 70px 60px 80px"
-          : "1.2fr 1.2fr 1.5fr 1fr 60px 100px 60px 80px";
+      {filtered.map(project => {
+        const isExpanded = expanded.has(project.jobId);
+        const ship = shipDatePill(project.shipDate);
+        const allShipped = project.decoratorGroups.every(dg => dg.items.every(it => it.pipeline_stage === "shipped"));
 
         return (
-          <div key={stage.id}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>{stage.label}</span>
-              <span style={{ fontSize: 11, fontFamily: mono, color: T.accent, fontWeight: 600 }}>{stageItems.length}</span>
-            </div>
-
-            {stageItems.length === 0 ? (
-              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "16px", textAlign: "center", fontSize: 12, color: T.faint }}>
-                No items
-              </div>
-            ) : (
-              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-                {/* Header */}
-                <div style={{ display: "grid", gridTemplateColumns: cols, padding: "6px 14px", background: T.surface, borderBottom: `1px solid ${T.border}`, alignItems: "center" }}>
-                  {stage.id === "in_production" && (
-                    <input type="checkbox"
-                      checked={stageItems.length > 0 && stageItems.every(it => selected.has(it.id))}
-                      onChange={e => {
-                        setSelected(prev => {
-                          const next = new Set(prev);
-                          stageItems.forEach(it => e.target.checked ? next.add(it.id) : next.delete(it.id));
-                          return next;
-                        });
-                      }}
-                      style={{ width: 14, height: 14, cursor: "pointer", accentColor: T.accent }} />
-                  )}
-                  {[
-                    { label: "Client", key: "client" },
-                    { label: "Project", key: "project" },
-                    { label: "Item", key: "item" },
-                    { label: "Decorator", key: "decorator" },
-                    { label: "Units", key: "units" },
-                    { label: stage.id === "shipped" ? "Tracking" : "Ship date", key: "shipdate" },
-                    { label: "In stage", key: "instage" },
-                    { label: "", key: "" },
-                  ].map(h => {
-                    const ss = sortState[stage.id] || { col: "client", dir: "asc" };
-                    return (
-                      <div key={h.label || "actions"} onClick={() => h.key && toggleSort(stage.id, h.key)}
-                        style={{ fontSize: 9, fontWeight: 700, color: ss.col === h.key ? T.accent : T.muted, textTransform: "uppercase", letterSpacing: "0.07em", cursor: h.key ? "pointer" : "default", userSelect: "none" }}>
-                        {h.label}{ss.col === h.key ? (ss.dir === "asc" ? " ↑" : " ↓") : ""}
-                      </div>
-                    );
-                  })}
+          <div key={project.jobId} style={{
+            background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden",
+          }}>
+            {/* ── Collapsed row ── */}
+            <div
+              onClick={() => setExpanded(prev => {
+                const next = new Set(prev);
+                next.has(project.jobId) ? next.delete(project.jobId) : next.add(project.jobId);
+                return next;
+              })}
+              style={{ padding: "14px 18px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+                borderBottom: isExpanded ? `1px solid ${T.border}` : "none",
+              }}
+            >
+              <div style={{ flex: 1 }}>
+                {/* Title row */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{project.jobNumber}</span>
+                  <span style={{ fontSize: 13, color: T.muted }}>{project.clientName}</span>
+                  {allShipped && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>All Shipped</span>}
                 </div>
 
-                {stageItems.map((item, i) => {
-                  const days = getDaysInStage(item);
-                  const daysToShip = getDaysToShip(item);
-                  const isExpanded = expandedItem === item.id;
+                {/* Per-decorator mini breakdown */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {project.decoratorGroups.map(dg => (
+                    <div key={dg.decoratorId || dg.decoratorName} style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "4px 10px", borderRadius: 6, background: T.surface,
+                      fontSize: 11,
+                    }}>
+                      <span style={{ fontWeight: 600, color: T.text }}>{dg.shortCode || dg.decoratorName}</span>
+                      <span style={{ color: T.muted }}>{dg.items.length} item{dg.items.length !== 1 ? "s" : ""}</span>
+                      <span style={{ color: T.faint }}>·</span>
+                      {dg.inProduction > 0 && <span style={{ color: T.accent }}>{dg.inProduction} active</span>}
+                      {dg.shipped > 0 && <span style={{ color: T.green }}>{dg.shipped} shipped</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-                  return (
-                    <div key={item.id} style={{ borderBottom: i < stageItems.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                      {/* Main row */}
-                      <div style={{
-                        display: "grid", gridTemplateColumns: cols, padding: "8px 14px", alignItems: "center",
-                        cursor: stage.id === "in_production" ? "pointer" : "default",
-                        background: isExpanded ? T.surface + "66" : selected.has(item.id) ? T.accent + "11" : "transparent",
-                      }}
-                        onClick={() => stage.id === "in_production" && setExpandedItem(isExpanded ? null : item.id)}
-                      >
-                        {stage.id === "in_production" && (
-                          <input type="checkbox" checked={selected.has(item.id)}
-                            onClick={e => { e.stopPropagation(); handleSelect(item.id, e as any, stageItems); }}
-                            onChange={() => {}}
-                            style={{ width: 14, height: 14, cursor: "pointer", accentColor: T.accent }} />
-                        )}
-                        <div style={{ fontSize: 12, color: T.text }}>{item.client_name}</div>
-                        <div style={{ fontSize: 12, color: T.muted, cursor: "pointer" }} onClick={e => { e.stopPropagation(); router.push(`/jobs/${item.job_id}`); }}>{item.job_title}</div>
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 600 }}>{item.name}</div>
-                          <div style={{ fontSize: 10, color: T.faint }}>{[item.blank_vendor, item.decoration_type].filter(Boolean).join(" · ")}</div>
-                        </div>
-                        <div style={{ fontSize: 11, color: item.decorator_short_code || item.decorator_name ? T.accent : T.faint }}>{item.decorator_short_code || item.decorator_name || "—"}</div>
-                        <div style={{ fontSize: 12, fontFamily: mono, fontWeight: 600 }}>{item.total_units.toLocaleString()}</div>
-                        <div>
-                          {stage.id === "in_production" && (
-                            daysToShip !== null ? (
-                              <span style={{ fontSize: 11, fontFamily: mono, fontWeight: 600, color: daysToShip < 0 ? T.red : daysToShip <= 3 ? T.amber : T.muted }}>
-                                {daysToShip < 0 ? `${Math.abs(daysToShip)}d over` : daysToShip === 0 ? "today" : `${daysToShip}d`}
-                              </span>
-                            ) : <span style={{ fontSize: 10, color: T.faint }}>—</span>
-                          )}
-                          {stage.id === "shipped" && (
-                            <span style={{ fontSize: 10, fontFamily: mono, color: item.ship_tracking ? T.green : T.faint }}>
-                              {item.ship_tracking || "—"}
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 11, fontFamily: mono, fontWeight: 600, color: days === null ? T.faint : days >= 7 ? T.red : days >= 3 ? T.amber : T.muted }}>
-                          {days === null ? "—" : `${days}d`}
-                        </div>
-                        <div style={{ display: "flex", gap: 4 }} onClick={e => e.stopPropagation()}>
-                          {stage.id === "in_production" && (
-                            <span style={{ fontSize: 10, color: T.faint }}>{isExpanded ? "▾" : "Ship ›"}</span>
-                          )}
-                          {stage.id === "shipped" && (
-                            <button onClick={() => undoShipped(item)}
-                              style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>
-                              Undo
-                            </button>
-                          )}
-                        </div>
+              {/* Right side: ship date + expand arrow */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, marginLeft: 12 }}>
+                {ship && (
+                  <div style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: ship.bg, color: ship.color }}>
+                    {ship.dateStr} · {ship.label}
+                  </div>
+                )}
+                <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                  {project.totalUnits.toLocaleString()} units
+                </span>
+                <span style={{ fontSize: 18, color: T.faint, transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "none" }}>▾</span>
+              </div>
+            </div>
+
+            {/* ── Expanded: decorator groups ── */}
+            {isExpanded && (
+              <div style={{ padding: "0 18px 18px" }}>
+                {project.decoratorGroups.map(dg => (
+                  <div key={dg.decoratorId || dg.decoratorName} style={{
+                    marginTop: 14, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden",
+                  }}>
+                    {/* Decorator header */}
+                    <div style={{
+                      padding: "10px 14px", background: T.surface,
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      borderBottom: `1px solid ${T.border}`,
+                    }}>
+                      <div>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{dg.decoratorName}</span>
+                        <span style={{ fontSize: 11, color: T.muted, marginLeft: 8 }}>
+                          {dg.items.length} item{dg.items.length !== 1 ? "s" : ""} · {dg.totalUnits.toLocaleString()} units
+                        </span>
                       </div>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {dg.inProduction > 0 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.accentDim, color: T.accent }}>{dg.inProduction} in production</span>}
+                        {dg.shipped > 0 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>{dg.shipped} shipped</span>}
+                      </div>
+                    </div>
 
-                      {/* Expanded: tracking + shipped qtys */}
-                      {isExpanded && stage.id === "in_production" && (
-                        <div style={{ padding: "10px 14px 14px", background: T.surface + "44", borderTop: `1px solid ${T.border}44`, display: "flex", flexDirection: "column", gap: 10 }}>
-                          <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
-                            <div style={{ width: 180 }}>
-                              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Tracking #</label>
-                              <input style={{ ...ic, width: "100%" }} value={item.ship_tracking || ""} placeholder="Enter tracking"
-                                onChange={e => updateTrackingLocal(item.id, e.target.value)}
-                                onClick={e => e.stopPropagation()} />
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Notes (carries to receiving)</label>
-                              <input style={{ ...ic, width: "100%" }} value={item.ship_notes || ""} placeholder="e.g. 2 boxes, check qty, fragile"
-                                onChange={e => updateNotesLocal(item.id, e.target.value)}
-                                onClick={e => e.stopPropagation()} />
-                            </div>
-                          </div>
-                          <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
-                            <div style={{ flex: 1 }}>
-                              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Shipped qty per size</label>
-                              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                                {item.sizes.map(sz => (
-                                  <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-                                    <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{sz}</span>
-                                    <input type="number" min="0" value={item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0}
-                                      onChange={e => updateShipQty(item.id, sz, parseInt(e.target.value) || 0)}
-                                      onFocus={e => e.target.select()}
+                    {/* Items */}
+                    <div style={{ padding: "10px 14px" }}>
+                      {dg.items.map(item => {
+                        const days = getDaysInStage(item);
+                        const isShipped = item.pipeline_stage === "shipped";
+                        return (
+                          <div key={item.id} style={{
+                            padding: "8px 10px", borderRadius: 6, marginBottom: 6,
+                            background: isShipped ? T.greenDim + "44" : "transparent",
+                            border: `1px solid ${isShipped ? T.green + "33" : T.border}`,
+                          }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <div>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{item.name}</span>
+                                <span style={{ fontSize: 10, color: T.muted, marginLeft: 8 }}>
+                                  {item.blank_vendor} · {item.total_units} units
+                                </span>
+                                {days !== null && days >= 7 && (
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: T.red, marginLeft: 8 }}>{days}d in stage</span>
+                                )}
+                                {days !== null && days >= 3 && days < 7 && (
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: T.amber, marginLeft: 8 }}>{days}d in stage</span>
+                                )}
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                {isShipped ? (
+                                  <>
+                                    <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>
+                                      {item.ship_tracking || "Shipped"}
+                                    </span>
+                                    <button onClick={(e) => { e.stopPropagation(); undoShipped(item); }}
+                                      style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                                      Undo
+                                    </button>
+                                  </>
+                                ) : (
+                                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                    <input value={item.ship_tracking || ""} placeholder="Tracking #"
+                                      onChange={e => updateField(item.id, "ship_tracking", e.target.value)}
                                       onClick={e => e.stopPropagation()}
-                                      style={{ width: 36, textAlign: "center", padding: "2px", border: `1px solid ${T.border}`, borderRadius: 3, background: T.surface, color: T.text, fontSize: 10, fontFamily: mono, outline: "none" }} />
+                                      style={{ ...ic, width: 160 }} />
+                                    <input value={item.ship_notes || ""} placeholder="Notes"
+                                      onChange={e => updateField(item.id, "ship_notes", e.target.value)}
+                                      onClick={e => e.stopPropagation()}
+                                      style={{ ...ic, width: 120 }} />
+                                    <button onClick={(e) => { e.stopPropagation(); markShipped(item); }}
+                                      style={{ padding: "4px 12px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                      Ship
+                                    </button>
                                   </div>
-                                ))}
+                                )}
                               </div>
                             </div>
-                            <button onClick={e => { e.stopPropagation(); markShipped(item); }}
-                              style={{ padding: "8px 20px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
-                              Mark Shipped
-                            </button>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })}
                     </div>
-                  );
-                })}
+
+                    {/* Decorator email thread */}
+                    <div style={{ padding: "0 14px 14px" }}>
+                      <EmailThread
+                        jobId={project.jobId}
+                        channel="production"
+                        decoratorId={dg.decoratorId || undefined}
+                        onCompose={() => setShowCompose({
+                          jobId: project.jobId,
+                          decoratorId: dg.decoratorId || "",
+                          contacts: dg.contacts,
+                        })}
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         );
       })}
+
+      {/* Compose modal for production emails */}
+      {showCompose && (
+        <ComposeEmail
+          jobId={showCompose.jobId}
+          contacts={[]}
+          decoratorContacts={showCompose.contacts}
+          onClose={() => setShowCompose(null)}
+          onSent={() => loadAll()}
+        />
+      )}
     </div>
   );
 }

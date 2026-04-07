@@ -52,20 +52,28 @@ function cleanBody(text: string | null): string | null {
   return clean.trim() || null;
 }
 
-export function EmailThread({ jobId, onCompose }: { jobId: string; onCompose: () => void }) {
+export function EmailThread({ jobId, onCompose, channel, decoratorId }: {
+  jobId: string;
+  onCompose: () => void;
+  channel?: "client" | "production";
+  decoratorId?: string;
+}) {
   const supabase = createClient();
   const [emails, setEmails] = useState<Email[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState("");
 
-  useEffect(() => { load(); }, [jobId]);
+  useEffect(() => { load(); }, [jobId, channel, decoratorId]);
 
   async function load() {
-    const { data } = await supabase
+    let query = supabase
       .from("email_messages")
       .select("*")
-      .eq("job_id", jobId)
+      .eq("job_id", jobId);
+    if (channel) query = query.eq("channel", channel);
+    if (decoratorId) query = query.eq("decorator_id", decoratorId);
+    const { data } = await query
       .order("created_at", { ascending: false })
       .limit(50);
     setEmails(data || []);
