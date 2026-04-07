@@ -143,6 +143,11 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
     });
   }
 
+  const tabItems = activeTab === "production"
+    ? items.filter(it => it.status === "In Production")
+    : items.filter(it => it.status !== "In Production");
+  const productionCount = items.filter(it => it.status === "In Production").length;
+
   // Computed totals (reflect active tab)
   const totals = tabItems.reduce((acc, it) => {
     const qty = it.qty || 0;
@@ -156,11 +161,6 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
     if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
     else { setSortKey(key); setSortDir("asc"); }
   }
-
-  const tabItems = activeTab === "production"
-    ? items.filter(it => it.status === "In Production")
-    : items.filter(it => it.status !== "In Production");
-  const productionCount = items.filter(it => it.status === "In Production").length;
 
   const filteredItems = search.trim() ? tabItems.filter(it => {
     const q = search.toLowerCase();
