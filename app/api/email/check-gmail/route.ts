@@ -25,21 +25,20 @@ function getGmailAuth(impersonate: string) {
 
 type InboxConfig = {
   email: string;
-  searchQuery: string;
+  searchPrefix: string;
   channel: "client" | "production";
 };
 
 const INBOXES: InboxConfig[] = [
-  { email: "hello@housepartydistro.com", searchQuery: "to:hello+opshub is:unread", channel: "client" },
-  { email: "production@housepartydistro.com", searchQuery: "to:production+opshub is:unread", channel: "production" },
+  { email: "hello@housepartydistro.com", searchPrefix: "hello+", channel: "client" },
+  { email: "production@housepartydistro.com", searchPrefix: "production+", channel: "production" },
 ];
 
 /**
  * Poll Gmail for inbound replies to OpsHub projects.
  * Checks both hello@ (client) and production@ (decorator) inboxes.
- *
- * Client emails: hello+opshub.{jobId}@housepartydistro.com
- * Production emails: production+opshub.{jobId}.{decoratorId}@housepartydistro.com
+ *   Client: hello+{jobId}@housepartydistro.com
+ *   Production: production+{jobId}.{decoratorId}@housepartydistro.com
  *
  * Called by Vercel cron every 5 minutes.
  */
@@ -62,7 +61,7 @@ export async function GET(req: NextRequest) {
 
         const listRes = await gmail.users.messages.list({
           userId: "me",
-          q: inbox.searchQuery,
+          q: `to:${inbox.searchPrefix} is:unread`,
           maxResults: 20,
         });
 
@@ -110,9 +109,9 @@ async function processMessage(
   const subjectHeader = getHeader("Subject");
 
   // Extract jobId (and optionally decoratorId) from to address
-  // Client: hello+opshub.{jobId}@...
-  // Production: production+opshub.{jobId}.{decoratorId}@...
-  const jobMatch = toHeader.match(/opshub\.([a-f0-9-]{36})/i);
+  // Client: hello+{jobId}@...  |  Production: production+{jobId}.{decoratorId}@...
+  // Match the first UUID after a + sign
+  const jobMatch = toHeader.match(/\+([a-f0-9-]{36})/i);
   if (!jobMatch) {
     await gmail.users.messages.modify({
       userId: "me", id: messageId,
@@ -123,9 +122,9 @@ async function processMessage(
 
   const jobId = jobMatch[1];
 
-  // Extract decorator ID if present (production emails)
+  // Extract decorator ID if present (second UUID after the job ID)
   let decoratorId: string | null = null;
-  const decMatch = toHeader.match(/opshub\.[a-f0-9-]{36}\.([a-f0-9-]{36})/i);
+  const decMatch = toHeader.match(/\+[a-f0-9-]{36}\.([a-f0-9-]{36})/i);
   if (decMatch) decoratorId = decMatch[1];
 
   // Verify job exists

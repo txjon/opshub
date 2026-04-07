@@ -34,14 +34,15 @@ export async function POST(req: NextRequest) {
     const isProduction = channel === "production";
 
     // Build reply-to address
+    // Client: hello+{jobId}@  |  Production: production+{jobId}.{decId}@
     const decId = decoratorId && /^[a-f0-9-]{36}$/i.test(decoratorId) ? decoratorId : null;
     let replyToAddr: string;
     if (isProduction) {
       replyToAddr = decId
-        ? `production+opshub.${jobId}.${decId}@housepartydistro.com`
-        : `production+opshub.${jobId}@housepartydistro.com`;
+        ? `production+${jobId}.${decId}@housepartydistro.com`
+        : `production+${jobId}@housepartydistro.com`;
     } else {
-      replyToAddr = `hello+opshub.${jobId}@housepartydistro.com`;
+      replyToAddr = `hello+${jobId}@housepartydistro.com`;
     }
 
     const fromAddr = isProduction
@@ -54,32 +55,18 @@ export async function POST(req: NextRequest) {
       .join("");
     const fullHtml = `${htmlBody}<p style="margin-top:24px;font-size:12px;color:#999">—<br/>House Party Distro${job.job_number ? ` · ${job.job_number}` : ""}</p>`;
 
-    // Send — try with replyTo, fall back without if Resend rejects it
-    let emailData: any = null;
-    let sendError: any = null;
-
-    const sendPayload: any = {
+    // Send via Resend
+    const { data: emailData, error: emailError } = await resend.emails.send({
       from: fromAddr,
       to: toEmail,
+      ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
+      replyTo: [replyToAddr],
       subject,
       html: fullHtml,
-    };
-    if (ccEmails?.length > 0) sendPayload.cc = ccEmails;
+    });
 
-    // First try with replyTo
-    sendPayload.replyTo = [replyToAddr];
-    const result1 = await resend.emails.send(sendPayload);
-    if (result1.error) {
-      // If replyTo failed, retry without it
-      console.warn("[Compose] replyTo rejected, retrying without:", replyToAddr, result1.error);
-      delete sendPayload.replyTo;
-      const result2 = await resend.emails.send(sendPayload);
-      if (result2.error) {
-        return NextResponse.json({ error: result2.error.message }, { status: 500 });
-      }
-      emailData = result2.data;
-    } else {
-      emailData = result1.data;
+    if (emailError) {
+      return NextResponse.json({ error: emailError.message }, { status: 500 });
     }
 
     // Save to email_messages
