@@ -163,7 +163,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     // Record the payment
     const { error: insertErr } = await supabase.from("payment_records").insert({
       job_id: job.id,
-      type: "payment",
+      type: "full_payment",
       amount,
       status: "paid",
       paid_date: today,
@@ -189,7 +189,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
       await supabase.from("notifications").insert(
         profiles.map((p: any) => ({
           user_id: p.id,
-          type: "payment",
+          type: "full_payment",
           message: `Payment received — $${amount.toLocaleString()} · ${(job.clients as any)?.name || ""} · ${job.title}`,
           reference_id: job.id,
           reference_type: "job",

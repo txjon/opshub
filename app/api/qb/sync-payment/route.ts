@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
       // Insert payment
       const { error: insertErr } = await admin.from("payment_records").insert({
         job_id: job.id,
-        type: "payment",
+        type: "full_payment",
         amount,
         status: "paid",
         paid_date: payment.TxnDate || today,
@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
       if (profiles?.length) {
         await admin.from("notifications").insert(
           profiles.map((p: any) => ({
-            user_id: p.id, type: "payment",
+            user_id: p.id, type: "full_payment",
             message: `Payment received — $${amount.toLocaleString()} · ${(job.clients as any)?.name || ""} · ${job.title}`,
             reference_id: job.id, reference_type: "job",
           }))
