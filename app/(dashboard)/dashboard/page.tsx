@@ -71,7 +71,7 @@ export default async function DashboardPage() {
     const clientName = (j.clients as any)?.name || "";
     const contacts = contactsByJob[j.id] || [];
     const payments = paymentsByJob[j.id] || [];
-    const hasPaidPayment = payments.some(p => p.status === "paid");
+    const hasPaidPayment = payments.some(p => p.status === "paid" || p.status === "partial");
     const quoteApproved = (j as any).quote_approved;
     const rejectionNotes = (j as any).quote_rejection_notes || null;
     const allProofsApproved = items.length > 0 && items.every((it: any) => proofMap[it.id]?.allApproved || it.artwork_status === "approved");
@@ -150,13 +150,31 @@ export default async function DashboardPage() {
       }
     }
 
-    // 6. Send quote — only when costing done, no pending rejection
-    if (j.phase === "intake" && !quoteApproved && items.length > 0 && costingSet && !rejectionNotes) {
-      alerts.push({ ...base, priority: 2, type: "send_quote", color: T.purple,
-        action: "Send quote to client", href: `/jobs/${j.id}?tab=quote`, column: "sales" });
+    // 5b. Overdue payments — past due date, not paid
+    for (const p of payments) {
+      if (p.due_date && new Date(p.due_date) < now && p.status !== "paid" && p.status !== "void") {
+        const days = Math.ceil((now.getTime() - new Date(p.due_date).getTime()) / 86400000);
+        alerts.push({ ...base, priority: 1, type: "overdue_payment", color: T.red,
+          action: `Payment ${days}d overdue${p.amount ? ` · $${Number(p.amount).toLocaleString()}` : ""}`,
+          href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+      }
     }
 
-    // 7. Upload proofs / Awaiting approval
+    // 6. Send quote — escalate to follow-up after 2 days with no response
+    if (j.phase === "intake" && !quoteApproved && items.length > 0 && costingSet && !rejectionNotes) {
+      const quoteSentAt = typeMeta.quote_sent_at ? new Date(typeMeta.quote_sent_at) : null;
+      const daysSinceQuoteSent = quoteSentAt ? Math.ceil((now.getTime() - quoteSentAt.getTime()) / 86400000) : 0;
+      if (quoteSentAt && daysSinceQuoteSent >= 2) {
+        alerts.push({ ...base, priority: 1, type: "follow_up_quote", color: T.amber,
+          action: `Follow up — quote sent ${daysSinceQuoteSent}d ago, no response`,
+          href: `/jobs/${j.id}?tab=quote`, column: "sales" });
+      } else {
+        alerts.push({ ...base, priority: 2, type: "send_quote", color: T.purple,
+          action: "Send quote to client", href: `/jobs/${j.id}?tab=quote`, column: "sales" });
+      }
+    }
+
+    // 7. Upload proofs / Awaiting approval (both can fire — items can be in different states)
     if (quoteApproved && !allProofsApproved) {
       const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0);
       const itemsNeedingProofs = items.filter((it: any) => {
@@ -164,10 +182,20 @@ export default async function DashboardPage() {
         return proofs.length === 0 && it.artwork_status !== "approved";
       });
       if (pendingItems.length > 0) {
-        alerts.push({ ...base, priority: 2, type: "proofs_pending", color: T.muted,
-          action: `Awaiting proof approval · ${pendingItems.length} item${pendingItems.length !== 1 ? "s" : ""} pending`,
-          href: `/jobs/${j.id}?tab=approvals`, column: "sales" });
-      } else if (itemsNeedingProofs.length > 0) {
+        // Check if proofs have been pending 2+ days — escalate for follow-up
+        const proofsSentAt = typeMeta.proofs_sent_at ? new Date(typeMeta.proofs_sent_at) : null;
+        const daysSinceProofsSent = proofsSentAt ? Math.ceil((now.getTime() - proofsSentAt.getTime()) / 86400000) : 0;
+        if (daysSinceProofsSent >= 2) {
+          alerts.push({ ...base, priority: 1, type: "follow_up_proofs", color: T.amber,
+            action: `Follow up — proofs pending ${daysSinceProofsSent}d, no response`,
+            href: `/jobs/${j.id}?tab=approvals`, column: "sales" });
+        } else {
+          alerts.push({ ...base, priority: 2, type: "proofs_pending", color: T.muted,
+            action: `Awaiting proof approval · ${pendingItems.length} item${pendingItems.length !== 1 ? "s" : ""} pending`,
+            href: `/jobs/${j.id}?tab=approvals`, column: "sales" });
+        }
+      }
+      if (itemsNeedingProofs.length > 0) {
         alerts.push({ ...base, priority: 2, type: "upload_proofs", color: T.purple,
           action: `Upload proofs · ${itemsNeedingProofs.length} item${itemsNeedingProofs.length !== 1 ? "s" : ""} need proofs`,
           href: `/jobs/${j.id}?tab=art`, column: "sales" });
@@ -243,13 +271,19 @@ export default async function DashboardPage() {
         action: `Fulfillment — ${label}`, href: `/warehouse`, column: "production" });
     }
 
-    // 14. Ships soon (0-3 days) — proactive deadline warning (NEW)
+    // 14. Ships soon (0-3 days) — proactive deadline warning
     if (j.target_ship_date) {
       const daysToShip = Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000);
       if (daysToShip >= 0 && daysToShip <= 3) {
         alerts.push({ ...base, priority: 2, type: "shipping_soon", color: T.amber,
           action: `Ships in ${daysToShip}d — verify status`, href: `/jobs/${j.id}`, column: "production" });
       }
+    }
+
+    // 15. No ship date set — projects past intake with no deadline
+    if (!j.target_ship_date && j.phase !== "intake" && items.length > 0) {
+      alerts.push({ ...base, priority: 2, type: "no_ship_date", color: T.muted,
+        action: "No ship date set", href: `/jobs/${j.id}`, column: "production" });
     }
   }
 

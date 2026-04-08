@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
       });
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-      // Log to email_messages for thread view
+      // Log to email_messages for thread view + save proofs_sent_at for follow-up tracking
       if (jobId) {
         try {
           const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -58,6 +58,9 @@ export async function POST(req: NextRequest) {
             body_text: "Proof/mockup sent for review",
             resend_message_id: data?.id || null,
           });
+          // Save proofs_sent_at for dashboard follow-up tracking
+          const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
+          await adminClient.from("jobs").update({ type_meta: { ...(jd?.type_meta || {}), proofs_sent_at: new Date().toISOString() } }).eq("id", jobId);
         } catch {} // Non-fatal
       }
 
@@ -210,6 +213,12 @@ export async function POST(req: NextRequest) {
           : `${type} attached (${filename})`,
         resend_message_id: data?.id || null,
       });
+      // Save sent timestamps for dashboard follow-up tracking
+      if (type === "quote" || type === "invoice") {
+        const tsKey = type === "quote" ? "quote_sent_at" : "invoice_sent_at";
+        const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
+        await adminClient.from("jobs").update({ type_meta: { ...(jd?.type_meta || {}), [tsKey]: new Date().toISOString() } }).eq("id", jobId);
+      }
     } catch {} // Non-fatal
 
     return NextResponse.json({ success: true, id: data?.id });
