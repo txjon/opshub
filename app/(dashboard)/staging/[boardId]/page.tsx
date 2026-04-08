@@ -219,8 +219,8 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
           const qty = it.qty || 0;
           const cost = qty * (parseFloat(it.unit_cost) || 0);
           const gross = qty * (parseFloat(it.retail) || 0);
-          return { cost: acc.cost + cost, gross: acc.gross + gross, count: acc.count + 1 };
-        }, { cost: 0, gross: 0, count: 0 });
+          return { cost: acc.cost + cost, gross: acc.gross + gross, count: acc.count + 1, qty: acc.qty + qty };
+        }, { cost: 0, gross: 0, count: 0, qty: 0 });
         const rows = [
           { label: "Pending", ...calc(items.filter(it => it.status !== "In Production" && it.status !== "LANDED")), color: T.amber },
           { label: "In Production", ...calc(items.filter(it => it.status === "In Production")), color: T.accent },
@@ -233,7 +233,8 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
               <thead>
                 <tr style={{ background: T.surface }}>
                   <th style={{ padding: "5px 10px", textAlign: "left", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Phase</th>
-                  <th style={{ padding: "5px 8px", textAlign: "center", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 40 }}>Qty</th>
+                  <th style={{ padding: "5px 8px", textAlign: "center", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 40 }}>Items</th>
+                  <th style={{ padding: "5px 8px", textAlign: "center", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 50 }}>Qty</th>
                   <th style={{ padding: "5px 8px", textAlign: "right", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 80 }}>Cost</th>
                   <th style={{ padding: "5px 8px", textAlign: "right", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 80 }}>Gross</th>
                   <th style={{ padding: "5px 10px", textAlign: "right", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 80 }}>Profit</th>
@@ -245,8 +246,9 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                   const isTotal = r.label === "Total";
                   return (
                     <tr key={r.label} style={{ borderTop: isTotal ? `1px solid ${T.border}` : undefined, background: isTotal ? T.surface : "transparent" }}>
-                      <td style={{ padding: "4px 10px", fontWeight: isTotal ? 700 : 600, color: r.color, fontSize: isTotal ? 11 : 11 }}>{r.label}</td>
-                      <td style={{ padding: "4px 8px", textAlign: "center", fontFamily: mono, color: r.count > 0 ? T.text : T.faint }}>{r.count}</td>
+                      <td style={{ padding: "4px 10px", fontWeight: isTotal ? 700 : 600, color: r.color }}>{r.label}</td>
+                      <td style={{ padding: "4px 8px", textAlign: "center", fontFamily: mono, color: r.count > 0 ? T.faint : T.faint, fontSize: 10 }}>{r.count}</td>
+                      <td style={{ padding: "4px 8px", textAlign: "center", fontFamily: mono, color: r.qty > 0 ? T.text : T.faint, fontWeight: isTotal ? 700 : 400 }}>{r.qty > 0 ? r.qty.toLocaleString() : "—"}</td>
                       <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: mono, color: r.cost > 0 ? T.muted : T.faint }}>{r.cost > 0 ? fmtD(r.cost) : "—"}</td>
                       <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: mono, color: r.gross > 0 ? T.text : T.faint, fontWeight: isTotal ? 700 : 400 }}>{r.gross > 0 ? fmtD(r.gross) : "—"}</td>
                       <td style={{ padding: "4px 10px", textAlign: "right", fontFamily: mono, color: r.gross > 0 ? (p >= 0 ? T.green : T.red) : T.faint, fontWeight: isTotal ? 700 : 400 }}>{r.gross > 0 ? fmtD(p) : "—"}</td>
