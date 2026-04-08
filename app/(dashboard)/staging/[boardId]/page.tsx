@@ -43,6 +43,11 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
   const [galleryItem, setGalleryItem] = useState<any>(null);
   const [dragoverRow, setDragoverRow] = useState<string | null>(null);
   const [uploadingRow, setUploadingRow] = useState<string | null>(null);
+  const [moodExpanded, setMoodExpanded] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Record<string, any[]>>({});
+  const [msgInput, setMsgInput] = useState<Record<string, string>>({});
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const latestValues = useRef<Record<string, any>>({});
 
@@ -126,6 +131,44 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
       body: JSON.stringify({ imageId }),
     });
     setItems(prev => prev.map(it => it.id === itemId ? { ...it, images: (it.images || []).filter((img: any) => img.id !== imageId) } : it));
+  }
+
+  async function loadMessages(itemId: string) {
+    const res = await fetch(`/api/staging/boards/${params.boardId}/items/${itemId}/messages`);
+    const data = await res.json();
+    if (Array.isArray(data)) setMessages(prev => ({ ...prev, [itemId]: data }));
+  }
+
+  async function sendMessage(itemId: string) {
+    const text = msgInput[itemId]?.trim();
+    if (!text) return;
+    const res = await fetch(`/api/staging/boards/${params.boardId}/items/${itemId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    const msg = await res.json();
+    if (msg.id) {
+      setMessages(prev => ({ ...prev, [itemId]: [...(prev[itemId] || []), msg] }));
+      setMsgInput(prev => ({ ...prev, [itemId]: "" }));
+    }
+  }
+
+  function handleMoodDrop(fromIdx: number, toIdx: number) {
+    if (fromIdx === toIdx) return;
+    const pending = items.filter(it => it.status !== "In Production" && it.status !== "LANDED");
+    const reordered = [...pending];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    // Update sort_order for all reordered items
+    const updates = reordered.map((it, i) => ({ ...it, sort_order: i }));
+    setItems(prev => {
+      const nonPending = prev.filter(it => it.status === "In Production" || it.status === "LANDED");
+      return [...updates, ...nonPending];
+    });
+    for (const it of updates) {
+      saveItem(it.id, { sort_order: it.sort_order });
+    }
   }
 
   function handleRowDrop(e: React.DragEvent, itemId: string) {
@@ -305,8 +348,237 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
         })}
       </div>
 
-      {/* Items — cards on mobile, table on desktop */}
-      {isMobile ? (
+      {/* ── Mood Board (Pending tab) ── */}
+      {activeTab === "items" && (() => {
+        const pending = sortedItems;
+        return (
+          <div>
+            {/* Tile grid */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)",
+              gap: 12,
+            }}>
+              {pending.map((item, idx) => {
+                const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
+                const isOpen = moodExpanded === item.id;
+                const imgUrl = item.images?.[0]?.url;
+                const msgCount = messages[item.id]?.length || 0;
+
+                return (
+                  <div key={item.id}
+                    draggable
+                    onDragStart={() => setDragIdx(idx)}
+                    onDragOver={e => { e.preventDefault(); setDragOverIdx(idx); }}
+                    onDragEnd={() => { if (dragIdx !== null && dragOverIdx !== null) handleMoodDrop(dragIdx, dragOverIdx); setDragIdx(null); setDragOverIdx(null); }}
+                    style={{
+                      background: T.card,
+                      border: `1px solid ${dragOverIdx === idx ? T.accent : T.border}`,
+                      borderRadius: 10,
+                      overflow: "hidden",
+                      cursor: "grab",
+                      opacity: dragIdx === idx ? 0.5 : 1,
+                      transition: "border-color 0.15s, opacity 0.15s",
+                    }}>
+                    {/* Image area */}
+                    <div
+                      onClick={() => {
+                        setMoodExpanded(isOpen ? null : item.id);
+                        if (!isOpen && !messages[item.id]) loadMessages(item.id);
+                      }}
+                      onDragOver={e => { e.preventDefault(); setDragoverRow(item.id); }}
+                      onDragLeave={() => setDragoverRow(null)}
+                      onDrop={e => { e.preventDefault(); e.stopPropagation(); setDragoverRow(null); const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/")); if (files.length) { for (const file of files) uploadImage(item.id, file); e.stopPropagation(); setDragIdx(null); setDragOverIdx(null); } }}
+                      style={{
+                        width: "100%",
+                        aspectRatio: "1",
+                        background: T.surface,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        position: "relative",
+                        overflow: "hidden",
+                      }}>
+                      {imgUrl ? (
+                        <img src={imgUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                      ) : (
+                        <div style={{ textAlign: "center", color: T.faint, fontSize: 11 }}>
+                          {uploadingRow === item.id ? "Uploading..." : "Drop image"}
+                        </div>
+                      )}
+                      {item.images?.length > 1 && (
+                        <span style={{ position: "absolute", top: 6, right: 6, fontSize: 9, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: 4, padding: "1px 5px" }}>+{item.images.length - 1}</span>
+                      )}
+                      {msgCount > 0 && (
+                        <span style={{ position: "absolute", bottom: 6, right: 6, fontSize: 9, background: T.accent, color: "#fff", borderRadius: 4, padding: "1px 5px", fontWeight: 700 }}>{msgCount}</span>
+                      )}
+                      <span style={{ position: "absolute", top: 6, left: 6, padding: "1px 6px", borderRadius: 99, fontSize: 8, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
+                    </div>
+                    {/* Name + qty */}
+                    <div style={{ padding: "8px 10px" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "Untitled"}</div>
+                      <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
+                        {item.qty ? `${item.qty} qty` : ""}
+                        {item.retail ? ` · ${fmtD(item.qty * parseFloat(item.retail))}` : ""}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Add tile */}
+              <div
+                onClick={addItem}
+                style={{
+                  background: "transparent",
+                  border: `1px dashed ${T.border}`,
+                  borderRadius: 10,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  minHeight: isMobile ? 150 : 200,
+                  color: T.faint,
+                  fontSize: 13,
+                  fontFamily: font,
+                }}
+                onMouseEnter={e => (e.currentTarget.style.color = T.accent)}
+                onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>
+                + Add Item
+              </div>
+            </div>
+
+            {/* Expanded detail panel */}
+            {moodExpanded && (() => {
+              const item = items.find(it => it.id === moodExpanded);
+              if (!item) return null;
+              const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
+              const itemMsgs = messages[item.id] || [];
+
+              return (
+                <div style={{
+                  marginTop: 16, background: T.card, border: `1px solid ${T.border}`,
+                  borderRadius: 12, overflow: "hidden",
+                }}>
+                  <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row" }}>
+                    {/* Images */}
+                    <div style={{ width: isMobile ? "100%" : 320, flexShrink: 0, background: T.surface, padding: 12 }}>
+                      {item.images?.length > 0 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          <img src={item.images[0].url} alt="" style={{ width: "100%", borderRadius: 8, cursor: "pointer" }}
+                            onClick={() => setGalleryItem(item)} />
+                          {item.images.length > 1 && (
+                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                              {item.images.slice(1).map((img: any) => (
+                                <img key={img.id} src={img.url} alt="" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 6, cursor: "pointer", border: `1px solid ${T.border}` }}
+                                  onClick={() => setGalleryItem(item)} />
+                              ))}
+                            </div>
+                          )}
+                          <label style={{ display: "inline-block", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 10, color: T.muted, cursor: "pointer", fontFamily: font, textAlign: "center" }}>
+                            + Upload
+                            <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => {
+                              for (const file of Array.from(e.target.files || [])) uploadImage(item.id, file);
+                            }} />
+                          </label>
+                        </div>
+                      ) : (
+                        <label style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, borderRadius: 8, border: `1px dashed ${T.border}`, cursor: "pointer", color: T.faint, fontSize: 12, fontFamily: font }}>
+                          Drop or click to upload
+                          <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => {
+                            for (const file of Array.from(e.target.files || [])) uploadImage(item.id, file);
+                          }} />
+                        </label>
+                      )}
+                    </div>
+
+                    {/* Details + Messages */}
+                    <div style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+                      {/* Header */}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <input value={item.item_name || ""} onChange={e => updateItemLocal(item.id, "item_name", e.target.value)}
+                          style={{ fontSize: 16, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: font, flex: 1, padding: 0 }} />
+                        <button onClick={() => setMoodExpanded(null)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+                      </div>
+
+                      {/* Fields */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>QTY</label>
+                          <input type="text" inputMode="numeric" value={item.qty ?? ""} onChange={e => updateItemLocal(item.id, "qty", parseInt(e.target.value) || null)} onFocus={e => e.target.select()} style={{ ...ic, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Unit Cost</label>
+                          <input type="text" inputMode="decimal" value={item.unit_cost ?? ""} onChange={e => updateItemLocal(item.id, "unit_cost", e.target.value)} onBlur={e => updateItemLocal(item.id, "unit_cost", parseFloat(e.target.value) || null)} onFocus={e => e.target.select()} style={{ ...ic, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Retail</label>
+                          <input type="text" inputMode="decimal" value={item.retail ?? ""} onChange={e => updateItemLocal(item.id, "retail", e.target.value)} onBlur={e => updateItemLocal(item.id, "retail", parseFloat(e.target.value) || null)} onFocus={e => e.target.select()} style={{ ...ic, width: "100%" }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Status</label>
+                          <select value={item.status || "Pending"} onChange={e => updateItemLocal(item.id, "status", e.target.value)}
+                            style={{ width: "100%", padding: "5px 8px", borderRadius: 4, border: `1px solid ${sc.bg}`, background: sc.bg, color: sc.text, fontSize: 11, fontWeight: 600, outline: "none", cursor: "pointer", fontFamily: font }}>
+                            {["Pending", "Approved", "Changes Requested", "Rejected", "In Production", "LANDED", "On Hold", "Locating a Source", "Reference Sample Sent to Factory", "NEED REVISIONS - SWATCHES WORKING", "Done - Awaiting Shipping"].map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Notes</label>
+                        <input value={item.notes || ""} onChange={e => updateItemLocal(item.id, "notes", e.target.value)}
+                          style={{ ...ic, width: "100%", fontFamily: font }} />
+                      </div>
+
+                      {/* Messages thread */}
+                      <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 10, marginTop: 4, flex: 1, display: "flex", flexDirection: "column" }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Messages</div>
+                        <div style={{ flex: 1, maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                          {itemMsgs.length === 0 && <div style={{ fontSize: 11, color: T.faint }}>No messages yet</div>}
+                          {itemMsgs.map((msg: any) => (
+                            <div key={msg.id} style={{
+                              padding: "5px 8px", borderRadius: 6, fontSize: 11,
+                              background: msg.sender_type === "client" ? T.accentDim : T.surface,
+                              alignSelf: msg.sender_type === "client" ? "flex-start" : "flex-end",
+                              maxWidth: "85%",
+                            }}>
+                              <div style={{ fontSize: 9, color: T.muted, marginBottom: 1 }}>
+                                {msg.sender_name || (msg.sender_type === "client" ? "Client" : "HPD")}
+                                <span style={{ marginLeft: 6, fontSize: 8, color: T.faint }}>{new Date(msg.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                              </div>
+                              <div style={{ color: T.text }}>{msg.message}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input value={msgInput[item.id] || ""} onChange={e => setMsgInput(prev => ({ ...prev, [item.id]: e.target.value }))}
+                            onKeyDown={e => { if (e.key === "Enter") sendMessage(item.id); }}
+                            placeholder="Type a message..."
+                            style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font }} />
+                          <button onClick={() => sendMessage(item.id)}
+                            style={{ padding: "6px 14px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                            Send
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Delete */}
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <button onClick={() => setDeleteItem(item)} style={{ fontSize: 10, color: T.red, background: "none", border: "none", cursor: "pointer", fontFamily: font }}>Delete Item</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
+
+      {/* Items — table/cards (In Production + Landed tabs) */}
+      {activeTab !== "items" && (isMobile ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {sortedItems.map((item, idx) => {
             const qty = item.qty || 0;
@@ -562,7 +834,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
           </button>
         </div>
       </div>
-      )}
+      ))}
 
       {/* Delete confirm */}
       <ConfirmDialog

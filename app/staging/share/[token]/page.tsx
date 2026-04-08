@@ -29,6 +29,10 @@ export default function SharePage({ params }: { params: { token: string } }) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [isMobile, setIsMobile] = useState(false);
+  const [moodExpanded, setMoodExpanded] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Record<string, any[]>>({});
+  const [msgInput, setMsgInput] = useState<Record<string, string>>({});
+  const [clientName, setClientName] = useState("");
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
     check();
@@ -55,6 +59,29 @@ export default function SharePage({ params }: { params: { token: string } }) {
       setError("Something went wrong");
     }
     setLoading(false);
+  }
+
+  async function loadMessages(itemId: string) {
+    if (!board) return;
+    const res = await fetch(`/api/staging/boards/${board.id}/items/${itemId}/messages?share=${params.token}`);
+    const data = await res.json();
+    if (Array.isArray(data)) setMessages(prev => ({ ...prev, [itemId]: data }));
+  }
+
+  async function sendMessage(itemId: string) {
+    if (!board) return;
+    const text = msgInput[itemId]?.trim();
+    if (!text) return;
+    const res = await fetch(`/api/staging/boards/${board.id}/items/${itemId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, share_token: params.token, sender_name: clientName || "Client" }),
+    });
+    const msg = await res.json();
+    if (msg.id) {
+      setMessages(prev => ({ ...prev, [itemId]: [...(prev[itemId] || []), msg] }));
+      setMsgInput(prev => ({ ...prev, [itemId]: "" }));
+    }
   }
 
   // Password screen
@@ -133,6 +160,146 @@ export default function SharePage({ params }: { params: { token: string } }) {
             <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{board.client_name}</div>
           </div>
         </div>
+
+        {/* ── Mood Board ── */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)",
+          gap: 12, marginBottom: 24,
+        }}>
+          {items.map((item: any) => {
+            const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
+            const imgUrl = item.images?.[0]?.url;
+            const isOpen = moodExpanded === item.id;
+            const msgCount = messages[item.id]?.length || 0;
+
+            return (
+              <div key={item.id}
+                onClick={() => {
+                  setMoodExpanded(isOpen ? null : item.id);
+                  if (!isOpen && !messages[item.id]) loadMessages(item.id);
+                }}
+                style={{
+                  background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
+                  overflow: "hidden", cursor: "pointer",
+                }}>
+                <div style={{
+                  width: "100%", aspectRatio: "1", background: T.surface,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  position: "relative", overflow: "hidden",
+                }}>
+                  {imgUrl ? (
+                    <img src={imgUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  ) : (
+                    <span style={{ color: T.faint, fontSize: 11 }}>No image</span>
+                  )}
+                  {item.images?.length > 1 && (
+                    <span style={{ position: "absolute", top: 6, right: 6, fontSize: 9, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: 4, padding: "1px 5px" }}>+{item.images.length - 1}</span>
+                  )}
+                  {msgCount > 0 && (
+                    <span style={{ position: "absolute", bottom: 6, right: 6, fontSize: 9, background: T.accent, color: "#fff", borderRadius: 4, padding: "1px 5px", fontWeight: 700 }}>{msgCount}</span>
+                  )}
+                  <span style={{ position: "absolute", top: 6, left: 6, padding: "1px 6px", borderRadius: 99, fontSize: 8, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
+                </div>
+                <div style={{ padding: "8px 10px" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "Untitled"}</div>
+                  {item.notes && <div style={{ fontSize: 10, color: T.muted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.notes}</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── Expanded Detail Panel ── */}
+        {moodExpanded && (() => {
+          const item = items.find((it: any) => it.id === moodExpanded);
+          if (!item) return null;
+          const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
+          const itemMsgs = messages[item.id] || [];
+
+          return (
+            <div style={{
+              marginBottom: 24, background: T.card, border: `1px solid ${T.border}`,
+              borderRadius: 12, overflow: "hidden",
+            }}>
+              <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row" }}>
+                {/* Images */}
+                <div style={{ width: isMobile ? "100%" : 320, flexShrink: 0, background: T.surface, padding: 12 }}>
+                  {item.images?.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <img src={item.images[0].url} alt="" style={{ width: "100%", borderRadius: 8 }}
+                        onClick={() => setGalleryItem(item)} />
+                      {item.images.length > 1 && (
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                          {item.images.slice(1).map((img: any) => (
+                            <img key={img.id} src={img.url} alt="" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 6, cursor: "pointer", border: `1px solid ${T.border}` }}
+                              onClick={() => setGalleryItem(item)} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 12 }}>No images</div>
+                  )}
+                </div>
+
+                {/* Details + Messages */}
+                <div style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 700 }}>{item.item_name || "Untitled"}</div>
+                      <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                        {item.qty ? `${item.qty} qty` : ""}
+                        <span style={{ marginLeft: 8, padding: "1px 6px", borderRadius: 99, fontSize: 9, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
+                      </div>
+                    </div>
+                    <button onClick={() => setMoodExpanded(null)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 16 }}>×</button>
+                  </div>
+
+                  {item.notes && <div style={{ fontSize: 12, color: T.muted, padding: "6px 8px", background: T.surface, borderRadius: 6 }}>{item.notes}</div>}
+
+                  {/* Messages thread */}
+                  <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 10, flex: 1, display: "flex", flexDirection: "column" }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Messages</div>
+                    <div style={{ flex: 1, maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                      {itemMsgs.length === 0 && <div style={{ fontSize: 11, color: T.faint }}>No messages yet</div>}
+                      {itemMsgs.map((msg: any) => (
+                        <div key={msg.id} style={{
+                          padding: "5px 8px", borderRadius: 6, fontSize: 11,
+                          background: msg.sender_type === "client" ? T.accentDim : T.surface,
+                          alignSelf: msg.sender_type === "client" ? "flex-end" : "flex-start",
+                          maxWidth: "85%",
+                        }}>
+                          <div style={{ fontSize: 9, color: T.muted, marginBottom: 1 }}>
+                            {msg.sender_name || (msg.sender_type === "client" ? "Client" : "HPD")}
+                            <span style={{ marginLeft: 6, fontSize: 8, color: T.faint }}>{new Date(msg.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                          </div>
+                          <div style={{ color: T.text }}>{msg.message}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Client name + input */}
+                    {!clientName && (
+                      <input value={clientName} onChange={e => setClientName(e.target.value)}
+                        placeholder="Your name"
+                        style={{ padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, marginBottom: 6 }} />
+                    )}
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input value={msgInput[item.id] || ""} onChange={e => setMsgInput(prev => ({ ...prev, [item.id]: e.target.value }))}
+                        onKeyDown={e => { if (e.key === "Enter") sendMessage(item.id); }}
+                        placeholder="Type a message..."
+                        style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font }} />
+                      <button onClick={() => sendMessage(item.id)}
+                        style={{ padding: "6px 14px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                        Send
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Summary */}
         <div style={{ display: "flex", gap: 10, marginBottom: 20, flexDirection: isMobile ? "column" : "row" }}>
