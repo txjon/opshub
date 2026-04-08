@@ -1,11 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdmin } from "@supabase/supabase-js";
+
+const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 export async function POST(req: NextRequest, { params }: { params: { boardId: string; itemId: string } }) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Allow share token auth for client uploads
+    const shareToken = req.nextUrl.searchParams.get("share");
+    let supabase: any;
+
+    if (shareToken) {
+      const sb = admin();
+      const { data: board } = await sb.from("staging_boards").select("id").eq("id", params.boardId).eq("share_token", shareToken).single();
+      if (!board) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      supabase = sb;
+    } else {
+      supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const formData = await req.formData();
     const file = formData.get("file") as File;

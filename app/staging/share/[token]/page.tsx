@@ -313,7 +313,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
                 <div style={{ width: isMobile ? "100%" : 320, flexShrink: 0, background: T.surface, padding: 12 }}>
                   {item.images?.length > 0 ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      <img src={item.images[0].url} alt="" style={{ width: "100%", borderRadius: 8 }}
+                      <img src={item.images[0].url} alt="" style={{ width: "100%", borderRadius: 8, cursor: "pointer" }}
                         onClick={() => setGalleryItem(item)} />
                       {item.images.length > 1 && (
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -323,9 +323,36 @@ export default function SharePage({ params }: { params: { token: string } }) {
                           ))}
                         </div>
                       )}
+                      <label style={{ display: "inline-block", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 10px", fontSize: 10, color: T.muted, cursor: "pointer", fontFamily: font, textAlign: "center" }}>
+                        + Upload Photo
+                        <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={async e => {
+                          for (const file of Array.from(e.target.files || [])) {
+                            const formData = new FormData();
+                            formData.append("file", file);
+                            const res = await fetch(`/api/staging/boards/${board.id}/items/${item.id}/images?share=${params.token}`, { method: "POST", body: formData });
+                            const img = await res.json();
+                            if (img.id) {
+                              setBoard((b: any) => ({ ...b, items: b.items.map((it: any) => it.id === item.id ? { ...it, images: [...(it.images || []), img] } : it) }));
+                            }
+                          }
+                        }} />
+                      </label>
                     </div>
                   ) : (
-                    <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 12 }}>No images</div>
+                    <label style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, borderRadius: 8, border: `1px dashed ${T.border}`, cursor: "pointer", color: T.faint, fontSize: 12, fontFamily: font, flexDirection: "column", gap: 4 }}>
+                      Drop or click to upload
+                      <input type="file" accept="image/*" multiple style={{ display: "none" }} onChange={async e => {
+                        for (const file of Array.from(e.target.files || [])) {
+                          const formData = new FormData();
+                          formData.append("file", file);
+                          const res = await fetch(`/api/staging/boards/${board.id}/items/${item.id}/images?share=${params.token}`, { method: "POST", body: formData });
+                          const img = await res.json();
+                          if (img.id) {
+                            setBoard((b: any) => ({ ...b, items: b.items.map((it: any) => it.id === item.id ? { ...it, images: [...(it.images || []), img] } : it) }));
+                          }
+                        }
+                      }} />
+                    </label>
                   )}
                 </div>
 
@@ -335,11 +362,25 @@ export default function SharePage({ params }: { params: { token: string } }) {
                     <div>
                       <div style={{ fontSize: 16, fontWeight: 700 }}>{item.item_name || "Untitled"}</div>
                       <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                        {item.qty ? `${item.qty} qty` : ""}
-                        <span style={{ marginLeft: 8, padding: "1px 6px", borderRadius: 99, fontSize: 9, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
+                        <span style={{ padding: "1px 6px", borderRadius: 99, fontSize: 9, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
                       </div>
                     </div>
-                    <button onClick={() => setMoodExpanded(null)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 16 }}>×</button>
+                    <button onClick={() => setMoodExpanded(null)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 18 }}>×</button>
+                  </div>
+
+                  {/* Read-only pricing details */}
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
+                    {[
+                      { label: "QTY", value: item.qty ? item.qty.toLocaleString() : "—" },
+                      { label: "Unit Cost", value: item.unit_cost ? fmtD(parseFloat(item.unit_cost)) : "—" },
+                      { label: "Retail", value: item.retail ? fmtD(parseFloat(item.retail)) : "—" },
+                      { label: "Total", value: item.qty && item.retail ? fmtD(item.qty * parseFloat(item.retail)) : "—", bold: true },
+                    ].map(f => (
+                      <div key={f.label} style={{ background: T.surface, padding: "6px 8px", borderRadius: 6 }}>
+                        <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>{f.label}</div>
+                        <div style={{ fontSize: 13, fontWeight: (f as any).bold ? 700 : 600, color: T.text, fontFamily: mono }}>{f.value}</div>
+                      </div>
+                    ))}
                   </div>
 
                   {item.notes && <div style={{ fontSize: 12, color: T.muted, padding: "6px 8px", background: T.surface, borderRadius: 6 }}>{item.notes}</div>}
