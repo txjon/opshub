@@ -213,19 +213,45 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
 
   return (
     <div style={{ fontFamily: font, color: T.text }}>
-      {/* Summary bar */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexDirection: isMobile ? "column" : "row" }}>
-        {[
-          { label: "Total Cost", value: fmtD(totals.cost), color: T.text },
-          { label: "Total Retail", value: fmtD(totals.gross), color: T.accent },
-          { label: "Total Profit", value: fmtD(profit), color: profit >= 0 ? T.green : T.red },
-        ].map(s => (
-          <div key={s.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: isMobile ? "8px 12px" : "10px 16px", flex: 1, display: isMobile ? "flex" : "block", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
-            <div style={{ fontSize: isMobile ? 15 : 18, fontWeight: 700, color: s.color, fontFamily: mono }}>{s.value}</div>
+      {/* Summary bar — 4 KPI groups */}
+      {(() => {
+        const calcTotals = (list: any[]) => list.reduce((acc, it) => {
+          const qty = it.qty || 0;
+          const cost = qty * (parseFloat(it.unit_cost) || 0);
+          const gross = qty * (parseFloat(it.retail) || 0);
+          return { cost: acc.cost + cost, gross: acc.gross + gross, count: acc.count + 1 };
+        }, { cost: 0, gross: 0, count: 0 });
+        const allT = calcTotals(items);
+        const pendingT = calcTotals(items.filter(it => it.status !== "In Production" && it.status !== "LANDED"));
+        const prodT = calcTotals(items.filter(it => it.status === "In Production"));
+        const landedT = calcTotals(items.filter(it => it.status === "LANDED"));
+        const groups = [
+          { label: "Total", t: allT, accent: T.text },
+          { label: "Pending", t: pendingT, accent: T.amber },
+          { label: "In Production", t: prodT, accent: T.accent },
+          { label: "Landed", t: landedT, accent: T.green },
+        ];
+        return (
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+            {groups.map(g => {
+              const p = g.t.gross - g.t.cost;
+              return (
+                <div key={g.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>{g.label}</span>
+                    <span style={{ fontSize: 10, color: g.accent, fontWeight: 700 }}>{g.t.count}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, fontSize: 12, fontFamily: mono }}>
+                    <span style={{ color: T.muted }}>{fmtD(g.t.cost)}</span>
+                    <span style={{ color: g.accent, fontWeight: 700 }}>{fmtD(g.t.gross)}</span>
+                    <span style={{ color: p >= 0 ? T.green : T.red }}>{fmtD(p)}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+        );
+      })()}
 
       {/* Toolbar */}
       <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 12, marginBottom: 16, flexWrap: "wrap" }}>
@@ -433,16 +459,15 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                     </div>
                   </td>
                   {/* Name + expanded edit area */}
-                  <td style={{ padding: "8px 10px", verticalAlign: "top" }} colSpan={isExpanded ? 6 : 1} onClick={e => { if (isExpanded) e.stopPropagation(); }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <td style={{ padding: "8px 10px", verticalAlign: "top" }} colSpan={isExpanded ? (activeTab !== "items" ? 8 : 6) : 1}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }} onClick={() => setExpandedRow(isExpanded ? null : item.id)}>
                       <input value={item.item_name || ""} onChange={e => updateItemLocal(item.id, "item_name", e.target.value)}
                         onClick={e => e.stopPropagation()}
                         style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontWeight: 600, fontFamily: font, flex: 1, padding: 0 }} />
-                      {isExpanded && <button onClick={() => setExpandedRow(null)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, flexShrink: 0, fontFamily: font }}
-                        onMouseEnter={e => (e.currentTarget.style.color = T.accent)} onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>▲ Close</button>}
+                      {isExpanded && <span style={{ fontSize: 10, color: T.faint, flexShrink: 0 }}>▲ Click to close</span>}
                     </div>
                     {isExpanded && (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
+                      <div onClick={e => e.stopPropagation()} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
                         <div>
                           <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>QTY</label>
                           <input type="text" inputMode="numeric" value={item.qty ?? ""} onChange={e => updateItemLocal(item.id, "qty", parseInt(e.target.value) || null)} onFocus={e => e.target.select()} onClick={e => e.stopPropagation()} style={{ ...ic, width: "100%" }} />
