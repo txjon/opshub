@@ -477,7 +477,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       ship_to_address: (job.type_meta as any)?.po_ship_to?.[vendorName]
         || ((job as any).shipping_route === "drop_ship"
           ? (job.type_meta as any)?.venue_address || ""
-          : "House Party Distro\n4670 W Silverado Ranch Blvd. STE 120\nLas Vegas, NV 89118"),
+          : "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89139"),
       items: vendorItems,
     };
 
