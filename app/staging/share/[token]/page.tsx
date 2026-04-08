@@ -324,14 +324,22 @@ export default function SharePage({ params }: { params: { token: string } }) {
                     )}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "—"}</div>
-                      <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 11, alignItems: "center", flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 11, alignItems: "center" }}>
                         <span style={{ color: T.muted, fontFamily: mono }}>{qty || "—"} qty</span>
                         {gross > 0 && <span style={{ color: T.accent, fontFamily: mono }}>{fmtD(gross)}</span>}
                         {gross > 0 && <span style={{ color: itemProfit >= 0 ? T.green : T.red, fontFamily: mono }}>{fmtD(itemProfit)}</span>}
-                        {etaDays !== null && (
-                          <span style={{ color: etaColor, fontWeight: 600 }}>{etaDays < 0 ? `${Math.abs(etaDays)}d late` : etaDays === 0 ? "Today" : `${etaDays}d`}</span>
-                        )}
-                        {item.payment_received && <span style={{ color: T.green, fontSize: 10, fontWeight: 600 }}>Paid</span>}
+                      </div>
+                      {/* ETA + Paid row */}
+                      <div style={{ display: "flex", gap: 10, marginTop: 4, alignItems: "center" }}>
+                        {item.eta ? (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <span style={{ fontSize: 11, color: T.muted }}>{new Date(item.eta + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: etaColor }}>{etaDays! < 0 ? `${Math.abs(etaDays!)}d late` : etaDays === 0 ? "Today" : `${etaDays}d`}</span>
+                          </div>
+                        ) : <span style={{ fontSize: 10, color: T.faint }}>No ETA</span>}
+                        {item.payment_received
+                          ? <span style={{ padding: "1px 8px", borderRadius: 99, fontSize: 10, fontWeight: 700, background: T.greenDim, color: T.green }}>Paid</span>
+                          : <span style={{ padding: "1px 8px", borderRadius: 99, fontSize: 10, fontWeight: 600, background: T.surface, color: T.faint }}>Unpaid</span>}
                       </div>
                     </div>
                     <span style={{ padding: "2px 6px", borderRadius: 99, fontSize: 9, fontWeight: 600, background: sc.bg, color: sc.text, flexShrink: 0 }}>{item.status || "Pending"}</span>
