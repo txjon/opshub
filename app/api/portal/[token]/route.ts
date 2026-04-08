@@ -181,7 +181,7 @@ export async function GET(
           fileName: f.file_name,
           stage: f.stage,
           // If item is manually marked approved, treat all its files as approved
-          approval: manualApproved ? "approved" : (f.stage === "mockup" && f.approval === "none" ? "approved" : f.approval),
+          approval: manualApproved ? "approved" : (f.approval || "none"),
           approvedAt: f.approved_at || null,
           driveLink: f.drive_link,
           driveFileId: f.drive_file_id,

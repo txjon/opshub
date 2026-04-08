@@ -141,9 +141,10 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const totalPaid = payments.filter(p => p.status === "paid").reduce((s, p) => s + p.amount, 0);
   const balance = (quote.total || 0) - totalPaid;
   const hasQuote = quote.items.length > 0;
-  const hasProofs = items.some(i => i.proofs.length > 0);
-  const allProofsApproved = hasProofs && items.every(i => i.proofs.length === 0 || i.proofs.every(p => p.approval === "approved"));
-  const pendingProofCount = items.reduce((s, i) => s + i.proofs.filter(p => p.approval === "pending").length, 0);
+  const actualProofs = items.flatMap(i => i.proofs.filter(p => p.stage === "proof"));
+  const hasProofs = actualProofs.length > 0;
+  const allProofsApproved = hasProofs && actualProofs.every(p => p.approval === "approved");
+  const pendingProofCount = actualProofs.filter(p => p.approval === "pending").length;
   const hasPayments = payments.length > 0 || paymentLink;
 
   // Figure out which phase step we're at
