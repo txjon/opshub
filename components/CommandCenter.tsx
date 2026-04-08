@@ -34,6 +34,7 @@ export function CommandCenter({ alerts, stats }: {
   const [invoiceInput, setInvoiceInput] = useState("");
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [noContactWarn, setNoContactWarn] = useState<{ href: string; label: string } | null>(null);
 
   useEffect(() => { if (window.innerWidth < 768) setIsMobile(true); }, []);
 
@@ -41,7 +42,7 @@ export function CommandCenter({ alerts, stats }: {
   const prodAlerts = alerts.filter(a => a.column === "production");
 
   function handleAction(alert: Alert) {
-    // Inline modal actions
+    // Invoice modal
     if (alert.type === "create_invoice") {
       setInvoiceModal({
         jobId: alert.jobId,
@@ -52,7 +53,13 @@ export function CommandCenter({ alerts, stats }: {
       setInvoiceInput(alert.invoiceNumber || "");
       return;
     }
-    if (alert.type === "send_quote" && alert.contacts?.length) {
+
+    // Email actions — check contacts first
+    if (alert.type === "send_quote") {
+      if (!alert.contacts?.length) {
+        setNoContactWarn({ href: `/jobs/${alert.jobId}?tab=quote`, label: "send this quote" });
+        return;
+      }
       setEmailModal({
         type: "quote",
         jobId: alert.jobId,
@@ -61,7 +68,11 @@ export function CommandCenter({ alerts, stats }: {
       });
       return;
     }
-    if (alert.type === "send_invoice" && alert.contacts?.length) {
+    if (alert.type === "send_invoice") {
+      if (!alert.contacts?.length) {
+        setNoContactWarn({ href: `/jobs/${alert.jobId}?tab=payment`, label: "send this invoice" });
+        return;
+      }
       setEmailModal({
         type: "invoice",
         jobId: alert.jobId,
@@ -70,16 +81,8 @@ export function CommandCenter({ alerts, stats }: {
       });
       return;
     }
-    if (alert.type === "send_proofs" && alert.contacts?.length) {
-      setEmailModal({
-        type: "proof_link",
-        jobId: alert.jobId,
-        contacts: alert.contacts,
-        subject: `Proofs Ready for Approval — ${alert.clientName} · ${alert.jobTitle}`,
-      });
-      return;
-    }
-    // Navigate for complex actions
+
+    // Navigate for everything else (upload_proofs, proofs_pending, revision, overdue, production alerts)
     window.location.href = alert.href;
   }
 
@@ -271,6 +274,30 @@ export function CommandCenter({ alerts, stats }: {
               onClose={() => setEmailModal(null)}
               onSent={() => { setEmailModal(null); window.location.reload(); }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ── No Contacts Warning ── */}
+      {noContactWarn && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
+          onClick={e => { if (e.target === e.currentTarget) setNoContactWarn(null); }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: 380, maxWidth: "95vw", textAlign: "center" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>!</div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Add an email address</div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 20, lineHeight: 1.5 }}>
+              This project has no email contacts. Add one to {noContactWarn.label}.
+            </div>
+            <button
+              onClick={() => { window.location.href = noContactWarn.href; }}
+              style={{ width: "100%", padding: "10px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              Go to project
+            </button>
+            <button onClick={() => setNoContactWarn(null)}
+              style={{ marginTop: 8, width: "100%", padding: "8px", borderRadius: 8, background: "transparent", border: `1px solid ${T.border}`, color: T.muted, fontSize: 12, cursor: "pointer" }}>
+              Cancel
+            </button>
           </div>
         </div>
       )}

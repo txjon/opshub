@@ -98,8 +98,10 @@ export default async function DashboardPage() {
       }
     }
 
-    // Quote not approved yet (intake phase with items)
-    if (j.phase === "intake" && !quoteApproved && items.length > 0) {
+    // Quote not approved yet (intake phase, items exist, costing done)
+    const costingSummary = (j as any).costing_summary || {};
+    const costingSet = (costingSummary.grossRev || 0) > 0;
+    if (j.phase === "intake" && !quoteApproved && items.length > 0 && costingSet) {
       alerts.push({ ...base, priority: 2, type: "send_quote", label: "QUOTE", bg: T.purpleDim, color: T.purple, action: "Send quote to client", href: `/jobs/${j.id}?tab=quote`, column: "sales" });
     }
 
@@ -108,10 +110,15 @@ export default async function DashboardPage() {
       alerts.push({ ...base, priority: 1, type: "create_invoice", label: "INVOICE", bg: T.amberDim, color: T.amber, action: "Create invoice", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
     }
 
-    // Invoice exists but not sent (no payment records yet, phase is pending)
-    if (quoteApproved && invoiceNum && payments.length === 0 && j.phase === "pending") {
+    // Invoice exists but not sent
+    if (quoteApproved && invoiceNum && payments.length === 0) {
       const terms = j.payment_terms || "";
-      if (terms !== "net_15" && terms !== "net_30") {
+      const isNet = terms === "net_15" || terms === "net_30";
+      if (isNet) {
+        // Net terms: still remind to send, but lower priority (doesn't gate production)
+        alerts.push({ ...base, priority: 2, type: "send_invoice", label: "SEND", bg: T.purpleDim, color: T.purple, action: "Send invoice to client", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+      } else if (j.phase === "pending") {
+        // Prepaid/deposit: high priority, gates production
         alerts.push({ ...base, priority: 1, type: "send_invoice", label: "SEND", bg: T.amberDim, color: T.amber, action: "Send invoice to client", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
       }
     }
@@ -126,7 +133,7 @@ export default async function DashboardPage() {
       if (hasPending) {
         alerts.push({ ...base, priority: 2, type: "proofs_pending", label: "PROOFS", bg: T.purpleDim, color: T.purple, action: "Waiting on client approval", href: `/jobs/${j.id}?tab=approvals`, column: "sales" });
       } else if (hasNoProofs && quoteApproved) {
-        alerts.push({ ...base, priority: 2, type: "send_proofs", label: "PROOFS", bg: T.purpleDim, color: T.purple, action: "Send proofs to client", href: `/jobs/${j.id}?tab=approvals`, column: "sales" });
+        alerts.push({ ...base, priority: 2, type: "upload_proofs", label: "PROOFS", bg: T.purpleDim, color: T.purple, action: "Upload proofs", href: `/jobs/${j.id}?tab=art`, column: "sales" });
       }
     }
 

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsHub — Sales Alert Flowchart</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0f1219;
+    color: #c9d1e0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding: 32px;
+  }
+  h1 { font-size: 22px; font-weight: 700; color: #e2e8f0; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #8a92b0; margin-bottom: 24px; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 28px;
+    padding: 16px 20px; background: #141926; border: 1px solid #313a56;
+    border-radius: 10px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0;
+  }
+  .legend-label { font-weight: 600; }
+  .legend-desc { color: #8a92b0; }
+  .mermaid {
+    background: #141926; border: 1px solid #313a56; border-radius: 12px;
+    padding: 32px; overflow-x: auto;
+  }
+  .section { margin-top: 32px; }
+  .section-title { font-size: 15px; font-weight: 700; color: #e2e8f0; margin-bottom: 12px; }
+  .fixed-list {
+    background: #0f2a1a; border: 1px solid #166534; border-radius: 10px;
+    padding: 20px; margin-top: 20px;
+  }
+  .fixed-list h3 { font-size: 14px; font-weight: 700; color: #34d399; margin-bottom: 12px; }
+  .fix-item {
+    padding: 10px 0; border-bottom: 1px solid #1a3d2a; font-size: 13px; line-height: 1.5;
+  }
+  .fix-item:last-child { border-bottom: none; }
+  .fix-num { color: #34d399; font-weight: 700; margin-right: 6px; }
+  .fix-title { color: #6ee7b7; font-weight: 600; }
+  .fix-desc { color: #a0d4c0; margin-top: 4px; }
+  .action-table {
+    width: 100%; border-collapse: collapse; margin-top: 20px;
+    background: #141926; border: 1px solid #313a56; border-radius: 10px;
+    overflow: hidden;
+  }
+  .action-table th {
+    background: #1a1f2e; text-align: left; padding: 10px 14px;
+    font-size: 11px; font-weight: 700; color: #8a92b0;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    border-bottom: 1px solid #313a56;
+  }
+  .action-table td {
+    padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #1e2538;
+    vertical-align: top;
+  }
+  .action-table tr:last-child td { border-bottom: none; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .badge-red { background: #2a1215; color: #f87171; }
+  .badge-amber { background: #2a2010; color: #fbbf24; }
+  .badge-purple { background: #2d1f5e; color: #a78bfa; }
+  .badge-green { background: #0e3d24; color: #34d399; }
+  .click-action { color: #60a5fa; }
+</style>
+</head>
+<body>
+
+<h1>Command Center — Sales Alert Flow (Fixed)</h1>
+<div class="subtitle">Every scenario from project creation through handoff to production — all bugs resolved</div>
+
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#f87171"></div>
+    <span class="legend-label">Critical (P0)</span>
+    <span class="legend-desc">— Overdue, Revisions</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#fbbf24"></div>
+    <span class="legend-label">High (P1)</span>
+    <span class="legend-desc">— Invoice, Send (prepaid/deposit)</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#a78bfa"></div>
+    <span class="legend-label">Medium (P2)</span>
+    <span class="legend-desc">— Quote, Proofs, Send (net terms)</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#34d399"></div>
+    <span class="legend-label">Clear</span>
+    <span class="legend-desc">— No action needed</span>
+  </div>
+</div>
+
+<div class="mermaid">
+flowchart TD
+    START([New Project Created]):::start --> ITEMS{Items added<br>to Buy Sheet?}
+    ITEMS -->|No| NO_ALERT([No sales alerts — ready for setup]):::clear
+    ITEMS -->|Yes| COSTING{Costing set?<br>grossRev > 0}
+
+    %% ── COSTING GATE ──
+    COSTING -->|No| COSTING_WAIT([No alert — ready for costing]):::clear
+    COSTING -->|Yes| PHASE_CHECK{Phase = intake<br>Quote not approved}
+
+    %% ── QUOTE FLOW ──
+    PHASE_CHECK -->|Yes| QUOTE_ALERT[/"🟣 QUOTE — Send quote to client"\]:::purple
+    QUOTE_ALERT --> QUOTE_CLICK{Click alert}
+    QUOTE_CLICK -->|Has contacts| QUOTE_EMAIL([Email modal opens<br>Sends quote PDF]):::action
+    QUOTE_CLICK -->|No contacts| QUOTE_WARN(["⚠ Popup: Add an email address<br>Go to Project → quote tab"]):::warn
+
+    QUOTE_EMAIL --> QUOTE_APPROVED{Client approves<br>quote?}
+    QUOTE_WARN --> QUOTE_APPROVED
+    QUOTE_APPROVED -->|No| QUOTE_ALERT
+    QUOTE_APPROVED -->|Yes| QUOTE_DONE([Quote alert clears]):::clear
+
+    %% ── INVOICE FLOW ──
+    QUOTE_DONE --> INV_CHECK{Invoice # exists<br>in type_meta?}
+    INV_CHECK -->|No| INV_ALERT[/"🟡 INVOICE — Create invoice"\]:::amber
+    INV_ALERT --> INV_CLICK([Invoice modal opens<br>Manual # or Push to QB]):::action
+    INV_CLICK --> INV_SAVED{Number saved?}
+    INV_SAVED -->|No| INV_ALERT
+    INV_SAVED -->|Yes| INV_DONE([Invoice alert clears]):::clear
+
+    %% ── SEND INVOICE FLOW ──
+    INV_DONE --> TERMS_CHECK{Payment terms?}
+
+    TERMS_CHECK -->|Prepaid or Deposit| PAYMENT_CHECK{Payment<br>recorded?}
+    PAYMENT_CHECK -->|No| SEND_ALERT_HIGH[/"🟡 SEND — Send invoice to client<br>P1 · gates production"\]:::amber
+    SEND_ALERT_HIGH --> SEND_CLICK_HIGH{Click alert}
+    SEND_CLICK_HIGH -->|Has contacts| SEND_EMAIL_HIGH([Email modal opens<br>Sends invoice PDF]):::action
+    SEND_CLICK_HIGH -->|No contacts| SEND_WARN_HIGH(["⚠ Popup: Add an email address<br>Go to Project → payment tab"]):::warn
+    SEND_EMAIL_HIGH --> PAY_WAIT{Payment<br>received?}
+    SEND_WARN_HIGH --> PAY_WAIT
+    PAY_WAIT -->|No| SEND_ALERT_HIGH
+    PAY_WAIT -->|Yes| SALES_DONE
+
+    TERMS_CHECK -->|Net 15 / Net 30| SEND_ALERT_NET[/"🟣 SEND — Send invoice to client<br>P2 · does not gate production"\]:::purple
+    SEND_ALERT_NET --> SEND_CLICK_NET{Click alert}
+    SEND_CLICK_NET -->|Has contacts| SEND_EMAIL_NET([Email modal opens<br>Sends invoice PDF]):::action
+    SEND_CLICK_NET -->|No contacts| SEND_WARN_NET(["⚠ Popup: Add an email address<br>Go to Project → payment tab"]):::warn
+    SEND_EMAIL_NET -.->|Clears when<br>payment recorded| SALES_DONE
+    SEND_WARN_NET -.-> SALES_DONE
+
+    PAYMENT_CHECK -->|Yes| SALES_DONE
+
+    %% ── HANDOFF ──
+    SALES_DONE([✅ Sales complete<br>Handoff to Production column]):::green
+
+    %% ── PROOFS FLOW (PARALLEL) ──
+    QUOTE_DONE --> PROOF_FLOW{Proofs workflow<br>runs in parallel}:::parallel
+    PROOF_FLOW --> PROOF_CHECK{Proof files<br>uploaded?}
+    PROOF_CHECK -->|No| UPLOAD_ALERT[/"🟣 PROOFS — Upload proofs"\]:::purple
+    UPLOAD_ALERT --> UPLOAD_CLICK([Navigates to Art tab<br>Team uploads proof files]):::action
+    UPLOAD_CLICK --> PROOF_CHECK
+    PROOF_CHECK -->|Yes| APPROVAL{Approval<br>status?}
+    APPROVAL -->|Pending| PENDING_ALERT[/"🟣 PROOFS — Waiting on client"\]:::purple
+    PENDING_ALERT --> PENDING_CLICK([Navigates to approvals tab<br>Informational only]):::action
+    APPROVAL -->|Revision requested| REV_ALERT[/"🔴 REVISION — Client requested changes"\]:::red
+    REV_ALERT --> REV_CLICK([Navigates to Art tab<br>Team revises + re-uploads]):::action
+    REV_CLICK --> PROOF_CHECK
+    APPROVAL -->|All approved| PROOFS_DONE([✅ Proofs complete]):::green
+
+    %% ── OVERDUE (ANY TIME) ──
+    OVERDUE_CHECK{Ship date<br>past due?}:::overdue
+    OVERDUE_CHECK -->|Yes| OVERDUE_ALERT[/"🔴 OVERDUE — Xd past ship date"\]:::red
+    OVERDUE_ALERT --> OVERDUE_CLICK([Navigates to project overview<br>Update ship date or expedite]):::action
+    OVERDUE_CHECK -->|No| OVERDUE_OK([No overdue alert]):::clear
+
+    START -.-> OVERDUE_CHECK
+
+    %% ── STYLES ──
+    classDef start fill:#1a1f2e,stroke:#313a56,color:#e2e8f0,font-weight:700
+    classDef clear fill:#0e3d24,stroke:#166534,color:#34d399,font-weight:600
+    classDef green fill:#0e3d24,stroke:#166534,color:#34d399,font-weight:700
+    classDef purple fill:#2d1f5e,stroke:#6d28d9,color:#a78bfa,font-weight:700
+    classDef amber fill:#2a2010,stroke:#92400e,color:#fbbf24,font-weight:700
+    classDef red fill:#2a1215,stroke:#991b1b,color:#f87171,font-weight:700
+    classDef action fill:#1a2540,stroke:#2563eb,color:#60a5fa,font-weight:600
+    classDef warn fill:#2a2010,stroke:#d97706,color:#fbbf24,font-weight:600
+    classDef parallel fill:#1a1f2e,stroke:#6d28d9,color:#a78bfa,font-weight:600,stroke-dasharray:3 3
+    classDef overdue fill:#1a1f2e,stroke:#991b1b,color:#f87171,font-weight:600,stroke-dasharray:3 3
+</div>
+
+<div class="section">
+  <div class="section-title">Alert → Action Reference</div>
+  <table class="action-table">
+    <tr>
+      <th>Alert</th>
+      <th>Trigger Condition</th>
+      <th>Click Action</th>
+      <th>Clears When</th>
+    </tr>
+    <tr>
+      <td><span class="badge badge-red">OVERDUE</span></td>
+      <td>Ship date is past, project not complete/cancelled</td>
+      <td class="click-action">Navigate to project overview</td>
+      <td>Project completed or ship date updated</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-red">REVISION</span></td>
+      <td>Any item proof has <code>revision_requested</code></td>
+      <td class="click-action">Navigate to Art tab</td>
+      <td>New proof uploaded replacing revision</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-amber">INVOICE</span></td>
+      <td>Quote approved + no invoice number in type_meta</td>
+      <td class="click-action">Invoice modal (manual # or push to QB)</td>
+      <td>Invoice number saved</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-amber">SEND</span> (P1)</td>
+      <td>Invoice exists + no payments + prepaid/deposit terms + phase=pending</td>
+      <td class="click-action">Email modal (sends invoice PDF) or no-contacts popup</td>
+      <td>Payment record added</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-purple">SEND</span> (P2)</td>
+      <td>Invoice exists + no payments + net 15/30 terms</td>
+      <td class="click-action">Email modal (sends invoice PDF) or no-contacts popup</td>
+      <td>Payment record added</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-purple">QUOTE</span></td>
+      <td>Phase=intake + items exist + costing set (grossRev > 0) + quote not approved</td>
+      <td class="click-action">Email modal (sends quote PDF) or no-contacts popup</td>
+      <td>Quote approved</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-purple">PROOFS</span> upload</td>
+      <td>Quote approved + items have no proof files</td>
+      <td class="click-action">Navigate to Art tab</td>
+      <td>Proof files uploaded</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-purple">PROOFS</span> pending</td>
+      <td>Quote approved + items have pending proofs</td>
+      <td class="click-action">Navigate to approvals tab</td>
+      <td>All proofs approved</td>
+    </tr>
+  </table>
+</div>
+
+<div class="fixed-list">
+  <h3>Fixes Applied</h3>
+  <div class="fix-item">
+    <span class="fix-num">#1</span>
+    <span class="fix-title">Costing gate added to QUOTE alert</span>
+    <div class="fix-desc">QUOTE alert now requires <code>costing_summary.grossRev > 0</code>. No alert fires until costing is complete — project stays in "ready for costing" state.</div>
+  </div>
+  <div class="fix-item">
+    <span class="fix-num">#2</span>
+    <span class="fix-title">Net 15/30 invoice send alert now fires</span>
+    <div class="fix-desc">Net terms clients get a purple P2 "Send invoice" alert. Same email modal, just doesn't gate production. Clears when payment is recorded.</div>
+  </div>
+  <div class="fix-item">
+    <span class="fix-num">#3</span>
+    <span class="fix-title">"Upload proofs" replaces "Send proofs" when no proofs exist</span>
+    <div class="fix-desc">When items have zero proof files, alert now says "Upload proofs" and navigates to the Art tab. No more emailing an empty portal.</div>
+  </div>
+  <div class="fix-item">
+    <span class="fix-num">#4</span>
+    <span class="fix-title">No-contacts popup warning</span>
+    <div class="fix-desc">Clicking QUOTE or SEND with no email contacts shows a modal: "Add an email address — this project has no email contacts." Button navigates to the project.</div>
+  </div>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#141926',
+      primaryColor: '#1e3a6e',
+      primaryTextColor: '#c9d1e0',
+      primaryBorderColor: '#313a56',
+      lineColor: '#515a78',
+      secondaryColor: '#2d1f5e',
+      tertiaryColor: '#1a1f2e',
+      fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
+      fontSize: '13px',
+    },
+    flowchart: {
+      curve: 'basis',
+      padding: 16,
+      nodeSpacing: 40,
+      rankSpacing: 50,
+      htmlLabels: true,
+    },
+  });
+</script>
+
+</body>
+</html>
