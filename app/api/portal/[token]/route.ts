@@ -159,10 +159,13 @@ export async function GET(
 
         quoteItems.push({
           name: cp.name || item?.name || "Item",
+          style: cp.style || item?.blank_sku || "",
+          color: cp.color || item?.color || "",
+          sizes: cp.sizes || item?.sizes || [],
+          qtys: cp.qtys || item?.qtys || {},
           qty: totalQty,
           sellPerUnit: Math.round(sellPerUnit * 100) / 100,
           total: Math.round(grossRev * 100) / 100,
-          thumbnailFileId: item ? thumbnailMap[item.id] || null : null,
         });
       }
     }

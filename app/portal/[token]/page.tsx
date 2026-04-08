@@ -231,27 +231,41 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               )}
             </div>
 
-            {/* Line items */}
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                  <th style={{ textAlign: "left", padding: "8px 0", fontSize: 11, fontWeight: 600, color: C.muted }}>Item</th>
-                  <th style={{ textAlign: "right", padding: "8px 0", fontSize: 11, fontWeight: 600, color: C.muted, width: 60 }}>Qty</th>
-                  <th style={{ textAlign: "right", padding: "8px 0", fontSize: 11, fontWeight: 600, color: C.muted, width: 80 }}>Unit</th>
-                  <th style={{ textAlign: "right", padding: "8px 0", fontSize: 11, fontWeight: 600, color: C.muted, width: 90 }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {quote.items.map((qi: any, i: number) => (
-                  <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <td style={{ padding: "10px 0", fontWeight: 500 }}>{qi.name}</td>
-                    <td style={{ textAlign: "right", padding: "10px 0", color: C.muted }}>{qi.qty}</td>
-                    <td style={{ textAlign: "right", padding: "10px 0", color: C.muted }}>{fmtD(qi.sellPerUnit)}</td>
-                    <td style={{ textAlign: "right", padding: "10px 0", fontWeight: 600 }}>{fmtD(qi.total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {/* Line items — detailed view */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {quote.items.map((qi: any, i: number) => {
+                const sizeEntries = (qi.sizes || []).map((sz: string) => ({ sz, qty: qi.qtys?.[sz] || 0 })).filter((e: any) => e.qty > 0);
+                return (
+                  <div key={i} style={{ padding: "12px 0", borderBottom: `1px solid ${C.border}` }}>
+                    {/* Row 1: Name + total */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{qi.name}</div>
+                        {(qi.style || qi.color) && (
+                          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                            {[qi.style, qi.color].filter(Boolean).join(" · ")}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 16 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{fmtD(qi.total)}</div>
+                        <div style={{ fontSize: 11, color: C.muted }}>{qi.qty} x {fmtD(qi.sellPerUnit)}</div>
+                      </div>
+                    </div>
+                    {/* Row 2: Size breakdown */}
+                    {sizeEntries.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                        {sizeEntries.map((e: any) => (
+                          <span key={e.sz} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: C.surface || "#f5f5f7", color: C.muted, fontWeight: 500 }}>
+                            {e.sz}: {e.qty}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
 
             {/* Totals */}
             <div style={{ borderTop: `2px solid ${C.border}`, paddingTop: 12, marginTop: 4 }}>
