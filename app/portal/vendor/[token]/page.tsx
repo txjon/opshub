@@ -274,8 +274,8 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                       <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Bill to</div>
                       <div style={{ lineHeight: 1.7, color: C.text }}>
                         House Party Distro<br/>
-                        hello@housepartydistro.com<br/>
-                        4670 W Silverado Ranch Blvd, STE 120<br/>
+                        jon@housepartydistro.com<br/>
+                        3945 W Reno Ave, Ste A<br/>
                         Las Vegas, NV 89118
                       </div>
                     </div>
