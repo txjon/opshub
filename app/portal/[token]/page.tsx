@@ -373,78 +373,73 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               )}
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {items.filter(i => i.proofs.length > 0).map(item => (
-                <div key={item.id}>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: C.text }}>{item.name}</div>
-                  {item.proofs.map(proof => {
-                    const isMockup = proof.stage === "mockup";
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {items.filter(i => i.proofs.length > 0).map(item => {
+                const mockups = item.proofs.filter((p: any) => p.stage === "mockup");
+                const proofs = item.proofs.filter((p: any) => p.stage === "proof");
+                return (
+                <div key={item.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", background: C.bg }}>
+                  {/* Item row: thumbnail + name + status */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    {/* Mockup thumbnail */}
+                    {mockups[0]?.driveFileId && (
+                      <img src={`/api/files/thumbnail?id=${mockups[0].driveFileId}`} alt=""
+                        onClick={() => setViewingProof(mockups[0])}
+                        onError={(e: any) => { e.target.style.display = "none"; }}
+                        style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6, border: `1px solid ${C.border}`, flexShrink: 0, cursor: "pointer" }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{item.name}</div>
+                      {proofs.length > 0 && (
+                        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                          {proofs.length} proof{proofs.length !== 1 ? "s" : ""}
+                        </div>
+                      )}
+                    </div>
+                    {/* Overall status for this item */}
+                    {proofs.length > 0 && proofs.every((p: any) => p.approval === "approved") && (
+                      <span style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 99, background: C.greenBg, color: C.green, border: `1px solid ${C.greenBorder}`, flexShrink: 0 }}>Approved</span>
+                    )}
+                  </div>
+
+                  {/* Proof files — compact rows */}
+                  {proofs.map((proof: any) => {
                     const actionKey = `approve-proof${proof.id}`;
                     const revKey = `request-revision${proof.id}`;
+                    const isPending = proof.approval === "pending" || proof.approval === "revision_requested";
                     const approvedTime = proof.approvedAt ? fmtDate(proof.approvedAt) : null;
-                    const approvalStyle = proof.approval === "approved"
-                      ? { bg: C.greenBg, color: C.green, border: C.greenBorder, label: approvedTime ? `Approved ${approvedTime}` : "Approved" }
-                      : proof.approval === "revision_requested"
-                      ? { bg: C.amberBg, color: C.amber, border: C.amberBorder, label: "Revision Requested" }
-                      : { bg: C.amberBg, color: C.amber, border: C.amberBorder, label: "Pending Review" };
 
                     return (
-                      <div key={proof.id} style={{
-                        border: `1px solid ${C.border}`, borderRadius: 8, padding: 12,
-                        marginBottom: 8, background: C.bg,
-                      }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                          <div>
-                            <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>{proof.fileName}</span>
-                            <span style={{ fontSize: 10, color: C.faint, marginLeft: 8 }}>{isMockup ? "Mockup" : "Proof"}</span>
-                          </div>
-                          {/* Only show approval pill for proofs, not mockups */}
-                          {!isMockup && (
-                            <span style={{
-                              fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 99,
-                              background: approvalStyle.bg, color: approvalStyle.color,
-                              border: `1px solid ${approvalStyle.border}`,
-                            }}>
-                              {approvalStyle.label}
-                            </span>
+                      <div key={proof.id} style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {proof.driveFileId && (
+                            <button onClick={() => setViewingProof(proof)}
+                              style={{ fontSize: 11, color: C.accent, fontWeight: 600, background: "none", border: `1px solid ${C.accent}44`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", flexShrink: 0 }}>
+                              View
+                            </button>
+                          )}
+                          <span style={{ fontSize: 11, color: C.muted, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{proof.fileName}</span>
+                          {proof.approval === "approved" && (
+                            <span style={{ fontSize: 10, fontWeight: 600, color: C.green, flexShrink: 0 }}>{approvedTime ? `Approved ${approvedTime}` : "Approved"}</span>
+                          )}
+                          {proof.approval === "revision_requested" && (
+                            <span style={{ fontSize: 10, fontWeight: 600, color: C.amber, flexShrink: 0 }}>Revision Requested</span>
+                          )}
+                          {proof.approval === "pending" && (
+                            <span style={{ fontSize: 10, fontWeight: 600, color: C.amber, flexShrink: 0 }}>Pending</span>
                           )}
                         </div>
 
-                        {/* View button — different label for mockup vs proof */}
-                        {proof.driveFileId && (
-                          <button
-                            onClick={() => setViewingProof(proof)}
-                            style={{
-                              display: "inline-flex", alignItems: "center", gap: 4,
-                              fontSize: 12, color: C.accent, textDecoration: "none", fontWeight: 600,
-                              marginBottom: 8, background: "none", border: `1px solid ${C.accent}44`,
-                              borderRadius: 6, padding: "6px 14px", cursor: "pointer",
-                            }}>
-                            {isMockup ? "View Mockup" : "View Proof"}
-                          </button>
-                        )}
-
-                        {/* Action buttons only for proofs (not mockups), if pending or revision_requested */}
-                        {!isMockup && (proof.approval === "pending" || proof.approval === "revision_requested") && (
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <button
-                              onClick={() => doAction("approve-proof", { fileId: proof.id })}
+                        {/* Action buttons — compact inline */}
+                        {isPending && (
+                          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                            <button onClick={() => doAction("approve-proof", { fileId: proof.id })}
                               disabled={actionLoading === actionKey}
-                              style={{
-                                padding: "8px 20px", borderRadius: 8,
-                                background: C.green, color: "#fff", border: "none",
-                                fontSize: 12, fontWeight: 600, cursor: "pointer",
-                                opacity: actionLoading === actionKey ? 0.6 : 1,
-                              }}>
+                              style={{ padding: "5px 14px", borderRadius: 6, background: C.green, color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", opacity: actionLoading === actionKey ? 0.6 : 1 }}>
                               {actionLoading === actionKey ? "..." : "Approve"}
                             </button>
-                            <button
-                              onClick={() => setShowRevisionInput(showRevisionInput === proof.id ? null : proof.id)}
-                              style={{
-                                padding: "8px 20px", borderRadius: 8,
-                                background: "transparent", color: C.red, border: `1px solid ${C.redBorder}`,
-                                fontSize: 12, fontWeight: 600, cursor: "pointer",
-                              }}>
+                            <button onClick={() => setShowRevisionInput(showRevisionInput === proof.id ? null : proof.id)}
+                              style={{ padding: "5px 14px", borderRadius: 6, background: "transparent", color: C.red, border: `1px solid ${C.redBorder}`, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
                               Request Changes
                             </button>
                           </div>
@@ -452,28 +447,15 @@ export default function PortalPage({ params }: { params: { token: string } }) {
 
                         {/* Revision note input */}
                         {showRevisionInput === proof.id && (
-                          <div style={{ marginTop: 8 }}>
-                            <textarea
-                              value={revisionNote[proof.id] || ""}
+                          <div style={{ marginTop: 6 }}>
+                            <textarea value={revisionNote[proof.id] || ""}
                               onChange={e => setRevisionNote(prev => ({ ...prev, [proof.id]: e.target.value }))}
-                              placeholder="What changes would you like? (optional)"
-                              style={{
-                                width: "100%", minHeight: 60, borderRadius: 8,
-                                border: `1px solid ${C.border}`, padding: 10,
-                                fontSize: 12, fontFamily: C.font, resize: "vertical",
-                                background: C.card, color: C.text,
-                              }}
-                            />
-                            <button
-                              onClick={() => doAction("request-revision", { fileId: proof.id, note: revisionNote[proof.id] || "" })}
+                              placeholder="What changes would you like?"
+                              style={{ width: "100%", minHeight: 50, borderRadius: 6, border: `1px solid ${C.border}`, padding: 8, fontSize: 12, fontFamily: C.font, resize: "vertical", background: C.card, color: C.text, boxSizing: "border-box" }} />
+                            <button onClick={() => doAction("request-revision", { fileId: proof.id, note: revisionNote[proof.id] || "" })}
                               disabled={actionLoading === revKey}
-                              style={{
-                                marginTop: 6, padding: "8px 20px", borderRadius: 8,
-                                background: C.red, color: "#fff", border: "none",
-                                fontSize: 12, fontWeight: 600, cursor: "pointer",
-                                opacity: actionLoading === revKey ? 0.6 : 1,
-                              }}>
-                              {actionLoading === revKey ? "Sending..." : "Submit Revision Request"}
+                              style={{ marginTop: 4, padding: "5px 14px", borderRadius: 6, background: C.red, color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", opacity: actionLoading === revKey ? 0.6 : 1 }}>
+                              {actionLoading === revKey ? "Sending..." : "Submit"}
                             </button>
                           </div>
                         )}
@@ -481,7 +463,8 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                     );
                   })}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
