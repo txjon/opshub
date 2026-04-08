@@ -172,7 +172,7 @@ export async function GET(
           totalQty,
           decoLines,
           itemTotal,
-          mockupThumb: mockupByItem[item.id] ? `https://lh3.googleusercontent.com/d/${mockupByItem[item.id]}=w300` : null,
+          mockupThumb: mockupByItem[item.id] ? `/api/files/thumbnail?id=${mockupByItem[item.id]}` : null,
           blanksOrdered: !!item.blanks_order_number,
         };
       });
