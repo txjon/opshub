@@ -62,17 +62,8 @@ export function CommandCenter({ alerts, stats }: {
       });
       return;
     }
-    if (alert.type === "send_invoice") {
-      if (!alert.contacts?.length) {
-        setNoContactWarn({ href: `/jobs/${alert.jobId}?tab=proofs`, label: "send this invoice" });
-        return;
-      }
-      setEmailModal({
-        type: "invoice", jobId: alert.jobId, contacts: alert.contacts,
-        subject: `Invoice — ${alert.clientName} · ${alert.jobTitle}`,
-      });
-      return;
-    }
+    // send_invoice navigates to merged Proofs & Invoice tab (has Send Invoice, Invoice + Proofs, Send Proofs buttons)
+    // follow_up_payment also navigates there
 
     // Everything else navigates
     window.location.href = alert.href;

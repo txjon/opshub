@@ -136,18 +136,27 @@ export default async function DashboardPage() {
       }
     }
 
-    // 5. Send invoice
+    // 5. Send invoice / follow up — clears after send, escalates after 2 days
     if (quoteApproved && invoiceNum && payments.length === 0) {
-      if (isNet) {
-        // Net terms: invoice already created (post-shipment), now send it
-        const termLabel = terms === "net_15" ? "net 15" : "net 30";
-        alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
-          action: `Send invoice · ${termLabel}`, href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
-      } else if (j.phase === "pending") {
-        // Prepaid/deposit: high priority, gates production
-        alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
-          action: "Send invoice · payment required before production", href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+      const invoiceSentAt = typeMeta.invoice_sent_at ? new Date(typeMeta.invoice_sent_at) : null;
+      const daysSinceInvoiceSent = invoiceSentAt ? Math.ceil((now.getTime() - invoiceSentAt.getTime()) / 86400000) : 0;
+      if (invoiceSentAt && daysSinceInvoiceSent >= 2) {
+        // Sent 2+ days ago, no payment — follow up
+        alerts.push({ ...base, priority: 1, type: "follow_up_payment", color: T.amber,
+          action: `Follow up — invoice sent ${daysSinceInvoiceSent}d ago, no payment`,
+          href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+      } else if (!invoiceSentAt) {
+        // Not sent yet — navigate to merged Proofs & Invoice tab
+        if (isNet) {
+          const termLabel = terms === "net_15" ? "net 15" : "net 30";
+          alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
+            action: `Send proofs & invoice · ${termLabel}`, href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+        } else if (j.phase === "pending") {
+          alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
+            action: "Send proofs & invoice · payment required", href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+        }
       }
+      // If sent < 2 days ago: no alert — give client time
     }
 
     // 5b. Overdue payments — past due date, not paid
