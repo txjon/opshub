@@ -4,8 +4,6 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
-import { EmailThread } from "@/components/EmailThread";
-import { ComposeEmail } from "@/components/ComposeEmail";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -44,7 +42,6 @@ export default function ProductionPage() {
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterStalled, setFilterStalled] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [showCompose, setShowCompose] = useState<{ jobId: string; decoratorId: string; contacts: any[]; defaultSubject: string } | null>(null);
   const saveTimers = useRef<Record<string, any>>({});
   const now = new Date();
 
@@ -472,19 +469,6 @@ export default function ProductionPage() {
                     </div>
 
                     {/* Decorator email thread */}
-                    <div style={{ padding: "0 14px 14px" }}>
-                      <EmailThread
-                        jobId={project.jobId}
-                        channel="production"
-                        decoratorId={dg.decoratorId || undefined}
-                        onCompose={() => setShowCompose({
-                          jobId: project.jobId,
-                          decoratorId: dg.decoratorId || "",
-                          contacts: dg.contacts,
-                          defaultSubject: `Re: HPD PO# ${project.invoiceNumber || project.jobNumber} — House Party Distro`,
-                        })}
-                      />
-                    </div>
                   </div>
                 ))}
               </div>
@@ -493,19 +477,6 @@ export default function ProductionPage() {
         );
       })}
 
-      {/* Compose modal for production emails */}
-      {showCompose && (
-        <ComposeEmail
-          jobId={showCompose.jobId}
-          contacts={[]}
-          decoratorContacts={showCompose.contacts}
-          channel="production"
-          decoratorId={showCompose.decoratorId}
-          defaultSubject={showCompose.defaultSubject}
-          onClose={() => setShowCompose(null)}
-          onSent={() => loadAll()}
-        />
-      )}
     </div>
   );
 }
