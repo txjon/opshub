@@ -148,10 +148,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Reply-to: client emails use plus-addressing, PO emails use none
-    // PO replies matched by subject (job number) + sender (decorator contacts) in Gmail poller
+    // Reply-to with plus-addressing for Gmail poller matching
     let replyTo: string | undefined;
-    if (type !== "po" && jobId) {
+    if (type === "po" && jobId) {
+      replyTo = `production+po.${jobId}@housepartydistro.com`;
+    } else if (jobId) {
       replyTo = `hello+c.${jobId}@housepartydistro.com`;
     }
 

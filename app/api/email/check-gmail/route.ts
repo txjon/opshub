@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
     // ── 2. Poll production@ for decorator replies (smart matching) ──
     try {
       const gmail = google.gmail({ version: "v1", auth: getGmailAuth("production@housepartydistro.com") });
-      const listRes = await gmail.users.messages.list({ userId: "me", q: "is:unread", maxResults: 20 });
+      const listRes = await gmail.users.messages.list({ userId: "me", q: "is:unread -from:housepartydistro.com", maxResults: 20 });
       for (const msg of (listRes.data.messages || [])) {
         try {
           if (await processProductionMessage(gmail, sb, msg.id!)) totalProcessed++;
@@ -202,14 +202,23 @@ async function processProductionMessage(gmail: any, sb: any, msgId: string): Pro
     return false;
   }
 
-  // Match 1a: Job/quote number in subject (HPD-YYMM-NNN pattern)
-  const jobNumMatch = subject.match(/HPD-\d{4}-\d{3}/i);
   let jobId: string | null = null;
   let jobTitle: string | null = null;
 
-  if (jobNumMatch) {
-    const { data: job } = await sb.from("jobs").select("id, title").eq("job_number", jobNumMatch[0].toUpperCase()).single();
+  // Match 0: Plus-addressed production+po.{jobId}@ (most reliable — from Reply-To)
+  const plusMatch = toHeader.match(/production\+po\.([a-f0-9-]{36})/i);
+  if (plusMatch) {
+    const { data: job } = await sb.from("jobs").select("id, title").eq("id", plusMatch[1]).single();
     if (job) { jobId = job.id; jobTitle = job.title; }
+  }
+
+  // Match 1a: Job/quote number in subject (HPD-YYMM-NNN pattern)
+  if (!jobId) {
+    const jobNumMatch = subject.match(/HPD-\d{4}-\d{3}/i);
+    if (jobNumMatch) {
+      const { data: job } = await sb.from("jobs").select("id, title").eq("job_number", jobNumMatch[0].toUpperCase()).single();
+      if (job) { jobId = job.id; jobTitle = job.title; }
+    }
   }
 
   // Match 1b: Invoice number in subject (e.g. "PO 1042" or "Invoice 1042")
