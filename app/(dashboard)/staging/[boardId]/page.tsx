@@ -82,6 +82,12 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
   function updateItemLocal(itemId: string, field: string, value: any) {
     setItems(prev => prev.map(it => it.id === itemId ? { ...it, [field]: value } : it));
     saveItem(itemId, { [field]: value });
+    // Auto-switch tab when status changes
+    if (field === "status") {
+      if (value === "In Production") setActiveTab("production");
+      else if (value === "LANDED") setActiveTab("landed");
+      else if (value !== "In Production" && value !== "LANDED") setActiveTab("items");
+    }
   }
 
   async function addItem() {
@@ -300,12 +306,12 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                       <span style={{ color: T.muted, fontFamily: mono }}>{qty || "—"} qty</span>
                       {gross > 0 && <span style={{ color: T.accent, fontFamily: mono }}>{fmtD(gross)}</span>}
                       {gross > 0 && <span style={{ color: itemProfit >= 0 ? T.green : T.red, fontFamily: mono }}>{fmtD(itemProfit)}</span>}
-                      {activeTab === "production" && item.eta && (() => {
+                      {activeTab !== "items" && item.eta && (() => {
                         const days = Math.ceil((new Date(item.eta).getTime() - Date.now()) / 86400000);
                         const color = days < 0 ? T.red : days <= 3 ? T.amber : T.green;
                         return <span style={{ color, fontWeight: 600 }}>{days < 0 ? `${Math.abs(days)}d late` : `${days}d`}</span>;
                       })()}
-                      {activeTab === "production" && item.payment_received && <span style={{ color: T.green, fontSize: 10, fontWeight: 600 }}>Paid</span>}
+                      {activeTab !== "items" && item.payment_received && <span style={{ color: T.green, fontSize: 10, fontWeight: 600 }}>Paid</span>}
                     </div>
                   </div>
                   <span style={{ padding: "2px 6px", borderRadius: 99, fontSize: 9, fontWeight: 600, background: sc.bg, color: sc.text, flexShrink: 0 }}>{item.status || "Pending"}</span>
@@ -336,7 +342,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                         </select>
                       </div>
                     </div>
-                    {activeTab === "production" && (
+                    {activeTab !== "items" && (
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         <div>
                           <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>ETA</label>
@@ -381,7 +387,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
               <SortTh col="gross" label="Gross" style={{ textAlign: "center", width: 80 }} />
               <SortTh col="profit" label="Profit" style={{ textAlign: "center", width: 80 }} />
               <SortTh col="status" label="Status" style={{ textAlign: "center", width: 120 }} />
-              {activeTab === "production" && <>
+              {activeTab !== "items" && <>
                 <SortTh col="eta" label="ETA" style={{ textAlign: "center", width: 100 }} />
                 <th style={{ padding: "8px 6px", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.06em", textAlign: "center", width: 50 }}>Paid</th>
               </>}
@@ -456,7 +462,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                             {["Pending", "Approved", "Changes Requested", "Rejected", "In Production", "LANDED", "On Hold", "Locating a Source", "Reference Sample Sent to Factory", "NEED REVISIONS - SWATCHES WORKING", "Done - Awaiting Shipping"].map(s => <option key={s} value={s}>{s}</option>)}
                           </select>
                         </div>
-                        {activeTab === "production" && <>
+                        {activeTab !== "items" && <>
                           <div>
                             <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>ETA</label>
                             <input type="date" value={item.eta || ""} onChange={e => updateItemLocal(item.id, "eta", e.target.value || null)} onClick={e => e.stopPropagation()} style={{ ...ic, width: "100%", fontFamily: font }} />
@@ -483,7 +489,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                     <td style={{ padding: "6px", textAlign: "center" }}>
                       <span style={{ padding: "2px 8px", borderRadius: 99, fontSize: 10, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
                     </td>
-                    {activeTab === "production" && <>
+                    {activeTab !== "items" && <>
                       <td style={{ padding: "6px", textAlign: "center", fontSize: 11 }} onClick={e => e.stopPropagation()}>
                         {item.eta ? (() => {
                           const days = Math.ceil((new Date(item.eta).getTime() - Date.now()) / 86400000);
