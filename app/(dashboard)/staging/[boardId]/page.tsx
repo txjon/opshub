@@ -368,62 +368,63 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
 
                 return (
                   <div key={item.id}
-                    draggable
-                    onDragStart={() => { setDragIdx(idx); setDidDrag(true); }}
                     onDragOver={e => { e.preventDefault(); setDragOverIdx(idx); }}
-                    onDragEnd={() => { if (dragIdx !== null && dragOverIdx !== null && didDrag) handleMoodDrop(dragIdx, dragOverIdx); setDragIdx(null); setDragOverIdx(null); setTimeout(() => setDidDrag(false), 50); }}
-                    onClick={() => {
-                      if (didDrag) return;
-                      setMoodExpanded(isOpen ? null : item.id);
-                      if (!isOpen && !messages[item.id]) loadMessages(item.id);
-                    }}
                     style={{
                       background: T.card,
                       border: `1px solid ${dragOverIdx === idx ? T.accent : T.border}`,
                       borderRadius: 10,
                       overflow: "hidden",
-                      cursor: "pointer",
                       opacity: dragIdx === idx ? 0.5 : 1,
                       transition: "border-color 0.15s, opacity 0.15s",
                     }}>
-                    {/* Image area */}
+                    {/* Drag handle */}
                     <div
-                      onDragOver={e => { e.preventDefault(); setDragoverRow(item.id); }}
-                      onDragLeave={() => setDragoverRow(null)}
-                      onDrop={e => { e.preventDefault(); e.stopPropagation(); setDragoverRow(null); const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/")); if (files.length) { for (const file of files) uploadImage(item.id, file); e.stopPropagation(); setDragIdx(null); setDragOverIdx(null); } }}
-                      style={{
-                        width: "100%",
-                        aspectRatio: "1",
-                        background: T.surface,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        cursor: "pointer",
-                        position: "relative",
-                        overflow: "hidden",
-                      }}>
-                      {imgUrl ? (
-                        <img src={imgUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                          onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                      ) : (
-                        <div style={{ textAlign: "center", color: T.faint, fontSize: 11 }}>
-                          {uploadingRow === item.id ? "Uploading..." : "Drop image"}
-                        </div>
-                      )}
-                      {item.images?.length > 1 && (
-                        <span style={{ position: "absolute", top: 6, right: 6, fontSize: 9, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: 4, padding: "1px 5px" }}>+{item.images.length - 1}</span>
-                      )}
-                      {msgCount > 0 && (
-                        <span style={{ position: "absolute", bottom: 6, right: 6, fontSize: 9, background: T.accent, color: "#fff", borderRadius: 4, padding: "1px 5px", fontWeight: 700 }}>{msgCount}</span>
-                      )}
-                      <span style={{ position: "absolute", top: 6, left: 6, padding: "1px 6px", borderRadius: 99, fontSize: 8, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
+                      draggable
+                      onDragStart={() => setDragIdx(idx)}
+                      onDragEnd={() => { if (dragIdx !== null && dragOverIdx !== null) handleMoodDrop(dragIdx, dragOverIdx); setDragIdx(null); setDragOverIdx(null); }}
+                      style={{ padding: "3px 0", textAlign: "center", cursor: "grab", background: T.surface, fontSize: 9, color: T.faint, letterSpacing: 2, userSelect: "none" }}>
+                      ⋮⋮
                     </div>
-                    {/* Name + qty */}
-                    <div style={{ padding: "8px 10px" }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "Untitled"}</div>
-                      <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                        {item.qty ? `${item.qty} qty` : ""}
-                        {item.retail ? ` · ${fmtD(item.qty * parseFloat(item.retail))}` : ""}
+                    {/* Clickable content */}
+                    <div onClick={() => { setMoodExpanded(isOpen ? null : item.id); if (!isOpen && !messages[item.id]) loadMessages(item.id); }} style={{ cursor: "pointer" }}>
+                      {/* Image area */}
+                      <div
+                        onDragOver={e => { e.preventDefault(); setDragoverRow(item.id); }}
+                        onDragLeave={() => setDragoverRow(null)}
+                        onDrop={e => { e.preventDefault(); e.stopPropagation(); setDragoverRow(null); const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/")); if (files.length) { for (const file of files) uploadImage(item.id, file); setDragIdx(null); setDragOverIdx(null); } }}
+                        style={{
+                          width: "100%",
+                          aspectRatio: "1",
+                          background: T.surface,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          position: "relative",
+                          overflow: "hidden",
+                        }}>
+                        {imgUrl ? (
+                          <img src={imgUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        ) : (
+                          <div style={{ textAlign: "center", color: T.faint, fontSize: 11 }}>
+                            {uploadingRow === item.id ? "Uploading..." : "Drop image"}
+                          </div>
+                        )}
+                        {item.images?.length > 1 && (
+                          <span style={{ position: "absolute", top: 6, right: 6, fontSize: 9, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: 4, padding: "1px 5px" }}>+{item.images.length - 1}</span>
+                        )}
+                        {msgCount > 0 && (
+                          <span style={{ position: "absolute", bottom: 6, right: 6, fontSize: 9, background: T.accent, color: "#fff", borderRadius: 4, padding: "1px 5px", fontWeight: 700 }}>{msgCount}</span>
+                        )}
+                        <span style={{ position: "absolute", top: 6, left: 6, padding: "1px 6px", borderRadius: 99, fontSize: 8, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
+                      </div>
+                      {/* Name + qty */}
+                      <div style={{ padding: "8px 10px" }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "Untitled"}</div>
+                        <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
+                          {item.qty ? `${item.qty} qty` : ""}
+                          {item.retail ? ` · ${fmtD(item.qty * parseFloat(item.retail))}` : ""}
+                        </div>
                       </div>
                     </div>
                   </div>
