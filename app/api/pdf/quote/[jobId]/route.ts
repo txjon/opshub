@@ -41,7 +41,7 @@ function renderQuoteHTML(data: {
       `<div style="font-size:10px;color:#444;font-family:monospace;white-space:nowrap"><span style="color:#999;margin-right:3px">${sz}</span>${p.qtys[sz].toLocaleString()}</div>`
     ).join("");
 
-    const thumbHtml = p.thumbnail ? `<img src="${p.thumbnail}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid #eee;flex-shrink:0" />` : "";
+    const thumbHtml = "";
 
     return `<tr style="border-bottom:0.5px solid #eeeeee">
       <td style="padding:12px 12px 12px 0;vertical-align:top">
@@ -289,46 +289,6 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     }
 
     const quoteTotal = prods.reduce((a, p) => a + p.grossRev, 0);
-
-    // Fetch mockup thumbnails via Drive export links (no googleapis import)
-    try {
-      const itemIds = (items || []).map((it: any) => it.id);
-      if (itemIds.length > 0) {
-        const { data: mockupFiles } = await supabase
-          .from("item_files")
-          .select("item_id, drive_file_id")
-          .in("item_id", itemIds)
-          .in("stage", ["mockup", "proof"])
-          .order("created_at", { ascending: false });
-        if (mockupFiles?.length) {
-          // Get Drive access token via service account JWT
-          const { getAccessToken } = await import("@/lib/drive-auth");
-          const token = await getAccessToken();
-          const seen = new Set<string>();
-          for (const f of mockupFiles) {
-            if (!seen.has(f.item_id) && f.drive_file_id) {
-              seen.add(f.item_id);
-              try {
-                const res = await fetch(`https://www.googleapis.com/drive/v3/files/${f.drive_file_id}?alt=media`, {
-                  headers: { Authorization: `Bearer ${token}` },
-                });
-                if (res.ok) {
-                  const mime = res.headers.get("content-type") || "image/png";
-                  const buf = Buffer.from(await res.arrayBuffer());
-                  const prod = prods.find((p: any) => {
-                    const dbItem = (items || []).find((it: any) => it.id === f.item_id);
-                    return dbItem && (p.name === dbItem.name || (p as any).id === f.item_id);
-                  });
-                  if (prod) (prod as any).thumbnail = `data:${mime};base64,${buf.toString("base64")}`;
-                }
-              } catch {} // Skip individual file errors
-            }
-          }
-        }
-      }
-    } catch (thumbErr) {
-      console.warn("[Quote PDF] Thumbnail fetch skipped:", (thumbErr as any)?.message);
-    }
 
     const html = renderQuoteHTML({
       invoiceNum: orderInfo.invoiceNum || job.job_number || "",
