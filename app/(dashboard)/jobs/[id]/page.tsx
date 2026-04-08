@@ -188,13 +188,25 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   }
 
   const jobSaveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const pendingJobUpdates = useRef<Partial<Job>>({});
   function saveJob(updates: Partial<Job>) {
     if (!job) return;
-    // Debounce DB write — local state already updated by upd()
+    pendingJobUpdates.current = {...pendingJobUpdates.current, ...updates};
     if (jobSaveTimer.current) clearTimeout(jobSaveTimer.current);
     jobSaveTimer.current = setTimeout(async () => {
-      await supabase.from("jobs").update(updates).eq("id", job.id);
+      const u = pendingJobUpdates.current;
+      pendingJobUpdates.current = {};
+      await supabase.from("jobs").update(u).eq("id", job.id);
     }, 800);
+  }
+  async function flushJobSave() {
+    if (jobSaveTimer.current) {
+      clearTimeout(jobSaveTimer.current);
+      jobSaveTimer.current = null;
+      const u = pendingJobUpdates.current;
+      pendingJobUpdates.current = {};
+      if (Object.keys(u).length > 0) await supabase.from("jobs").update(u).eq("id", job.id);
+    }
   }
 
   async function saveItem(id: string, updates: Partial<Item>) {
@@ -301,7 +313,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const upd = (k: string, v: any) => { if (!job) return; const u = {...job, [k]:v} as Job; setJob(u); saveJob({[k]:v}); };
+  const upd = (k: string, v: any) => { if (!job) return; setJob(prev => { if (!prev) return prev; const u = {...prev, [k]:v} as Job; saveJob({[k]:v}); return u; }); };
   const updItem = (id: string, p: Partial<Item>) => saveItem(id, p);
 
   if (loading && !initialLoadDone.current) return React.createElement(JobSkeleton, null);
@@ -466,8 +478,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           }
           // Refresh approval + payment status when switching to quote/overview/payment tabs
           if (["quote","overview","payment"].includes(t)) {
+            // Flush any pending job save before fetching fresh data
+            await flushJobSave();
             const { data: fresh } = await supabase.from("jobs").select("quote_approved, quote_approved_at, type_meta").eq("id", job.id).single();
-            if (fresh) setJob(j => j ? {...j, quote_approved: fresh.quote_approved, quote_approved_at: fresh.quote_approved_at, type_meta: fresh.type_meta} as any : j);
+            if (fresh) setJob(j => j ? {...j, quote_approved: fresh.quote_approved, quote_approved_at: fresh.quote_approved_at, type_meta: {...(j as any).type_meta, ...fresh.type_meta}} as any : j);
             if (t === "payment" || t === "overview") {
               const { data: freshPay } = await supabase.from("payment_records").select("*").eq("job_id", job.id).order("created_at");
               if (freshPay) setPayments(freshPay);
@@ -593,7 +607,45 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
 
-              {/* Project Summary — moved from right column */}
+              {/* Payment summary */}
+              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
+                  <button onClick={()=>setTab("payment")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
+                </div>
+                <div style={{marginBottom:8}}>
+                  <label style={{fontSize:10,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
+                  <select style={ic} value={job.payment_terms||""} onChange={e=>upd("payment_terms",e.target.value||null)}>
+                    <option value="">— select —</option>
+                    <option value="prepaid">Prepaid</option>
+                    <option value="deposit_balance">Deposit / Balance</option>
+                    <option value="net_15">Net 15</option>
+                    <option value="net_30">Net 30</option>
+                  </select>
+                </div>
+                {payments.length===0&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
+                {payments.length>0&&(
+                  <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
+                    <thead><tr style={{borderBottom:"1px solid #2a3050"}}>
+                      {["Invoice","Type","Amount","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:T.muted,fontWeight:500}}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>{payments.map(p=>(
+                      <tr key={p.id} style={{borderBottom:"1px solid #2a3050"}}>
+                        <td style={{padding:"6px",fontFamily:"var(--font-mono)",color:T.muted}}>{p.invoice_number||"—"}</td>
+                        <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
+                        <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
+                        <td style={{padding:"6px"}}>
+                          <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
+                            background:p.status==="paid"?"#0e3d24":p.status==="void"?"#3d1212":T.amberDim,
+                            color:p.status==="paid"?"#34c97a":p.status==="void"?"#f05353":T.amber}}>{p.status}</span>
+                        </td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* Project Summary */}
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Project Summary</div>
                 <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -641,44 +693,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     ):null;
                   })()}
                 </div>
-              </div>
-
-              {/* Payment summary — moved from right column */}
-              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
-                  <button onClick={()=>setTab("payment")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
-                </div>
-                <div style={{marginBottom:8}}>
-                  <label style={{fontSize:10,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
-                  <select style={ic} value={job.payment_terms||""} onChange={e=>upd("payment_terms",e.target.value||null)}>
-                    <option value="">— select —</option>
-                    <option value="prepaid">Prepaid</option>
-                    <option value="deposit_balance">Deposit / Balance</option>
-                    <option value="net_15">Net 15</option>
-                    <option value="net_30">Net 30</option>
-                  </select>
-                </div>
-                {payments.length===0&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
-                {payments.length>0&&(
-                  <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
-                    <thead><tr style={{borderBottom:"1px solid #2a3050"}}>
-                      {["Invoice","Type","Amount","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:T.muted,fontWeight:500}}>{h}</th>)}
-                    </tr></thead>
-                    <tbody>{payments.map(p=>(
-                      <tr key={p.id} style={{borderBottom:"1px solid #2a3050"}}>
-                        <td style={{padding:"6px",fontFamily:"var(--font-mono)",color:T.muted}}>{p.invoice_number||"—"}</td>
-                        <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
-                        <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
-                        <td style={{padding:"6px"}}>
-                          <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
-                            background:p.status==="paid"?"#0e3d24":p.status==="void"?"#3d1212":T.amberDim,
-                            color:p.status==="paid"?"#34c97a":p.status==="void"?"#f05353":T.amber}}>{p.status}</span>
-                        </td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                )}
               </div>
 
               {/* Hold + Delete */}
