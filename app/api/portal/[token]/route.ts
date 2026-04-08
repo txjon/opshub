@@ -93,7 +93,7 @@ export async function GET(
       "costing", "decorator", "stage advanced", "auto-email",
       "buy sheet", "assigned", "reorder", "QB Invoice", "auto-created",
       "confirmation sent to", "Print proof generated",
-      "created in quickbooks", "via quickbooks",
+      "created in quickbooks",
     ];
     const activity = (rawActivity || []).filter((a: any) => {
       const msg = (a.message || "").toLowerCase();
