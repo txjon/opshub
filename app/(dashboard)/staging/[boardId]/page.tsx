@@ -367,13 +367,25 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                   setMoodExpanded(moodExpanded === item.id ? null : item.id);
                   if (moodExpanded !== item.id && !messages[item.id]) loadMessages(item.id);
                 }}
+                onDragOver={e => { e.preventDefault(); setDragOverIdx(idx); }}
                 style={{
                   background: T.card,
-                  border: `1px solid ${T.border}`,
+                  border: `1px solid ${dragOverIdx === idx ? T.accent : T.border}`,
                   borderRadius: 10,
                   overflow: "hidden",
                   cursor: "pointer",
+                  opacity: dragIdx === idx ? 0.4 : 1,
+                  transition: "border-color 0.15s, opacity 0.15s",
                 }}>
+                {/* Drag handle */}
+                <div
+                  draggable
+                  onDragStart={e => { setDragIdx(idx); e.stopPropagation(); }}
+                  onDragEnd={() => { if (dragIdx !== null && dragOverIdx !== null) handleMoodDrop(dragIdx, dragOverIdx); setDragIdx(null); setDragOverIdx(null); }}
+                  onClick={e => e.stopPropagation()}
+                  style={{ padding: "3px 0", textAlign: "center", cursor: "grab", background: T.surface, fontSize: 9, color: T.faint, letterSpacing: 3, userSelect: "none" }}>
+                  ⋮⋮⋮
+                </div>
                 {/* Image area */}
                 <div style={{
                   width: "100%",
