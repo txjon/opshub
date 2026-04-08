@@ -929,6 +929,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               }} style={{fontSize:12,fontWeight:600,color:"#fff",background:T.green,border:"none",borderRadius:7,padding:"7px 20px",cursor:"pointer"}}>Approve Quote</button>
             </div>
           )}
+          {/* Quote sent log */}
+          {(job as any).type_meta?.quote_sent_at && (
+            <div style={{marginTop:8,padding:"6px 12px",background:T.surface,borderRadius:6,fontSize:11,color:T.muted,display:"flex",alignItems:"center",gap:6}}>
+              <span style={{color:T.green,fontWeight:600}}>Sent</span>
+              <span>Quote emailed {new Date((job as any).type_meta.quote_sent_at).toLocaleDateString("en-US",{month:"short",day:"numeric"})} at {new Date((job as any).type_meta.quote_sent_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span>
+            </div>
+          )}
         </div>
         <CostingTabWrapper
           key={"quote-"+items.map(i=>i.id).join(',')}

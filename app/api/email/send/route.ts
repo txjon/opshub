@@ -61,6 +61,11 @@ export async function POST(req: NextRequest) {
           // Save proofs_sent_at for dashboard follow-up tracking
           const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
           await adminClient.from("jobs").update({ type_meta: { ...(jd?.type_meta || {}), proofs_sent_at: new Date().toISOString() } }).eq("id", jobId);
+          // Log activity server-side
+          await adminClient.from("job_activity").insert({
+            job_id: jobId, user_id: null, type: "auto",
+            message: `Proofs sent to client for approval via portal link`,
+          });
         } catch {} // Non-fatal
       }
 
@@ -218,10 +223,20 @@ export async function POST(req: NextRequest) {
         const tsKey = type === "quote" ? "quote_sent_at" : "invoice_sent_at";
         const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
         const updateData: any = { type_meta: { ...(jd?.type_meta || {}), [tsKey]: new Date().toISOString() } };
-        // Clear rejection notes when re-sending a revised quote
         if (type === "quote") updateData.quote_rejection_notes = null;
         await adminClient.from("jobs").update(updateData).eq("id", jobId);
       }
+      // Log activity server-side — works from dashboard, quote tab, anywhere
+      const activityMsg =
+        type === "quote" ? `Quote sent to client (${recipientEmail})`
+        : type === "invoice" ? `Invoice sent to client (${recipientEmail})`
+        : type === "invoice_proofs" ? `Invoice + proofs sent to client (${recipientEmail})`
+        : type === "po" ? `PO sent to ${vendor || "decorator"} (${recipientEmail})`
+        : type === "proof_link" ? `Proofs sent to client for approval via portal link`
+        : `Email sent (${type})`;
+      await adminClient.from("job_activity").insert({
+        job_id: jobId, user_id: null, type: "auto", message: activityMsg,
+      });
     } catch {} // Non-fatal
 
     return NextResponse.json({ success: true, id: data?.id });

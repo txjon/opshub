@@ -77,7 +77,7 @@ export function distribute(total, sizes, curve) {
 
 // ── S&S Catalog Picker ──────────────────────────────────────────────────────
 
-export function SSPicker({ onAdd, onClose, isFav, toggleFav }) {
+export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode }) {
   const [query, setQuery] = useState("");
   const [brands, setBrands] = useState([]);
   const [selBrand, setSelBrand] = useState(null);
@@ -185,7 +185,7 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav }) {
           <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key==="Enter" && searchByQuery()} placeholder="Search style # or keyword..." style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", width:200 }} />
           <button onClick={searchByQuery} disabled={loading} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:6, padding:"5px 12px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer", opacity:loading?0.6:1 }}>{loading?"…":"Search"}</button>
           <input value={itemName} onChange={e=>setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", width:180 }} />
-          <button onClick={doAdd} disabled={!canAdd} style={{ background:canAdd?T.accent:T.surface, color:canAdd?"#fff":T.muted, border:"none", borderRadius:6, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:canAdd?"pointer":"default", transition:"all 0.15s" }}>Add to buy sheet →</button>
+          <button onClick={doAdd} disabled={!canAdd} style={{ background:canAdd?T.accent:T.surface, color:canAdd?"#fff":T.muted, border:"none", borderRadius:6, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:canAdd?"pointer":"default", transition:"all 0.15s" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
           <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", lineHeight:1 }}>×</button>
         </div>
       </div>
@@ -263,7 +263,7 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav }) {
 }
 // ── AS Colour Picker ─────────────────────────────────────────────────────────
 
-export function ASColourPicker({ onAdd, onClose, isFav, toggleFav }) {
+export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pricing, setPricing] = useState({});  // { sku: price }
@@ -381,7 +381,7 @@ export function ASColourPicker({ onAdd, onClose, isFav, toggleFav }) {
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search style # or name..." style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 200 }} />
           <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
-          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", transition: "all 0.15s" }}>Add to buy sheet →</button>
+          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", transition: "all 0.15s" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
           <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
       </div>
@@ -462,7 +462,7 @@ export function ASColourPicker({ onAdd, onClose, isFav, toggleFav }) {
 }
 
 // ── LA Apparel Picker ────────────────────────────────────────────────────────
-export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
+export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selCategory, setSelCategory] = useState(null);
@@ -553,7 +553,7 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search style # or name..." style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
           <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 160 }} />
-          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>Add to buy sheet →</button>
+          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
           <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
       </div>
@@ -639,7 +639,7 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav }) {
 }
 
 // ── Favorites Picker ─────────────────────────────────────────────────────────
-export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav }) {
+export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav, assignMode }) {
   const HP_CATEGORIES = ["Crewnecks", "Hats", "Hoodies", "Jackets", "Long Sleeve", "Tees", "Other"];
   const [selCategory, setSelCategory] = useState(null);
   const [selFav, setSelFav] = useState(null);
@@ -769,7 +769,7 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
         <span style={{ fontSize: 12, fontWeight: 700, color: "#5795b2", fontFamily: font }}>House Party Favorites</span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
-          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>Add to buy sheet →</button>
+          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
           <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
       </div>
@@ -874,7 +874,7 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
 
 // ── Other / Custom Blank Picker ──────────────────────────────────────────────
 
-export function OtherPicker({ onAdd, onClose }) {
+export function OtherPicker({ onAdd, onClose, assignMode }) {
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selBrand, setSelBrand] = useState(null);
