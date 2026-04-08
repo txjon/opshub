@@ -293,7 +293,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
           })}
         </div>
 
-        {/* ── Expanded Detail Panel ── */}
+        {/* ── Item Modal ── */}
         {moodExpanded && (() => {
           const item = items.find((it: any) => it.id === moodExpanded);
           if (!item) return null;
@@ -301,10 +301,13 @@ export default function SharePage({ params }: { params: { token: string } }) {
           const itemMsgs = messages[item.id] || [];
 
           return (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
+              onClick={e => { if (e.target === e.currentTarget) setMoodExpanded(null); }}>
             <div style={{
-              marginBottom: 24, background: T.card, border: `1px solid ${T.border}`,
-              borderRadius: 12, overflow: "hidden",
-            }}>
+              background: T.card, border: `1px solid ${T.border}`,
+              borderRadius: 12, overflow: "auto",
+              width: 800, maxWidth: "95vw", maxHeight: "90vh",
+            }} onClick={e => e.stopPropagation()}>
               <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row" }}>
                 {/* Images */}
                 <div style={{ width: isMobile ? "100%" : 320, flexShrink: 0, background: T.surface, padding: 12 }}>
@@ -380,6 +383,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
                   </div>
                 </div>
               </div>
+            </div>
             </div>
           );
         })()}
