@@ -9,8 +9,8 @@ export default async function DashboardPage() {
   // ── Data Loading ──
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("*, clients(name), quote_approved, quote_approved_at, type_meta, costing_data, payment_terms, shipping_route, items(id, name, pipeline_stage, blanks_order_number, ship_tracking, artwork_status, garment_type, received_at_hpd, pipeline_timestamps, buy_sheet_lines(qty_ordered))")
-    .not("phase", "in", '("complete","cancelled")')
+    .select("*, clients(name), quote_approved, quote_approved_at, type_meta, costing_data, costing_summary, payment_terms, shipping_route, fulfillment_status, quote_rejection_notes, items(id, name, pipeline_stage, blanks_order_number, ship_tracking, artwork_status, garment_type, received_at_hpd, pipeline_timestamps, buy_sheet_lines(qty_ordered))")
+    .not("phase", "in", '("complete","cancelled","on_hold")')
     .order("target_ship_date", { ascending: true, nullsFirst: false });
 
   const { data: allPayments } = await supabase
@@ -20,7 +20,7 @@ export default async function DashboardPage() {
 
   const allItemIds = (jobs || []).flatMap(j => (j.items || []).map((it: any) => it.id));
   const { data: proofFiles } = allItemIds.length > 0
-    ? await supabase.from("item_files").select("item_id, stage, approval").in("item_id", allItemIds).in("stage", ["proof", "mockup"])
+    ? await supabase.from("item_files").select("item_id, stage, approval, notes").in("item_id", allItemIds).in("stage", ["proof", "mockup"])
     : { data: [] };
 
   // Load contacts for email modals
@@ -30,13 +30,14 @@ export default async function DashboardPage() {
     : { data: [] };
 
   // ── Proof status map ──
-  const proofMap: Record<string, { allApproved: boolean; hasRevision: boolean; pendingCount: number }> = {};
+  const proofMap: Record<string, { allApproved: boolean; hasRevision: boolean; pendingCount: number; revisionNotes: string | null }> = {};
   for (const id of allItemIds) {
     const proofs = (proofFiles || []).filter(f => f.item_id === id && f.stage === "proof");
     proofMap[id] = {
       allApproved: proofs.length > 0 && proofs.every(f => f.approval === "approved"),
       hasRevision: proofs.some(f => f.approval === "revision_requested"),
       pendingCount: proofs.filter(f => f.approval === "pending").length,
+      revisionNotes: proofs.find(f => f.approval === "revision_requested")?.notes || null,
     };
   }
 
@@ -72,105 +73,168 @@ export default async function DashboardPage() {
     const payments = paymentsByJob[j.id] || [];
     const hasPaidPayment = payments.some(p => p.status === "paid");
     const quoteApproved = (j as any).quote_approved;
+    const rejectionNotes = (j as any).quote_rejection_notes || null;
     const allProofsApproved = items.length > 0 && items.every((it: any) => proofMap[it.id]?.allApproved || it.artwork_status === "approved");
     const poSentVendors = typeMeta.po_sent_vendors || [];
     const costProds = (j as any).costing_data?.costProds || [];
     const allVendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))] as string[];
     const unsentVendors = allVendors.filter(v => !poSentVendors.includes(v));
+    const costingSummary = (j as any).costing_summary || {};
+    const costingSet = (costingSummary.grossRev || 0) > 0;
+    const terms = j.payment_terms || "";
+    const paymentGateMet = terms === "net_15" || terms === "net_30" || hasPaidPayment;
+    const apparelItems = items.filter((it: any) => it.garment_type !== "accessory");
 
     const base = {
       jobId: j.id, jobTitle: j.title, clientName, invoiceNumber: invoiceNum,
       jobNumber: jobNum, shipDate: j.target_ship_date, contacts,
     };
 
-    // ── SALES ALERTS ──
+    // ═══════════ SALES ALERTS ═══════════
 
-    // Critical: Overdue project
+    // 1. Overdue — downgrade to amber if in fulfillment/shipping (almost done)
     if (j.target_ship_date && new Date(j.target_ship_date) < now) {
       const days = Math.abs(Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000));
-      alerts.push({ ...base, priority: 0, type: "overdue", label: "OVERDUE", bg: T.redDim, color: T.red, action: `${days}d past ship date`, href: `/jobs/${j.id}`, column: "sales" });
+      const isFinishing = j.phase === "fulfillment" || j.phase === "shipping";
+      alerts.push({ ...base, priority: isFinishing ? 1 : 0, type: "overdue", color: isFinishing ? T.amber : T.red,
+        action: isFinishing ? `${days} days past ship date — ${j.phase === "fulfillment" ? "in fulfillment" : "ready to ship"}` : `${days} days past ship date`,
+        href: `/jobs/${j.id}`, column: "sales" });
     }
 
-    // Critical: Revision requested
+    // 2. Quote rejected — client submitted notes (NEW)
+    if (rejectionNotes && !quoteApproved) {
+      alerts.push({ ...base, priority: 0, type: "quote_rejected", color: T.red,
+        action: "Quote rejected — review client notes", notes: rejectionNotes,
+        href: `/jobs/${j.id}?tab=quote`, column: "sales" });
+    }
+
+    // 3. Proof revision requested — with client notes
     for (const it of items) {
       if (proofMap[it.id]?.hasRevision) {
-        alerts.push({ ...base, priority: 0, type: "revision", label: "REVISION", bg: T.redDim, color: T.red, action: `${it.name} — client requested changes`, href: `/jobs/${j.id}?tab=art`, column: "sales" });
+        alerts.push({ ...base, priority: 0, type: "revision", color: T.red,
+          action: `Proof revision requested — ${it.name}`, notes: proofMap[it.id]?.revisionNotes || null,
+          href: `/jobs/${j.id}?tab=art`, column: "sales" });
       }
     }
 
-    // Quote not approved yet (intake phase, items exist, costing done)
-    const costingSummary = (j as any).costing_summary || {};
-    const costingSet = (costingSummary.grossRev || 0) > 0;
-    if (j.phase === "intake" && !quoteApproved && items.length > 0 && costingSet) {
-      alerts.push({ ...base, priority: 2, type: "send_quote", label: "QUOTE", bg: T.purpleDim, color: T.purple, action: "Send quote to client", href: `/jobs/${j.id}?tab=quote`, column: "sales" });
-    }
-
-    // Quote approved but no invoice number
+    // 4. Create invoice
     if (quoteApproved && !invoiceNum) {
-      alerts.push({ ...base, priority: 1, type: "create_invoice", label: "INVOICE", bg: T.amberDim, color: T.amber, action: "Create invoice", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+      alerts.push({ ...base, priority: 1, type: "create_invoice", color: T.amber,
+        action: "Create invoice", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
     }
 
-    // Invoice exists but not sent
+    // 5. Send invoice — prepaid/deposit (gates production) vs net terms (doesn't gate)
     if (quoteApproved && invoiceNum && payments.length === 0) {
-      const terms = j.payment_terms || "";
       const isNet = terms === "net_15" || terms === "net_30";
       if (isNet) {
-        // Net terms: still remind to send, but lower priority (doesn't gate production)
-        alerts.push({ ...base, priority: 2, type: "send_invoice", label: "SEND", bg: T.purpleDim, color: T.purple, action: "Send invoice to client", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+        const termLabel = terms === "net_15" ? "net 15" : "net 30";
+        alerts.push({ ...base, priority: 2, type: "send_invoice", color: T.purple,
+          action: `Send invoice · ${termLabel}`, href: `/jobs/${j.id}?tab=payment`, column: "sales" });
       } else if (j.phase === "pending") {
-        // Prepaid/deposit: high priority, gates production
-        alerts.push({ ...base, priority: 1, type: "send_invoice", label: "SEND", bg: T.amberDim, color: T.amber, action: "Send invoice to client", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+        alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
+          action: "Send invoice · payment required before production", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
       }
     }
 
-    // Proofs not sent yet (quote approved, items have mockups but no proofs sent)
+    // 6. Send quote — only when costing done, no pending rejection
+    if (j.phase === "intake" && !quoteApproved && items.length > 0 && costingSet && !rejectionNotes) {
+      alerts.push({ ...base, priority: 2, type: "send_quote", color: T.purple,
+        action: "Send quote to client", href: `/jobs/${j.id}?tab=quote`, column: "sales" });
+    }
+
+    // 7. Upload proofs / Awaiting approval
     if (quoteApproved && !allProofsApproved) {
-      const hasPending = items.some((it: any) => proofMap[it.id]?.pendingCount > 0);
-      const hasNoProofs = items.some((it: any) => {
+      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0);
+      const itemsNeedingProofs = items.filter((it: any) => {
         const proofs = (proofFiles || []).filter(f => f.item_id === it.id && f.stage === "proof");
         return proofs.length === 0 && it.artwork_status !== "approved";
       });
-      if (hasPending) {
-        alerts.push({ ...base, priority: 2, type: "proofs_pending", label: "PROOFS", bg: T.purpleDim, color: T.purple, action: "Waiting on client approval", href: `/jobs/${j.id}?tab=approvals`, column: "sales" });
-      } else if (hasNoProofs && quoteApproved) {
-        alerts.push({ ...base, priority: 2, type: "upload_proofs", label: "PROOFS", bg: T.purpleDim, color: T.purple, action: "Upload proofs", href: `/jobs/${j.id}?tab=art`, column: "sales" });
+      if (pendingItems.length > 0) {
+        alerts.push({ ...base, priority: 2, type: "proofs_pending", color: T.muted,
+          action: `Awaiting proof approval · ${pendingItems.length} item${pendingItems.length !== 1 ? "s" : ""} pending`,
+          href: `/jobs/${j.id}?tab=approvals`, column: "sales" });
+      } else if (itemsNeedingProofs.length > 0) {
+        alerts.push({ ...base, priority: 2, type: "upload_proofs", color: T.purple,
+          action: `Upload proofs · ${itemsNeedingProofs.length} item${itemsNeedingProofs.length !== 1 ? "s" : ""} need proofs`,
+          href: `/jobs/${j.id}?tab=art`, column: "sales" });
       }
     }
 
-    // ── PRODUCTION ALERTS ──
+    // ═══════════ PRODUCTION ALERTS ═══════════
 
-    // Payment gate: check if payment received (handoff to production)
-    const terms = j.payment_terms || "";
-    const paymentGateMet = terms === "net_15" || terms === "net_30" || hasPaidPayment;
-
-    // Order blanks: payment + proofs approved, blanks not ordered
+    // 8. Order blanks
     if (quoteApproved && paymentGateMet && allProofsApproved) {
-      const needsBlanks = items.filter((it: any) => !it.blanks_order_number && it.garment_type !== "accessory");
+      const needsBlanks = apparelItems.filter((it: any) => !it.blanks_order_number);
       if (needsBlanks.length > 0) {
-        alerts.push({ ...base, priority: 1, type: "order_blanks", label: "BLANKS", bg: T.accentDim, color: T.accent, action: `Order blanks — ${needsBlanks.length} item${needsBlanks.length !== 1 ? "s" : ""}`, href: `/jobs/${j.id}?tab=blanks`, column: "production" });
+        alerts.push({ ...base, priority: 1, type: "order_blanks", color: T.accent,
+          action: `Order blanks · ${needsBlanks.length} item${needsBlanks.length !== 1 ? "s" : ""}`,
+          href: `/jobs/${j.id}?tab=blanks`, column: "production" });
       }
     }
 
-    // Send POs: blanks ordered, POs not sent
-    if (items.some((it: any) => it.blanks_order_number) && unsentVendors.length > 0) {
-      alerts.push({ ...base, priority: 1, type: "send_po", label: "PO", bg: T.accentDim, color: T.accent, action: `Send PO — ${unsentVendors.join(", ")}`, href: `/jobs/${j.id}?tab=po`, column: "production", vendors: unsentVendors });
+    // 9. Send PO — fixed: fires for accessory-only (no blanks needed)
+    const allBlanksHandled = apparelItems.length === 0 || apparelItems.every((it: any) => it.blanks_order_number);
+    if (quoteApproved && paymentGateMet && allProofsApproved && allBlanksHandled && unsentVendors.length > 0) {
+      alerts.push({ ...base, priority: 1, type: "send_po", color: T.accent,
+        action: `Send PO · ${unsentVendors.join(", ")}`,
+        href: `/jobs/${j.id}?tab=po`, column: "production", vendors: unsentVendors });
     }
 
-    // In production — stalled (7+ days)
+    // 10. Stalled (7+ days) + early warning (3-6 days)
     for (const it of items) {
       if (it.pipeline_stage === "in_production" && it.pipeline_timestamps?.in_production) {
         const days = Math.ceil((now.getTime() - new Date(it.pipeline_timestamps.in_production).getTime()) / 86400000);
         if (days >= 7) {
-          alerts.push({ ...base, priority: 1, type: "stalled", label: "STALLED", bg: T.amberDim, color: T.amber, action: `${it.name} — ${days}d at decorator`, href: `/jobs/${j.id}?tab=production`, column: "production" });
+          alerts.push({ ...base, priority: 1, type: "stalled", color: T.amber,
+            action: `Stalled at decorator · ${days}d — ${it.name}`, href: `/jobs/${j.id}?tab=production`, column: "production" });
+        } else if (days >= 3) {
+          alerts.push({ ...base, priority: 2, type: "watch", color: T.purple,
+            action: `${days}d at decorator — ${it.name}`, href: `/jobs/${j.id}?tab=production`, column: "production" });
         }
       }
     }
 
-    // Items shipped, pending receiving (ship_through / stage only)
+    // 11. Incoming to warehouse + late receiving (10+ days)
     if ((j as any).shipping_route !== "drop_ship") {
       const pendingReceive = items.filter((it: any) => it.pipeline_stage === "shipped" && !it.received_at_hpd);
       if (pendingReceive.length > 0) {
-        alerts.push({ ...base, priority: 1, type: "receiving", label: "INCOMING", bg: T.greenDim, color: T.green, action: `${pendingReceive.length} item${pendingReceive.length !== 1 ? "s" : ""} incoming to warehouse`, href: `/warehouse`, column: "production" });
+        const lateItems = pendingReceive.filter((it: any) => {
+          if (!it.pipeline_timestamps?.shipped) return false;
+          return Math.ceil((now.getTime() - new Date(it.pipeline_timestamps.shipped).getTime()) / 86400000) >= 10;
+        });
+        for (const it of lateItems) {
+          const daysSince = Math.ceil((now.getTime() - new Date(it.pipeline_timestamps.shipped).getTime()) / 86400000);
+          alerts.push({ ...base, priority: 1, type: "late_receiving", color: T.amber,
+            action: `${it.name} shipped ${daysSince}d ago — not received`, href: `/warehouse`, column: "production" });
+        }
+        const onTimeCount = pendingReceive.length - lateItems.length;
+        if (onTimeCount > 0) {
+          alerts.push({ ...base, priority: 1, type: "receiving", color: T.green,
+            action: `${onTimeCount} item${onTimeCount !== 1 ? "s" : ""} incoming to warehouse`, href: `/warehouse`, column: "production" });
+        }
+      }
+    }
+
+    // 12. Shipping phase — ship-through, all received, needs forwarding (NEW)
+    if (j.phase === "shipping") {
+      alerts.push({ ...base, priority: 1, type: "ship_to_client", color: T.amber,
+        action: "Forward to client — enter outbound tracking", href: `/warehouse`, column: "production" });
+    }
+
+    // 13. Fulfillment phase — stage route, all received, packing/shipping (NEW)
+    if (j.phase === "fulfillment") {
+      const fStatus = (j as any).fulfillment_status || "staged";
+      const label = fStatus === "staged" ? "Pack & ship — items received" : fStatus === "packing" ? "Packing in progress" : "Ready to ship";
+      alerts.push({ ...base, priority: 1, type: "fulfillment", color: T.amber,
+        action: `Fulfillment — ${label}`, href: `/warehouse`, column: "production" });
+    }
+
+    // 14. Ships soon (0-3 days) — proactive deadline warning (NEW)
+    if (j.target_ship_date) {
+      const daysToShip = Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000);
+      if (daysToShip >= 0 && daysToShip <= 3) {
+        alerts.push({ ...base, priority: 2, type: "shipping_soon", color: T.amber,
+          action: `Ships in ${daysToShip}d — verify status`, href: `/jobs/${j.id}`, column: "production" });
       }
     }
   }

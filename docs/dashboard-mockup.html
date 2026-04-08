@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsHub — Command Center Mockup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0f1219;
+    color: #c9d1e0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  .shell {
+    display: flex; min-height: 100vh;
+  }
+
+  /* ── Sidebar (decorative) ── */
+  .sidebar {
+    width: 220px; background: #0c0f16; border-right: 1px solid #1e2538;
+    padding: 20px 14px; flex-shrink: 0;
+  }
+  .sidebar-logo { font-size: 15px; font-weight: 800; color: #e2e8f0; margin-bottom: 24px; letter-spacing: -0.02em; }
+  .sidebar-logo span { color: #4f8ff7; }
+  .sidebar-item {
+    padding: 8px 12px; border-radius: 8px; font-size: 13px; font-weight: 500;
+    color: #8a92b0; margin-bottom: 2px; cursor: default;
+  }
+  .sidebar-item.active { background: #1a1f2e; color: #e2e8f0; font-weight: 600; }
+
+  /* ── Main Content ── */
+  .main { flex: 1; padding: 28px 32px; max-width: 1100px; }
+
+  /* ── Header ── */
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .header-title { font-size: 20px; font-weight: 700; color: #e2e8f0; }
+  .header-sub { font-size: 12px; color: #8a92b0; margin-top: 3px; }
+  .header-badges { display: flex; gap: 6px; }
+  .header-badge {
+    padding: 4px 12px; border-radius: 99px; font-size: 11px; font-weight: 600;
+  }
+
+  /* ── Columns ── */
+  .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .col-header {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+  }
+  .col-title { font-size: 14px; font-weight: 700; color: #e2e8f0; }
+  .col-count {
+    padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600;
+  }
+
+  /* ── Alert Cards ── */
+  .alert-card {
+    background: #141926;
+    border: 1px solid #1e2538;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: background 0.1s;
+    position: relative;
+    overflow: hidden;
+  }
+  .alert-card:hover { background: #1a1f2e; }
+
+  /* Color bar on left */
+  .alert-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+  }
+  .alert-card.red::before { background: #f87171; }
+  .alert-card.amber::before { background: #fbbf24; }
+  .alert-card.purple::before { background: #a78bfa; }
+  .alert-card.muted::before { background: #515a78; }
+  .alert-card.green::before { background: #34d399; }
+  .alert-card.accent::before { background: #4f8ff7; }
+
+  /* Line 1: Action command */
+  .alert-action {
+    font-size: 13px; font-weight: 700; line-height: 1.3;
+    margin-bottom: 3px;
+  }
+  .alert-action.red { color: #f87171; }
+  .alert-action.amber { color: #fbbf24; }
+  .alert-action.purple { color: #a78bfa; }
+  .alert-action.muted { color: #8a92b0; }
+  .alert-action.green { color: #34d399; }
+  .alert-action.accent { color: #4f8ff7; }
+
+  /* Line 2: Context */
+  .alert-context {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px; color: #8a92b0;
+  }
+  .alert-context .ids {
+    display: flex; align-items: center; gap: 6px;
+    flex-shrink: 0; margin-left: 8px;
+  }
+  .alert-id { font-family: 'SF Mono', Menlo, monospace; font-size: 10px; color: #515a78; }
+  .alert-days { font-family: 'SF Mono', Menlo, monospace; font-size: 10px; font-weight: 600; }
+  .days-ok { color: #8a92b0; }
+  .days-soon { color: #fbbf24; }
+  .days-over { color: #f87171; }
+
+  /* Line 3: Notes preview (for rejections) */
+  .alert-notes {
+    margin-top: 6px; padding: 6px 10px;
+    background: #1a1f2e; border-radius: 6px; border-left: 2px solid #515a78;
+    font-size: 11px; color: #a0a8c0; font-style: italic;
+    line-height: 1.4;
+  }
+  .alert-notes.red-note { border-left-color: #f87171; }
+
+  .arrow { font-size: 10px; color: #515a78; margin-left: auto; padding-left: 8px; }
+
+  /* ── Design Notes Panel ── */
+  .notes-panel {
+    margin-top: 32px; padding: 24px;
+    background: #141926; border: 1px solid #313a56; border-radius: 12px;
+  }
+  .notes-title { font-size: 15px; font-weight: 700; color: #e2e8f0; margin-bottom: 16px; }
+  .note-section { margin-bottom: 20px; }
+  .note-section:last-child { margin-bottom: 0; }
+  .note-label { font-size: 12px; font-weight: 700; color: #a78bfa; margin-bottom: 6px; }
+  .note-text { font-size: 13px; color: #8a92b0; line-height: 1.6; }
+  .note-text code {
+    background: #1a1f2e; padding: 1px 6px; border-radius: 4px;
+    font-family: 'SF Mono', Menlo, monospace; font-size: 11px; color: #c9d1e0;
+  }
+
+  .divider { border: none; border-top: 1px solid #1e2538; margin: 16px 0; }
+
+  /* ── Comparison ── */
+  .comparison {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 32px;
+  }
+  .comp-col { }
+  .comp-title { font-size: 13px; font-weight: 700; margin-bottom: 12px; }
+  .comp-title.old { color: #f87171; }
+  .comp-title.new { color: #34d399; }
+  .comp-card {
+    background: #141926; border: 1px solid #1e2538; border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 6px; font-size: 12px;
+  }
+  .comp-badge {
+    display: inline-block; padding: 2px 6px; border-radius: 4px;
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; margin-right: 4px;
+  }
+  .strike { text-decoration: line-through; color: #515a78; }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-logo">Ops<span>Hub</span></div>
+    <div class="sidebar-item active">Dashboard</div>
+    <div class="sidebar-item">Projects</div>
+    <div class="sidebar-item">Production</div>
+    <div class="sidebar-item">Warehouse</div>
+    <div class="sidebar-item">Clients</div>
+    <div class="sidebar-item">Decorators</div>
+    <div class="sidebar-item">Reports</div>
+  </div>
+
+  <div class="main">
+
+    <!-- Header -->
+    <div class="header">
+      <div>
+        <div class="header-title">Command Center</div>
+        <div class="header-sub">Monday, April 7 · 8 active projects</div>
+      </div>
+      <div class="header-badges">
+        <span class="header-badge" style="background:#2a1215; color:#f87171;">3 critical</span>
+        <span class="header-badge" style="background:#2a2010; color:#fbbf24;">11 actions</span>
+      </div>
+    </div>
+
+    <!-- Two columns -->
+    <div class="columns">
+
+      <!-- ═══════════ SALES COLUMN ═══════════ -->
+      <div>
+        <div class="col-header">
+          <div class="col-title">Sales</div>
+          <span class="col-count" style="background:#a78bfa22; color:#a78bfa;">7</span>
+        </div>
+
+        <!-- CRITICAL: Overdue -->
+        <div class="alert-card red">
+          <div class="alert-action red">5 days past ship date</div>
+          <div class="alert-context">
+            <span>Stellar Sounds — Festival Collection</span>
+            <span class="ids">
+              <span class="alert-id">HPD-2604-003</span>
+              <span class="alert-days days-over">5d over</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- CRITICAL: Quote rejected (NEW) -->
+        <div class="alert-card red">
+          <div class="alert-action red">Quote rejected — review client notes</div>
+          <div class="alert-context">
+            <span>Bravado Group — Tour Merch 2026</span>
+            <span class="ids">
+              <span class="alert-id">HPD-2604-007</span>
+              <span class="alert-days days-soon">3d</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+          <div class="alert-notes red-note">"Pricing is too high at 48 qty — can we get a rate at 144? Also need to add a hoodie option."</div>
+        </div>
+
+        <!-- CRITICAL: Proof revision with notes -->
+        <div class="alert-card red">
+          <div class="alert-action red">Proof revision requested — Front Tee</div>
+          <div class="alert-context">
+            <span>Stellar Sounds — Festival Collection</span>
+            <span class="ids">
+              <span class="alert-id">HPD-2604-003</span>
+              <span class="alert-days days-over">5d over</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+          <div class="alert-notes red-note">"Logo needs to be bigger, and can we try the teal colorway instead of navy?"</div>
+        </div>
+
+        <!-- HIGH: Create invoice -->
+        <div class="alert-card amber">
+          <div class="alert-action amber">Create invoice</div>
+          <div class="alert-context">
+            <span>Neon Tiger — Summer Drop</span>
+            <span class="ids">
+              <span class="alert-id">HPD-2604-005</span>
+              <span class="alert-days days-soon">2d</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- HIGH: Send invoice (prepaid) -->
+        <div class="alert-card amber">
+          <div class="alert-action amber">Send invoice · payment required before production</div>
+          <div class="alert-context">
+            <span>Golden State — Promo Tees</span>
+            <span class="ids">
+              <span class="alert-id">#INV-4521</span>
+              <span class="alert-days days-ok">8d</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- MEDIUM: Send invoice (net terms) -->
+        <div class="alert-card purple">
+          <div class="alert-action purple">Send invoice · net 30</div>
+          <div class="alert-context">
+            <span>West Coast Brands — Staff Polos</span>
+            <span class="ids">
+              <span class="alert-id">#INV-4518</span>
+              <span class="alert-days days-ok">14d</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- MEDIUM: Send quote -->
+        <div class="alert-card purple">
+          <div class="alert-action purple">Send quote to client</div>
+          <div class="alert-context">
+            <span>Pacific Events — Corporate Gifts</span>
+            <span class="ids">
+              <span class="alert-id">HPD-2604-009</span>
+              <span class="alert-days days-ok">21d</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- MEDIUM: Upload proofs -->
+        <div class="alert-card purple">
+          <div class="alert-action purple">Upload proofs · 3 items need proofs</div>
+          <div class="alert-context">
+            <span>Rhythm Records — Album Launch</span>
+            <span class="ids">
+              <span class="alert-id">HPD-2604-006</span>
+              <span class="alert-days days-soon">4d</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- INFO: Awaiting approval -->
+        <div class="alert-card muted">
+          <div class="alert-action muted">Awaiting proof approval · 2 items pending</div>
+          <div class="alert-context">
+            <span>Golden State — Promo Tees</span>
+            <span class="ids">
+              <span class="alert-id">HPD-2604-008</span>
+              <span class="alert-days days-ok">8d</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ═══════════ PRODUCTION COLUMN ═══════════ -->
+      <div>
+        <div class="col-header">
+          <div class="col-title">Production</div>
+          <span class="col-count" style="background:#4f8ff722; color:#4f8ff7;">4</span>
+        </div>
+
+        <!-- Order blanks -->
+        <div class="alert-card accent">
+          <div class="alert-action accent">Order blanks · 4 items</div>
+          <div class="alert-context">
+            <span>West Coast Brands — Staff Polos</span>
+            <span class="ids">
+              <span class="alert-id">HPD-2604-004</span>
+              <span class="alert-days days-ok">14d</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Send PO -->
+        <div class="alert-card accent">
+          <div class="alert-action accent">Send PO · Underground Press, Printworks LA</div>
+          <div class="alert-context">
+            <span>West Coast Brands — Staff Polos</span>
+            <span class="ids">
+              <span class="alert-id">HPD-2604-004</span>
+              <span class="alert-days days-ok">14d</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Stalled -->
+        <div class="alert-card amber">
+          <div class="alert-action amber">Stalled at decorator · 10 days — Bucket Hat</div>
+          <div class="alert-context">
+            <span>Rhythm Records — Album Launch</span>
+            <span class="ids">
+              <span class="alert-id">HPD-2604-006</span>
+              <span class="alert-days days-soon">4d</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Incoming to warehouse -->
+        <div class="alert-card green">
+          <div class="alert-action green">Incoming to warehouse · 2 items shipped</div>
+          <div class="alert-context">
+            <span>Neon Tiger — Summer Drop</span>
+            <span class="ids">
+              <span class="alert-id">HPD-2604-005</span>
+              <span class="alert-days days-soon">2d</span>
+              <span class="arrow">→</span>
+            </span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ═══════════ DESIGN NOTES ═══════════ -->
+    <div class="notes-panel">
+      <div class="notes-title">Design Notes</div>
+
+      <div class="note-section">
+        <div class="note-label">Every alert is a unique command</div>
+        <div class="note-text">
+          No shared pill labels. Each card's action text IS the message — reads like an email subject line commanding an action.
+          The left color border indicates priority tier, the text tells you exactly what to do.
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="note-section">
+        <div class="note-label">Rejections surface client notes</div>
+        <div class="note-text">
+          Quote rejections and proof revisions show the client's actual notes in a quoted block.
+          Clicking navigates to where the correction can be reviewed and applied:<br>
+          • <code>Quote rejected</code> → Quote tab (costing adjustments)<br>
+          • <code>Proof revision</code> → Art tab (file re-upload)
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="note-section">
+        <div class="note-label">Priority tiers by color</div>
+        <div class="note-text">
+          <span style="color:#f87171">Red</span> — Critical: overdue, rejections with client notes (sort to top)<br>
+          <span style="color:#fbbf24">Amber</span> — High: create invoice, send invoice (prepaid, gates production), stalled at decorator<br>
+          <span style="color:#a78bfa">Purple</span> — Medium: send quote, send invoice (net, doesn't gate), upload proofs<br>
+          <span style="color:#8a92b0">Muted</span> — Informational: awaiting approval (no action needed, just awareness)<br>
+          <span style="color:#4f8ff7">Blue</span> — Production: order blanks, send PO<br>
+          <span style="color:#34d399">Green</span> — Incoming: items shipped to warehouse
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="note-section">
+        <div class="note-label">Click actions</div>
+        <div class="note-text">
+          • <code>Send quote</code> → Email modal (or no-contacts popup if no email)<br>
+          • <code>Quote rejected</code> → Quote tab — see notes, adjust costing, re-send<br>
+          • <code>Create invoice</code> → Invoice modal (manual # or push to QB)<br>
+          • <code>Send invoice</code> → Email modal (or no-contacts popup)<br>
+          • <code>Upload proofs</code> → Art tab<br>
+          • <code>Awaiting approval</code> → Approvals tab (informational)<br>
+          • <code>Proof revision</code> → Art tab — see notes, revise, re-upload<br>
+          • <code>Overdue</code> → Project overview<br>
+          • <code>Order blanks</code> → Blanks tab<br>
+          • <code>Send PO</code> → PO tab<br>
+          • <code>Stalled</code> → Production tab<br>
+          • <code>Incoming</code> → Warehouse
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="note-section">
+        <div class="note-label">New: Quote rejection (requires portal update)</div>
+        <div class="note-text">
+          Client portal currently only has "Approve Quote." Needs a "Request Changes" button with a notes textarea.
+          Saves to <code>jobs.quote_rejection_notes</code> + sets <code>jobs.quote_rejected = true</code>.
+          Dashboard alert pulls the notes and displays them inline. Clicking takes Drake to the quote tab
+          to adjust pricing/items, then re-send.
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="note-section">
+        <div class="note-label">Invoice # already exists</div>
+        <div class="note-text">
+          If a job already has an invoice number in <code>type_meta</code> when the quote is approved,
+          the "Create invoice" alert never fires — flow skips straight to "Send invoice."
+          This handles the case where an invoice was pre-created in QuickBooks.
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════ BEFORE / AFTER ═══════════ -->
+    <div class="comparison">
+      <div class="comp-col">
+        <div class="comp-title old">Before (shared labels)</div>
+        <div class="comp-card">
+          <span class="comp-badge" style="background:#2d1f5e; color:#a78bfa;">PROOFS</span>
+          <span class="strike">Send proofs to client</span>
+        </div>
+        <div class="comp-card">
+          <span class="comp-badge" style="background:#2d1f5e; color:#a78bfa;">PROOFS</span>
+          <span class="strike">Waiting on client approval</span>
+        </div>
+        <div class="comp-card">
+          <span class="comp-badge" style="background:#2d1f5e; color:#a78bfa;">PROOFS</span>
+          <span class="strike">Upload proofs</span>
+        </div>
+        <div class="comp-card">
+          <span class="comp-badge" style="background:#2a2010; color:#fbbf24;">SEND</span>
+          <span class="strike">Send invoice to client</span>
+        </div>
+        <div class="comp-card">
+          <span class="comp-badge" style="background:#2a2010; color:#fbbf24;">SEND</span>
+          <span class="strike">Send invoice to client</span>
+        </div>
+        <div class="comp-card" style="border: 1px dashed #5c2020; color: #8a92b0;">
+          No quote rejection alert
+        </div>
+        <div class="comp-card" style="border: 1px dashed #5c2020; color: #8a92b0;">
+          No revision notes shown
+        </div>
+      </div>
+      <div class="comp-col">
+        <div class="comp-title new">After (unique commands)</div>
+        <div class="comp-card" style="border-left: 3px solid #a78bfa;">
+          <span style="color:#a78bfa; font-weight:600;">Upload proofs · 3 items need proofs</span>
+        </div>
+        <div class="comp-card" style="border-left: 3px solid #515a78;">
+          <span style="color:#8a92b0; font-weight:600;">Awaiting proof approval · 2 items pending</span>
+        </div>
+        <div class="comp-card" style="border-left: 3px solid #f87171;">
+          <span style="color:#f87171; font-weight:600;">Proof revision requested — Front Tee</span>
+          <div style="font-size:10px; color:#a0a8c0; font-style:italic; margin-top:4px;">"Make the logo bigger"</div>
+        </div>
+        <div class="comp-card" style="border-left: 3px solid #fbbf24;">
+          <span style="color:#fbbf24; font-weight:600;">Send invoice · payment required before production</span>
+        </div>
+        <div class="comp-card" style="border-left: 3px solid #a78bfa;">
+          <span style="color:#a78bfa; font-weight:600;">Send invoice · net 30</span>
+        </div>
+        <div class="comp-card" style="border-left: 3px solid #f87171;">
+          <span style="color:#f87171; font-weight:600;">Quote rejected — review client notes</span>
+          <div style="font-size:10px; color:#a0a8c0; font-style:italic; margin-top:4px;">"Pricing too high at 48 qty"</div>
+        </div>
+        <div class="comp-card" style="border-left: 3px solid #f87171;">
+          <span style="color:#f87171; font-weight:600;">Proof revision requested — Back Print</span>
+          <div style="font-size:10px; color:#a0a8c0; font-style:italic; margin-top:4px;">"Try the teal colorway"</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════ UPDATED FLOW ═══════════ -->
+    <div style="margin-top: 32px;">
+      <div class="notes-panel">
+        <div class="notes-title">Updated Flow</div>
+        <div class="mermaid">
+flowchart TD
+    START([New Project Created]):::start --> ITEMS{Items added?}
+    ITEMS -->|No| WAIT_ITEMS([No alert — ready for setup]):::clear
+    ITEMS -->|Yes| COSTING{Costing set?}
+
+    COSTING -->|No| WAIT_COST([No alert — ready for costing]):::clear
+    COSTING -->|Yes| QUOTE_CHECK{Quote approved?}
+
+    %% ── QUOTE ──
+    QUOTE_CHECK -->|Not sent| SEND_QUOTE([Send quote to client]):::purple
+    SEND_QUOTE --> CLIENT_QUOTE{Client response?}
+    CLIENT_QUOTE -->|Approved| QUOTE_DONE([Quote approved]):::clear
+    CLIENT_QUOTE -->|Rejected| QUOTE_REJ([Quote rejected — review client notes]):::red
+    QUOTE_REJ -->|Adjust + re-send| SEND_QUOTE
+    CLIENT_QUOTE -->|No response| SEND_QUOTE
+
+    %% ── INVOICE ──
+    QUOTE_DONE --> INV_EXISTS{Invoice #<br>already exists?}
+    INV_EXISTS -->|Yes| SEND_INV_CHECK
+    INV_EXISTS -->|No| CREATE_INV([Create invoice]):::amber
+    CREATE_INV --> SEND_INV_CHECK{Send invoice?}
+
+    SEND_INV_CHECK --> TERMS{Payment terms?}
+    TERMS -->|Prepaid / Deposit| SEND_INV_HIGH([Send invoice · payment required]):::amber
+    TERMS -->|Net 15 / Net 30| SEND_INV_NET([Send invoice · net terms]):::purple
+
+    SEND_INV_HIGH --> PAY{Payment received?}
+    PAY -->|Yes| SALES_DONE
+    PAY -->|No| SEND_INV_HIGH
+
+    SEND_INV_NET -.->|Does not gate<br>production| SALES_DONE
+
+    %% ── PROOFS (PARALLEL) ──
+    QUOTE_DONE --> PROOFS{Proofs workflow}:::parallel
+    PROOFS --> PROOF_UP{Proofs uploaded?}
+    PROOF_UP -->|No| UPLOAD([Upload proofs · X items]):::purple
+    UPLOAD --> PROOF_UP
+    PROOF_UP -->|Yes| PROOF_STATUS{Status?}
+    PROOF_STATUS -->|Pending| AWAIT([Awaiting proof approval]):::muted_node
+    PROOF_STATUS -->|Revision| REVISION([Proof revision — item name<br>+ client notes]):::red
+    REVISION -->|Revise + re-upload| PROOF_UP
+    PROOF_STATUS -->|All approved| PROOFS_DONE([Proofs complete]):::green
+
+    %% ── OVERDUE ──
+    START -.-> OVERDUE_CHECK{Ship date past?}:::overdue
+    OVERDUE_CHECK -->|Yes| OVERDUE([X days past ship date]):::red
+    OVERDUE_CHECK -->|No| OVERDUE_OK([No overdue]):::clear
+
+    %% ── HANDOFF ──
+    SALES_DONE([Sales complete → Production]):::green
+
+    classDef start fill:#1a1f2e,stroke:#313a56,color:#e2e8f0,font-weight:700
+    classDef clear fill:#0e3d24,stroke:#166534,color:#34d399,font-weight:600
+    classDef green fill:#0e3d24,stroke:#166534,color:#34d399,font-weight:700
+    classDef purple fill:#2d1f5e,stroke:#6d28d9,color:#a78bfa,font-weight:700
+    classDef amber fill:#2a2010,stroke:#92400e,color:#fbbf24,font-weight:700
+    classDef red fill:#2a1215,stroke:#991b1b,color:#f87171,font-weight:700
+    classDef muted_node fill:#1a1f2e,stroke:#515a78,color:#8a92b0,font-weight:600
+    classDef parallel fill:#1a1f2e,stroke:#6d28d9,color:#a78bfa,font-weight:600,stroke-dasharray:3 3
+    classDef overdue fill:#1a1f2e,stroke:#991b1b,color:#f87171,font-weight:600,stroke-dasharray:3 3
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#141926',
+      primaryColor: '#1e3a6e',
+      primaryTextColor: '#c9d1e0',
+      primaryBorderColor: '#313a56',
+      lineColor: '#515a78',
+      secondaryColor: '#2d1f5e',
+      tertiaryColor: '#1a1f2e',
+      fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
+      fontSize: '13px',
+    },
+    flowchart: {
+      curve: 'basis',
+      padding: 16,
+      nodeSpacing: 40,
+      rankSpacing: 50,
+      htmlLabels: true,
+    },
+  });
+</script>
+
+</body>
+</html>

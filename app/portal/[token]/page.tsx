@@ -69,6 +69,8 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [revisionNote, setRevisionNote] = useState<Record<string, string>>({});
   const [showRevisionInput, setShowRevisionInput] = useState<string | null>(null);
+  const [showQuoteReject, setShowQuoteReject] = useState(false);
+  const [quoteRejectNote, setQuoteRejectNote] = useState("");
   const [viewingProof, setViewingProof] = useState<any>(null);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -274,20 +276,73 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               </div>
             </div>
 
-            {/* Approve button */}
+            {/* Quote actions */}
             {!project.quoteApproved && (
-              <button
-                onClick={() => doAction("approve-quote")}
-                disabled={actionLoading === "approve-quote"}
-                style={{
-                  width: "100%", marginTop: 16, padding: "14px 0", borderRadius: 10,
-                  background: C.green, color: "#fff", border: "none",
-                  fontSize: 15, fontWeight: 700, cursor: "pointer",
-                  opacity: actionLoading === "approve-quote" ? 0.6 : 1,
-                }}
-              >
-                {actionLoading === "approve-quote" ? "Approving..." : "Approve Quote"}
-              </button>
+              <div style={{ marginTop: 16 }}>
+                <button
+                  onClick={() => doAction("approve-quote")}
+                  disabled={actionLoading === "approve-quote"}
+                  style={{
+                    width: "100%", padding: "14px 0", borderRadius: 10,
+                    background: C.green, color: "#fff", border: "none",
+                    fontSize: 15, fontWeight: 700, cursor: "pointer",
+                    opacity: actionLoading === "approve-quote" ? 0.6 : 1,
+                  }}
+                >
+                  {actionLoading === "approve-quote" ? "Approving..." : "Approve Quote"}
+                </button>
+                {!showQuoteReject ? (
+                  <button
+                    onClick={() => setShowQuoteReject(true)}
+                    style={{
+                      width: "100%", marginTop: 8, padding: "10px 0", borderRadius: 10,
+                      background: "transparent", color: C.muted, border: `1px solid ${C.border}`,
+                      fontSize: 13, fontWeight: 600, cursor: "pointer",
+                    }}
+                  >
+                    Request Changes
+                  </button>
+                ) : (
+                  <div style={{ marginTop: 10, background: C.surface, borderRadius: 10, padding: 14, border: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 6 }}>What changes are needed?</div>
+                    <textarea
+                      value={quoteRejectNote}
+                      onChange={e => setQuoteRejectNote(e.target.value)}
+                      placeholder="Describe the changes you'd like..."
+                      rows={3}
+                      style={{
+                        width: "100%", padding: 10, borderRadius: 8,
+                        border: `1px solid ${C.border}`, background: C.card, color: C.text,
+                        fontSize: 13, resize: "vertical", outline: "none", boxSizing: "border-box",
+                      }}
+                    />
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button
+                        onClick={() => doAction("reject-quote", { note: quoteRejectNote })}
+                        disabled={!quoteRejectNote.trim() || actionLoading === "reject-quote"}
+                        style={{
+                          flex: 1, padding: "10px", borderRadius: 8,
+                          background: C.red || "#f87171", color: "#fff", border: "none",
+                          fontSize: 13, fontWeight: 600, cursor: "pointer",
+                          opacity: (!quoteRejectNote.trim() || actionLoading === "reject-quote") ? 0.5 : 1,
+                        }}
+                      >
+                        {actionLoading === "reject-quote" ? "Sending..." : "Submit Changes"}
+                      </button>
+                      <button
+                        onClick={() => { setShowQuoteReject(false); setQuoteRejectNote(""); }}
+                        style={{
+                          padding: "10px 16px", borderRadius: 8,
+                          background: "transparent", border: `1px solid ${C.border}`, color: C.muted,
+                          fontSize: 13, cursor: "pointer",
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Download Quote PDF */}

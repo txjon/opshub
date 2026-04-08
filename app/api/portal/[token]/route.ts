@@ -271,11 +271,41 @@ export async function POST(
     const body = await req.json();
     const { action, fileId, note } = body;
 
+    if (action === "reject-quote") {
+      await sb
+        .from("jobs")
+        .update({ quote_rejection_notes: note || "Client requested changes" })
+        .eq("id", job.id);
+
+      await sb.from("job_activity").insert({
+        job_id: job.id, user_id: null, type: "auto",
+        message: `Quote rejected by client via portal${note ? `: "${note}"` : ""}`,
+      });
+
+      let clientName = "Client";
+      if (job.client_id) {
+        const { data: c } = await sb.from("clients").select("name").eq("id", job.client_id).single();
+        if (c) clientName = c.name;
+      }
+      const { data: profiles } = await sb.from("profiles").select("id");
+      if (profiles?.length) {
+        await sb.from("notifications").insert(
+          profiles.map((p: any) => ({
+            user_id: p.id, type: "alert",
+            message: `Quote rejected — ${clientName} · ${job.title}`,
+            reference_id: job.id, reference_type: "job",
+          }))
+        );
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
     if (action === "approve-quote") {
       const now = new Date().toISOString();
       await sb
         .from("jobs")
-        .update({ quote_approved: true, quote_approved_at: now })
+        .update({ quote_approved: true, quote_approved_at: now, quote_rejection_notes: null })
         .eq("id", job.id);
 
       // Log activity
