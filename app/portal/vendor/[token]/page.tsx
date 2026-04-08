@@ -276,14 +276,14 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                         House Party Distro<br/>
                         hello@housepartydistro.com<br/>
                         4670 W Silverado Ranch Blvd, STE 120<br/>
-                        Las Vegas, NV 89139
+                        Las Vegas, NV 89118
                       </div>
                     </div>
                     <div>
                       <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Ship to</div>
                       <div style={{ lineHeight: 1.7, color: C.text, whiteSpace: "pre-wrap" }}>
                         {order.shipTo
-                          ? [order.shipTo.name, order.shipTo.address, [order.shipTo.city, order.shipTo.state, order.shipTo.zip].filter(Boolean).join(", ")].filter(Boolean).join("\n")
+                          ? (typeof order.shipTo === "string" ? order.shipTo : [order.shipTo.name, order.shipTo.address, [order.shipTo.city, order.shipTo.state, order.shipTo.zip].filter(Boolean).join(", ")].filter(Boolean).join("\n"))
                           : "—"}
                       </div>
                     </div>
