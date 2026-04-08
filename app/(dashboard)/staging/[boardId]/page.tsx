@@ -213,42 +213,48 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
 
   return (
     <div style={{ fontFamily: font, color: T.text }}>
-      {/* Summary bar — 4 KPI groups */}
+      {/* Summary table */}
       {(() => {
-        const calcTotals = (list: any[]) => list.reduce((acc, it) => {
+        const calc = (list: any[]) => list.reduce((acc, it) => {
           const qty = it.qty || 0;
           const cost = qty * (parseFloat(it.unit_cost) || 0);
           const gross = qty * (parseFloat(it.retail) || 0);
           return { cost: acc.cost + cost, gross: acc.gross + gross, count: acc.count + 1 };
         }, { cost: 0, gross: 0, count: 0 });
-        const allT = calcTotals(items);
-        const pendingT = calcTotals(items.filter(it => it.status !== "In Production" && it.status !== "LANDED"));
-        const prodT = calcTotals(items.filter(it => it.status === "In Production"));
-        const landedT = calcTotals(items.filter(it => it.status === "LANDED"));
-        const groups = [
-          { label: "Total", t: allT, accent: T.text },
-          { label: "Pending", t: pendingT, accent: T.amber },
-          { label: "In Production", t: prodT, accent: T.accent },
-          { label: "Landed", t: landedT, accent: T.green },
+        const rows = [
+          { label: "Pending", ...calc(items.filter(it => it.status !== "In Production" && it.status !== "LANDED")), color: T.amber },
+          { label: "In Production", ...calc(items.filter(it => it.status === "In Production")), color: T.accent },
+          { label: "Landed", ...calc(items.filter(it => it.status === "LANDED")), color: T.green },
+          { label: "Total", ...calc(items), color: T.text },
         ];
         return (
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
-            {groups.map(g => {
-              const p = g.t.gross - g.t.cost;
-              return (
-                <div key={g.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 12px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                    <span style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>{g.label}</span>
-                    <span style={{ fontSize: 10, color: g.accent, fontWeight: 700 }}>{g.t.count}</span>
-                  </div>
-                  <div style={{ display: "flex", gap: 10, fontSize: 12, fontFamily: mono }}>
-                    <span style={{ color: T.muted }}>{fmtD(g.t.cost)}</span>
-                    <span style={{ color: g.accent, fontWeight: 700 }}>{fmtD(g.t.gross)}</span>
-                    <span style={{ color: p >= 0 ? T.green : T.red }}>{fmtD(p)}</span>
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 16, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead>
+                <tr style={{ background: T.surface }}>
+                  <th style={{ padding: "5px 10px", textAlign: "left", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Phase</th>
+                  <th style={{ padding: "5px 8px", textAlign: "center", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 40 }}>Qty</th>
+                  <th style={{ padding: "5px 8px", textAlign: "right", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 80 }}>Cost</th>
+                  <th style={{ padding: "5px 8px", textAlign: "right", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 80 }}>Gross</th>
+                  <th style={{ padding: "5px 10px", textAlign: "right", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 80 }}>Profit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => {
+                  const p = r.gross - r.cost;
+                  const isTotal = r.label === "Total";
+                  return (
+                    <tr key={r.label} style={{ borderTop: isTotal ? `1px solid ${T.border}` : undefined, background: isTotal ? T.surface : "transparent" }}>
+                      <td style={{ padding: "4px 10px", fontWeight: isTotal ? 700 : 600, color: r.color, fontSize: isTotal ? 11 : 11 }}>{r.label}</td>
+                      <td style={{ padding: "4px 8px", textAlign: "center", fontFamily: mono, color: r.count > 0 ? T.text : T.faint }}>{r.count}</td>
+                      <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: mono, color: r.cost > 0 ? T.muted : T.faint }}>{r.cost > 0 ? fmtD(r.cost) : "—"}</td>
+                      <td style={{ padding: "4px 8px", textAlign: "right", fontFamily: mono, color: r.gross > 0 ? T.text : T.faint, fontWeight: isTotal ? 700 : 400 }}>{r.gross > 0 ? fmtD(r.gross) : "—"}</td>
+                      <td style={{ padding: "4px 10px", textAlign: "right", fontFamily: mono, color: r.gross > 0 ? (p >= 0 ? T.green : T.red) : T.faint, fontWeight: isTotal ? 700 : 400 }}>{r.gross > 0 ? fmtD(p) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         );
       })()}
