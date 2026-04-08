@@ -33,6 +33,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
   const [messages, setMessages] = useState<Record<string, any[]>>({});
   const [msgInput, setMsgInput] = useState<Record<string, string>>({});
   const [clientName, setClientName] = useState("");
+  const [activeTab, setActiveTab] = useState<"items" | "production" | "landed">("items");
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
     check();
@@ -149,25 +150,107 @@ export default function SharePage({ params }: { params: { token: string } }) {
     );
   };
 
+  const productionCount = items.filter((it: any) => it.status === "In Production").length;
+  const landedCount = items.filter((it: any) => it.status === "LANDED").length;
+  const tabItems = activeTab === "items"
+    ? items.filter((it: any) => it.status !== "In Production" && it.status !== "LANDED")
+    : activeTab === "production"
+    ? items.filter((it: any) => it.status === "In Production")
+    : items.filter((it: any) => it.status === "LANDED");
+
+  const calc = (list: any[]) => list.reduce((acc: any, it: any) => {
+    const qty = it.qty || 0;
+    const cost = qty * (parseFloat(it.unit_cost) || 0);
+    const gross = qty * (parseFloat(it.retail) || 0);
+    return { cost: acc.cost + cost, gross: acc.gross + gross, count: acc.count + 1, qty: acc.qty + qty };
+  }, { cost: 0, gross: 0, count: 0, qty: 0 });
+
   return (
     <div style={{ minHeight: "100vh", background: T.bg, fontFamily: font, color: T.text }}>
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px" }}>
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-          <div>
-            <div dangerouslySetInnerHTML={{ __html: HPD_LOGO }} style={{ marginBottom: 8 }} />
-            <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{board.name}</h1>
-            <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{board.client_name}</div>
+      {/* Sticky header: KPI + tabs */}
+      <div style={{ position: "sticky", top: 0, zIndex: 10, background: T.bg, borderBottom: `1px solid ${T.border}`, paddingBottom: 8 }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "16px 20px 0" }}>
+          {/* Logo + title */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div>
+              <div dangerouslySetInnerHTML={{ __html: HPD_LOGO }} style={{ marginBottom: 4 }} />
+              <h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 700, margin: 0 }}>{board.name}</h1>
+              <div style={{ fontSize: 12, color: T.muted }}>{board.client_name}</div>
+            </div>
+          </div>
+
+          {/* KPI table */}
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 10, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: isMobile ? 10 : 11, minWidth: isMobile ? 360 : "auto" }}>
+              <thead>
+                <tr style={{ background: T.surface }}>
+                  <th style={{ padding: "4px 8px", textAlign: "left", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Phase</th>
+                  <th style={{ padding: "4px 4px", textAlign: "center", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase" }}>Items</th>
+                  <th style={{ padding: "4px 4px", textAlign: "center", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase" }}>Qty</th>
+                  <th style={{ padding: "4px 4px", textAlign: "right", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase" }}>Cost</th>
+                  <th style={{ padding: "4px 4px", textAlign: "right", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase" }}>Gross</th>
+                  <th style={{ padding: "4px 8px", textAlign: "right", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase" }}>Profit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: "Pending", ...calc(items.filter((it: any) => it.status !== "In Production" && it.status !== "LANDED")), color: T.amber },
+                  { label: "In Production", ...calc(items.filter((it: any) => it.status === "In Production")), color: T.accent },
+                  { label: "Landed", ...calc(items.filter((it: any) => it.status === "LANDED")), color: T.green },
+                  { label: "Total", ...calc(items), color: T.text },
+                ].map((r: any) => {
+                  const p = r.gross - r.cost;
+                  const isTotal = r.label === "Total";
+                  return (
+                    <tr key={r.label} style={{ borderTop: isTotal ? `1px solid ${T.border}` : undefined, background: isTotal ? T.surface : "transparent" }}>
+                      <td style={{ padding: "3px 8px", fontWeight: isTotal ? 700 : 600, color: r.color, fontSize: isMobile ? 10 : 11 }}>{r.label}</td>
+                      <td style={{ padding: "3px 4px", textAlign: "center", fontFamily: mono, color: T.faint, fontSize: 10 }}>{r.count}</td>
+                      <td style={{ padding: "3px 4px", textAlign: "center", fontFamily: mono, color: r.qty > 0 ? T.text : T.faint, fontWeight: isTotal ? 700 : 400 }}>{r.qty > 0 ? r.qty.toLocaleString() : "—"}</td>
+                      <td style={{ padding: "3px 4px", textAlign: "right", fontFamily: mono, color: r.cost > 0 ? T.muted : T.faint }}>{r.cost > 0 ? fmtD(r.cost) : "—"}</td>
+                      <td style={{ padding: "3px 4px", textAlign: "right", fontFamily: mono, color: r.gross > 0 ? T.text : T.faint, fontWeight: isTotal ? 700 : 400 }}>{r.gross > 0 ? fmtD(r.gross) : "—"}</td>
+                      <td style={{ padding: "3px 8px", textAlign: "right", fontFamily: mono, color: r.gross > 0 ? (p >= 0 ? T.green : T.red) : T.faint, fontWeight: isTotal ? 700 : 400 }}>{r.gross > 0 ? fmtD(p) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Tab pills */}
+          <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 8, padding: 3, width: isMobile ? "100%" : "fit-content" }}>
+            {([
+              { key: "items" as const, label: "Pending", count: items.length - productionCount - landedCount },
+              { key: "production" as const, label: "In Production", count: productionCount },
+              { key: "landed" as const, label: "Landed", count: landedCount },
+            ]).map(tab => {
+              const active = activeTab === tab.key;
+              return (
+                <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+                  style={{
+                    flex: isMobile ? 1 : undefined,
+                    padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer",
+                    fontSize: 12, fontWeight: 600, fontFamily: font,
+                    background: active ? T.card : "transparent",
+                    color: active ? T.text : T.muted,
+                    boxShadow: active ? "0 1px 3px rgba(0,0,0,0.2)" : "none",
+                  }}>
+                  {tab.label}
+                  {tab.count > 0 && <span style={{ marginLeft: 5, fontSize: 10, opacity: 0.7 }}>{tab.count}</span>}
+                </button>
+              );
+            })}
           </div>
         </div>
+      </div>
 
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "16px 20px" }}>
         {/* ── Mood Board ── */}
         <div style={{
           display: "grid",
           gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)",
           gap: 12, marginBottom: 24,
         }}>
-          {items.map((item: any) => {
+          {tabItems.map((item: any) => {
             const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
             const imgUrl = item.images?.[0]?.url;
             const isOpen = moodExpanded === item.id;
@@ -301,107 +384,6 @@ export default function SharePage({ params }: { params: { token: string } }) {
           );
         })()}
 
-        {/* Summary */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 20, flexDirection: isMobile ? "column" : "row" }}>
-          {[
-            { label: "Total Cost", value: fmtD(totals.cost), color: T.text },
-            { label: "Total Retail", value: fmtD(totals.gross), color: T.accent },
-            { label: "Total Profit", value: fmtD(profit), color: profit >= 0 ? T.green : T.red },
-          ].map(s => (
-            <div key={s.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: isMobile ? "8px 12px" : "10px 16px", flex: 1, display: isMobile ? "flex" : "block", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</div>
-              <div style={{ fontSize: isMobile ? 15 : 18, fontWeight: 700, color: s.color, fontFamily: mono }}>{s.value}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Items (read-only) */}
-        {isMobile ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {items.map((item: any, idx: number) => {
-              const qty = item.qty || 0;
-              const unitCost = parseFloat(item.unit_cost) || 0;
-              const retail = parseFloat(item.retail) || 0;
-              const gross = qty * retail;
-              const itemProfit = gross - qty * unitCost;
-              const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
-              return (
-                <div key={item.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    {item.images?.[0]?.url ? (
-                      <img src={item.images[0].url} onClick={() => setGalleryItem(item)}
-                        style={{ width: 50, height: 50, borderRadius: 6, objectFit: "cover", border: `1px solid ${T.border}`, flexShrink: 0, cursor: "pointer" }} />
-                    ) : (
-                      <div style={{ width: 50, height: 50, borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, flexShrink: 0 }} />
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "—"}</div>
-                      <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 11 }}>
-                        <span style={{ color: T.muted, fontFamily: mono }}>{qty || "—"} qty</span>
-                        {gross > 0 && <span style={{ color: T.accent, fontFamily: mono }}>{fmtD(gross)}</span>}
-                        {gross > 0 && <span style={{ color: itemProfit >= 0 ? T.green : T.red, fontFamily: mono }}>{fmtD(itemProfit)}</span>}
-                      </div>
-                    </div>
-                    <span style={{ padding: "2px 6px", borderRadius: 99, fontSize: 9, fontWeight: 600, background: sc.bg, color: sc.text, flexShrink: 0 }}>{item.status || "Pending"}</span>
-                  </div>
-                  {item.notes && <div style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>{item.notes}</div>}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: T.surface }}>
-                <th style={{ padding: "8px 6px", width: 90 }} />
-                <SortTh col="item_name" label="Item" style={{ textAlign: "left", padding: "8px 10px" }} />
-                <SortTh col="qty" label="QTY" style={{ textAlign: "center", width: 60 }} />
-                <SortTh col="total_cost" label="Cost" style={{ textAlign: "center", width: 80 }} />
-                <SortTh col="gross" label="Gross" style={{ textAlign: "center", width: 80 }} />
-                <SortTh col="profit" label="Profit" style={{ textAlign: "center", width: 80 }} />
-                <SortTh col="status" label="Status" style={{ textAlign: "center", width: 120 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedItems.map((item: any, idx: number) => {
-                const qty = item.qty || 0;
-                const unitCost = parseFloat(item.unit_cost) || 0;
-                const retail = parseFloat(item.retail) || 0;
-                const totalCost = qty * unitCost;
-                const gross = qty * retail;
-                const itemProfit = gross - totalCost;
-                const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
-
-                return (
-                  <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                    <td style={{ padding: "4px" }}>
-                      <div style={{ width: 80, height: 52, borderRadius: 6, overflow: "hidden", cursor: item.images?.length ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", background: T.surface, border: `1px solid ${T.border}`, position: "relative" }}
-                        onClick={() => item.images?.length && setGalleryItem(item)}>
-                        {item.images?.[0]?.url ? (
-                          <img src={item.images[0].url} style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                            onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                        ) : null}
-                        {item.images?.length > 1 && (
-                          <span style={{ position: "absolute", bottom: 2, right: 2, fontSize: 8, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: 3, padding: "0 3px" }}>+{item.images.length - 1}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ padding: "8px 10px", fontWeight: 600 }}>{item.item_name || "—"}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "center", fontFamily: mono }}>{qty || "—"}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "center", fontFamily: mono, color: T.muted }}>{totalCost > 0 ? fmtD(totalCost) : "—"}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "center", fontFamily: mono, color: T.accent }}>{gross > 0 ? fmtD(gross) : "—"}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "center", fontFamily: mono, color: itemProfit >= 0 ? T.green : T.red }}>{gross > 0 ? fmtD(itemProfit) : "—"}</td>
-                    <td style={{ padding: "8px 6px", textAlign: "center" }}>
-                      <span style={{ padding: "2px 8px", borderRadius: 99, fontSize: 10, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        )}
 
         <div style={{ textAlign: "center", marginTop: 24, fontSize: 10, color: T.faint }}>House Party Distro · housepartydistro.com</div>
       </div>
