@@ -8,6 +8,7 @@ import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, onUpdateJob }) {
   const supabase = createClient();
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
+  const [showInvoiceProofsEmail, setShowInvoiceProofsEmail] = useState(false);
   const [pushingToQB, setPushingToQB] = useState(false);
   const [qbError, setQbError] = useState("");
   const [addingPayment, setAddingPayment] = useState(false);
@@ -93,6 +94,15 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
           onMouseLeave={e => { e.currentTarget.style.opacity = !previewed ? "0.4" : "1"; }}>
           Send Invoice
         </button>
+        <button onClick={() => setShowInvoiceProofsEmail(!showInvoiceProofsEmail)} disabled={!previewed}
+          style={{ width: 160, height: 160, borderRadius: 10, border: "none", cursor: !previewed ? "default" : "pointer",
+            background: !previewed ? T.surface : T.accent, color: !previewed ? T.faint : "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
+            opacity: !previewed ? 0.4 : 1, transition: "opacity 0.15s", textAlign: "center",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 14 }}
+          onMouseEnter={e => { if (previewed) e.currentTarget.style.opacity = "0.85"; }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = !previewed ? "0.4" : "1"; }}>
+          Invoice + Proofs
+        </button>
       </div>
       {qbPaymentLink && (
         <div style={{ textAlign: "center", fontSize: 11, color: T.accent }}>
@@ -109,6 +119,17 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
           defaultSubject={`Invoice — ${job.clients?.name || ""} · ${job.title}`}
           onClose={() => setShowInvoiceEmail(false)}
           onSent={() => { logJobActivity(job.id, "Invoice sent to client"); setShowInvoiceEmail(false); }}
+        />
+      )}
+      {showInvoiceProofsEmail && (
+        <SendEmailDialog
+          type="invoice_proofs"
+          jobId={job.id}
+          contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
+          defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
+          defaultSubject={`Invoice & Proofs — ${job.clients?.name || ""} · ${job.title}`}
+          onClose={() => setShowInvoiceProofsEmail(false)}
+          onSent={() => { logJobActivity(job.id, "Invoice + proofs sent to client"); setShowInvoiceProofsEmail(false); }}
         />
       )}
 
