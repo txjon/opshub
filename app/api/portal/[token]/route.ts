@@ -313,35 +313,6 @@ export async function POST(
       // Auto-email client confirmation (fire-and-forget)
       sendClientNotification({ jobId: job.id, type: "quote_approved" }).catch(() => {});
 
-      // Auto-create QB invoice (fire-and-forget, server-side)
-      if (!job.type_meta?.qb_invoice_number) {
-        const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
-          || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-        fetch(`${baseUrl}/api/qb/invoice`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "" },
-          body: JSON.stringify({ jobId: job.id }),
-        }).then(async r => {
-          const data = await r.json();
-          if (data.invoiceNumber) {
-            await sb.from("job_activity").insert({
-              job_id: job.id, user_id: null, type: "auto",
-              message: `QB Invoice #${data.invoiceNumber} auto-created on quote approval`,
-            });
-            // Notify team
-            const { data: profiles } = await sb.from("profiles").select("id");
-            if (profiles?.length) {
-              await sb.from("notifications").insert(
-                profiles.map((p: any) => ({
-                  user_id: p.id, type: "alert",
-                  message: `Invoice ready — QB #${data.invoiceNumber} · ${clientName} · ${job.title}`,
-                  reference_id: job.id, reference_type: "job",
-                }))
-              );
-            }
-          }
-        }).catch(() => {});
-      }
 
       return NextResponse.json({ success: true });
     }

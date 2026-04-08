@@ -104,6 +104,26 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
           Invoice + Proofs
         </button>
       </div>
+      {/* Manual invoice number */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
+        <label style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>Invoice #</label>
+        <input
+          type="text"
+          value={job.type_meta?.qb_invoice_number || ""}
+          onChange={e => {
+            const num = e.target.value;
+            if (onUpdateJob) onUpdateJob({ type_meta: { ...(job.type_meta || {}), qb_invoice_number: num || null } });
+          }}
+          onBlur={async e => {
+            const num = e.target.value.trim();
+            const meta = { ...(job.type_meta || {}), qb_invoice_number: num || null };
+            await supabase.from("jobs").update({ type_meta: meta }).eq("id", job.id);
+            if (num) logJobActivity(job.id, `Invoice number manually set to #${num}`);
+          }}
+          placeholder="Enter QB invoice #"
+          style={{ ...ic, width: 160, textAlign: "center", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}
+        />
+      </div>
       {qbPaymentLink && (
         <div style={{ textAlign: "center", fontSize: 11, color: T.accent }}>
           <a href={qbPaymentLink} target="_blank" rel="noopener noreferrer" style={{ color: T.accent }}>QB Payment link →</a>

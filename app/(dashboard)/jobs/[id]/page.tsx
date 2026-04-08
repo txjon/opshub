@@ -932,22 +932,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 logJobActivity(job.id, "Quote approved");
                 notifyTeam(`Quote approved — ${(job.clients as any)?.name || ""} · ${job.title}`, "approval", job.id, "job");
                 recalcPhase();
-                // Force-save costing before creating QB invoice (ensures sell_per_unit is current)
-                if (saveCostingRef.current) { try { await saveCostingRef.current(); } catch {} }
-                // Auto-create QB invoice (fire-and-forget)
-                if (!job.type_meta?.qb_invoice_number) {
-                  fetch("/api/qb/invoice", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ jobId: job.id }),
-                  }).then(r => r.json()).then(data => {
-                    if (data.invoiceNumber) {
-                      setJob(j => j ? {...j, type_meta: {...(j as any).type_meta, qb_invoice_id: data.invoiceId, qb_invoice_number: data.invoiceNumber, qb_payment_link: data.paymentLink}} as any : j);
-                      logJobActivity(job.id, `QB Invoice #${data.invoiceNumber} auto-created on quote approval`);
-                      notifyTeam(`Invoice ready — QB #${data.invoiceNumber} · ${(job.clients as any)?.name || ""} · ${job.title}`, "alert", job.id, "job");
-                    }
-                  }).catch(() => {});
-                }
               }} style={{fontSize:12,fontWeight:600,color:"#fff",background:T.green,border:"none",borderRadius:7,padding:"7px 20px",cursor:"pointer"}}>Approve Quote</button>
             </div>
           )}
