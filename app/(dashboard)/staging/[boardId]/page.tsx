@@ -272,16 +272,16 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
           { label: "Total", ...calc(items), color: T.text },
         ];
         return (
-          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 16, overflow: "hidden" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 16, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: isMobile ? 10 : 11, minWidth: isMobile ? 360 : "auto" }}>
               <thead>
                 <tr style={{ background: T.surface }}>
-                  <th style={{ padding: "5px 10px", textAlign: "left", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Phase</th>
-                  <th style={{ padding: "5px 8px", textAlign: "center", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 40 }}>Items</th>
-                  <th style={{ padding: "5px 8px", textAlign: "center", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 50 }}>Qty</th>
-                  <th style={{ padding: "5px 8px", textAlign: "right", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 80 }}>Cost</th>
-                  <th style={{ padding: "5px 8px", textAlign: "right", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 80 }}>Gross</th>
-                  <th style={{ padding: "5px 10px", textAlign: "right", fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", width: 80 }}>Profit</th>
+                  <th style={{ padding: "5px 8px", textAlign: "left", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Phase</th>
+                  <th style={{ padding: "5px 4px", textAlign: "center", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Items</th>
+                  <th style={{ padding: "5px 4px", textAlign: "center", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Qty</th>
+                  <th style={{ padding: "5px 4px", textAlign: "right", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Cost</th>
+                  <th style={{ padding: "5px 4px", textAlign: "right", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Gross</th>
+                  <th style={{ padding: "5px 8px", textAlign: "right", fontSize: 8, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Profit</th>
                 </tr>
               </thead>
               <tbody>
@@ -325,7 +325,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
       </div>
 
       {/* Tab pills */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 14, background: T.surface, borderRadius: 8, padding: 3, width: "fit-content" }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 14, background: T.surface, borderRadius: 8, padding: 3, width: isMobile ? "100%" : "fit-content", overflowX: "auto" }}>
         {([
           { key: "items" as const, label: "Pending", count: items.length - productionCount - landedCount },
           { key: "production" as const, label: "In Production", count: productionCount },
@@ -377,15 +377,17 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                   opacity: dragIdx === idx ? 0.4 : 1,
                   transition: "border-color 0.15s, opacity 0.15s",
                 }}>
-                {/* Drag handle */}
-                <div
-                  draggable
-                  onDragStart={e => { setDragIdx(idx); e.stopPropagation(); }}
-                  onDragEnd={() => { if (dragIdx !== null && dragOverIdx !== null) handleMoodDrop(dragIdx, dragOverIdx); setDragIdx(null); setDragOverIdx(null); }}
-                  onClick={e => e.stopPropagation()}
-                  style={{ padding: "3px 0", textAlign: "center", cursor: "grab", background: T.surface, fontSize: 9, color: T.faint, letterSpacing: 3, userSelect: "none" }}>
-                  ⋮⋮⋮
-                </div>
+                {/* Drag handle (desktop only) */}
+                {!isMobile && (
+                  <div
+                    draggable
+                    onDragStart={e => { setDragIdx(idx); e.stopPropagation(); }}
+                    onDragEnd={() => { if (dragIdx !== null && dragOverIdx !== null) handleMoodDrop(dragIdx, dragOverIdx); setDragIdx(null); setDragOverIdx(null); }}
+                    onClick={e => e.stopPropagation()}
+                    style={{ padding: "3px 0", textAlign: "center", cursor: "grab", background: T.surface, fontSize: 9, color: T.faint, letterSpacing: 3, userSelect: "none" }}>
+                    ⋮⋮⋮
+                  </div>
+                )}
                 {/* Image area */}
                 <div style={{
                   width: "100%",
@@ -501,7 +503,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                     <button onClick={() => setMoodExpanded(null)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 18, padding: "0 4px" }}>×</button>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
                     <div>
                       <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>QTY</label>
                       <input type="text" inputMode="numeric" value={item.qty ?? ""} onChange={e => updateItemLocal(item.id, "qty", parseInt(e.target.value) || null)} onFocus={e => e.target.select()} style={{ ...ic, width: "100%" }} />
