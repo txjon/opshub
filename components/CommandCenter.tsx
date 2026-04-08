@@ -64,7 +64,7 @@ export function CommandCenter({ alerts, stats }: {
     }
     if (alert.type === "send_invoice") {
       if (!alert.contacts?.length) {
-        setNoContactWarn({ href: `/jobs/${alert.jobId}?tab=payment`, label: "send this invoice" });
+        setNoContactWarn({ href: `/jobs/${alert.jobId}?tab=proofs`, label: "send this invoice" });
         return;
       }
       setEmailModal({

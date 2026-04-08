@@ -32,7 +32,7 @@ export async function getAccessToken(): Promise<string> {
   const payload = base64url(JSON.stringify({
     iss: key.client_email,
     sub: "jon@housepartydistro.com",
-    scope: "https://www.googleapis.com/auth/drive.readonly",
+    scope: "https://www.googleapis.com/auth/drive",
     aud: "https://oauth2.googleapis.com/token",
     iat: now,
     exp: now + 3600,

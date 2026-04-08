@@ -127,12 +127,12 @@ export default async function DashboardPage() {
         if (hasShippedItems || isShippingPhase) {
           alerts.push({ ...base, priority: 1, type: "create_invoice", color: T.amber,
             action: "Create invoice · order shipped, invoice on actual quantities",
-            href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+            href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
         }
       } else {
         // Prepaid/deposit: invoice immediately after quote approval
         alerts.push({ ...base, priority: 1, type: "create_invoice", color: T.amber,
-          action: "Create invoice", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+          action: "Create invoice", href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
       }
     }
 
@@ -142,11 +142,11 @@ export default async function DashboardPage() {
         // Net terms: invoice already created (post-shipment), now send it
         const termLabel = terms === "net_15" ? "net 15" : "net 30";
         alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
-          action: `Send invoice · ${termLabel}`, href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+          action: `Send invoice · ${termLabel}`, href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
       } else if (j.phase === "pending") {
         // Prepaid/deposit: high priority, gates production
         alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
-          action: "Send invoice · payment required before production", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+          action: "Send invoice · payment required before production", href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
       }
     }
 
@@ -156,7 +156,7 @@ export default async function DashboardPage() {
         const days = Math.ceil((now.getTime() - new Date(p.due_date).getTime()) / 86400000);
         alerts.push({ ...base, priority: 1, type: "overdue_payment", color: T.red,
           action: `Payment ${days}d overdue${p.amount ? ` · $${Number(p.amount).toLocaleString()}` : ""}`,
-          href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+          href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
       }
     }
 
@@ -168,10 +168,12 @@ export default async function DashboardPage() {
         alerts.push({ ...base, priority: 1, type: "follow_up_quote", color: T.amber,
           action: `Follow up — quote sent ${daysSinceQuoteSent}d ago, no response`,
           href: `/jobs/${j.id}?tab=quote`, column: "sales" });
-      } else {
+      } else if (!quoteSentAt) {
+        // Only show "send quote" if it hasn't been sent yet
         alerts.push({ ...base, priority: 2, type: "send_quote", color: T.purple,
           action: "Send quote to client", href: `/jobs/${j.id}?tab=quote`, column: "sales" });
       }
+      // If sent < 2 days ago: no alert — give client time to respond
     }
 
     // 7. Upload proofs / Awaiting approval (both can fire — items can be in different states)
@@ -188,11 +190,11 @@ export default async function DashboardPage() {
         if (daysSinceProofsSent >= 2) {
           alerts.push({ ...base, priority: 1, type: "follow_up_proofs", color: T.amber,
             action: `Follow up — proofs pending ${daysSinceProofsSent}d, no response`,
-            href: `/jobs/${j.id}?tab=approvals`, column: "sales" });
+            href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
         } else {
           alerts.push({ ...base, priority: 2, type: "proofs_pending", color: T.muted,
             action: `Awaiting proof approval · ${pendingItems.length} item${pendingItems.length !== 1 ? "s" : ""} pending`,
-            href: `/jobs/${j.id}?tab=approvals`, column: "sales" });
+            href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
         }
       }
       if (itemsNeedingProofs.length > 0) {

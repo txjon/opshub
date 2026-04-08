@@ -217,7 +217,10 @@ export async function POST(req: NextRequest) {
       if (type === "quote" || type === "invoice") {
         const tsKey = type === "quote" ? "quote_sent_at" : "invoice_sent_at";
         const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
-        await adminClient.from("jobs").update({ type_meta: { ...(jd?.type_meta || {}), [tsKey]: new Date().toISOString() } }).eq("id", jobId);
+        const updateData: any = { type_meta: { ...(jd?.type_meta || {}), [tsKey]: new Date().toISOString() } };
+        // Clear rejection notes when re-sending a revised quote
+        if (type === "quote") updateData.quote_rejection_notes = null;
+        await adminClient.from("jobs").update(updateData).eq("id", jobId);
       }
     } catch {} // Non-fatal
 

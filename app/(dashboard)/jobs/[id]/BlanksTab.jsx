@@ -222,7 +222,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                 <span style={{ color: paymentGateMet ? T.green : T.red }}>{paymentGateMet ? "✓" : "✕"}</span>
                 <span style={{ color: paymentGateMet ? T.muted : T.text }}>
                   {terms === "prepaid" ? "Full payment received" : "Deposit received"}
-                  {!paymentGateMet && <> (add on <a onClick={e=>{e.preventDefault();if(onTabClick)onTabClick("payment");}} style={{color:T.accent,cursor:"pointer",textDecoration:"underline"}}>Payment</a> tab)</>}
+                  {!paymentGateMet && <> (add on <a onClick={e=>{e.preventDefault();if(onTabClick)onTabClick("proofs");}} style={{color:T.accent,cursor:"pointer",textDecoration:"underline"}}>Proofs & Invoice</a> tab)</>}
                 </span>
               </div>
             )}

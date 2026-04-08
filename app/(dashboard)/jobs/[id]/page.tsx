@@ -73,7 +73,13 @@ type Job = {
 export default function JobDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const supabase = createClient();
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState(() => {
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search).get("tab");
+      if (p) return p;
+    }
+    return "overview";
+  });
   const saveBuySheetRef = useRef<(() => Promise<void>) | null>(null);
   const saveCostingRef = useRef<(() => Promise<void>) | null>(null);
   const [job, setJob] = useState<Job|null>(null);
@@ -472,12 +478,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             if (saveCostingRef.current) { try { await saveCostingRef.current(); } catch(e) { if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return; } }
           }
           // Refresh approval + payment status when switching to quote/overview/payment tabs
-          if (["quote","overview","payment"].includes(t)) {
+          if (["quote","overview","proofs"].includes(t)) {
             // Flush any pending job save before fetching fresh data
             await flushJobSave();
             const { data: fresh } = await supabase.from("jobs").select("quote_approved, quote_approved_at, type_meta").eq("id", job.id).single();
             if (fresh) setJob(j => j ? {...j, quote_approved: fresh.quote_approved, quote_approved_at: fresh.quote_approved_at, type_meta: {...(j as any).type_meta, ...fresh.type_meta}} as any : j);
-            if (t === "payment" || t === "overview") {
+            if (t === "proofs" || t === "overview") {
               const { data: freshPay } = await supabase.from("payment_records").select("*").eq("job_id", job.id).order("created_at");
               if (freshPay) setPayments(freshPay);
             }
@@ -606,7 +612,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
-                  <button onClick={()=>setTab("payment")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
+                  <button onClick={()=>setTab("proofs")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
                 </div>
                 <div style={{marginBottom:8}}>
                   <label style={{fontSize:10,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
@@ -850,25 +856,25 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         />
       )}
 
-      {tab==="payment"&&(
-        <PaymentTab
-          job={job}
-          contacts={contacts}
-          payments={payments}
-          onReload={loadData}
-          onRecalcPhase={recalcPhase}
-          onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
-        />
-      )}
-      {tab==="approvals"&&(
-        <ApprovalsTab
-          job={job}
-          items={items}
-          contacts={contacts}
-          proofStatus={proofStatus}
-          onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
-          onRecalcPhase={recalcPhase}
-        />
+      {tab==="proofs"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:20}}>
+          <ApprovalsTab
+            job={job}
+            items={items}
+            contacts={contacts}
+            proofStatus={proofStatus}
+            onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
+            onRecalcPhase={recalcPhase}
+          />
+          <PaymentTab
+            job={job}
+            contacts={contacts}
+            payments={payments}
+            onReload={loadData}
+            onRecalcPhase={recalcPhase}
+            onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
+          />
+        </div>
       )}
       {/* COSTING */}
             {tab==="costing"&&(
@@ -904,9 +910,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </div>
               <div style={{display:"flex",gap:6,fontSize:11}}>
                 <span style={{color:T.muted}}>Next:</span>
-                <button onClick={()=>setTab("overview")} style={{color:T.accent,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline",padding:0}}>Send Invoice</button>
-                <span style={{color:T.faint}}>·</span>
-                <button onClick={()=>setTab("art")} style={{color:T.accent,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline",padding:0}}>Send Proofs</button>
+                <button onClick={()=>setTab("proofs")} style={{color:T.accent,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline",padding:0}}>Send Proofs & Invoice</button>
               </div>
             </div>
           ) : (
