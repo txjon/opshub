@@ -55,10 +55,10 @@ type PortalData = {
 };
 
 const PHASE_STEPS = [
-  { key: "intake", label: "Setup" },
-  { key: "pending", label: "Review" },
-  { key: "ready", label: "Preparation" },
-  { key: "production", label: "Production" },
+  { key: "quote", label: "Quote" },
+  { key: "approved", label: "Approved" },
+  { key: "production", label: "In Production" },
+  { key: "shipping", label: "Shipping" },
   { key: "complete", label: "Complete" },
 ];
 
@@ -147,11 +147,17 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const pendingProofCount = actualProofs.filter(p => p.approval === "pending").length;
   const hasPayments = payments.length > 0 || paymentLink;
 
-  // Figure out which phase step we're at
-  const phaseOrder = ["intake", "pending", "ready", "production", "complete"];
-  const currentIdx = phaseOrder.indexOf(
-    ["receiving", "fulfillment", "shipped"].includes(project.phase) ? "production" : project.phase
-  );
+  // Map internal phase to client-facing step
+  const phaseOrder = ["quote", "approved", "production", "shipping", "complete"];
+  const phaseToStep: Record<string, string> = {
+    intake: "quote", pending: "quote",
+    ready: "approved",
+    production: "production",
+    receiving: "shipping", shipping: "shipping", fulfillment: "shipping",
+    complete: "complete",
+  };
+  const currentStep = phaseToStep[project.phase] || "quote";
+  const currentIdx = phaseOrder.indexOf(currentStep);
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
@@ -186,8 +192,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 4 : 8 }}>
             {PHASE_STEPS.map((step, idx) => {
               const isActive = idx <= currentIdx && currentIdx >= 0;
-              const isCurrent = phaseOrder[currentIdx] === step.key ||
-                (step.key === "production" && ["production", "receiving", "fulfillment"].includes(project.phase));
+              const isCurrent = step.key === currentStep;
               return (
                 <div key={step.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                   <div style={{
@@ -206,7 +211,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
             })}
           </div>
           <div style={{ textAlign: "center", marginTop: 12, fontSize: 13, fontWeight: 600, color: C.accent }}>
-            {project.phaseLabel}
+            {PHASE_STEPS[currentIdx]?.label || project.phaseLabel}
           </div>
         </div>
 
