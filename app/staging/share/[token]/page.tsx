@@ -295,62 +295,53 @@ export default function SharePage({ params }: { params: { token: string } }) {
           </div>
         )}
 
-        {/* ── List View (In Production / Landed) ── */}
+        {/* ── List View (In Production / Landed) — mirrors OpsHub ── */}
         {activeTab !== "items" && (
-          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 24 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead>
-                <tr style={{ background: T.surface }}>
-                  <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Item</th>
-                  <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", width: 50 }}>Qty</th>
-                  <th style={{ padding: "8px 6px", textAlign: "right", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", width: 70 }}>Cost</th>
-                  <th style={{ padding: "8px 6px", textAlign: "right", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", width: 70 }}>Retail</th>
-                  <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", width: 90 }}>ETA</th>
-                  <th style={{ padding: "8px 6px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", width: 50 }}>Paid</th>
-                  <th style={{ padding: "8px 10px", textAlign: "center", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase", width: 100 }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tabItems.map((item: any) => {
-                  const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
-                  const qty = item.qty || 0;
-                  const unitCost = parseFloat(item.unit_cost) || 0;
-                  const retail = parseFloat(item.retail) || 0;
-                  const etaDays = item.eta ? Math.ceil((new Date(item.eta).getTime() - Date.now()) / 86400000) : null;
-                  const etaColor = etaDays !== null ? (etaDays < 0 ? T.red : etaDays <= 3 ? T.amber : T.green) : T.faint;
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+            {tabItems.map((item: any) => {
+              const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
+              const qty = item.qty || 0;
+              const unitCost = parseFloat(item.unit_cost) || 0;
+              const retail = parseFloat(item.retail) || 0;
+              const gross = qty * retail;
+              const itemProfit = gross - qty * unitCost;
+              const etaDays = item.eta ? Math.ceil((new Date(item.eta).getTime() - Date.now()) / 86400000) : null;
+              const etaColor = etaDays !== null ? (etaDays < 0 ? T.red : etaDays <= 3 ? T.amber : T.green) : T.faint;
+              const imgUrl = item.images?.[0]?.url;
 
-                  return (
-                    <tr key={item.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                      <td style={{ padding: "10px 10px" }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{item.item_name || "—"}</div>
-                        {item.notes && <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{item.notes}</div>}
-                      </td>
-                      <td style={{ padding: "10px 6px", textAlign: "center", fontFamily: mono, fontSize: 12 }}>{qty || "—"}</td>
-                      <td style={{ padding: "10px 6px", textAlign: "right", fontFamily: mono, fontSize: 11, color: T.muted }}>{unitCost > 0 ? fmtD(qty * unitCost) : "—"}</td>
-                      <td style={{ padding: "10px 6px", textAlign: "right", fontFamily: mono, fontSize: 11, color: T.accent }}>{retail > 0 ? fmtD(qty * retail) : "—"}</td>
-                      <td style={{ padding: "10px 6px", textAlign: "center" }}>
-                        {item.eta ? (
-                          <div>
-                            <div style={{ fontSize: 10, color: T.muted }}>{new Date(item.eta + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: etaColor }}>{etaDays! < 0 ? `${Math.abs(etaDays!)}d late` : etaDays === 0 ? "Today" : `${etaDays}d`}</div>
-                          </div>
-                        ) : <span style={{ color: T.faint, fontSize: 10 }}>—</span>}
-                      </td>
-                      <td style={{ padding: "10px 6px", textAlign: "center" }}>
-                        {item.payment_received
-                          ? <span style={{ color: T.green, fontWeight: 700, fontSize: 11 }}>Paid</span>
-                          : <span style={{ color: T.faint, fontSize: 10 }}>—</span>}
-                      </td>
-                      <td style={{ padding: "10px 10px", textAlign: "center" }}>
-                        <span style={{ padding: "2px 8px", borderRadius: 99, fontSize: 10, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+              return (
+                <div key={item.id}
+                  onClick={() => {
+                    setMoodExpanded(moodExpanded === item.id ? null : item.id);
+                    if (moodExpanded !== item.id && !messages[item.id]) loadMessages(item.id);
+                  }}
+                  style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer" }}>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    {imgUrl ? (
+                      <img src={imgUrl} alt="" style={{ width: 50, height: 50, borderRadius: 6, objectFit: "cover", border: `1px solid ${T.border}`, flexShrink: 0 }} />
+                    ) : (
+                      <div style={{ width: 50, height: 50, borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, flexShrink: 0 }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "—"}</div>
+                      <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 11, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={{ color: T.muted, fontFamily: mono }}>{qty || "—"} qty</span>
+                        {gross > 0 && <span style={{ color: T.accent, fontFamily: mono }}>{fmtD(gross)}</span>}
+                        {gross > 0 && <span style={{ color: itemProfit >= 0 ? T.green : T.red, fontFamily: mono }}>{fmtD(itemProfit)}</span>}
+                        {etaDays !== null && (
+                          <span style={{ color: etaColor, fontWeight: 600 }}>{etaDays < 0 ? `${Math.abs(etaDays)}d late` : etaDays === 0 ? "Today" : `${etaDays}d`}</span>
+                        )}
+                        {item.payment_received && <span style={{ color: T.green, fontSize: 10, fontWeight: 600 }}>Paid</span>}
+                      </div>
+                    </div>
+                    <span style={{ padding: "2px 6px", borderRadius: 99, fontSize: 9, fontWeight: 600, background: sc.bg, color: sc.text, flexShrink: 0 }}>{item.status || "Pending"}</span>
+                  </div>
+                  {item.notes && <div style={{ fontSize: 10, color: T.muted, marginTop: 6, paddingLeft: 60 }}>{item.notes}</div>}
+                </div>
+              );
+            })}
             {tabItems.length === 0 && (
-              <div style={{ padding: 24, textAlign: "center", color: T.faint, fontSize: 13 }}>No items</div>
+              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 24, textAlign: "center", color: T.faint, fontSize: 13 }}>No items</div>
             )}
           </div>
         )}
