@@ -409,7 +409,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                     <span style={{ position: "absolute", top: 6, right: 6, fontSize: 9, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: 4, padding: "1px 5px" }}>+{item.images.length - 1}</span>
                   )}
                   {msgCount > 0 && (
-                    <span style={{ position: "absolute", bottom: 6, right: 6, fontSize: 9, background: T.accent, color: "#fff", borderRadius: 4, padding: "1px 5px", fontWeight: 700 }}>{msgCount}</span>
+                    <span style={{ position: "absolute", bottom: 8, right: 8, fontSize: 11, background: T.accent, color: "#fff", borderRadius: 6, padding: "2px 8px", fontWeight: 700, boxShadow: "0 2px 6px rgba(0,0,0,0.3)" }}>{msgCount} msg</span>
                   )}
                   <span style={{ position: "absolute", top: 6, left: 6, padding: "1px 6px", borderRadius: 99, fontSize: 8, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
                 </div>
@@ -461,11 +461,11 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
             onClick={e => { if (e.target === e.currentTarget) setMoodExpanded(null); }}>
             <div style={{
               background: T.card, border: `1px solid ${T.border}`, borderRadius: 12,
-              width: 800, maxWidth: "95vw", maxHeight: "90vh", overflow: "auto",
+              width: 1000, maxWidth: "95vw", maxHeight: "90vh", overflow: "auto",
             }} onClick={e => e.stopPropagation()}>
-              <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row" }}>
+              <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", minHeight: isMobile ? "auto" : 500 }}>
                 {/* Images */}
-                <div style={{ width: isMobile ? "100%" : 320, flexShrink: 0, background: T.surface, padding: 12 }}>
+                <div style={{ width: isMobile ? "100%" : 380, flexShrink: 0, background: T.surface, padding: 16 }}>
                   {item.images?.length > 0 ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       <img src={item.images[0].url} alt="" style={{ width: "100%", borderRadius: 8, cursor: "pointer" }}
@@ -496,11 +496,11 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                 </div>
 
                 {/* Details + Messages */}
-                <div style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ flex: 1, padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <input value={item.item_name || ""} onChange={e => updateItemLocal(item.id, "item_name", e.target.value)}
-                      style={{ fontSize: 16, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: font, flex: 1, padding: 0 }} />
-                    <button onClick={() => setMoodExpanded(null)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 18, padding: "0 4px" }}>×</button>
+                      style={{ fontSize: 20, fontWeight: 700, color: T.text, background: "transparent", border: "none", outline: "none", fontFamily: font, flex: 1, padding: 0 }} />
+                    <button onClick={() => setMoodExpanded(null)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 22, padding: "0 4px" }}>×</button>
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 8 }}>
@@ -532,32 +532,32 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                   </div>
 
                   {/* Messages thread */}
-                  <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 10, marginTop: 4, flex: 1, display: "flex", flexDirection: "column" }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Messages</div>
-                    <div style={{ flex: 1, maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
-                      {itemMsgs.length === 0 && <div style={{ fontSize: 11, color: T.faint }}>No messages yet</div>}
+                  <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12, marginTop: 4, flex: 1, display: "flex", flexDirection: "column" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Messages</div>
+                    <div style={{ flex: 1, minHeight: 180, maxHeight: 350, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+                      {itemMsgs.length === 0 && <div style={{ fontSize: 13, color: T.faint }}>No messages yet</div>}
                       {itemMsgs.map((msg: any) => (
                         <div key={msg.id} style={{
-                          padding: "5px 8px", borderRadius: 6, fontSize: 11,
+                          padding: "8px 12px", borderRadius: 8, fontSize: 14,
                           background: msg.sender_type === "client" ? T.accentDim : T.surface,
                           alignSelf: msg.sender_type === "client" ? "flex-start" : "flex-end",
                           maxWidth: "85%",
                         }}>
-                          <div style={{ fontSize: 9, color: T.muted, marginBottom: 1 }}>
+                          <div style={{ fontSize: 10, color: T.muted, marginBottom: 2 }}>
                             {msg.sender_name || (msg.sender_type === "client" ? "Client" : "HPD")}
-                            <span style={{ marginLeft: 6, fontSize: 8, color: T.faint }}>{new Date(msg.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                            <span style={{ marginLeft: 6, fontSize: 9, color: T.faint }}>{new Date(msg.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
                           </div>
-                          <div style={{ color: T.text }}>{msg.message}</div>
+                          <div style={{ color: T.text, lineHeight: 1.4 }}>{msg.message}</div>
                         </div>
                       ))}
                     </div>
-                    <div style={{ display: "flex", gap: 6 }}>
+                    <div style={{ display: "flex", gap: 8 }}>
                       <input value={msgInput[item.id] || ""} onChange={e => setMsgInput(prev => ({ ...prev, [item.id]: e.target.value }))}
                         onKeyDown={e => { if (e.key === "Enter") sendMessage(item.id); }}
                         placeholder="Type a message..."
-                        style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font }} />
+                        style={{ flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, outline: "none", fontFamily: font }} />
                       <button onClick={() => sendMessage(item.id)}
-                        style={{ padding: "6px 14px", borderRadius: 6, background: T.accent, color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                        style={{ padding: "10px 20px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
                         Send
                       </button>
                     </div>
