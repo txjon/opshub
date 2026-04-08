@@ -487,7 +487,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
         )}
 
         {/* ── Payment Section ── */}
-        {(hasPayments || hasQuote) && (
+        {invoiceNumber && (
           <div style={{
             background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
             padding: isMobile ? "16px" : "20px 24px", marginBottom: 20,
