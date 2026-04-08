@@ -244,16 +244,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               <tbody>
                 {quote.items.map((qi: any, i: number) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <td style={{ padding: "10px 0", fontWeight: 500 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        {qi.thumbnailFileId && (
-                          <img src={`/api/files/thumbnail?id=${qi.thumbnailFileId}`} alt=""
-                            onError={(e: any) => { e.target.style.display = "none"; }}
-                            style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 4, border: `1px solid ${C.border}`, flexShrink: 0 }} />
-                        )}
-                        <span>{qi.name}</span>
-                      </div>
-                    </td>
+                    <td style={{ padding: "10px 0", fontWeight: 500 }}>{qi.name}</td>
                     <td style={{ textAlign: "right", padding: "10px 0", color: C.muted }}>{qi.qty}</td>
                     <td style={{ textAlign: "right", padding: "10px 0", color: C.muted }}>{fmtD(qi.sellPerUnit)}</td>
                     <td style={{ textAlign: "right", padding: "10px 0", fontWeight: 600 }}>{fmtD(qi.total)}</td>
