@@ -8,7 +8,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { boardId: s
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const updates = await req.json();
-    const allowed = ["item_name", "qty", "unit_cost", "retail", "status", "notes", "sort_order"];
+    const allowed = ["item_name", "qty", "unit_cost", "retail", "status", "notes", "sort_order", "eta", "payment_received"];
     const dbUpdates: any = {};
     for (const key of allowed) {
       if (updates[key] !== undefined) dbUpdates[key] = updates[key];

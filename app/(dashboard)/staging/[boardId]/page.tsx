@@ -184,6 +184,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
       case "profit": av = qa * ra - qa * uca; bv = qb * rb - qb * ucb; break;
       case "status": av = (a.status || "").toLowerCase(); bv = (b.status || "").toLowerCase(); break;
       case "notes": av = (a.notes || "").toLowerCase(); bv = (b.notes || "").toLowerCase(); break;
+      case "eta": av = a.eta || "9999"; bv = b.eta || "9999"; break;
       default: return 0;
     }
     const r = typeof av === "string" ? av.localeCompare(bv) : (av - bv);
@@ -295,10 +296,16 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                   )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "—"}</div>
-                    <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 11 }}>
+                    <div style={{ display: "flex", gap: 10, marginTop: 3, fontSize: 11, alignItems: "center" }}>
                       <span style={{ color: T.muted, fontFamily: mono }}>{qty || "—"} qty</span>
                       {gross > 0 && <span style={{ color: T.accent, fontFamily: mono }}>{fmtD(gross)}</span>}
                       {gross > 0 && <span style={{ color: itemProfit >= 0 ? T.green : T.red, fontFamily: mono }}>{fmtD(itemProfit)}</span>}
+                      {activeTab === "production" && item.eta && (() => {
+                        const days = Math.ceil((new Date(item.eta).getTime() - Date.now()) / 86400000);
+                        const color = days < 0 ? T.red : days <= 3 ? T.amber : T.green;
+                        return <span style={{ color, fontWeight: 600 }}>{days < 0 ? `${Math.abs(days)}d late` : `${days}d`}</span>;
+                      })()}
+                      {activeTab === "production" && item.payment_received && <span style={{ color: T.green, fontSize: 10, fontWeight: 600 }}>Paid</span>}
                     </div>
                   </div>
                   <span style={{ padding: "2px 6px", borderRadius: 99, fontSize: 9, fontWeight: 600, background: sc.bg, color: sc.text, flexShrink: 0 }}>{item.status || "Pending"}</span>
@@ -329,6 +336,18 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                         </select>
                       </div>
                     </div>
+                    {activeTab === "production" && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>ETA</label>
+                          <input type="date" value={item.eta || ""} onChange={e => updateItemLocal(item.id, "eta", e.target.value || null)} style={{ ...ic, width: "100%", fontFamily: font }} />
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, paddingTop: 14 }}>
+                          <input type="checkbox" checked={!!item.payment_received} onChange={e => updateItemLocal(item.id, "payment_received", e.target.checked)} style={{ accentColor: T.green, width: 16, height: 16 }} />
+                          <label style={{ fontSize: 11, color: T.text, fontWeight: 600 }}>Payment Received</label>
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Notes</label>
                       <input value={item.notes || ""} onChange={e => updateItemLocal(item.id, "notes", e.target.value)} style={{ ...ic, width: "100%", fontFamily: font }} />
@@ -362,6 +381,10 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
               <SortTh col="gross" label="Gross" style={{ textAlign: "center", width: 80 }} />
               <SortTh col="profit" label="Profit" style={{ textAlign: "center", width: 80 }} />
               <SortTh col="status" label="Status" style={{ textAlign: "center", width: 120 }} />
+              {activeTab === "production" && <>
+                <SortTh col="eta" label="ETA" style={{ textAlign: "center", width: 100 }} />
+                <th style={{ padding: "8px 6px", fontSize: 10, color: T.muted, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.06em", textAlign: "center", width: 50 }}>Paid</th>
+              </>}
               <th style={{ padding: "8px 6px", width: 40 }} />
             </tr>
           </thead>
@@ -433,6 +456,16 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                             {["Pending", "Approved", "Changes Requested", "Rejected", "In Production", "LANDED", "On Hold", "Locating a Source", "Reference Sample Sent to Factory", "NEED REVISIONS - SWATCHES WORKING", "Done - Awaiting Shipping"].map(s => <option key={s} value={s}>{s}</option>)}
                           </select>
                         </div>
+                        {activeTab === "production" && <>
+                          <div>
+                            <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>ETA</label>
+                            <input type="date" value={item.eta || ""} onChange={e => updateItemLocal(item.id, "eta", e.target.value || null)} onClick={e => e.stopPropagation()} style={{ ...ic, width: "100%", fontFamily: font }} />
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingTop: 14 }}>
+                            <input type="checkbox" checked={!!item.payment_received} onChange={e => updateItemLocal(item.id, "payment_received", e.target.checked)} onClick={e => e.stopPropagation()} style={{ accentColor: T.green, width: 16, height: 16 }} />
+                            <label style={{ fontSize: 11, color: T.text, fontWeight: 600 }}>Payment Received</label>
+                          </div>
+                        </>}
                         <div style={{ gridColumn: "1 / -1" }}>
                           <label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Notes</label>
                           <input value={item.notes || ""} onChange={e => updateItemLocal(item.id, "notes", e.target.value)} onClick={e => e.stopPropagation()}
@@ -450,6 +483,23 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                     <td style={{ padding: "6px", textAlign: "center" }}>
                       <span style={{ padding: "2px 8px", borderRadius: 99, fontSize: 10, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
                     </td>
+                    {activeTab === "production" && <>
+                      <td style={{ padding: "6px", textAlign: "center", fontSize: 11 }} onClick={e => e.stopPropagation()}>
+                        {item.eta ? (() => {
+                          const days = Math.ceil((new Date(item.eta).getTime() - Date.now()) / 86400000);
+                          const color = days < 0 ? T.red : days <= 3 ? T.amber : T.green;
+                          return (
+                            <div>
+                              <div style={{ fontSize: 10, color: T.muted }}>{new Date(item.eta + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color }}>{days < 0 ? `${Math.abs(days)}d late` : days === 0 ? "Today" : `${days}d`}</div>
+                            </div>
+                          );
+                        })() : <span style={{ color: T.faint, fontSize: 10 }}>—</span>}
+                      </td>
+                      <td style={{ padding: "6px", textAlign: "center" }} onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={!!item.payment_received} onChange={e => updateItemLocal(item.id, "payment_received", e.target.checked)} style={{ accentColor: T.green, width: 15, height: 15, cursor: "pointer" }} />
+                      </td>
+                    </>}
                   </>}
                   {/* Delete */}
                   <td style={{ padding: "4px", textAlign: "center", verticalAlign: "top" }} onClick={e => e.stopPropagation()}>
