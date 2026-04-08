@@ -117,20 +117,34 @@ export default async function DashboardPage() {
       }
     }
 
-    // 4. Create invoice
+    // 4. Create invoice — timing depends on payment terms
+    const isNet = terms === "net_15" || terms === "net_30";
     if (quoteApproved && !invoiceNum) {
-      alerts.push({ ...base, priority: 1, type: "create_invoice", color: T.amber,
-        action: "Create invoice", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+      if (isNet) {
+        // Net terms: invoice at shipment on actual shipped quantities
+        const hasShippedItems = items.some((it: any) => it.pipeline_stage === "shipped" || it.ship_tracking);
+        const isShippingPhase = j.phase === "shipping" || j.phase === "fulfillment" || j.phase === "receiving";
+        if (hasShippedItems || isShippingPhase) {
+          alerts.push({ ...base, priority: 1, type: "create_invoice", color: T.amber,
+            action: "Create invoice · order shipped, invoice on actual quantities",
+            href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+        }
+      } else {
+        // Prepaid/deposit: invoice immediately after quote approval
+        alerts.push({ ...base, priority: 1, type: "create_invoice", color: T.amber,
+          action: "Create invoice", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
+      }
     }
 
-    // 5. Send invoice — prepaid/deposit (gates production) vs net terms (doesn't gate)
+    // 5. Send invoice
     if (quoteApproved && invoiceNum && payments.length === 0) {
-      const isNet = terms === "net_15" || terms === "net_30";
       if (isNet) {
+        // Net terms: invoice already created (post-shipment), now send it
         const termLabel = terms === "net_15" ? "net 15" : "net 30";
-        alerts.push({ ...base, priority: 2, type: "send_invoice", color: T.purple,
+        alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
           action: `Send invoice · ${termLabel}`, href: `/jobs/${j.id}?tab=payment`, column: "sales" });
       } else if (j.phase === "pending") {
+        // Prepaid/deposit: high priority, gates production
         alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
           action: "Send invoice · payment required before production", href: `/jobs/${j.id}?tab=payment`, column: "sales" });
       }
