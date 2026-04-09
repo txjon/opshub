@@ -435,7 +435,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         const fileCount = 0; // Will be populated by ItemArtSection internally
 
         return (
-          <div key={item.id}
+          <div key={item.id} id={`item-${item.id}`}
             draggable={!isExpanded}
             onDragStart={() => setDragIdx(idx)}
             onDragOver={e => { e.preventDefault(); setDragOverIdx(idx); }}

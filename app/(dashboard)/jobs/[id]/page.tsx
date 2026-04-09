@@ -8,7 +8,7 @@ import { BlanksTab } from "./BlanksTab";
 import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
 import { ProductBuilder } from "./ProductBuilder";
-import { T, font, sortSizes } from "@/lib/theme";
+import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/Skeleton";
 import { ProjectProgress } from "@/components/ProjectProgress";
@@ -82,6 +82,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   });
   const saveBuySheetRef = useRef<(() => Promise<void>) | null>(null);
   const saveCostingRef = useRef<(() => Promise<void>) | null>(null);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const autoSelectedRef = useRef(false);
   const [job, setJob] = useState<Job|null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -186,6 +188,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     }
     setLoading(false);
     initialLoadDone.current = true;
+    // Auto-select first item for sidebar
+    if (!autoSelectedRef.current && itemsRes.data?.length) {
+      setSelectedItemId(itemsRes.data[0].id);
+      autoSelectedRef.current = true;
+    }
   }
 
   const jobSaveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -470,16 +477,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      {/* Progress checklist */}
+      {/* Progress checklist — horizontal tabs (X axis) */}
       {job.phase !== "complete" && job.phase !== "cancelled" && (
         <ProjectProgress job={job} items={items} payments={payments} proofStatus={proofStatus} activeTab={tab} onTabClick={async (t) => {
           if (tab === "buysheet" && t !== "buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
           if ((tab === "costing" || tab === "quote") && t !== "costing" && t !== "quote") {
             if (saveCostingRef.current) { try { await saveCostingRef.current(); } catch(e) { if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return; } }
           }
-          // Refresh approval + payment status when switching to quote/overview/payment tabs
           if (["quote","overview","proofs"].includes(t)) {
-            // Flush any pending job save before fetching fresh data
             await flushJobSave();
             const { data: fresh } = await supabase.from("jobs").select("quote_approved, quote_approved_at, type_meta").eq("id", job.id).single();
             if (fresh) setJob(j => j ? {...j, quote_approved: fresh.quote_approved, quote_approved_at: fresh.quote_approved_at, type_meta: {...(j as any).type_meta, ...fresh.type_meta}} as any : j);
@@ -492,11 +497,46 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         }} />
       )}
 
+      {/* ── Sidebar + Content Layout (Y axis: items | content) ── */}
+      <div style={{display:"flex",gap:0,minHeight:"calc(100vh - 240px)"}}>
 
-      {/* Layout: content + activity panel */}
-      <div style={{display:"flex",gap:20}}>
-        {/* Tab content */}
-        <div style={{flex:1,minWidth:0}}>
+        {/* ── Left Sidebar: Items list ── */}
+        <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.card,overflowY:"auto"}}>
+          <div style={{padding:"8px 16px 6px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.08em"}}>
+            Items ({items.length})
+          </div>
+          {items.map((item: any, i: number) => {
+            const proofOk = proofStatus[item.id]?.allApproved || item.artwork_status === "approved";
+            const hasBlanks = !!item.blanks_order_number;
+            const stage = item.pipeline_stage;
+            const isSelected = selectedItemId === item.id;
+            return (
+              <div key={item.id} onClick={() => {
+                setSelectedItemId(item.id);
+                // Scroll to item in content area
+                setTimeout(() => {
+                  const el = document.getElementById(`item-${item.id}`);
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                }, 50);
+              }} style={{padding:"8px 16px",fontSize:12,display:"flex",alignItems:"center",gap:8,borderBottom:`1px solid ${T.border}`,cursor:"pointer",
+                background:isSelected?T.bg:"transparent",borderLeft:isSelected?`3px solid ${T.accent}`:"3px solid transparent"}}>
+                <span style={{width:18,height:18,borderRadius:4,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>
+                  {String.fromCharCode(65+i)}
+                </span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name||"Untitled"}</div>
+                  <div style={{fontSize:10,color:T.faint,marginTop:1}}>
+                    {stage === "shipped" ? "Shipped" : stage === "in_production" ? "At decorator" : proofOk && hasBlanks ? "Ready" : proofOk ? "Proofs approved" : "In progress"}
+                  </div>
+                </div>
+                {proofOk && <span style={{width:6,height:6,borderRadius:3,background:T.green,flexShrink:0}} />}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── Right Content: Tab content ── */}
+        <div style={{flex:1,minWidth:0,overflowY:"auto",padding:"0 20px 40px"}}>
       {/* OVERVIEW */}
                   {tab==="overview"&&(
         <div style={{fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
@@ -888,6 +928,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onSaved={(data: any) => setJob(j => j ? {...j, ...data} : j)}
           initialTab="calc"
           hideSubTabs={true}
+          selectedItemId={selectedItemId}
         />
       )}
 

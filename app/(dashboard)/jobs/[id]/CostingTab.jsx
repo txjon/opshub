@@ -143,7 +143,7 @@ const CToggle=({label,value,onChange})=>(
   </div>
 );
 
-const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave,saveStatus,initialTab,hideSubTabs})=>{
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId})=>{
   const [costTab,setCostTab]=useState(initialTab||"calc");
   const [showSendEmail,setShowSendEmail]=useState(false);
   const [collapsed,setCollapsed]=useState(()=>{ const c={}; (costProds||[]).forEach(p=>{ c[p.id]=true; }); return c; });
@@ -198,13 +198,15 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
         <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
           <div style={{flex:1,minWidth:0}}>
             {costProds.map((p,i)=>{
+              // If a sidebar item is selected, only render that item
+              if (selectedItemId && p.id !== selectedItemId) return null;
               const r=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);
               const mc2=r?(r.margin_pct>=0.30?T.green:r.margin_pct>=0.20?T.amber:T.red):T.faint;
 
               // ── Accessory slim card ──
               if (p.garment_type === "accessory") {
                 return (
-                  <div key={p.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",width:"50%"}}>
+                  <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",width:"50%"}}>
                     <div onClick={()=>toggleCollapse(p.id)} style={{padding:"14px 16px",borderBottom:collapsed[p.id]?"none":`1px solid ${T.border}`,cursor:"pointer",userSelect:"none"}}>
                       {/* Row 1: Letter + Name + Accessory badge + Chevron */}
                       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
@@ -350,12 +352,12 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               }
 
               // ── Apparel full card ──
-              const isCollapsed=!!collapsed[p.id];
+              const isCollapsed = selectedItemId ? false : !!collapsed[p.id];
               const headerBB=isCollapsed?"none":"1px solid "+T.border;
               const bodyDisplay=isCollapsed?"none":"grid";
               const chevron=isCollapsed?"v":"^";
               return(
-                <div key={p.id} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
+                <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
                   <div onClick={()=>toggleCollapse(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
                     <span style={{width:24,height:24,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
                     <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8}}>
@@ -788,7 +790,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 
 export { CostingTab };
 
-export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false }) {
+export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false, selectedItemId }) {
   const [pricingReady, setPricingReady] = useState(false);
   const vendorIdMapRef = React.useRef({});
   const lastBuyItemsRef = React.useRef("");
@@ -1124,7 +1126,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       inclShip={inclShip} setInclShip={setInclShip}
       inclCC={inclCC} setInclCC={setInclCC}
       orderInfo={orderInfo} setOrderInfo={setOrderInfo}
-      costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs}
+      costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs} selectedItemId={selectedItemId}
     />
   );
 }
