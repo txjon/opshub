@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsHub — End-to-End Test Checklist</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; color: #1a1a1a; background: #f8f8f9; padding: 32px; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 24px; font-weight: 900; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #6b6b78; margin-bottom: 32px; }
+  h2 { font-size: 16px; font-weight: 800; margin: 32px 0 12px; padding-top: 20px; border-top: 2px solid #1a1a1a; }
+  h2:first-of-type { border-top: none; padding-top: 0; }
+  h3 { font-size: 12px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.08em; margin: 20px 0 8px; }
+  .step { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #e0e0e4; align-items: flex-start; }
+  .step:last-child { border-bottom: none; }
+  .step input[type="checkbox"] { margin-top: 3px; width: 18px; height: 18px; flex-shrink: 0; cursor: pointer; accent-color: #1a8c5c; }
+  .step-content { flex: 1; }
+  .step-action { font-size: 14px; font-weight: 600; }
+  .step-verify { font-size: 12px; color: #6b6b78; margin-top: 3px; line-height: 1.5; }
+  .step-verify b { color: #1a1a1a; font-weight: 600; }
+  .note { background: #fef9ee; border: 1px solid #f5dfa8; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #92400e; margin: 12px 0; line-height: 1.5; }
+  .note b { font-weight: 700; }
+  .fail-note { background: #fce8e8; border: 1px solid #f0c0c0; border-radius: 8px; padding: 8px 14px; margin-top: 6px; }
+  .fail-note textarea { width: 100%; border: none; background: transparent; font-size: 12px; font-family: inherit; color: #c43030; resize: vertical; min-height: 30px; outline: none; }
+  .section-card { background: #fff; border: 1px solid #e0e0e4; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  .progress-bar { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #e0e0e4; padding: 12px 0; margin-bottom: 20px; z-index: 10; display: flex; align-items: center; gap: 12px; }
+  .progress-fill { flex: 1; height: 6px; background: #e0e0e4; border-radius: 3px; overflow: hidden; }
+  .progress-fill-inner { height: 100%; background: #1a8c5c; border-radius: 3px; transition: width 0.3s; }
+  .progress-text { font-size: 12px; font-weight: 700; color: #6b6b78; font-family: 'SF Mono', monospace; min-width: 50px; text-align: right; }
+  .tag { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; margin-left: 6px; vertical-align: middle; }
+  .tag-portal { background: #ede9fe; color: #7c3aed; }
+  .tag-email { background: #e6f5ee; color: #1a8c5c; }
+  .tag-dashboard { background: #fef3e0; color: #b45309; }
+  .tag-qb { background: #e8e8ec; color: #1a1a1a; }
+  .tag-vendor { background: #fce8e8; color: #c43030; }
+</style>
+</head>
+<body>
+
+<h1>OpsHub End-to-End Test</h1>
+<div class="sub">Project creation through shipped from production. Follow each step, check the box when it passes. Note failures in the red fields.</div>
+
+<div class="progress-bar">
+  <div class="progress-fill"><div class="progress-fill-inner" id="pbar" style="width:0%"></div></div>
+  <div class="progress-text" id="ptext">0 / 0</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Phase 1 — Project Setup</h2>
+
+<div class="section-card">
+<h3>Create Project</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Navigate to Projects → New Project</div><div class="step-verify">Form loads with client typeahead, project title, type, shipping route</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Select existing client (or create new)</div><div class="step-verify">Client auto-fills payment terms. Contacts auto-added to job.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Set shipping route (ship-through for this test)</div><div class="step-verify">Route saved. Ship date field visible.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Set ship date, save project</div><div class="step-verify">Project created with auto-generated job number (HPD-YYMM-NNN). Phase = <b>intake</b>.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<div class="section-card">
+<h3>Dashboard Check <span class="tag tag-dashboard">Dashboard</span></h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Go to Dashboard — check Sales column</div><div class="step-verify">No alert for this project yet (no items, no costing). Project shows in active count.</div></div></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Phase 2 — Product Builder</h2>
+
+<div class="section-card">
+<h3>Add Items</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Open Product Builder tab</div><div class="step-verify">Item sidebar shows "Items (0)". Add Item modal accessible.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Add 2-3 items via S&S / AS Colour / Favorites</div><div class="step-verify">Items appear in sidebar. Each has letter (A, B, C). Sizes and qty fields work.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Enter quantities per size for each item</div><div class="step-verify">Total qty updates. Auto-save fires (no visible indicator unless error).</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Click different items in sidebar</div><div class="step-verify">Only selected item shows in body. Switches instantly.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Upload art files (mockup PNG for at least one item)</div><div class="step-verify">File uploads to Google Drive. Mockup thumbnail appears on item card.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Phase 3 — Costing & Quote</h2>
+
+<div class="section-card">
+<h3>Costing</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Switch to Costing tab</div><div class="step-verify">First item auto-selected in sidebar. Costing card shows with blanks panel + decoration panel.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Select decorator (print vendor) for each item</div><div class="step-verify">Pricing loads from decorator's pricing_data. Print locations table populates.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Add print locations (Front, Back, etc.)</div><div class="step-verify">Colors, rate, and total calculate automatically. Share groups work if applicable.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Set margin (10-30%)</div><div class="step-verify">Sell $/unit recalculates. Project totals sidebar updates (Revenue, Cost, Margin).</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Click through each item in sidebar</div><div class="step-verify">Each item's costing card loads. Only one item visible at a time.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Auto-save fires after changes</div><div class="step-verify">No error toast. Data persists on page refresh.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<div class="section-card">
+<h3>Dashboard Check <span class="tag tag-dashboard">Dashboard</span></h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Go to Dashboard — check Sales column</div><div class="step-verify"><b>"Send quote to client"</b> alert appears (costing done, quote not approved). Purple, P2.</div></div></div>
+</div>
+
+<div class="section-card">
+<h3>Send Quote</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Switch to Quote tab</div><div class="step-verify">Quote preview renders with all items, sizes, pricing. "Quote pending approval" banner shows.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Preview quote PDF (click download/preview)</div><div class="step-verify">PDF generates without error. No thumbnails (removed). Items, sizes, totals correct.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Send quote via Dashboard alert OR quote tab email</div><div class="step-verify">Email delivers to client inbox. <b>Quote sent log</b> appears on quote tab with date/time.</div></div></div>
+
+<div class="note"><b>Check:</b> Dashboard "Send quote" alert should disappear after sending (gives client 2 days). Activity logged in job activity feed.</div>
+
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Phase 4 — Client Approval</h2>
+
+<div class="section-card">
+<h3>Client Portal <span class="tag tag-portal">Portal</span></h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Open client portal link</div><div class="step-verify">Portal loads with document-style theme. Client name prominent. Progress bar shows "Quote" step active.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Verify quote section shows all items with sizes, style, color, pricing</div><div class="step-verify">Letter indicators (A, B, C). Size pills. Right-aligned totals (SUBTOTAL / AMOUNT DUE).</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Client sidebar shows this project (if client has multiple)</div><div class="step-verify">Invoice # or job # as primary. Project name secondary. Items/units count.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Click "Approve Quote"</div><div class="step-verify">Quote approved. Progress bar advances. "Next: Send Proofs & Invoice" link appears.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Check portal updates section</div><div class="step-verify">"Quote approved by client via portal" shows in updates.</div></div></div>
+
+<div class="note"><b>Check OpsHub:</b> Phase should advance to <b>pending</b>. Dashboard "Send quote" alert gone. "Create invoice" alert appears.</div>
+
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Phase 5 — Invoice & Proofs</h2>
+
+<div class="section-card">
+<h3>Create Invoice</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Dashboard shows "Create invoice" alert — click it</div><div class="step-verify">Invoice modal opens with manual # field and Push to QuickBooks button.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Push to QuickBooks (or enter manual #)</div><div class="step-verify">Invoice number saved. Dashboard alert clears. QB invoice created with correct line items.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<div class="section-card">
+<h3>Generate & Send Proofs</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Go to Proofs & Invoice tab</div><div class="step-verify">Proof Approvals card on top. Invoice buttons below. Merged tab works.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Generate proof for items that have mockups</div><div class="step-verify">Proof PDF generates with mockup image and print info (verify Drive auth fix worked).</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Send "Invoice + Proofs" to client</div><div class="step-verify">Email delivers with combined PDF. Activity logged. Dashboard alert updates.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<div class="section-card">
+<h3>Client Approves Proofs <span class="tag tag-portal">Portal</span></h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Client portal — proofs section shows items with "View Proof" buttons</div><div class="step-verify">Compact rows: thumbnail + name + status + View Proof button. No inline approve/reject.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Click "View Proof" — fullscreen modal opens</div><div class="step-verify">PDF/image fills screen. Approve and Request Changes buttons at bottom. Click outside does NOT close.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Approve all proofs</div><div class="step-verify">Status changes to "Approved". "All Approved" badge shows only when actual proofs (not mockups) approved.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Download proof PDF — check filename</div><div class="step-verify">Save As dialog shows actual filename (e.g. "Agency Tee Black - Print Proof.pdf"), NOT "thumbnail.pdf".</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Phase 6 — Payment</h2>
+
+<div class="section-card">
+<h3>Payment (Prepaid/Deposit clients)</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Client pays via QB payment link</div><div class="step-verify">QB webhook fires. Payment recorded in OpsHub automatically (type: full_payment).</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Check client portal</div><div class="step-verify">Payment shows in payment section. "Payment received" in updates. Balance updates.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Check OpsHub</div><div class="step-verify">Payment record on Proofs & Invoice tab. Phase advances to <b>ready</b>. Notification in bell.</div></div></div>
+
+<div class="note"><b>If webhook fails:</b> Use manual sync: <code>fetch("/api/qb/sync-payment",{method:"POST",headers:{"Content-Type":"application/json"},body:'{"paymentId":"ID_HERE"}'})</code> in browser console.</div>
+
+<div class="note"><b>Net 15/30 clients:</b> No payment required before production. Invoice sent at shipment. Skip this phase.</div>
+
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Phase 7 — Production Setup</h2>
+
+<div class="section-card">
+<h3>Dashboard Check <span class="tag tag-dashboard">Dashboard</span></h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Dashboard Production column</div><div class="step-verify"><b>"Order blanks"</b> alert appears. All gates met (quote approved + payment + proofs).</div></div></div>
+</div>
+
+<div class="section-card">
+<h3>Order Blanks</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Switch to Blanks tab</div><div class="step-verify">3-gate checklist shows all green (quote, payment, proofs). Items list in sidebar.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Enter S&S order number + cost for each item</div><div class="step-verify">Blanks ordered. Dashboard "Order blanks" alert clears. "Send PO" alert appears.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<div class="section-card">
+<h3>Send PO to Decorator</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Switch to PO tab</div><div class="step-verify">PO renders with items, decoration details, ship-to address, shipping account (UPS = W28Y51).</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Fill PO item fields (drive link, notes)</div><div class="step-verify">Fields save on blur. "Copy to all" works when multiple items.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Preview PO PDF</div><div class="step-verify">PDF generates. Bill-to: 3945 W Reno Ave. Ship-to: 4670 W Silverado Ranch (or drop-ship address). Shipping account shows.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Send PO via email to decorator</div><div class="step-verify">Email delivers with PDF attachment. Activity logged. PO sent tracker updates. Dashboard alert clears.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<div class="section-card">
+<h3>Vendor Portal Check <span class="tag tag-vendor">Vendor Portal</span></h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Open vendor portal link for this decorator</div><div class="step-verify">Sidebar shows this order with invoice #, client name, items/units, ship date countdown.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Click order — detail loads in right panel</div><div class="step-verify">Bill-to correct (3945 W Reno). Ship-to correct. Shipping account (W28Y51 for UPS). Items with decoration details.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Phase 8 — Production & Shipping</h2>
+
+<div class="section-card">
+<h3>Production Tracking</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Phase should be <b>production</b></div><div class="step-verify">Phase auto-calculated. Dashboard shows project in production. Stall timer starts.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Enter tracking number on Production tab for each item</div><div class="step-verify">Item auto-advances to "shipped". Pipeline timestamps recorded.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Check Dashboard</div><div class="step-verify"><b>"Incoming to warehouse"</b> alert appears (ship-through route). Items count correct.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<div class="section-card">
+<h3>Warehouse Receiving (ship-through only)</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Go to Warehouse / Receiving page</div><div class="step-verify">Items show in Incoming section with per-size shipped quantities.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Confirm received quantities</div><div class="step-verify">Received qty defaults to shipped. Variance flagged if different. "Confirm Received" button works.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">All items received</div><div class="step-verify">Phase advances to <b>shipping</b>. Dashboard shows "Forward to client — enter outbound tracking".</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Enter outbound tracking on warehouse page</div><div class="step-verify">Project advances to <b>complete</b>. All dashboard alerts clear. Notification sent.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Phase 9 — Verification</h2>
+
+<div class="section-card">
+<h3>Final Checks</h3>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Dashboard — project gone from both columns</div><div class="step-verify">Complete projects excluded from dashboard. Alert count drops.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Client portal — progress bar shows "Complete"</div><div class="step-verify">All 5 steps filled. Payment section shows paid. Updates show full history.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Vendor portal — order moves to Completed tab</div><div class="step-verify">Completed tab shows order sorted by PO number.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Projects list — project shows as "Complete" phase</div><div class="step-verify">Phase badge correct. Filterable.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Reports page — project included in revenue/margin numbers</div><div class="step-verify">Revenue, cost, margin, units all counted.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<h2>Edge Cases to Spot-Check</h2>
+
+<div class="section-card">
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">On-hold project — dashboard alerts suppressed</div><div class="step-verify">Click Hold on any project. Dashboard should show zero alerts for it.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">No ship date — dashboard shows "No ship date set"</div><div class="step-verify">Production column, muted alert for projects past intake without ship date.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Quote rejection — client "Request Changes" on portal</div><div class="step-verify">Rejection notes saved. Dashboard shows red "Quote rejected" with notes preview.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Re-send quote after rejection</div><div class="step-verify">Rejection notes cleared. Dashboard alert updates.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Proof revision — client "Request Changes" in modal</div><div class="step-verify">Revision notes saved (stays in modal). Dashboard shows red "Proof revision" with notes.</div></div></div>
+<div class="step"><input type="checkbox" class="cb"><div class="step-content"><div class="step-action">Accessory-only project — PO alert fires</div><div class="step-verify">No blanks needed. PO alert still fires when all gates met.</div></div></div>
+<div class="fail-note"><textarea placeholder="Notes / issues..."></textarea></div>
+</div>
+
+<div style="text-align: center; padding: 40px 0; color: #a0a0ad; font-size: 12px;">
+  OpsHub End-to-End Test Checklist — Generated Apr 8, 2026
+</div>
+
+<script>
+  // Live progress tracking
+  function updateProgress() {
+    const all = document.querySelectorAll('.cb');
+    const checked = document.querySelectorAll('.cb:checked');
+    const pct = all.length > 0 ? Math.round((checked.length / all.length) * 100) : 0;
+    document.getElementById('pbar').style.width = pct + '%';
+    document.getElementById('ptext').textContent = checked.length + ' / ' + all.length;
+  }
+  document.querySelectorAll('.cb').forEach(cb => cb.addEventListener('change', updateProgress));
+  updateProgress();
+</script>
+
+</body>
+</html>
