@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsHub — Team Training Guide</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; color: #1a1a1a; background: #f8f8f9; }
+  .container { max-width: 860px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 28px; font-weight: 900; margin-bottom: 4px; }
+  .subtitle { font-size: 14px; color: #6b6b78; margin-bottom: 8px; }
+  .version { font-size: 11px; color: #a0a0ad; margin-bottom: 32px; }
+  h2 { font-size: 18px; font-weight: 800; margin: 40px 0 16px; padding-top: 24px; border-top: 2px solid #1a1a1a; }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 24px; }
+  h3 { font-size: 13px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; margin: 24px 0 10px; }
+  .card { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 20px; margin-bottom: 12px; }
+  .card-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .card-desc { font-size: 13px; color: #6b6b78; line-height: 1.6; }
+  .step-list { list-style: none; counter-reset: step; }
+  .step-list li { counter-increment: step; padding: 10px 0; border-bottom: 1px solid #e0e0e4; font-size: 13px; line-height: 1.6; display: flex; gap: 12px; }
+  .step-list li:last-child { border-bottom: none; }
+  .step-list li::before { content: counter(step); background: #1a1a1a; color: #fff; width: 22px; height: 22px; border-radius: 99px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 2px; }
+  .step-content { flex: 1; }
+  .step-action { font-weight: 600; color: #1a1a1a; }
+  .step-detail { color: #6b6b78; margin-top: 2px; }
+  .tip { background: #edf7f2; border: 1px solid #b4dfc9; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #166534; margin: 12px 0; line-height: 1.5; }
+  .tip b { font-weight: 700; }
+  .warn { background: #fef9ee; border: 1px solid #f5dfa8; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #92400e; margin: 12px 0; line-height: 1.5; }
+  .warn b { font-weight: 700; }
+  .role-tag { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em; margin-left: 6px; vertical-align: middle; }
+  .role-taylor { background: #ede9fe; color: #7c3aed; }
+  .role-drake { background: #fef3e0; color: #b45309; }
+  .role-jon { background: #e8e8ec; color: #1a1a1a; }
+  .role-receiver { background: #e6f5ee; color: #1a8c5c; }
+  .role-all { background: #f3f3f5; color: #6b6b78; }
+  .nav-toc { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 20px; margin-bottom: 32px; }
+  .nav-toc a { display: block; padding: 6px 0; font-size: 13px; color: #1a1a1a; text-decoration: none; font-weight: 500; border-bottom: 1px solid #f0f0f2; }
+  .nav-toc a:last-child { border-bottom: none; }
+  .nav-toc a:hover { color: #7c3aed; }
+  .nav-toc .section-label { font-size: 9px; font-weight: 700; color: #a0a0ad; text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; }
+  th { text-align: left; padding: 8px 10px; font-size: 10px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; background: #f3f3f5; border-bottom: 1px solid #e0e0e4; }
+  td { padding: 8px 10px; border-bottom: 1px solid #f0f0f2; vertical-align: top; }
+  .key { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; background: #f3f3f5; padding: 1px 6px; border-radius: 3px; }
+  .flow-arrow { text-align: center; font-size: 18px; color: #a0a0ad; padding: 4px 0; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>OpsHub Training Guide</h1>
+<div class="subtitle">House Party Distro — Internal Operations Platform</div>
+<div class="version">Last updated: April 9, 2026</div>
+
+<!-- TABLE OF CONTENTS -->
+<div class="nav-toc">
+  <div class="section-label">Contents</div>
+  <a href="#overview">System Overview</a>
+  <a href="#roles">Team Roles & Responsibilities</a>
+  <a href="#workflow">Project Workflow (Start to Finish)</a>
+  <a href="#navigation">Navigation & Layout</a>
+  <a href="#builder">Product Builder</a>
+  <a href="#costing">Costing</a>
+  <a href="#quote">Quote & Client Approval</a>
+  <a href="#proofs">Proofs & Invoice</a>
+  <a href="#blanks">Ordering Blanks</a>
+  <a href="#po">Purchase Orders</a>
+  <a href="#production">Production Tracking</a>
+  <a href="#warehouse">Warehouse & Shipping</a>
+  <a href="#dashboard">Dashboard Command Center</a>
+  <a href="#portals">Client & Vendor Portals</a>
+  <a href="#quickbooks">QuickBooks Integration</a>
+  <a href="#tips">Tips & Shortcuts</a>
+</div>
+
+<!-- OVERVIEW -->
+<h2 id="overview">System Overview</h2>
+<div class="card">
+  <div class="card-title">What is OpsHub?</div>
+  <div class="card-desc">
+    OpsHub manages every project from the moment a client reaches out to the moment their order ships. It tracks items, pricing, artwork, invoicing, production, and fulfillment — all in one place.
+    <br><br>
+    <b>Key concept:</b> Every project flows through stages. The system auto-advances through these stages as you complete actions. You don't manually change phases — the system knows where you are based on what's been done.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Project Lifecycle</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Phase</th><th>What it means</th><th>What needs to happen</th></tr>
+      <tr><td><b>Intake</b></td><td>Setting up the project</td><td>Add items, upload art, set pricing</td></tr>
+      <tr><td><b>Pending</b></td><td>Waiting on client</td><td>Client needs to approve quote, pay, or approve proofs</td></tr>
+      <tr><td><b>Ready</b></td><td>All gates met</td><td>Order blanks and send POs to decorators</td></tr>
+      <tr><td><b>Production</b></td><td>Items at decorator</td><td>Wait for production, track progress</td></tr>
+      <tr><td><b>Receiving</b></td><td>Items shipping to HPD</td><td>Receive and confirm quantities at warehouse</td></tr>
+      <tr><td><b>Shipping</b></td><td>Ready to forward to client</td><td>Enter outbound tracking, ship</td></tr>
+      <tr><td><b>Complete</b></td><td>Done</td><td>Nothing — project is finished</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ROLES -->
+<h2 id="roles">Team Roles</h2>
+<div class="card">
+  <table>
+    <tr><th>Person</th><th>Role</th><th>Primary Pages</th></tr>
+    <tr>
+      <td><b>Taylor</b> <span class="role-tag role-taylor">Setup</span></td>
+      <td>Project setup & design</td>
+      <td>Product Builder, Art Files</td>
+    </tr>
+    <tr>
+      <td><b>Drake</b> <span class="role-tag role-drake">Sales/Prod</span></td>
+      <td>Pricing, ordering & production</td>
+      <td>Costing, Quote, Blanks, PO, Production</td>
+    </tr>
+    <tr>
+      <td><b>Receiver</b> <span class="role-tag role-receiver">Warehouse</span></td>
+      <td>Warehouse receiving</td>
+      <td>Receiving page</td>
+    </tr>
+    <tr>
+      <td><b>Jon</b> <span class="role-tag role-jon">Owner</span></td>
+      <td>Oversight, everything</td>
+      <td>Dashboard, Reports, all pages</td>
+    </tr>
+  </table>
+</div>
+
+<!-- WORKFLOW -->
+<h2 id="workflow">Project Workflow — Start to Finish</h2>
+
+<div class="card">
+  <div class="card-title">The 10-Step Flow</div>
+  <ol class="step-list">
+    <li><div class="step-content"><div class="step-action">Create Project <span class="role-tag role-taylor">Taylor</span></div><div class="step-detail">Projects → New Project. Select client (or create new). Set shipping route and ship date.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Add Items <span class="role-tag role-taylor">Taylor</span></div><div class="step-detail">Product Builder tab. Drop PSD + mockup files to create items, or use the catalog (S&S, AS Colour, etc.). Enter sizes and quantities.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Cost the Items <span class="role-tag role-drake">Drake</span></div><div class="step-detail">Costing tab. Select decorator, add print locations, set margin. Click "Lock In Pricing" when done.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Send Quote <span class="role-tag role-drake">Drake</span></div><div class="step-detail">Quote tab. Preview the quote, then send via email. Client receives a portal link to review and approve.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Client Approves Quote</div><div class="step-detail">Client clicks "Approve Quote" on their portal. System auto-advances the project.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Send Proofs & Invoice <span class="role-tag role-drake">Drake</span></div><div class="step-detail">Proofs & Invoice tab. Generate proofs, create QB invoice, send both to client.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Client Pays & Approves Proofs</div><div class="step-detail">Client pays via QuickBooks payment link. Approves proofs on portal. Both auto-recorded.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Order Blanks & Send PO <span class="role-tag role-drake">Drake</span></div><div class="step-detail">Blanks tab — enter S&S order numbers. PO tab — send purchase orders to decorators.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Production & Tracking <span class="role-tag role-drake">Drake</span></div><div class="step-detail">Monitor production. Enter tracking when decorator ships. System auto-advances items.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Receive & Ship <span class="role-tag role-receiver">Receiver</span></div><div class="step-detail">Receiving page — confirm quantities. Warehouse ships to client. Project complete.</div></div></li>
+  </ol>
+</div>
+
+<div class="flow-arrow">↓</div>
+<div class="tip"><b>Key rule:</b> The system auto-advances phases. You never manually change a project's phase. Just do your work on each tab, and the system figures out where the project is.</div>
+
+<!-- NAVIGATION -->
+<h2 id="navigation">Navigation & Layout</h2>
+<div class="card">
+  <div class="card-title">App Layout</div>
+  <div class="card-desc">
+    <b>Left rail:</b> Hamburger menu (☰) opens the global navigation — Dashboard, Projects, Clients, Decorators, Production, etc. Click any link to navigate. Click outside to close.
+    <br><br>
+    <b>Inside a project:</b>
+    <br>• <b>Top bar:</b> Project header with client name, job number, KPIs (revenue, cost, margin), and ship date countdown
+    <br>• <b>Progress bar:</b> Horizontal tabs showing workflow stages. Click any tab to navigate. Green = done, amber = in progress, gray = not started.
+    <br>• <b>Left sidebar:</b> Item list (on Product Builder and Costing tabs). Click an item to view/edit it. Drag to reorder.
+    <br>• <b>Main content:</b> The active tab's content for the selected item.
+  </div>
+</div>
+
+<!-- PRODUCT BUILDER -->
+<h2 id="builder">Product Builder <span class="role-tag role-taylor">Taylor</span></h2>
+<div class="card">
+  <div class="card-title">Adding Items</div>
+  <div class="card-desc">
+    <b>Method 1 — File drop:</b> Drag PSD and mockup PNG files onto the drop zone. Files are matched by name:
+    <br>• <span class="key">front-tee.psd</span> + <span class="key">front-tee-mockup.png</span> → creates "front-tee" with art + mockup
+    <br>• Multiple pairs create multiple items in one drop
+    <br><br>
+    <b>Method 2 — Catalog:</b> Click "+ Add Item" → choose source (Favorites, S&S, AS Colour, LA Apparel, Other)
+    <br><br>
+    <b>Method 3 — Custom Accessory:</b> For non-garment items (patches, stickers, etc.)
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Working with Items</div>
+  <div class="card-desc">
+    <b>Sidebar:</b> Shows all items. Click to select. Drag ⠿ handle to reorder.
+    <br><br>
+    <b>Item card:</b> Shows mockup thumbnail, blank info (click to change), size inputs, and files.
+    <br>• <b>Item name:</b> Editable in the header bar — click to type
+    <br>• <b>Blank:</b> Click the blank bar to change supplier/style
+    <br>• <b>Sizes:</b> Enter quantities per size. Tab/arrow keys to navigate between fields.
+    <br>• <b>Dist button:</b> Auto-distribute a total quantity across sizes using a curve
+    <br>• <b>Files:</b> Shows uploaded files by stage. Drop more files to add.
+  </div>
+</div>
+
+<div class="tip"><b>Auto-save:</b> All changes save automatically after a short delay. No save button needed. If there's an error, you'll see a red toast at the bottom right.</div>
+
+<!-- COSTING -->
+<h2 id="costing">Costing <span class="role-tag role-drake">Drake</span></h2>
+<div class="card">
+  <div class="card-title">How Costing Works</div>
+  <div class="card-desc">
+    Each item has two panels:
+    <br><br>
+    <b>Blanks (left):</b> Supplier selection, fleece toggle, size breakdown with per-size costs, item notes, and financial summary (revenue, blanks cost, PO total, margin).
+    <br><br>
+    <b>Decoration (right):</b> Decorator selection, print locations with color counts, tag print, packaging & finishing, setup fees, specialty options, and custom costs.
+    <br><br>
+    <b>Margin tiers:</b> Set in the project totals sidebar (10%, 15%, 20%, 25%, 30%). This determines the sell price.
+    <br><br>
+    <b>Sell $/unit override:</b> Click "override" next to the sell price to set a custom price instead of the calculated one.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Lock In Pricing</div>
+  <div class="card-desc">
+    When all items are costed, click <b>"Lock In Pricing"</b> at the top of the costing tab. This:
+    <br>• Marks pricing as confirmed
+    <br>• Turns the Costing progress step green
+    <br>• Unlocks the Quote tab
+    <br>• Makes costing inputs read-only (prevents accidental changes)
+    <br><br>
+    To make changes after locking, click "Unlock Pricing" — this is intentional so changes are deliberate.
+  </div>
+</div>
+
+<div class="warn"><b>Important:</b> The Quote tab won't activate until pricing is locked. This prevents sending a quote with incomplete or changing pricing.</div>
+
+<!-- QUOTE -->
+<h2 id="quote">Quote & Client Approval <span class="role-tag role-drake">Drake</span></h2>
+<div class="card">
+  <div class="card-title">Sending a Quote</div>
+  <ol class="step-list">
+    <li><div class="step-content"><div class="step-action">Go to Quote tab</div><div class="step-detail">Preview the quote with all items, sizes, and pricing. Download PDF to review if needed.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Send to client</div><div class="step-detail">Click "Send Quote" — email dialog opens. Select recipient. Quote PDF is attached automatically.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Client reviews on portal</div><div class="step-detail">Client receives email with portal link. They see the quote with full detail — items, sizes, pricing, totals.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Client approves or requests changes</div><div class="step-detail">Approve → project advances. Request Changes → you'll see a red alert on the dashboard with their notes.</div></div></li>
+  </ol>
+</div>
+
+<div class="tip"><b>Quote sent log:</b> After sending, the quote tab shows "Sent — Quote emailed [date] at [time]" so you know the current state.</div>
+
+<!-- PROOFS & INVOICE -->
+<h2 id="proofs">Proofs & Invoice <span class="role-tag role-drake">Drake</span></h2>
+<div class="card">
+  <div class="card-title">This tab handles both proofs and invoicing</div>
+  <div class="card-desc">
+    <b>Top section — Proof Approvals:</b>
+    <br>• Generate proofs for items that have mockups
+    <br>• Send proofs to client via portal link
+    <br>• Track approval status per item (Pending / Approved / Revision Requested)
+    <br>• Client approves proofs on their portal in a fullscreen viewer
+    <br><br>
+    <b>Bottom section — Invoice:</b>
+    <br>• Create QuickBooks invoice (or enter manual invoice #)
+    <br>• Preview invoice PDF
+    <br>• Send invoice to client
+    <br>• Send "Invoice + Proofs" as a combined email
+    <br>• Track payment records and status
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Payment Flow</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Payment Terms</th><th>When to Invoice</th><th>Production Gate</th></tr>
+      <tr><td><b>Prepaid</b></td><td>Immediately after quote approval</td><td>Must be paid before ordering blanks</td></tr>
+      <tr><td><b>Deposit/Balance</b></td><td>Immediately after quote approval</td><td>Deposit must be recorded</td></tr>
+      <tr><td><b>Net 15 / Net 30</b></td><td>After items ship (actual quantities)</td><td>No payment gate — production starts on approval</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- BLANKS -->
+<h2 id="blanks">Ordering Blanks <span class="role-tag role-drake">Drake</span></h2>
+<div class="card">
+  <div class="card-title">3-Gate Checklist</div>
+  <div class="card-desc">
+    Before you can order blanks, three gates must be met:
+    <br><br>
+    ✓ <b>Quote approved</b> — client has approved the quote
+    <br>✓ <b>Payment received</b> — depends on terms (net terms auto-pass)
+    <br>✓ <b>All proofs approved</b> — client has approved all proofs
+    <br><br>
+    All three show as green checkmarks at the top of the Blanks tab. Once met, enter the S&S order number and cost for each item.
+  </div>
+</div>
+
+<!-- PO -->
+<h2 id="po">Purchase Orders <span class="role-tag role-drake">Drake</span></h2>
+<div class="card">
+  <div class="card-title">Sending POs to Decorators</div>
+  <ol class="step-list">
+    <li><div class="step-content"><div class="step-action">Go to PO tab</div><div class="step-detail">PO renders with all items for each decorator, with decoration details and pricing.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Fill per-item fields</div><div class="step-detail">Production files link, incoming goods notes, production notes, packing notes. Use "Copy to all" for common values.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Preview PO PDF</div><div class="step-detail">Check bill-to, ship-to, shipping account, and all item details.</div></div></li>
+    <li><div class="step-content"><div class="step-action">Send PO via email</div><div class="step-detail">Select decorator contacts. PO PDF attaches automatically.</div></div></li>
+  </ol>
+</div>
+
+<div class="tip"><b>Shipping account:</b> UPS orders automatically get shipping account W28Y51. Ship-to defaults to HPD warehouse (4670 W Silverado Ranch) for ship-through/stage routes.</div>
+
+<!-- PRODUCTION -->
+<h2 id="production">Production Tracking <span class="role-tag role-drake">Drake</span></h2>
+<div class="card">
+  <div class="card-title">How Items Move Through Production</div>
+  <div class="card-desc">
+    <b>After PO is sent:</b> Items are "at decorator" — visible on the Production page.
+    <br><br>
+    <b>When decorator ships:</b> Enter tracking number on the Production tab. Item auto-advances to "shipped."
+    <br><br>
+    <b>Dashboard alerts:</b>
+    <br>• <b>3-6 days at decorator:</b> Purple "watch" alert
+    <br>• <b>7+ days at decorator:</b> Amber "stalled" alert
+    <br>• <b>Items shipped:</b> Green "incoming to warehouse" alert
+    <br>• <b>10+ days in transit:</b> Amber "late receiving" alert
+  </div>
+</div>
+
+<!-- WAREHOUSE -->
+<h2 id="warehouse">Warehouse & Shipping <span class="role-tag role-receiver">Receiver</span></h2>
+<div class="card">
+  <div class="card-title">Receiving Items</div>
+  <div class="card-desc">
+    <b>Receiving page</b> shows all items shipped from decorators that haven't been confirmed at HPD.
+    <br><br>
+    For each item:
+    <br>• Confirm received quantities per size (defaults to shipped qty)
+    <br>• Flag any variances (short shipment, damage)
+    <br>• Click "Confirm Received"
+    <br><br>
+    <b>After all items received:</b>
+    <br>• <b>Ship-through:</b> Enter outbound tracking → ship to client → complete
+    <br>• <b>Stage:</b> Goes to fulfillment → pack → ship → complete
+    <br>• <b>Drop-ship:</b> Skips warehouse entirely — complete when tracking entered
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<h2 id="dashboard">Dashboard Command Center <span class="role-tag role-all">Everyone</span></h2>
+<div class="card">
+  <div class="card-title">Two Columns — Sales & Production</div>
+  <div class="card-desc">
+    The dashboard shows every action needed across all active projects. Each alert is a clear command.
+    <br><br>
+    <b>Sales column:</b> Quote sending, invoice creation, proof uploads, payment follow-ups, overdue projects, client rejections
+    <br><br>
+    <b>Production column:</b> Order blanks, send POs, stalled items, incoming shipments, fulfillment, shipping deadlines
+    <br><br>
+    <b>Click any alert</b> to take action — opens the right tab or modal. Alerts disappear automatically when the action is completed.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Alert Priority</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Color</th><th>Priority</th><th>Examples</th></tr>
+      <tr><td style="color:#c43030"><b>Red</b></td><td>Critical</td><td>Overdue, quote rejected, proof revision requested</td></tr>
+      <tr><td style="color:#b45309"><b>Amber</b></td><td>High</td><td>Create invoice, send invoice, stalled at decorator</td></tr>
+      <tr><td style="color:#7c3aed"><b>Purple</b></td><td>Medium</td><td>Send quote, upload proofs, early stall warning</td></tr>
+      <tr><td style="color:#6b6b78"><b>Gray</b></td><td>Info</td><td>Awaiting approval, no ship date set</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">2-Day Follow-Up Rule</div>
+  <div class="card-desc">
+    When the system is waiting on a client (quote sent, proofs sent, invoice sent), alerts automatically escalate after 2 days with no response:
+    <br><br>
+    <b>Day 0-2:</b> No alert (give client time)
+    <br><b>Day 2+:</b> Amber "Follow up — sent Xd ago, no response"
+    <br><br>
+    This ensures no client communication falls through the cracks.
+  </div>
+</div>
+
+<!-- PORTALS -->
+<h2 id="portals">Client & Vendor Portals</h2>
+<div class="card">
+  <div class="card-title">Client Portal</div>
+  <div class="card-desc">
+    Each project has a unique portal link (copy from project header). Clients use it to:
+    <br>• View their quote with full detail (sizes, pricing, totals)
+    <br>• Approve or reject quotes (with notes)
+    <br>• Review and approve proofs in a fullscreen viewer
+    <br>• Pay via QuickBooks payment link
+    <br>• View invoice PDF
+    <br>• See project updates and progress
+    <br><br>
+    Clients with multiple projects see all of them in a sidebar — they can switch between projects without separate links.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Vendor Portal</div>
+  <div class="card-desc">
+    Each decorator has a unique portal link (from Decorators page). They use it to:
+    <br>• View all active POs with full detail
+    <br>• See item details, decoration specs, quantities, and ship-to address
+    <br>• Confirm PO receipt
+    <br>• Report issues
+    <br>• Enter tracking when items ship
+    <br><br>
+    Active orders in a sidebar list, sorted by ship date. Completed orders in a separate tab with search.
+  </div>
+</div>
+
+<!-- QUICKBOOKS -->
+<h2 id="quickbooks">QuickBooks Integration</h2>
+<div class="card">
+  <div class="card-title">Invoice + Payment Flow</div>
+  <div class="card-desc">
+    <b>Creating an invoice:</b>
+    <br>• Click "Create QuickBooks Invoice" on the Proofs & Invoice tab (or from Dashboard)
+    <br>• Or enter a manual invoice number if the invoice already exists in QB
+    <br><br>
+    <b>Payment:</b>
+    <br>• Client pays via the QB payment link (included in the invoice email)
+    <br>• Payment is automatically recorded in OpsHub via webhook
+    <br>• Shows in the project, on the dashboard, and in the client portal
+    <br><br>
+    <b>If a payment doesn't register:</b> Use the manual sync tool (ask Jon)
+  </div>
+</div>
+
+<!-- TIPS -->
+<h2 id="tips">Tips & Shortcuts</h2>
+<div class="card">
+  <div class="card-desc">
+    <table>
+      <tr><th>Action</th><th>How</th></tr>
+      <tr><td>Search anything</td><td>Use the search bar in the sidebar (Cmd+K)</td></tr>
+      <tr><td>Navigate between items</td><td>Click items in the left sidebar</td></tr>
+      <tr><td>Reorder items</td><td>Drag the ⠿ handle in the sidebar</td></tr>
+      <tr><td>Tab through size inputs</td><td>Tab or arrow keys move between fields</td></tr>
+      <tr><td>Distribute quantities</td><td>Click "Dist", enter total, hit Fill</td></tr>
+      <tr><td>Copy PO fields</td><td>"Copy to all" button copies one item's field to all items</td></tr>
+      <tr><td>Duplicate a project</td><td>"Duplicate" button in project header</td></tr>
+      <tr><td>Put project on hold</td><td>Hold button — suppresses all dashboard alerts</td></tr>
+      <tr><td>Copy portal link</td><td>"Portal Link" button in project header</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="warn">
+  <b>Things that auto-save:</b> Item names, quantities, costing inputs, notes, shipping details. You do NOT need to click a save button.
+  <br><br>
+  <b>Things that require a click:</b> Lock pricing, approve quote, send emails, confirm received quantities.
+</div>
+
+<div style="text-align: center; padding: 40px 0; color: #a0a0ad; font-size: 11px;">
+  OpsHub Training Guide — House Party Distro<br>
+  Questions? Ask Jon or check the Dashboard for your next action.
+</div>
+
+</div>
+</body>
+</html>
