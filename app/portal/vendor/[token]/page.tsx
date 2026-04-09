@@ -207,11 +207,10 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                     {order.jobNumber || "Order"} — {order.clientName}
                   </div>
                   <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
-                    {order.items.length} item{order.items.length !== 1 ? "s" : ""}
-                    {order.shipMethod && <span> · {order.shipMethod}</span>}
+                    {order.items.length} item{order.items.length !== 1 ? "s" : ""} · {order.totalUnits.toLocaleString()} units
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                   {shipInfo && (
                     <div style={{
                       padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600,
@@ -220,6 +219,9 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                     }}>
                       Ship {fmtDate(order.shipDate!)} · {shipInfo.text}
                     </div>
+                  )}
+                  {order.shipMethod && (
+                    <div style={{ fontSize: 10, color: C.faint }}>{order.shipMethod}{order.shippingAccount ? ` · ${order.shippingAccount}` : ""}</div>
                   )}
                   <span style={{ fontSize: 18, color: C.faint, transition: "transform 0.2s", transform: expanded ? "rotate(180deg)" : "none" }}>▾</span>
                 </div>
