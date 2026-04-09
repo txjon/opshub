@@ -42,6 +42,34 @@ export async function GET(
       if (client) clientName = client.name;
     }
 
+    // All projects for this client (sidebar navigation)
+    let clientProjects: any[] = [];
+    if (job.client_id) {
+      const { data: allJobs } = await sb
+        .from("jobs")
+        .select("id, title, job_number, phase, target_ship_date, portal_token, type_meta, quote_approved, costing_data")
+        .eq("client_id", job.client_id)
+        .not("phase", "eq", "cancelled")
+        .order("target_ship_date", { ascending: true, nullsFirst: false });
+      clientProjects = (allJobs || []).map((j: any) => {
+        const costProds = (j.costing_data as any)?.costProds || [];
+        const itemCount = costProds.length;
+        const unitCount = costProds.reduce((s: number, cp: any) => s + (cp.totalQty || Object.values(cp.qtys || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0)), 0);
+        return {
+          jobId: j.id,
+          title: j.title,
+          jobNumber: j.job_number,
+          phase: j.phase,
+          shipDate: j.target_ship_date,
+          portalToken: j.portal_token,
+          invoiceNumber: (j.type_meta as any)?.qb_invoice_number || null,
+          isComplete: j.phase === "complete",
+          itemCount,
+          unitCount,
+        };
+      });
+    }
+
     // Items (only fields the client should see)
     const { data: items } = await sb
       .from("items")
@@ -241,6 +269,7 @@ export async function GET(
         message: a.message,
         date: a.created_at,
       })),
+      clientProjects,
     });
   } catch (e: any) {
     console.error("Portal GET error:", e);

@@ -247,7 +247,14 @@ function renderInvoiceHTML(data: {
 // ── Route handler ─────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest, { params }: { params: { jobId: string } }) {
   const internal = req.headers.get("x-internal-key") === process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!internal) {
+  const portalToken = req.nextUrl.searchParams.get("portal");
+  let portalAuth = false;
+  if (!internal && portalToken) {
+    const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const { data: tokenJob } = await sb.from("jobs").select("id").eq("portal_token", portalToken).eq("id", params.jobId).single();
+    portalAuth = !!tokenJob;
+  }
+  if (!internal && !portalAuth) {
     const authClient = await createAuthClient();
     const { data: { user } } = await authClient.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

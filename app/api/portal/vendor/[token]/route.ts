@@ -46,13 +46,10 @@ export async function GET(
       .in("phase", ["intake", "pending", "ready", "production", "receiving", "fulfillment"])
       .order("target_ship_date", { ascending: true });
 
-    if (!activeJobs?.length) {
-      return NextResponse.json({
-        decorator: { name: decorator.name, shortCode: decorator.short_code },
-        orders: [],
-        completed: [],
-      });
-    }
+    // Completed pagination params
+    const completedOffset = parseInt(req.nextUrl.searchParams.get("completed_offset") || "0");
+    const completedLimit = parseInt(req.nextUrl.searchParams.get("completed_limit") || "10");
+    const completedSearch = (req.nextUrl.searchParams.get("completed_search") || "").trim();
 
     // Collect client names
     const clientIds = [...new Set((activeJobs || []).map((j: any) => j.client_id).filter(Boolean))];
@@ -198,24 +195,62 @@ export async function GET(
         items: orderItems,
       };
 
-      if (isAllComplete) {
-        completed.push(order);
-      } else {
+      if (!isAllComplete) {
         orders.push(order);
       }
     }
 
-    // Sort: soonest ship date first for active, most recent for completed
+    // Sort active: soonest ship date first
     orders.sort((a: any, b: any) => {
       if (!a.shipDate) return 1;
       if (!b.shipDate) return -1;
       return new Date(a.shipDate).getTime() - new Date(b.shipDate).getTime();
     });
 
+    // ── Completed orders — separate query, paginated, searchable ──
+    let completedQuery = sb
+      .from("jobs")
+      .select("id, title, job_number, phase, target_ship_date, type_meta, client_id, costing_data, shipping_route", { count: "exact" })
+      .in("phase", ["complete"])
+      .order("job_number", { ascending: false });
+
+    if (completedSearch) {
+      completedQuery = completedQuery.or(`job_number.ilike.%${completedSearch}%,title.ilike.%${completedSearch}%`);
+    }
+
+    const { data: completedJobs, count: completedTotal } = await completedQuery.range(completedOffset, completedOffset + completedLimit - 1);
+
+    // Load any missing client names for completed jobs
+    const missingClientIds = (completedJobs || []).map((j: any) => j.client_id).filter((id: string) => id && !clientMap[id]);
+    if (missingClientIds.length > 0) {
+      const { data: moreClients } = await sb.from("clients").select("id, name").in("id", [...new Set(missingClientIds)]);
+      for (const c of (moreClients || [])) clientMap[c.id] = c.name;
+    }
+
+    const completedOrders: any[] = [];
+    for (const job of (completedJobs || [])) {
+      const costingData = job.costing_data as any;
+      if (!costingData?.costProds?.length) continue;
+      const decItems = costingData.costProds.filter((cp: any) =>
+        cp.printVendor === decorator.short_code || cp.printVendor === decorator.name
+      );
+      if (decItems.length === 0) continue;
+      completedOrders.push({
+        jobId: job.id,
+        jobNumber: job.job_number || "",
+        jobTitle: job.title || "",
+        clientName: clientMap[job.client_id] || "",
+        shipDate: job.target_ship_date,
+        items: decItems.map((cp: any) => ({ name: cp.name || "Item" })),
+      });
+    }
+
     return NextResponse.json({
       decorator: { name: decorator.name, shortCode: decorator.short_code },
       orders,
-      completed: completed.slice(0, 10),
+      completed: completedOrders,
+      completedTotal: completedTotal || 0,
+      completedOffset,
     });
   } catch (e: any) {
     console.error("Vendor portal GET error:", e);

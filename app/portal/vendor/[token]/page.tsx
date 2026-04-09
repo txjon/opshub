@@ -54,13 +54,18 @@ export default function VendorPortalPage({ params }: { params: { token: string }
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [trackingInputs, setTrackingInputs] = useState<Record<string, { tracking: string; carrier: string }>>({});
   const [issueInputs, setIssueInputs] = useState<Record<string, string>>({});
   const [showIssue, setShowIssue] = useState<string | null>(null);
   const [showTracking, setShowTracking] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ itemId: string; action: string; label: string } | null>(null);
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<"active" | "completed">("active");
+  const [completedOrders, setCompletedOrders] = useState<any[]>([]);
+  const [completedTotal, setCompletedTotal] = useState(0);
+  const [completedOffset, setCompletedOffset] = useState(0);
+  const [completedSearch, setCompletedSearch] = useState("");
+  const [completedLoading, setCompletedLoading] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -72,10 +77,10 @@ export default function VendorPortalPage({ params }: { params: { token: string }
 
   useEffect(() => { loadData(); }, [params.token]);
 
-  // Auto-expand all orders on load
+  // Auto-select first order on load
   useEffect(() => {
-    if (data?.orders) {
-      setExpandedOrders(new Set(data.orders.map(o => o.jobId)));
+    if (data?.orders?.length && !selectedOrderId) {
+      setSelectedOrderId(data.orders[0].jobId);
     }
   }, [data?.orders?.length]);
 
@@ -83,9 +88,29 @@ export default function VendorPortalPage({ params }: { params: { token: string }
     try {
       const res = await fetch(`/api/portal/vendor/${params.token}`);
       if (!res.ok) { setError("This link is no longer valid."); return; }
-      setData(await res.json());
+      const d = await res.json();
+      setData(d);
+      setCompletedOrders(d.completed || []);
+      setCompletedTotal(d.completedTotal || 0);
+      setCompletedOffset(0);
     } catch { setError("Unable to load."); }
     finally { setLoading(false); }
+  }
+
+  async function loadCompleted(offset: number, search: string, append: boolean) {
+    setCompletedLoading(true);
+    try {
+      const qs = new URLSearchParams({ completed_offset: String(offset), completed_limit: "10" });
+      if (search) qs.set("completed_search", search);
+      const res = await fetch(`/api/portal/vendor/${params.token}?${qs}`);
+      if (res.ok) {
+        const d = await res.json();
+        setCompletedOrders(append ? (prev: any[]) => [...prev, ...(d.completed || [])] : d.completed || []);
+        setCompletedTotal(d.completedTotal || 0);
+        setCompletedOffset(offset);
+      }
+    } catch {}
+    setCompletedLoading(false);
   }
 
   async function doAction(action: string, payload: Record<string, any>) {
@@ -140,95 +165,106 @@ export default function VendorPortalPage({ params }: { params: { token: string }
         <div style={{ color: C.muted, fontSize: 11, fontWeight: 500, letterSpacing: "0.04em", textTransform: "uppercase" }}>Vendor Portal</div>
       </div>
 
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: isMobile ? "20px 16px 60px" : "32px 24px 60px" }}>
-
-        {/* ── Header ── */}
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
-            {totalItems} active item{totalItems !== 1 ? "s" : ""} across {orders.length} order{orders.length !== 1 ? "s" : ""}
-          </div>
-          <h1 style={{ fontSize: isMobile ? 22 : 26, fontWeight: 800, margin: 0, color: C.text }}>{decorator.name}</h1>
-        </div>
-
-        {/* ── Stats Strip ── */}
-        <div style={{
-          display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap",
-        }}>
-          {needsAction > 0 && (
-            <div style={{ padding: "8px 16px", borderRadius: 6, background: C.accentBg, border: `1px solid ${C.border}` }}>
-              <span style={{ fontSize: 18, fontWeight: 800, color: C.text, fontFamily: C.mono }}>{needsAction}</span>
-              <span style={{ fontSize: 11, color: C.muted, marginLeft: 6 }}>needs confirmation</span>
+      {/* ── Sidebar + Content Layout ── */}
+      <div style={{ display: "flex", height: "calc(100vh - 49px)" }}>
+        {/* Left sidebar */}
+        <div style={{ width: isMobile ? "100%" : 280, flexShrink: 0, borderRight: `1px solid ${C.border}`, background: C.card, overflowY: "auto" }}>
+          <div style={{ padding: "16px 16px 12px", borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{decorator.name}</div>
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              {totalItems} item{totalItems !== 1 ? "s" : ""} · {orders.length} order{orders.length !== 1 ? "s" : ""}
+              {needsAction > 0 && <span style={{ color: C.amber, marginLeft: 6 }}>{needsAction} pending</span>}
             </div>
-          )}
-          {inProd > 0 && (
-            <div style={{ padding: "8px 16px", borderRadius: 6, background: C.amberBg, border: `1px solid ${C.amberBorder}` }}>
-              <span style={{ fontSize: 18, fontWeight: 800, color: C.amber, fontFamily: C.mono }}>{inProd}</span>
-              <span style={{ fontSize: 11, color: C.muted, marginLeft: 6 }}>in production</span>
-            </div>
-          )}
-        </div>
-
-        {/* ── No orders ── */}
-        {orders.length === 0 && (
-          <div style={{
-            background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
-            padding: 40, textAlign: "center",
-          }}>
-            <div style={{ fontSize: 14, color: C.muted }}>No active orders right now.</div>
           </div>
-        )}
+          {/* Active / Completed tabs */}
+          <div style={{ display: "flex", borderBottom: `1px solid ${C.border}` }}>
+            {(["active", "completed"] as const).map(t => (
+              <button key={t} onClick={() => { setSidebarTab(t); if (t === "completed" && completedOrders.length === 0) loadCompleted(0, "", false); }}
+                style={{ flex: 1, padding: "10px 0", fontSize: 11, fontWeight: 700, cursor: "pointer", border: "none",
+                  background: sidebarTab === t ? C.bg : C.card, color: sidebarTab === t ? C.text : C.faint,
+                  borderBottom: sidebarTab === t ? `2px solid ${C.text}` : "2px solid transparent",
+                  textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                {t === "active" ? `Active (${orders.length})` : `Completed`}
+              </button>
+            ))}
+          </div>
 
-        {/* ── Active Orders ── */}
-        {orders.map(order => {
-          const expanded = expandedOrders.has(order.jobId);
-          const shipInfo = order.shipDate ? daysUntil(order.shipDate) : null;
-          const pendingItems = order.items.filter(i => i.pipelineStage === "pending");
-
-          return (
-            <div key={order.jobId} style={{
-              background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
-              marginBottom: 16, overflow: "hidden",
-            }}>
-              {/* Order Header (always visible) */}
-              <div
-                onClick={() => setExpandedOrders(prev => {
-                  const next = new Set(prev);
-                  next.has(order.jobId) ? next.delete(order.jobId) : next.add(order.jobId);
-                  return next;
-                })}
-                style={{
-                  padding: isMobile ? "14px 16px" : "14px 20px", cursor: "pointer",
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  borderBottom: expanded ? `1px solid ${C.border}` : "none",
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>
-                    {order.jobNumber || "Order"} — {order.clientName}
-                  </div>
-                  <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
-                    {order.items.length} item{order.items.length !== 1 ? "s" : ""} · {order.totalUnits.toLocaleString()} units
-                  </div>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                  {shipInfo && (
-                    <div style={{
-                      padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600,
-                      background: shipInfo.urgent ? (shipInfo.color === C.red ? C.redBg : C.amberBg) : C.greenBg,
-                      color: shipInfo.color,
-                    }}>
-                      Ship {fmtDate(order.shipDate!)} · {shipInfo.text}
-                    </div>
-                  )}
-                  {order.shipMethod && (
-                    <div style={{ fontSize: 10, color: C.faint }}>{order.shipMethod}{order.shippingAccount ? ` · ${order.shippingAccount}` : ""}</div>
-                  )}
-                  <span style={{ fontSize: 18, color: C.faint, transition: "transform 0.2s", transform: expanded ? "rotate(180deg)" : "none" }}>▾</span>
+          {/* Active orders list */}
+          {sidebarTab === "active" && orders.map(order => {
+            const selected = selectedOrderId === order.jobId;
+            const shipInfo = order.shipDate ? daysUntil(order.shipDate) : null;
+            return (
+              <div key={order.jobId} onClick={() => setSelectedOrderId(order.jobId)}
+                style={{ padding: "12px 16px", cursor: "pointer", borderBottom: `1px solid ${C.border}`,
+                  background: selected ? C.bg : C.card, borderLeft: selected ? `3px solid ${C.text}` : "3px solid transparent" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{order.jobNumber || "Order"}</div>
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{order.clientName}</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+                  <span style={{ fontSize: 10, color: C.faint }}>{order.items.length} item{order.items.length !== 1 ? "s" : ""} · {order.totalUnits.toLocaleString()} units</span>
+                  {shipInfo && <span style={{ fontSize: 10, fontWeight: 600, color: shipInfo.color, fontFamily: C.mono }}>{shipInfo.text}</span>}
                 </div>
               </div>
+            );
+          })}
 
-              {/* Expanded: PO PDF-style layout */}
-              {expanded && (
+          {/* Completed orders list */}
+          {sidebarTab === "completed" && (
+            <>
+              {/* Search */}
+              <div style={{ padding: "10px 12px", borderBottom: `1px solid ${C.border}` }}>
+                <input value={completedSearch}
+                  onChange={e => { setCompletedSearch(e.target.value); }}
+                  onKeyDown={e => { if (e.key === "Enter") loadCompleted(0, completedSearch, false); }}
+                  placeholder="Search by PO # or name..."
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              {completedOrders.map(order => {
+                const selected = selectedOrderId === order.jobId;
+                return (
+                  <div key={order.jobId} onClick={() => setSelectedOrderId(order.jobId)}
+                    style={{ padding: "12px 16px", cursor: "pointer", borderBottom: `1px solid ${C.border}`,
+                      background: selected ? C.bg : C.card, borderLeft: selected ? `3px solid ${C.text}` : "3px solid transparent" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{order.jobNumber || "Order"}</div>
+                    <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{order.clientName}</div>
+                  </div>
+                );
+              })}
+              {/* Load more */}
+              {completedOrders.length < completedTotal && (
+                <button onClick={() => loadCompleted(completedOffset + 10, completedSearch, true)}
+                  disabled={completedLoading}
+                  style={{ width: "100%", padding: "12px", border: "none", background: C.bg, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", borderBottom: `1px solid ${C.border}` }}>
+                  {completedLoading ? "Loading..." : `Load more (${completedTotal - completedOrders.length} remaining)`}
+                </button>
+              )}
+              {completedOrders.length === 0 && !completedLoading && (
+                <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: C.faint }}>No completed orders{completedSearch ? " matching search" : ""}</div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Right content */}
+        <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "24px 28px" }}>
+        {(() => {
+          const order = [...orders, ...completed].find(o => o.jobId === selectedOrderId);
+          if (!order) return <div style={{ padding: 40, textAlign: "center", color: C.muted }}>Select an order</div>;
+          const shipInfo = order.shipDate ? daysUntil(order.shipDate) : null;
+          const pendingItems = order.items.filter(i => i.pipelineStage === "pending");
+          const expanded = true;
+          return (<div>
+        <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800 }}>{order.jobNumber || "Order"} — {order.clientName}</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{order.items.length} item{order.items.length !== 1 ? "s" : ""} · {order.totalUnits.toLocaleString()} units</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+            {shipInfo && <div style={{ padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: shipInfo.urgent ? (shipInfo.color === C.red ? C.redBg : C.amberBg) : C.greenBg, color: shipInfo.color }}>Ship {fmtDate(order.shipDate!)} · {shipInfo.text}</div>}
+            {order.shipMethod && <div style={{ fontSize: 10, color: C.faint }}>{order.shipMethod}{order.shippingAccount ? ` · ${order.shippingAccount}` : ""}</div>}
+          </div>
+        </div>
+
+              {/* PO detail content */}
                 <div style={{ padding: isMobile ? "12px 16px" : "20px 24px" }}>
 
                   {/* Bulk confirm button if multiple pending */}
@@ -582,39 +618,8 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                     House Party Distro must be notified of any blank shortages or discrepancies within 24 hours of receipt of goods. Outbound shipping is at the sole direction of House Party Distro. Packing lists and tracking numbers must be supplied to House Party Distro immediately after the order has shipped. House Party Distro must be invoiced for any charges within 30 days of the PO date.
                   </div>
                 </div>
-              )}
-            </div>
-          );
-        })}
-
-        {/* ── Completed Orders ── */}
-        {completed.length > 0 && (
-          <div style={{ marginTop: 32 }}>
-            <button
-              onClick={() => setShowCompleted(!showCompleted)}
-              style={{
-                background: "none", border: "none", cursor: "pointer",
-                fontSize: 14, fontWeight: 600, color: C.muted, padding: 0,
-                display: "flex", alignItems: "center", gap: 6,
-              }}
-            >
-              <span style={{ transition: "transform 0.2s", transform: showCompleted ? "rotate(90deg)" : "none" }}>▸</span>
-              Completed ({completed.length})
-            </button>
-            {showCompleted && completed.map(order => (
-              <div key={order.jobId} style={{
-                background: C.card, border: `1px solid ${C.border}`, borderRadius: 10,
-                padding: "12px 16px", marginTop: 8, opacity: 0.7,
-              }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{order.jobNumber} — {order.clientName}</div>
-                <div style={{ fontSize: 11, color: C.muted }}>{order.items.length} items · All shipped</div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div style={{ textAlign: "center", marginTop: 40, fontSize: 11, color: C.faint }}>
-          Powered by House Party Distro
+        </div>);
+        })()}
         </div>
       </div>
 

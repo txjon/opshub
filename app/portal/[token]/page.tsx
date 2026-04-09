@@ -31,6 +31,12 @@ const fmtDate = (iso: string) => {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 };
+const daysUntil = (iso: string) => {
+  const diff = Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
+  if (diff < 0) return { text: `${Math.abs(diff)}d overdue`, color: C.red };
+  if (diff <= 3) return { text: `${diff}d`, color: C.amber };
+  return { text: `${diff}d`, color: C.green };
+};
 const timeAgo = (iso: string) => {
   const ms = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(ms / 60000);
@@ -75,6 +81,8 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const [quoteRejectNote, setQuoteRejectNote] = useState("");
   const [viewingProof, setViewingProof] = useState<any>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [activeToken, setActiveToken] = useState(params.token);
+  const [projectCache, setProjectCache] = useState<Record<string, any>>({});
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -84,17 +92,26 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   }, []);
 
   useEffect(() => {
-    loadPortal();
-  }, [params.token]);
+    if (projectCache[activeToken]) {
+      setData(projectCache[activeToken]);
+    } else {
+      loadPortal(activeToken);
+    }
+  }, [activeToken]);
 
-  async function loadPortal() {
+  async function loadPortal(token?: string) {
+    const t = token || activeToken;
+    if (projectCache[t]) { setData(projectCache[t]); return; }
+    setLoading(true);
     try {
-      const res = await fetch(`/api/portal/${params.token}`);
+      const res = await fetch(`/api/portal/${t}`);
       if (!res.ok) {
         setError("This link is no longer valid.");
         return;
       }
-      setData(await res.json());
+      const d = await res.json();
+      setData(d);
+      setProjectCache(prev => ({ ...prev, [t]: d }));
     } catch {
       setError("Unable to load. Please try again.");
     } finally {
@@ -106,7 +123,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
     const key = action + (extra?.fileId || "");
     setActionLoading(key);
     try {
-      const res = await fetch(`/api/portal/${params.token}`, {
+      const res = await fetch(`/api/portal/${activeToken}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extra }),
@@ -175,8 +192,54 @@ export default function PortalPage({ params }: { params: { token: string } }) {
         <div style={{ color: C.muted, fontSize: 11, fontWeight: 500, letterSpacing: "0.04em", textTransform: "uppercase" }}>Project Portal</div>
       </div>
 
-      {/* ── Main Content ── */}
-      <div style={{ maxWidth: 800, margin: "0 auto", padding: isMobile ? "20px 16px 60px" : "32px 24px 60px" }}>
+      {/* ── Sidebar + Content Layout ── */}
+      <div style={{ display: "flex", height: "calc(100vh - 49px)" }}>
+        {/* Left sidebar — project list */}
+        {!isMobile && (data as any).clientProjects?.length > 1 && (
+          <div style={{ width: 260, flexShrink: 0, borderRight: `1px solid ${C.border}`, background: C.card, overflowY: "auto" }}>
+            <div style={{ padding: "16px 16px 12px", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{client.name}</div>
+              <div style={{ fontSize: 10, color: C.muted, marginTop: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                {((data as any).clientProjects || []).filter((p: any) => !p.isComplete).length} active project{((data as any).clientProjects || []).filter((p: any) => !p.isComplete).length !== 1 ? "s" : ""}
+              </div>
+            </div>
+            {((data as any).clientProjects || []).filter((p: any) => !p.isComplete).map((p: any) => {
+              const selected = p.portalToken === activeToken;
+              const shipInfo = p.shipDate ? daysUntil(p.shipDate) : null;
+              return (
+                <div key={p.jobId}
+                  onClick={() => { if (p.portalToken && !selected) setActiveToken(p.portalToken); }}
+                  style={{ padding: "12px 16px", cursor: p.portalToken ? "pointer" : "default", borderBottom: `1px solid ${C.border}`,
+                    background: selected ? C.bg : C.card, borderLeft: selected ? `3px solid ${C.text}` : "3px solid transparent" }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{p.invoiceNumber ? `#${p.invoiceNumber}` : p.jobNumber}</div>
+                  <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{p.title}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+                    <span style={{ fontSize: 10, color: C.faint }}>{p.itemCount || 0} item{p.itemCount !== 1 ? "s" : ""} · {p.unitCount || 0} units</span>
+                    {shipInfo && <span style={{ fontSize: 10, fontWeight: 600, color: shipInfo.color, fontFamily: C.mono }}>{shipInfo.text}</span>}
+                  </div>
+                </div>
+              );
+            })}
+            {((data as any).clientProjects || []).some((p: any) => p.isComplete) && (
+              <>
+                <div style={{ padding: "8px 16px", fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: `1px solid ${C.border}`, background: C.bg }}>
+                  Completed
+                </div>
+                {((data as any).clientProjects || []).filter((p: any) => p.isComplete).map((p: any) => (
+                  <div key={p.jobId}
+                    onClick={() => { if (p.portalToken) setActiveToken(p.portalToken); }}
+                    style={{ padding: "10px 16px", cursor: "pointer", borderBottom: `1px solid ${C.border}`, opacity: 0.6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{p.invoiceNumber ? `#${p.invoiceNumber}` : p.jobNumber}</div>
+                    <div style={{ fontSize: 10, color: C.muted }}>{p.title}</div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Right content — selected project */}
+        <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "20px 16px 60px" : "32px 28px 60px", maxWidth: 800 }}>
 
         {/* ── Project Header ── */}
         <div style={{ marginBottom: 24 }}>
@@ -380,7 +443,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
             )}
 
             {/* Download Quote PDF */}
-            <a href={`/api/pdf/quote/${(project as any).id || ""}?portal=${params.token}`} target="_blank" rel="noopener noreferrer"
+            <a href={`/api/pdf/quote/${(project as any).id || ""}?portal=${activeToken}`} target="_blank" rel="noopener noreferrer"
               style={{
                 display: "inline-block", marginTop: 12, fontSize: 12, fontWeight: 600,
                 color: C.accent, textDecoration: "none",
@@ -410,11 +473,13 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               {items.filter(i => i.proofs.length > 0).map(item => {
                 const mockups = item.proofs.filter((p: any) => p.stage === "mockup");
                 const proofs = item.proofs.filter((p: any) => p.stage === "proof");
+                const firstProof = proofs[0];
+                const allApproved = proofs.length > 0 && proofs.every((p: any) => p.approval === "approved");
+                const statusLabel = allApproved ? "Approved" : firstProof?.approval === "revision_requested" ? "Revision Requested" : firstProof?.approval === "pending" ? "Pending" : null;
+                const statusColor = allApproved ? C.green : C.amber;
                 return (
-                <div key={item.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", background: C.bg }}>
-                  {/* Item row: thumbnail + name + status */}
+                <div key={item.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 14px", background: C.bg }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    {/* Mockup thumbnail */}
                     {mockups[0]?.driveFileId && (
                       <img src={`/api/files/thumbnail?id=${mockups[0].driveFileId}`} alt=""
                         onClick={() => setViewingProof(mockups[0])}
@@ -422,46 +487,21 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                         style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6, border: `1px solid ${C.border}`, flexShrink: 0, cursor: "pointer" }} />
                     )}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{item.name}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{item.name}</div>
                       {proofs.length > 0 && (
-                        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-                          {proofs.length} proof{proofs.length !== 1 ? "s" : ""}
-                        </div>
+                        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{proofs.length} proof{proofs.length !== 1 ? "s" : ""}</div>
                       )}
                     </div>
-                    {/* Overall status for this item */}
-                    {proofs.length > 0 && proofs.every((p: any) => p.approval === "approved") && (
-                      <span style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 99, background: C.greenBg, color: C.green, border: `1px solid ${C.greenBorder}`, flexShrink: 0 }}>Approved</span>
+                    {statusLabel && (
+                      <span style={{ fontSize: 11, fontWeight: 600, color: statusColor, flexShrink: 0 }}>{statusLabel}</span>
+                    )}
+                    {firstProof?.driveFileId && (
+                      <button onClick={() => setViewingProof(firstProof)}
+                        style={{ fontSize: 13, color: "#fff", fontWeight: 700, background: C.accent, border: "none", borderRadius: 6, padding: "10px 20px", cursor: "pointer", flexShrink: 0 }}>
+                        View Proof
+                      </button>
                     )}
                   </div>
-
-                  {/* Proof files — compact rows, actions in modal only */}
-                  {proofs.map((proof: any) => {
-                    const approvedTime = proof.approvedAt ? fmtDate(proof.approvedAt) : null;
-
-                    return (
-                      <div key={proof.id} style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          {proof.driveFileId && (
-                            <button onClick={() => setViewingProof(proof)}
-                              style={{ fontSize: 12, color: "#fff", fontWeight: 700, background: C.accent, border: "none", borderRadius: 6, padding: "8px 18px", cursor: "pointer", flexShrink: 0 }}>
-                              View Proof
-                            </button>
-                          )}
-                          <span style={{ fontSize: 11, color: C.muted, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{proof.fileName}</span>
-                          {proof.approval === "approved" && (
-                            <span style={{ fontSize: 10, fontWeight: 600, color: C.green, flexShrink: 0 }}>{approvedTime ? `Approved ${approvedTime}` : "Approved"}</span>
-                          )}
-                          {proof.approval === "revision_requested" && (
-                            <span style={{ fontSize: 10, fontWeight: 600, color: C.amber, flexShrink: 0 }}>Revision Requested</span>
-                          )}
-                          {proof.approval === "pending" && (
-                            <span style={{ fontSize: 10, fontWeight: 600, color: C.amber, flexShrink: 0 }}>Pending</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
                 );
               })}
@@ -497,6 +537,17 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 </div>
               )}
             </div>
+
+            {/* View/Download Invoice */}
+            <a href={`/api/pdf/invoice/${(project as any).id || ""}?portal=${activeToken}`} target="_blank" rel="noopener noreferrer"
+              style={{
+                display: "block", textAlign: "center", width: "100%", boxSizing: "border-box",
+                padding: "12px 0", borderRadius: 8, textDecoration: "none", marginBottom: 12,
+                background: C.surface, color: C.text, border: `1px solid ${C.border}`,
+                fontSize: 13, fontWeight: 600,
+              }}>
+              View Invoice #{invoiceNumber}
+            </a>
 
             {/* Pay button */}
             {paymentLink && balance > 0 && (
@@ -570,50 +621,44 @@ export default function PortalPage({ params }: { params: { token: string } }) {
         )}
 
         {/* ── Footer ── */}
-        <div style={{ textAlign: "center", marginTop: 40, fontSize: 11, color: C.faint }}>
-          Powered by House Party Distro
-        </div>
-      </div>
+        </div>{/* end right content */}
+      </div>{/* end flex layout */}
 
-      {/* ── Proof Preview Modal ── */}
+      {/* ── Proof Preview Modal — fullscreen ── */}
       {viewingProof && (
-        <div onClick={() => setViewingProof(null)} style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9999,
-          display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        <div style={{
+          position: "fixed", inset: 0, background: "#fff", zIndex: 9999,
+          display: "flex", flexDirection: "column",
         }}>
-          <div onClick={e => e.stopPropagation()} style={{
-            background: C.card, borderRadius: 16, maxWidth: 640, width: "100%",
-            maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+          {/* Header bar */}
+          <div style={{
+            padding: "12px 20px", borderBottom: `1px solid ${C.border}`,
+            display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0,
           }}>
-            {/* Header */}
-            <div style={{
-              padding: "14px 20px", borderBottom: `1px solid ${C.border}`,
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-            }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{viewingProof.fileName}</div>
-                <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>{viewingProof.stage === "mockup" ? "Mockup" : "Print Proof"}</div>
-              </div>
-              <button onClick={() => setViewingProof(null)} style={{
-                background: "none", border: "none", fontSize: 22, color: C.faint, cursor: "pointer",
-              }}>&times;</button>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{viewingProof.fileName}</div>
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>{viewingProof.stage === "mockup" ? "Mockup" : "Print Proof"}</div>
             </div>
+            <button onClick={() => { setViewingProof(null); setShowRevisionInput(null); }} style={{
+              background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.text, cursor: "pointer", padding: "8px 20px",
+            }}>Close</button>
+          </div>
 
-            {/* Content — images inline, PDFs in iframe */}
-            <div style={{ padding: 20, textAlign: "center" }}>
-              {/\.pdf$/i.test(viewingProof.fileName) ? (
-                <iframe
-                  src={`/api/files/thumbnail?id=${viewingProof.driveFileId}`}
-                  style={{ width: "100%", height: "65vh", border: "none", borderRadius: 8 }}
-                />
-              ) : (
-                <img
-                  src={`/api/files/thumbnail?id=${viewingProof.driveFileId}`}
-                  alt={viewingProof.fileName}
-                  style={{ maxWidth: "100%", maxHeight: "60vh", borderRadius: 8, objectFit: "contain" }}
-                />
-              )}
-            </div>
+          {/* Content — fills remaining space */}
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "auto", background: C.bg, padding: 20 }}>
+            {/\.pdf$/i.test(viewingProof.fileName) ? (
+              <iframe
+                src={`/api/files/view/${encodeURIComponent(viewingProof.fileName)}?id=${viewingProof.driveFileId}`}
+                style={{ width: "100%", height: "100%", border: "none", borderRadius: 8 }}
+              />
+            ) : (
+              <img
+                src={`/api/files/view/${encodeURIComponent(viewingProof.fileName)}?id=${viewingProof.driveFileId}`}
+                alt={viewingProof.fileName}
+                style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: 8, objectFit: "contain" }}
+              />
+            )}
+          </div>
 
             {/* Action buttons — all inside modal */}
             {(viewingProof.approval === "pending" || viewingProof.approval === "revision_requested") && (
@@ -663,7 +708,6 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 Approved {viewingProof.approvedAt ? fmtDate(viewingProof.approvedAt) : ""}
               </div>
             )}
-          </div>
         </div>
       )}
     </div>
