@@ -180,10 +180,10 @@ export default function PortalPage({ params }: { params: { token: string } }) {
 
         {/* ── Project Header ── */}
         <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            {client.name} {(invoiceNumber || project.jobNumber) && <span style={{ fontFamily: C.mono, fontWeight: 500 }}>· {invoiceNumber || project.jobNumber}</span>}
+          <h1 style={{ fontSize: isMobile ? 22 : 26, fontWeight: 800, color: C.text, margin: 0, lineHeight: 1.2 }}>{client.name}</h1>
+          <div style={{ fontSize: 14, color: C.muted, fontWeight: 500, marginTop: 4 }}>
+            {project.title} {(invoiceNumber || project.jobNumber) && <span style={{ fontFamily: C.mono, fontSize: 12, color: C.faint }}>· {invoiceNumber || project.jobNumber}</span>}
           </div>
-          <h1 style={{ fontSize: isMobile ? 22 : 26, fontWeight: 800, color: C.text, margin: 0, lineHeight: 1.2 }}>{project.title}</h1>
           {project.shipDate && (
             <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
               <span style={{ fontWeight: 600, textTransform: "uppercase", fontSize: 10, letterSpacing: "0.04em" }}>Est. Ship Date</span>
