@@ -55,7 +55,17 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:8,borderBottom:"2px solid "+T.text}}>
         <div style={{fontSize:11,fontWeight:800,color:T.text,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Decoration</div>
-        {i>0&&costProds[i-1]&&<button onClick={()=>{const prev=costProds[i-1];updateProd(i,{...p,printVendor:prev.printVendor,printLocations:JSON.parse(JSON.stringify(prev.printLocations||{})),printCount:prev.printCount||4,tagPrint:prev.tagPrint,tagRepeat:prev.tagRepeat,tagShared:prev.tagShared,tagShareGroup:prev.tagShareGroup,setupFees:{...prev.setupFees}});}}
+        {i>0&&costProds[i-1]&&<button onClick={()=>{const prev=costProds[i-1];updateProd(i,{...p,
+          printVendor:prev.printVendor,
+          printLocations:JSON.parse(JSON.stringify(prev.printLocations||{})),
+          printCount:prev.printCount||4,
+          tagPrint:prev.tagPrint, tagRepeat:prev.tagRepeat, tagShared:prev.tagShared, tagShareGroup:prev.tagShareGroup,
+          setupFees:{...(prev.setupFees||{})},
+          specialty:{...(prev.specialty||{})},
+          packaging:prev.packaging, packagingVariant:prev.packagingVariant,
+          finishing:{...(prev.finishing||{})},
+          customCosts:prev.customCosts?JSON.parse(JSON.stringify(prev.customCosts)):[]
+        });}}
           style={{fontSize:10,color:T.accent,fontFamily:font,background:T.accentDim,border:"1px solid "+T.accent+"44",borderRadius:5,cursor:"pointer",padding:"2px 10px",fontWeight:600}}>⎘ Copy from previous</button>}
       </div>
 

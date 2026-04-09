@@ -544,8 +544,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
                     onMouseLeave={e => { if (document.activeElement !== e.currentTarget) e.currentTarget.style.background = "transparent"; }}
                   />
-                  <div style={{fontSize:10,color:T.faint,marginTop:1}}>
-                    {stage === "shipped" ? "Shipped" : stage === "in_production" ? "At decorator" : proofOk && hasBlanks ? "Ready" : proofOk ? "Proofs approved" : "In progress"}
+                  <div style={{fontSize:10,color:T.faint,marginTop:1,display:"flex",gap:6,alignItems:"center"}}>
+                    <span>{stage === "shipped" ? "Shipped" : stage === "in_production" ? "At decorator" : proofOk && hasBlanks ? "Ready" : !item.blank_vendor ? "No blank" : (item.totalQty||0) === 0 ? "No qty" : proofOk ? "Proofs approved" : "Setup"}</span>
+                    {item.sell_per_unit > 0 && <span style={{fontFamily:mono,color:T.muted,fontWeight:600}}>${Number(item.sell_per_unit).toFixed(2)}</span>}
                   </div>
                 </div>
                 {proofOk && <span style={{width:6,height:6,borderRadius:3,background:T.green,flexShrink:0}} />}
