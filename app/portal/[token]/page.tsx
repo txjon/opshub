@@ -129,6 +129,8 @@ export default function PortalPage({ params }: { params: { token: string } }) {
         body: JSON.stringify({ action, ...extra }),
       });
       if (res.ok) {
+        // Bust cache so fresh data loads
+        setProjectCache(prev => { const n = {...prev}; delete n[activeToken]; return n; });
         await loadPortal();
         setShowRevisionInput(null);
       }

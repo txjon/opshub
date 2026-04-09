@@ -36,6 +36,19 @@ export function CommandCenter({ alerts, stats }: {
 
   useEffect(() => { if (window.innerWidth < 768) setIsMobile(true); }, []);
 
+  // Auto-refresh when tab becomes visible (catches state changes from other tabs/portals)
+  useEffect(() => {
+    let lastRefresh = Date.now();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastRefresh > 30000) {
+        lastRefresh = Date.now();
+        window.location.reload();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
   const salesAlerts = alerts.filter(a => a.column === "sales");
   const prodAlerts = alerts.filter(a => a.column === "production");
 

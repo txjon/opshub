@@ -125,6 +125,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     });
   }, [params.id]);
 
+  // Light reload — just items, doesn't reset tab or loading state
+  async function reloadItems() {
+    const { data } = await supabase.from("items").select("*, decorator_assignments(pipeline_stage, decoration_type, decorators(name)), buy_sheet_lines(size, qty_ordered, qty_shipped_from_vendor, qty_received_at_hpd)").eq("job_id", params.id).order("sort_order");
+    if (data) setItems(data as any);
+  }
+
   async function loadData() {
     setLoading(true);
     const [jobRes, itemsRes, paymentsRes, contactsRes] = await Promise.all([
@@ -897,7 +903,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           project={job}
           items={items}
           contacts={contacts}
-          onItemsChanged={loadData}
+          onItemsChanged={reloadItems}
           onRegisterSave={(fn: () => Promise<void>) => { saveBuySheetRef.current = fn; }}
           onSaveStatus={(s: string) => handleSaveStatus(s)}
           onSaved={(resolved: any[]) => {

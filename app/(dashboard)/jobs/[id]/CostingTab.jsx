@@ -236,7 +236,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               // ── Accessory slim card ──
               if (p.garment_type === "accessory") {
                 return (
-                  <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",width:"50%"}}>
+                  <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
                     <div onClick={()=>toggleCollapse(p.id)} style={{padding:"14px 16px",borderBottom:collapsed[p.id]?"none":`1px solid ${T.border}`,cursor:"pointer",userSelect:"none"}}>
                       {/* Row 1: Letter + Name + Accessory badge + Chevron */}
                       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
