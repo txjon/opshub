@@ -475,26 +475,32 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         </div>
       )}
 
-      {/* ══ Add zone — PSD drop + catalog trigger ══ */}
-      <div
-        onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accentDim; }}
-        onDragLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}
-        onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; const files = Array.from(e.dataTransfer.files); const hasCreatableFiles = files.some(f => f.name.toLowerCase().endsWith(".psd") || /\.(png|jpg|jpeg|gif|webp)$/i.test(f.name)); if (hasCreatableFiles) { processFileDrop(files); } else { setShowAddModal(true); } }}
-        onClick={() => { if (!psdProcessing) setShowAddModal(true); }}
-        style={{ border: `2px dashed ${T.border}`, borderRadius: 10, padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "center", gap: 16, cursor: "pointer", transition: "all 0.15s" }}
-      >
-        {psdProcessing ? (
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: T.accent }}>{psdProcessing.status}</div>
-            <div style={{ fontSize: 10, color: T.muted }}>{psdProcessing.fileName}</div>
-          </div>
-        ) : (
-          <>
-            <span style={{ fontSize: 13, fontWeight: 600, color: T.accent }}>+ Drop files (PSD + mockups) or click to add item</span>
-            <span style={{ width: 1, height: 24, background: T.border }} />
-            <span style={{ fontSize: 11, color: T.muted }}>Favorites · S&S · AS Colour · LA Apparel · Other</span>
-          </>
+      {/* ══ Add item button + File drop zone ══ */}
+      <div style={{ display: "flex", gap: 8 }}>
+        {/* Add Item button */}
+        <button onClick={() => { if (!psdProcessing) setShowAddModal(true); }}
+          style={{ padding: "14px 24px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontSize: 13, fontWeight: 700, color: T.text, flexShrink: 0, transition: "all 0.15s" }}
+          onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
+          onMouseLeave={e => { e.currentTarget.style.background = T.card; }}>
+          + Add Item
+        </button>
+
+        {/* File drop zone */}
+        <div
+          onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accentDim; }}
+          onDragLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}
+          onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; const files = Array.from(e.dataTransfer.files); const hasCreatableFiles = files.some(f => f.name.toLowerCase().endsWith(".psd") || /\.(png|jpg|jpeg|gif|webp)$/i.test(f.name)); if (hasCreatableFiles) { processFileDrop(files); } else { setShowAddModal(true); } }}
+          style={{ flex: 1, border: `2px dashed ${T.border}`, borderRadius: 10, padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}
+        >
+          {psdProcessing ? (
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: T.accent }}>{psdProcessing.status}</div>
+              <div style={{ fontSize: 10, color: T.muted }}>{psdProcessing.fileName}</div>
+            </div>
+          ) : (
+            <span style={{ fontSize: 12, color: T.faint }}>Drop PSD + mockup files to create items</span>
         )}
+        </div>
       </div>
 
       {/* Grand total */}
@@ -531,11 +537,15 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               onClick={() => setExpandedId(isExpanded ? null : item.id)}
               style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", borderBottom: isExpanded ? `1px solid ${T.border}44` : "none" }}
             >
-              <span style={{ color: T.faint, fontSize: 12, cursor: "grab", userSelect: "none" }}>⠿</span>
               <span style={{ width: 22, height: 22, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
                 {String.fromCharCode(65 + idx)}
               </span>
-              <span style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name || "Untitled"}</span>
+              <input value={item.name || ""} onChange={e => { e.stopPropagation(); onUpdateItem(item.id, { name: e.target.value }); }}
+                onClick={e => e.stopPropagation()} onFocus={e => e.target.select()}
+                placeholder="Item name"
+                style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none", color: T.text, padding: "2px 4px", borderRadius: 4, cursor: "text" }}
+                onMouseEnter={e => { e.target.style.background = T.surface; }} onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.background = "transparent"; }}
+                onBlur={e => { e.target.style.background = "transparent"; }} />
               {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}</span>}
               {!hasBlank && item.garment_type !== "accessory" && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
               <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono, flexShrink: 0, minWidth: 50, textAlign: "right", color: item.totalQty > 0 ? T.text : T.faint }}>{item.totalQty > 0 ? item.totalQty : "—"}</span>
@@ -544,7 +554,6 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 {fileSummary[item.id]?.hasProof && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: T.purpleDim, color: T.purple }}>Proof</span>}
                 {fileSummary[item.id]?.fileCount > 0 && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: T.accentDim, color: T.accent }}>{fileSummary[item.id].fileCount} files</span>}
               </div>
-              <span style={{ fontSize: 10, color: T.faint, flexShrink: 0 }}>{isExpanded ? "▴" : "▾"}</span>
             </div>
 
             {/* ── Expanded body ── */}
@@ -636,69 +645,56 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
   }
 
   return (
-    <div style={{ padding: "14px 16px", position: "relative" }}>
-      {/* Editable item name */}
-      <div style={{ marginBottom: 10 }}>
-        <input
-          value={item.name || ""}
-          onChange={e => { onUpdateItem(item.id, { name: e.target.value }); }}
-          onFocus={e => e.target.select()}
-          onMouseEnter={e => { e.target.style.borderColor = T.border; e.target.style.background = T.surface; }}
-          onMouseLeave={e => { if (document.activeElement !== e.target) { e.target.style.borderColor = "transparent"; e.target.style.background = "transparent"; } }}
-          onBlur={e => { e.target.style.borderColor = "transparent"; e.target.style.background = "transparent"; }}
-          style={{ ...ic, fontSize: 15, fontWeight: 700, borderColor: "transparent", background: "transparent", padding: "4px 8px", width: "100%", color: T.text, borderRadius: 6, transition: "border-color 0.15s, background 0.15s" }}
-          placeholder="Item name"
-        />
-      </div>
-      <div style={{ display: "flex", gap: 16 }}>
-      {/* Left: Mockup thumbnail (tall, clean) */}
-      <div style={{ width: 280, flexShrink: 0 }}>
+    <div style={{ padding: "24px", position: "relative" }}>
+      {/* Row 1: Thumbnail + Info */}
+      <div style={{ display: "flex", gap: 24, marginBottom: 20 }}>
+        {/* Thumbnail — bigger */}
         {mockupThumb ? (
-          <a href={mockupFile.drive_link} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
-            <img src={mockupThumb} alt="Mockup" style={{ width: 280, maxHeight: 240, objectFit: "contain", borderRadius: 10, border: `1px solid ${T.border}`, display: "block", background: T.surface }} onError={e => { e.target.style.display = "none"; }} />
+          <a href={mockupFile.drive_link} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0 }}>
+            <img src={mockupThumb} alt="" style={{ width: 160, height: 160, objectFit: "cover", borderRadius: 10, border: `1px solid ${T.border}` }} onError={e => { e.target.style.display = "none"; }} />
           </a>
         ) : (
-          <div style={{ width: 280, height: 200, borderRadius: 10, border: `1px dashed ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 600, color: T.accent }}>Build Mockup</div>
-              <div style={{ fontSize: 9, color: T.faint, marginTop: 2 }}>from print file</div>
-            </div>
+          <div style={{ width: 160, height: 160, borderRadius: 10, border: `2px dashed ${T.border}`, background: T.surface, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: 11, color: T.faint }}>No mockup</span>
           </div>
         )}
-      </div>
 
-      {/* Middle: Blank → Sizes → Locations */}
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-        {/* Blank */}
-        <div>
-          <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Blank</div>
-          {hasBlank ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, color: T.muted, padding: "5px 12px", background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                <strong style={{ color: T.text, fontWeight: 600 }}>{item.blank_vendor}</strong>{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}
-              </span>
-              {item.garment_type && <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 99, background: T.surface, color: T.muted, border: `1px solid ${T.border}` }}>{item.garment_type}</span>}
-              <button onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }} style={{ fontSize: 10, color: T.accent, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Change</button>
-            </div>
-          ) : (
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <button onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }} style={{ fontSize: 12, fontWeight: 600, color: T.accent, cursor: "pointer", padding: "6px 16px", border: `1px dashed ${T.accent}44`, borderRadius: 6, background: "none" }}>Assign Blank →</button>
-            </div>
-          )}
-        </div>
+        {/* Info stack */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* Blank — clickable to change */}
+          <div onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }}
+            style={{ cursor: "pointer", padding: "12px 16px", background: T.surface, borderRadius: 8, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s" }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
+            onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
+            {hasBlank ? (
+              <>
+                <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{item.blank_vendor}</span>
+                {(item.color || item.blank_sku) && <span style={{ fontSize: 14, color: T.muted }}>{item.color || item.blank_sku}</span>}
+                <select value={item.garment_type || ""} onClick={e => e.stopPropagation()}
+                  onChange={e => { e.stopPropagation(); onUpdateItem(item.id, { garment_type: e.target.value || null }); }}
+                  style={{ fontSize: 10, padding: "3px 8px", borderRadius: 99, background: T.card, color: T.muted, border: `1px solid ${T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
+                  <option value="">type</option>
+                  {["tee","longsleeve","hoodie","crewneck","jacket","pants","shorts","hat","beanie","tote","patch","poster","sticker","custom","socks","bandana","banner","flag","pin","koozie","lighter","towel","water_bottle","samples","accessory"].map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+                <span style={{ fontSize: 10, color: T.faint, marginLeft: "auto" }}>click to change</span>
+              </>
+            ) : (
+              <span style={{ fontSize: 14, fontWeight: 700, color: T.accent }}>Assign Blank →</span>
+            )}
+          </div>
 
-        {/* Sizes & Quantities */}
-        {item.sizes.length > 0 && (
-          <div>
-            <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Sizes & Quantities</div>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 10 }}>
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {/* Sizes & Quantities — labels on top, bigger inputs */}
+          {item.sizes.length > 0 && (
+            <div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
                 {item.sizes.map((sz, ci) => {
                   const localVal = getLocalQty(item.id, sz);
                   const displayVal = localVal !== null ? localVal : (item.qtys[sz] || 0);
                   return (
-                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                      <span style={{ fontSize: 9, color: T.faint, fontFamily: mono }}>{sz}</span>
+                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, fontFamily: mono }}>{sz}</span>
                       <input
                         ref={el => { inputRefs.current[`${idx}_${ci}`] = el; }}
                         type="text" inputMode="numeric" value={displayVal}
@@ -711,17 +707,17 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                           else if (e.key === "Tab" || e.key === "ArrowRight") { if (!e.shiftKey) { e.preventDefault(); commitQty(idx, item.id, sz); const next = inputRefs.current[`${idx}_${ci + 1}`] || inputRefs.current[`${idx + 1}_0`]; if (next) next.focus(); } }
                           else if (e.key === "ArrowLeft" || (e.key === "Tab" && e.shiftKey)) { e.preventDefault(); commitQty(idx, item.id, sz); const prev = inputRefs.current[`${idx}_${ci - 1}`] || inputRefs.current[`${idx - 1}_${item.sizes.length - 1}`]; if (prev) prev.focus(); }
                         }}
-                        style={{ ...ic, width: 44, textAlign: "center" }}
+                        style={{ ...ic, width: 48, height: 36, textAlign: "center", fontSize: 14, fontWeight: 600, padding: "4px" }}
                       />
-                    </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
+              <span style={{ width: 1, height: 28, background: T.border, margin: "0 6px" }} />
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 18, fontWeight: 700, fontFamily: mono }}>{item.totalQty}</div>
+                <span style={{ fontSize: 20, fontWeight: 800, fontFamily: mono }}>{item.totalQty}</span>
                 <div style={{ fontSize: 9, color: T.muted }}>units</div>
               </div>
-              <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 8px", cursor: "pointer" }}>⟳ Dist</button>
+              <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}>Dist</button>
             </div>
             {distRow === idx && (
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
@@ -736,55 +732,48 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
           <div style={{ fontSize: 11, color: T.faint }}>Assign a blank to set available sizes</div>
         )}
 
-        {/* Print Locations */}
-        {item.psdLocations && item.psdLocations.length > 0 && (
-          <div>
-            <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Print Locations</div>
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {/* Print Locations */}
+          {item.psdLocations && item.psdLocations.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Locations</span>
               {item.psdLocations.map((loc, i) => (
-                <span key={i} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, background: T.surface, fontSize: 10, border: `1px solid ${T.border}44` }}>
+                <span key={i} style={{ display: "flex", alignItems: "center", gap: 2, padding: "3px 8px", borderRadius: 4, background: T.surface, fontSize: 10, border: `1px solid ${T.border}44` }}>
                   <span style={{ fontWeight: 600, color: T.text }}>{loc.placement}</span>
                   <span style={{ color: T.muted, fontFamily: mono }}>{loc.colorCount}c</span>
                 </span>
               ))}
-              {item.psdHasTag && <span style={{ padding: "3px 8px", borderRadius: 6, background: T.amberDim, fontSize: 10, fontWeight: 600, color: T.amber }}>Tag</span>}
+              {item.psdHasTag && <span style={{ padding: "3px 8px", borderRadius: 4, background: T.amberDim, fontSize: 10, fontWeight: 600, color: T.amber }}>Tag</span>}
             </div>
-          </div>
-        )}
-
-      </div>
-
-      {/* Right: Files + Drop zone */}
-      <div style={{ width: 280, flexShrink: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 0 }}>Files</div>
-          {uploading && uploadProgress && (
-            <div style={{ fontSize: 10, color: T.accent, marginBottom: 4 }}>Uploading {uploadProgress.done + 1}/{uploadProgress.total}: {uploadProgress.current}</div>
           )}
-          {nonMockupFiles.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 6 }}>
-              {nonMockupFiles.map(f => (
-                <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 6px", borderRadius: 4 }}
+        </div>{/* end info stack */}
+      </div>{/* end row 1 */}
+
+      {/* Row 2: Files */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        <span style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", flexShrink: 0 }}>Files</span>
+          {uploading && uploadProgress && (
+            <span style={{ fontSize: 10, color: T.accent }}>Uploading {uploadProgress.done + 1}/{uploadProgress.total}: {uploadProgress.current}</span>
+          )}
+          {nonMockupFiles.length > 0 && nonMockupFiles.map(f => (
+                <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 6px", borderRadius: 4 }}
                   onMouseEnter={e => e.currentTarget.style.background = T.surface}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", width: 62, flexShrink: 0, color: STAGE_COLORS[f.stage] || T.muted }}>{STAGE_LABELS[f.stage] || f.stage}</span>
+                  <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0, color: STAGE_COLORS[f.stage] || T.muted }}>{STAGE_LABELS[f.stage] || f.stage}</span>
                   <a href={f.drive_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: T.text, textDecoration: "none", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
                   <span style={{ fontSize: 9, color: T.faint, flexShrink: 0 }}>{new Date(f.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
                   <button onClick={() => deleteFile(f)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, flexShrink: 0 }} onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>×</button>
                 </div>
-              ))}
-            </div>
-          )}
+          ))}
           <div
             onDragOver={e => { e.preventDefault(); e.stopPropagation(); e.currentTarget.style.borderColor = T.accent; }}
             onDragLeave={e => { e.currentTarget.style.borderColor = T.border; }}
             onDrop={e => { e.preventDefault(); e.stopPropagation(); e.currentTarget.style.borderColor = T.border; handleFileDrop(e.dataTransfer.files); }}
             onClick={() => fileInputRef.current?.click()}
-            style={{ border: `1px dashed ${T.border}`, borderRadius: 6, padding: 6, textAlign: "center", cursor: "pointer", transition: "border-color 0.15s" }}
+            style={{ border: `2px dashed ${T.border}`, borderRadius: 8, padding: "10px 20px", cursor: "pointer", transition: "border-color 0.15s", flexShrink: 0 }}
           >
-            <span style={{ fontSize: 10, color: T.accent, fontWeight: 600 }}>+ Drop files to add</span>
+            <span style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>+ Add files</span>
           </div>
           <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={e => { handleFileDrop(e.target.files); e.target.value = ""; }} />
-      </div>
       </div>
       {/* Delete — bottom right corner */}
       <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }}

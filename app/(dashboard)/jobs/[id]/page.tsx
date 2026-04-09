@@ -500,8 +500,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* ── Sidebar + Content Layout (Y axis: items | content) ── */}
       <div style={{display:"flex",gap:0,minHeight:"calc(100vh - 240px)"}}>
 
-        {/* ── Left Sidebar: Items list ── */}
-        <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.card,overflowY:"auto"}}>
+        {/* ── Left Sidebar: Items list (hidden on overview) ── */}
+        {tab !== "overview" && <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.card,overflowY:"auto"}}>
           <div style={{padding:"8px 16px 6px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.08em"}}>
             Items ({items.length})
           </div>
@@ -511,20 +511,42 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const stage = item.pipeline_stage;
             const isSelected = selectedItemId === item.id;
             return (
-              <div key={item.id} onClick={() => {
-                setSelectedItemId(item.id);
-                // Scroll to item in content area
-                setTimeout(() => {
-                  const el = document.getElementById(`item-${item.id}`);
-                  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-                }, 50);
-              }} style={{padding:"8px 16px",fontSize:12,display:"flex",alignItems:"center",gap:8,borderBottom:`1px solid ${T.border}`,cursor:"pointer",
-                background:isSelected?T.bg:"transparent",borderLeft:isSelected?`3px solid ${T.accent}`:"3px solid transparent"}}>
+              <div key={item.id}
+                draggable
+                onDragStart={e => { e.dataTransfer.setData("text/plain", String(i)); (e.currentTarget as HTMLElement).style.opacity = "0.4"; }}
+                onDragEnd={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+                onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.borderTop = `2px solid ${T.accent}`; }}
+                onDragLeave={e => { (e.currentTarget as HTMLElement).style.borderTop = "none"; }}
+                onDrop={e => {
+                  e.preventDefault();
+                  (e.currentTarget as HTMLElement).style.borderTop = "none";
+                  const fromIdx = parseInt(e.dataTransfer.getData("text/plain"));
+                  if (isNaN(fromIdx) || fromIdx === i) return;
+                  const reordered = [...items];
+                  const [moved] = reordered.splice(fromIdx, 1);
+                  reordered.splice(i, 0, moved);
+                  setItems(reordered.map((it: any, idx: number) => ({ ...it, sort_order: idx })));
+                  // Persist sort order
+                  const sb = (window as any).__supabase;
+                  if (!sb) { import("@/lib/supabase/client").then(mod => { const s = mod.createClient(); (window as any).__supabase = s; reordered.forEach((it: any, idx: number) => s.from("items").update({ sort_order: idx }).eq("id", it.id).then(() => {})); }); }
+                  else { reordered.forEach((it: any, idx: number) => sb.from("items").update({ sort_order: idx }).eq("id", it.id).then(() => {})); }
+                }}
+                onClick={() => { setSelectedItemId(item.id); }}
+                style={{padding:"8px 12px 8px 16px",fontSize:12,display:"flex",alignItems:"center",gap:8,borderBottom:`1px solid ${T.border}`,cursor:"pointer",
+                  background:isSelected?T.bg:"transparent",borderLeft:isSelected?`3px solid ${T.accent}`:"3px solid transparent",transition:"background 0.1s"}}>
+                <span style={{color:T.faint,fontSize:10,cursor:"grab",userSelect:"none",flexShrink:0}}>⠿</span>
                 <span style={{width:18,height:18,borderRadius:4,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>
                   {String.fromCharCode(65+i)}
                 </span>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name||"Untitled"}</div>
+                  <input value={item.name||""} onChange={e => { e.stopPropagation(); setItems((prev: any[]) => prev.map((it: any) => it.id === item.id ? {...it, name: e.target.value} : it)); }}
+                    onClick={e => e.stopPropagation()}
+                    onBlur={async e => { const name = e.target.value.trim(); if (name) { const { createClient: cc } = await import("@/lib/supabase/client"); cc().from("items").update({ name }).eq("id", item.id).then(() => {}); } }}
+                    placeholder="Item name"
+                    style={{fontSize:12,fontWeight:600,color:T.text,background:"transparent",border:"none",outline:"none",width:"100%",padding:"1px 2px",borderRadius:3,cursor:"text"}}
+                    onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
+                    onMouseLeave={e => { if (document.activeElement !== e.currentTarget) e.currentTarget.style.background = "transparent"; }}
+                  />
                   <div style={{fontSize:10,color:T.faint,marginTop:1}}>
                     {stage === "shipped" ? "Shipped" : stage === "in_production" ? "At decorator" : proofOk && hasBlanks ? "Ready" : proofOk ? "Proofs approved" : "In progress"}
                   </div>
@@ -533,7 +555,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </div>
             );
           })}
-        </div>
+        </div>}
 
         {/* ── Right Content: Tab content ── */}
         <div style={{flex:1,minWidth:0,overflowY:"auto",padding:"0 20px 40px"}}>
@@ -646,44 +668,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     <textarea style={{...ic,minHeight:130,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
                   </div>
                 </div>
-              </div>
-
-              {/* Payment summary */}
-              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
-                  <button onClick={()=>setTab("proofs")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
-                </div>
-                <div style={{marginBottom:8}}>
-                  <label style={{fontSize:10,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
-                  <select style={ic} value={job.payment_terms||""} onChange={e=>upd("payment_terms",e.target.value||null)}>
-                    <option value="">— select —</option>
-                    <option value="prepaid">Prepaid</option>
-                    <option value="deposit_balance">Deposit / Balance</option>
-                    <option value="net_15">Net 15</option>
-                    <option value="net_30">Net 30</option>
-                  </select>
-                </div>
-                {payments.length===0&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
-                {payments.length>0&&(
-                  <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
-                    <thead><tr style={{borderBottom:"1px solid #2a3050"}}>
-                      {["Invoice","Type","Amount","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:T.muted,fontWeight:500}}>{h}</th>)}
-                    </tr></thead>
-                    <tbody>{payments.map(p=>(
-                      <tr key={p.id} style={{borderBottom:"1px solid #2a3050"}}>
-                        <td style={{padding:"6px",fontFamily:"var(--font-mono)",color:T.muted}}>{p.invoice_number||"—"}</td>
-                        <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
-                        <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
-                        <td style={{padding:"6px"}}>
-                          <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
-                            background:p.status==="paid"?T.greenDim:p.status==="void"?T.redDim:T.amberDim,
-                            color:p.status==="paid"?"#34c97a":p.status==="void"?"#f05353":T.amber}}>{p.status}</span>
-                        </td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                )}
               </div>
 
               {/* Project Summary */}
@@ -840,8 +824,46 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
 
+              {/* Payment summary */}
+              <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
+                  <button onClick={()=>setTab("proofs")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
+                </div>
+                <div style={{marginBottom:8}}>
+                  <label style={{fontSize:10,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
+                  <select style={ic} value={job.payment_terms||""} onChange={e=>upd("payment_terms",e.target.value||null)}>
+                    <option value="">— select —</option>
+                    <option value="prepaid">Prepaid</option>
+                    <option value="deposit_balance">Deposit / Balance</option>
+                    <option value="net_15">Net 15</option>
+                    <option value="net_30">Net 30</option>
+                  </select>
+                </div>
+                {payments.length===0&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
+                {payments.length>0&&(
+                  <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
+                    <thead><tr style={{borderBottom:`1px solid ${T.border}`}}>
+                      {["Invoice","Type","Amount","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:T.muted,fontWeight:500}}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>{payments.map(p=>(
+                      <tr key={p.id} style={{borderBottom:`1px solid ${T.border}`}}>
+                        <td style={{padding:"6px",fontFamily:mono,color:T.muted}}>{p.invoice_number||"—"}</td>
+                        <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
+                        <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
+                        <td style={{padding:"6px"}}>
+                          <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
+                            background:p.status==="paid"?T.greenDim:p.status==="void"?T.redDim:T.amberDim,
+                            color:p.status==="paid"?T.green:p.status==="void"?T.red:T.amber}}>{p.status}</span>
+                        </td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                )}
+              </div>
+
               {/* Items */}
-              <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"12px 14px"}}>
+              <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Items</div>
                   <span style={{fontSize:10,color:T.muted}}>{items.length} items · {totalUnits.toLocaleString()} units</span>

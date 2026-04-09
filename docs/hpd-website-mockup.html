@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>House Party Distro — Mockup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; color: #1a1a1a; background: #fff; }
+  a { color: inherit; text-decoration: none; }
+
+  /* Nav */
+  .nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 48px; border-bottom: 1px solid #e0e0e4; position: sticky; top: 0; background: #fff; z-index: 100; }
+  .nav-logo { font-size: 18px; font-weight: 900; letter-spacing: -0.02em; }
+  .nav-links { display: flex; gap: 32px; font-size: 13px; font-weight: 500; color: #6b6b78; }
+  .nav-links a:hover { color: #1a1a1a; }
+  .nav-cta { background: #1a1a1a; color: #fff; padding: 10px 24px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; border: none; }
+  .nav-cta:hover { background: #333; }
+
+  /* Hero */
+  .hero { padding: 100px 48px 80px; max-width: 900px; }
+  .hero h1 { font-size: 52px; font-weight: 900; line-height: 1.05; letter-spacing: -0.03em; margin-bottom: 20px; }
+  .hero h1 span { color: #a0a0ad; }
+  .hero p { font-size: 18px; color: #6b6b78; line-height: 1.6; max-width: 600px; margin-bottom: 32px; }
+  .hero-cta { display: inline-block; background: #1a1a1a; color: #fff; padding: 14px 36px; border-radius: 8px; font-size: 15px; font-weight: 700; }
+  .hero-cta:hover { background: #333; }
+  .hero-sub { font-size: 12px; color: #a0a0ad; margin-top: 12px; }
+
+  /* Section */
+  .section { padding: 80px 48px; }
+  .section-alt { background: #f8f8f9; }
+  .section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #a0a0ad; margin-bottom: 12px; }
+  .section-title { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 16px; }
+  .section-desc { font-size: 15px; color: #6b6b78; line-height: 1.6; max-width: 600px; margin-bottom: 40px; }
+
+  /* Capabilities */
+  .caps { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  .cap { border: 1px solid #e0e0e4; border-radius: 10px; padding: 28px 24px; }
+  .cap-icon { width: 40px; height: 40px; background: #f3f3f5; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; font-size: 18px; }
+  .cap h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  .cap p { font-size: 13px; color: #6b6b78; line-height: 1.5; }
+
+  /* Process */
+  .process { display: flex; gap: 0; align-items: stretch; }
+  .process-step { flex: 1; padding: 24px; border: 1px solid #e0e0e4; text-align: center; position: relative; }
+  .process-step:first-child { border-radius: 10px 0 0 10px; }
+  .process-step:last-child { border-radius: 0 10px 10px 0; }
+  .process-num { font-size: 11px; font-weight: 800; color: #a0a0ad; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .process-label { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+  .process-desc { font-size: 11px; color: #6b6b78; line-height: 1.4; }
+  .process-arrow { position: absolute; right: -12px; top: 50%; transform: translateY(-50%); font-size: 16px; color: #a0a0ad; z-index: 1; background: #fff; padding: 2px; }
+
+  /* Portfolio grid */
+  .portfolio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .portfolio-item { border: 1px solid #e0e0e4; border-radius: 10px; overflow: hidden; }
+  .portfolio-img { width: 100%; height: 200px; background: #eaeaee; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #a0a0ad; }
+  .portfolio-info { padding: 14px 16px; }
+  .portfolio-info h4 { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+  .portfolio-info p { font-size: 11px; color: #6b6b78; }
+
+  /* Client logos */
+  .logos { display: flex; gap: 40px; align-items: center; justify-content: center; padding: 40px 48px; border-top: 1px solid #e0e0e4; }
+  .logos span { font-size: 14px; font-weight: 700; color: #d0d0d5; letter-spacing: 0.02em; }
+
+  /* Intake form */
+  .form-container { max-width: 640px; margin: 0 auto; }
+  .form-steps { display: flex; gap: 4px; margin-bottom: 32px; }
+  .form-step { flex: 1; height: 4px; background: #e0e0e4; border-radius: 2px; }
+  .form-step.active { background: #1a1a1a; }
+  .form-step.done { background: #1a8c5c; }
+  .form-card { border: 1px solid #e0e0e4; border-radius: 12px; padding: 32px; }
+  .form-card h2 { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+  .form-card .sub { font-size: 13px; color: #6b6b78; margin-bottom: 24px; }
+  .form-field { margin-bottom: 16px; }
+  .form-field label { display: block; font-size: 11px; font-weight: 600; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .form-field input, .form-field select, .form-field textarea {
+    width: 100%; padding: 12px 14px; border: 1px solid #e0e0e4; border-radius: 8px;
+    font-size: 14px; font-family: inherit; color: #1a1a1a; background: #f8f8f9; outline: none;
+  }
+  .form-field textarea { min-height: 80px; resize: vertical; }
+  .form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: #1a1a1a; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-btn { width: 100%; padding: 14px; border-radius: 8px; border: none; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 8px; }
+  .form-btn-primary { background: #1a1a1a; color: #fff; }
+  .form-btn-secondary { background: transparent; color: #6b6b78; border: 1px solid #e0e0e4; }
+  .form-btns { display: flex; gap: 8px; margin-top: 20px; }
+
+  /* Upload zone */
+  .upload-zone {
+    border: 2px dashed #d0d0d5; border-radius: 10px; padding: 40px; text-align: center;
+    color: #a0a0ad; font-size: 14px; cursor: pointer;
+  }
+  .upload-zone:hover { border-color: #1a1a1a; color: #6b6b78; }
+  .upload-zone .big { font-size: 24px; margin-bottom: 8px; }
+
+  /* Project type cards */
+  .type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .type-card {
+    border: 2px solid #e0e0e4; border-radius: 10px; padding: 20px; cursor: pointer; text-align: center; transition: all 0.15s;
+  }
+  .type-card:hover { border-color: #1a1a1a; }
+  .type-card.selected { border-color: #1a1a1a; background: #f3f3f5; }
+  .type-card h4 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+  .type-card p { font-size: 11px; color: #6b6b78; }
+
+  /* Portal section */
+  .portal-box { max-width: 480px; margin: 0 auto; text-align: center; }
+  .portal-box input { text-align: center; font-size: 16px; padding: 16px; }
+
+  /* Footer */
+  .footer { padding: 40px 48px; border-top: 1px solid #e0e0e4; display: flex; justify-content: space-between; align-items: center; }
+  .footer-left { font-size: 13px; color: #a0a0ad; }
+  .footer-links { display: flex; gap: 24px; font-size: 12px; color: #6b6b78; }
+
+  /* Page separator */
+  .page-break { border: none; border-top: 3px solid #1a1a1a; margin: 0; }
+  .page-label { background: #1a1a1a; color: #fff; display: inline-block; padding: 6px 16px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; }
+
+  /* Services */
+  .svc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .svc { border: 1px solid #e0e0e4; border-radius: 10px; padding: 24px; }
+  .svc h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .svc p { font-size: 12px; color: #6b6b78; line-height: 1.5; }
+  .svc-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; background: #f3f3f5; color: #6b6b78; margin-bottom: 8px; }
+
+  /* Client types */
+  .client-types { display: flex; gap: 12px; flex-wrap: wrap; }
+  .client-type { padding: 10px 20px; border: 1px solid #e0e0e4; border-radius: 99px; font-size: 13px; font-weight: 600; color: #6b6b78; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<span class="page-label">Page 1 — Home</span>
+
+<!-- Nav -->
+<div class="nav">
+  <div class="nav-logo">house party distro</div>
+  <div class="nav-links">
+    <a href="#services">Services</a>
+    <a href="#work">Work</a>
+    <a href="#start">Start a Project</a>
+    <a href="#portal">Client Portal</a>
+  </div>
+  <button class="nav-cta">Start a Project</button>
+</div>
+
+<!-- Hero -->
+<div class="hero">
+  <h1>Custom apparel.<br><span>From concept to delivery.</span></h1>
+  <p>We handle everything — art production, blank sourcing, screen printing, warehousing, and fulfillment. You focus on your brand, we handle the rest.</p>
+  <a href="#start" class="hero-cta">Start a Project</a>
+  <div class="hero-sub">Las Vegas, NV — serving brands, tours, and corporate clients nationwide</div>
+</div>
+
+<!-- Capabilities -->
+<div class="section section-alt">
+  <div class="section-label">What we do</div>
+  <div class="section-title">End-to-end production</div>
+  <div class="caps">
+    <div class="cap">
+      <div class="cap-icon">+</div>
+      <h3>Design & Art</h3>
+      <p>Send us your artwork in any format. We prep vectors, create mockups, generate print-ready files, and send proofs for your approval before anything goes to press.</p>
+    </div>
+    <div class="cap">
+      <div class="cap-icon">*</div>
+      <h3>Production</h3>
+      <p>Screen printing, embroidery, DTG, sublimation — we match the right method to your product. Blank sourcing from S&S, AS Colour, LA Apparel, and more.</p>
+    </div>
+    <div class="cap">
+      <div class="cap-icon">&gt;</div>
+      <h3>Fulfillment</h3>
+      <p>Ship direct to your client, route through our Las Vegas warehouse for QC, or stage inventory for ongoing fulfillment. We handle the logistics.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Process -->
+<div class="section">
+  <div class="section-label">How it works</div>
+  <div class="section-title">Four steps from idea to delivery</div>
+  <div class="process">
+    <div class="process-step">
+      <div class="process-num">Step 1</div>
+      <div class="process-label">Submit</div>
+      <div class="process-desc">Tell us what you need — items, quantities, artwork, timeline</div>
+      <span class="process-arrow">&rarr;</span>
+    </div>
+    <div class="process-step">
+      <div class="process-num">Step 2</div>
+      <div class="process-label">Quote & Approve</div>
+      <div class="process-desc">We send a detailed quote with mockups. Approve online from your portal.</div>
+      <span class="process-arrow">&rarr;</span>
+    </div>
+    <div class="process-step">
+      <div class="process-num">Step 3</div>
+      <div class="process-label">Production</div>
+      <div class="process-desc">We source blanks, send to decorators, and track every item through production.</div>
+      <span class="process-arrow">&rarr;</span>
+    </div>
+    <div class="process-step">
+      <div class="process-num">Step 4</div>
+      <div class="process-label">Delivery</div>
+      <div class="process-desc">Direct to your client, to our warehouse for QC, or staged for ongoing fulfillment.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Portfolio -->
+<div class="section section-alt" id="work">
+  <div class="section-label">Recent work</div>
+  <div class="section-title">Built for brands that move</div>
+  <div class="portfolio">
+    <div class="portfolio-item"><div class="portfolio-img">Project Photo</div><div class="portfolio-info"><h4>Festival Collection</h4><p>Tour Merch &middot; 12 items &middot; 2,400 units</p></div></div>
+    <div class="portfolio-item"><div class="portfolio-img">Project Photo</div><div class="portfolio-info"><h4>Corporate Staff Polos</h4><p>Corporate &middot; 4 items &middot; 500 units</p></div></div>
+    <div class="portfolio-item"><div class="portfolio-img">Project Photo</div><div class="portfolio-info"><h4>Album Release Drop</h4><p>Brand &middot; 8 items &middot; 1,200 units</p></div></div>
+    <div class="portfolio-item"><div class="portfolio-img">Project Photo</div><div class="portfolio-info"><h4>Webstore Restock</h4><p>Webstore &middot; 6 items &middot; 3,000 units</p></div></div>
+    <div class="portfolio-item"><div class="portfolio-img">Project Photo</div><div class="portfolio-info"><h4>Tour Merch 2026</h4><p>Tour &middot; 15 items &middot; 5,000 units</p></div></div>
+    <div class="portfolio-item"><div class="portfolio-img">Project Photo</div><div class="portfolio-info"><h4>Promo Giveaway</h4><p>Corporate &middot; 2 items &middot; 300 units</p></div></div>
+  </div>
+</div>
+
+<!-- Client logos -->
+<div class="logos">
+  <span>CLEARED HOT</span>
+  <span>LOW ROLLERS</span>
+  <span>VIOLENTIA</span>
+  <span>COASTAL GEAR</span>
+  <span>DANCE CARD FULL</span>
+  <span>GASLIGHT GROUP</span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<hr class="page-break">
+<span class="page-label" id="services">Page 2 — Services</span>
+
+<div class="section">
+  <div class="section-label">Services</div>
+  <div class="section-title">Everything under one roof</div>
+  <div class="section-desc">From a single run of 48 tees to a 5,000-unit multi-item tour package, we scale to fit. Every order gets the same attention to detail.</div>
+
+  <div class="svc-grid">
+    <div class="svc">
+      <div class="svc-badge">Decoration</div>
+      <h3>Screen Printing</h3>
+      <p>Up to 8 colors, water-based and plastisol inks. Specialty options: puff, metallic, discharge, high-density. Minimums as low as 48 units.</p>
+    </div>
+    <div class="svc">
+      <div class="svc-badge">Decoration</div>
+      <h3>Embroidery</h3>
+      <p>Flat and 3D puff embroidery. Hats, polos, jackets, patches. Digitizing included.</p>
+    </div>
+    <div class="svc">
+      <div class="svc-badge">Decoration</div>
+      <h3>DTG / Sublimation</h3>
+      <p>Full-color, photo-quality prints. Ideal for small runs, complex art, and all-over prints.</p>
+    </div>
+    <div class="svc">
+      <div class="svc-badge">Sourcing</div>
+      <h3>Blank Garments</h3>
+      <p>S&S Activewear, AS Colour, LA Apparel, Next Level, Comfort Colors, and more. We find the right blank for your brand and budget.</p>
+    </div>
+    <div class="svc">
+      <div class="svc-badge">Logistics</div>
+      <h3>Warehousing</h3>
+      <p>Our Las Vegas warehouse receives, inspects, and stores your inventory. Quality check on every unit before it ships.</p>
+    </div>
+    <div class="svc">
+      <div class="svc-badge">Logistics</div>
+      <h3>Fulfillment</h3>
+      <p>Pick, pack, and ship to your customers. UPS, FedEx, USPS. Batch shipping for events, individual orders for webstores.</p>
+    </div>
+  </div>
+
+  <div style="margin-top: 40px;">
+    <div class="section-label">Who we work with</div>
+    <div class="client-types">
+      <div class="client-type">Brands</div>
+      <div class="client-type">Tours & Artists</div>
+      <div class="client-type">Corporate</div>
+      <div class="client-type">Webstores</div>
+      <div class="client-type">Events</div>
+      <div class="client-type">Startups</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<hr class="page-break">
+<span class="page-label" id="start">Page 3 — Start a Project (Step 1 of 6)</span>
+
+<div class="section">
+  <div class="form-container">
+    <div class="form-steps">
+      <div class="form-step active"></div>
+      <div class="form-step"></div>
+      <div class="form-step"></div>
+      <div class="form-step"></div>
+      <div class="form-step"></div>
+      <div class="form-step"></div>
+    </div>
+    <div class="form-card">
+      <h2>What type of project?</h2>
+      <div class="sub">This helps us assign the right team and process.</div>
+      <div class="type-grid">
+        <div class="type-card selected">
+          <h4>Brand / Merch Drop</h4>
+          <p>Apparel line, merch collection, or product launch</p>
+        </div>
+        <div class="type-card">
+          <h4>Tour / Artist</h4>
+          <p>Tour merch, show-specific items, artist collaborations</p>
+        </div>
+        <div class="type-card">
+          <h4>Corporate</h4>
+          <p>Staff uniforms, client gifts, event giveaways</p>
+        </div>
+        <div class="type-card">
+          <h4>Webstore</h4>
+          <p>Ongoing inventory for online sales</p>
+        </div>
+      </div>
+      <div class="form-btns">
+        <button class="form-btn form-btn-primary" style="flex:1">Next &rarr;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Step 2 -->
+<span class="page-label">Step 2 of 6 — Tell us about it</span>
+<div class="section section-alt">
+  <div class="form-container">
+    <div class="form-steps">
+      <div class="form-step done"></div>
+      <div class="form-step active"></div>
+      <div class="form-step"></div>
+      <div class="form-step"></div>
+      <div class="form-step"></div>
+      <div class="form-step"></div>
+    </div>
+    <div class="form-card">
+      <h2>Tell us about the project</h2>
+      <div class="sub">The more detail, the faster we can quote.</div>
+      <div class="form-field">
+        <label>Project name</label>
+        <input placeholder="e.g. Summer Tour 2026 Merch" />
+      </div>
+      <div class="form-field">
+        <label>Description</label>
+        <textarea placeholder="What items do you need? Any specific blanks, colors, or decoration methods? Special packaging?"></textarea>
+      </div>
+      <div class="form-grid">
+        <div class="form-field">
+          <label>Estimated items / designs</label>
+          <select><option>1-3 designs</option><option>4-8 designs</option><option>9-15 designs</option><option>15+</option></select>
+        </div>
+        <div class="form-field">
+          <label>Estimated total units</label>
+          <select><option>Under 100</option><option>100-500</option><option>500-2,000</option><option>2,000-5,000</option><option>5,000+</option></select>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-field">
+          <label>Target ship date</label>
+          <input type="date" />
+        </div>
+        <div class="form-field">
+          <label>Budget range</label>
+          <select><option>Under $5,000</option><option>$5,000-$15,000</option><option>$15,000-$50,000</option><option>$50,000+</option><option>Not sure yet</option></select>
+        </div>
+      </div>
+      <div class="form-btns">
+        <button class="form-btn form-btn-secondary" style="flex:1">&larr; Back</button>
+        <button class="form-btn form-btn-primary" style="flex:2">Next &rarr;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Step 3 -->
+<span class="page-label">Step 3 of 6 — Upload artwork</span>
+<div class="section">
+  <div class="form-container">
+    <div class="form-steps">
+      <div class="form-step done"></div>
+      <div class="form-step done"></div>
+      <div class="form-step active"></div>
+      <div class="form-step"></div>
+      <div class="form-step"></div>
+      <div class="form-step"></div>
+    </div>
+    <div class="form-card">
+      <h2>Upload your files</h2>
+      <div class="sub">Artwork, logos, inspiration, tech packs — anything that helps us understand your vision.</div>
+      <div class="upload-zone">
+        <div class="big">+</div>
+        Drag files here or click to browse<br>
+        <span style="font-size: 11px; color: #a0a0ad;">AI, PSD, PDF, PNG, JPG accepted &middot; Up to 50MB per file</span>
+      </div>
+      <div style="margin-top: 16px; font-size: 12px; color: #a0a0ad;">
+        Don't have artwork yet? No problem — we can discuss during the quote process.
+      </div>
+      <div class="form-btns">
+        <button class="form-btn form-btn-secondary" style="flex:1">&larr; Back</button>
+        <button class="form-btn form-btn-primary" style="flex:2">Next &rarr;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Step 4 -->
+<span class="page-label">Step 4 of 6 — Quantities</span>
+<div class="section section-alt">
+  <div class="form-container">
+    <div class="form-steps">
+      <div class="form-step done"></div>
+      <div class="form-step done"></div>
+      <div class="form-step done"></div>
+      <div class="form-step active"></div>
+      <div class="form-step"></div>
+      <div class="form-step"></div>
+    </div>
+    <div class="form-card">
+      <h2>Size & quantity breakdown</h2>
+      <div class="sub">If you know your sizes, enter them here. If not, we'll work it out during quoting.</div>
+      <div style="border: 1px solid #e0e0e4; border-radius: 8px; overflow: hidden; margin-bottom: 16px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr style="background: #f3f3f5; border-bottom: 1px solid #e0e0e4;">
+              <th style="text-align: left; padding: 8px 12px; font-size: 10px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em;">Item</th>
+              <th style="text-align: center; padding: 8px 6px; font-size: 10px; font-weight: 700; color: #6b6b78;">S</th>
+              <th style="text-align: center; padding: 8px 6px; font-size: 10px; font-weight: 700; color: #6b6b78;">M</th>
+              <th style="text-align: center; padding: 8px 6px; font-size: 10px; font-weight: 700; color: #6b6b78;">L</th>
+              <th style="text-align: center; padding: 8px 6px; font-size: 10px; font-weight: 700; color: #6b6b78;">XL</th>
+              <th style="text-align: center; padding: 8px 6px; font-size: 10px; font-weight: 700; color: #6b6b78;">2XL</th>
+              <th style="text-align: right; padding: 8px 12px; font-size: 10px; font-weight: 700; color: #6b6b78;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid #e0e0e4;">
+              <td style="padding: 10px 12px; font-weight: 600;">Front Print Tee</td>
+              <td style="text-align: center; padding: 8px 6px;"><input style="width: 40px; text-align: center; border: 1px solid #e0e0e4; border-radius: 4px; padding: 4px; font-size: 13px;" value="12"></td>
+              <td style="text-align: center; padding: 8px 6px;"><input style="width: 40px; text-align: center; border: 1px solid #e0e0e4; border-radius: 4px; padding: 4px; font-size: 13px;" value="24"></td>
+              <td style="text-align: center; padding: 8px 6px;"><input style="width: 40px; text-align: center; border: 1px solid #e0e0e4; border-radius: 4px; padding: 4px; font-size: 13px;" value="36"></td>
+              <td style="text-align: center; padding: 8px 6px;"><input style="width: 40px; text-align: center; border: 1px solid #e0e0e4; border-radius: 4px; padding: 4px; font-size: 13px;" value="24"></td>
+              <td style="text-align: center; padding: 8px 6px;"><input style="width: 40px; text-align: center; border: 1px solid #e0e0e4; border-radius: 4px; padding: 4px; font-size: 13px;" value="12"></td>
+              <td style="text-align: right; padding: 10px 12px; font-weight: 700; font-family: 'SF Mono', monospace;">108</td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 12px; font-weight: 600;">Back Print Hoodie</td>
+              <td style="text-align: center; padding: 8px 6px;"><input style="width: 40px; text-align: center; border: 1px solid #e0e0e4; border-radius: 4px; padding: 4px; font-size: 13px;" value="6"></td>
+              <td style="text-align: center; padding: 8px 6px;"><input style="width: 40px; text-align: center; border: 1px solid #e0e0e4; border-radius: 4px; padding: 4px; font-size: 13px;" value="12"></td>
+              <td style="text-align: center; padding: 8px 6px;"><input style="width: 40px; text-align: center; border: 1px solid #e0e0e4; border-radius: 4px; padding: 4px; font-size: 13px;" value="18"></td>
+              <td style="text-align: center; padding: 8px 6px;"><input style="width: 40px; text-align: center; border: 1px solid #e0e0e4; border-radius: 4px; padding: 4px; font-size: 13px;" value="12"></td>
+              <td style="text-align: center; padding: 8px 6px;"><input style="width: 40px; text-align: center; border: 1px solid #e0e0e4; border-radius: 4px; padding: 4px; font-size: 13px;" value="6"></td>
+              <td style="text-align: right; padding: 10px 12px; font-weight: 700; font-family: 'SF Mono', monospace;">54</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <button style="font-size: 12px; color: #6b6b78; background: none; border: 1px dashed #d0d0d5; border-radius: 6px; padding: 8px 16px; cursor: pointer; width: 100%;">+ Add another item</button>
+      <div class="form-btns">
+        <button class="form-btn form-btn-secondary" style="flex:1">&larr; Back</button>
+        <button class="form-btn form-btn-primary" style="flex:2">Next &rarr;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Step 5 -->
+<span class="page-label">Step 5 of 6 — Contact & Shipping</span>
+<div class="section">
+  <div class="form-container">
+    <div class="form-steps">
+      <div class="form-step done"></div>
+      <div class="form-step done"></div>
+      <div class="form-step done"></div>
+      <div class="form-step done"></div>
+      <div class="form-step active"></div>
+      <div class="form-step"></div>
+    </div>
+    <div class="form-card">
+      <h2>Contact & shipping info</h2>
+      <div class="sub">Where should we send the finished product?</div>
+      <div class="form-grid">
+        <div class="form-field"><label>Your name</label><input placeholder="Jon Burrow" /></div>
+        <div class="form-field"><label>Company</label><input placeholder="Acme Brand Co" /></div>
+      </div>
+      <div class="form-grid">
+        <div class="form-field"><label>Email</label><input type="email" placeholder="jon@company.com" /></div>
+        <div class="form-field"><label>Phone</label><input type="tel" placeholder="(702) 555-0100" /></div>
+      </div>
+      <div class="form-field" style="margin-top: 20px;">
+        <label>Shipping method</label>
+        <div class="type-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+          <div class="type-card selected" style="padding: 14px;">
+            <h4 style="font-size: 12px;">Ship to us</h4>
+            <p style="font-size: 10px;">We receive, QC, and ship</p>
+          </div>
+          <div class="type-card" style="padding: 14px;">
+            <h4 style="font-size: 12px;">Drop ship</h4>
+            <p style="font-size: 10px;">Direct to your address</p>
+          </div>
+          <div class="type-card" style="padding: 14px;">
+            <h4 style="font-size: 12px;">Hold for fulfillment</h4>
+            <p style="font-size: 10px;">We warehouse and ship as needed</p>
+          </div>
+        </div>
+      </div>
+      <div class="form-field">
+        <label>Ship-to address</label>
+        <textarea placeholder="Street address, city, state, zip" style="min-height: 60px;"></textarea>
+      </div>
+      <div class="form-btns">
+        <button class="form-btn form-btn-secondary" style="flex:1">&larr; Back</button>
+        <button class="form-btn form-btn-primary" style="flex:2">Next &rarr;</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Step 6 -->
+<span class="page-label">Step 6 of 6 — Review & Submit</span>
+<div class="section section-alt">
+  <div class="form-container">
+    <div class="form-steps">
+      <div class="form-step done"></div>
+      <div class="form-step done"></div>
+      <div class="form-step done"></div>
+      <div class="form-step done"></div>
+      <div class="form-step done"></div>
+      <div class="form-step active"></div>
+    </div>
+    <div class="form-card">
+      <h2>Review your project</h2>
+      <div class="sub">Make sure everything looks good, then submit. We'll send a quote within 24 hours.</div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e0e0e4;">
+          <span style="font-size: 12px; color: #6b6b78;">Project type</span>
+          <span style="font-size: 13px; font-weight: 600;">Brand / Merch Drop</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e0e0e4;">
+          <span style="font-size: 12px; color: #6b6b78;">Project name</span>
+          <span style="font-size: 13px; font-weight: 600;">Summer Tour 2026 Merch</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e0e0e4;">
+          <span style="font-size: 12px; color: #6b6b78;">Items</span>
+          <span style="font-size: 13px; font-weight: 600;">2 items &middot; 162 units</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e0e0e4;">
+          <span style="font-size: 12px; color: #6b6b78;">Ship date</span>
+          <span style="font-size: 13px; font-weight: 600;">May 15, 2026</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e0e0e4;">
+          <span style="font-size: 12px; color: #6b6b78;">Budget</span>
+          <span style="font-size: 13px; font-weight: 600;">$5,000 - $15,000</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e0e0e4;">
+          <span style="font-size: 12px; color: #6b6b78;">Files</span>
+          <span style="font-size: 13px; font-weight: 600;">3 files uploaded</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e0e0e4;">
+          <span style="font-size: 12px; color: #6b6b78;">Shipping</span>
+          <span style="font-size: 13px; font-weight: 600;">Ship to us (QC + ship)</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 10px 0;">
+          <span style="font-size: 12px; color: #6b6b78;">Contact</span>
+          <span style="font-size: 13px; font-weight: 600;">Jon Burrow &middot; jon@company.com</span>
+        </div>
+      </div>
+
+      <div class="form-btns">
+        <button class="form-btn form-btn-secondary" style="flex:1">&larr; Back</button>
+        <button class="form-btn form-btn-primary" style="flex:2; background: #1a8c5c;">Submit Project &rarr;</button>
+      </div>
+      <div style="text-align: center; margin-top: 12px; font-size: 11px; color: #a0a0ad;">
+        You'll receive a confirmation email immediately. Quote within 24 hours.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<hr class="page-break">
+<span class="page-label" id="portal">Page 4 — Client Portal</span>
+
+<div class="section">
+  <div class="portal-box">
+    <div class="section-label" style="text-align: center;">Client Portal</div>
+    <div class="section-title" style="text-align: center;">Track your project</div>
+    <div class="section-desc" style="text-align: center; max-width: 400px; margin: 0 auto 32px;">
+      Enter your email to view all your active and completed projects, approve proofs, and make payments.
+    </div>
+    <div class="form-field">
+      <input type="email" placeholder="Enter your email address" style="text-align: center; font-size: 16px; padding: 16px;" />
+    </div>
+    <button class="form-btn form-btn-primary" style="margin-top: 8px;">View My Projects</button>
+    <div style="margin-top: 16px; font-size: 12px; color: #a0a0ad;">
+      We'll send a magic link to your email — no password needed.
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <div class="footer-left">
+    <strong>house party distro</strong><br>
+    3945 W Reno Ave, Ste A &middot; Las Vegas, NV 89118<br>
+    hello@housepartydistro.com
+  </div>
+  <div class="footer-links">
+    <a href="#">Instagram</a>
+    <a href="#">Services</a>
+    <a href="#">Start a Project</a>
+    <a href="#">Client Portal</a>
+  </div>
+</div>
+
+</body>
+</html>
