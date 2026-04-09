@@ -77,7 +77,7 @@ export function distribute(total, sizes, curve) {
 
 // ── S&S Catalog Picker ──────────────────────────────────────────────────────
 
-export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode }) {
+export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, defaultItemName }) {
   const [query, setQuery] = useState("");
   const [brands, setBrands] = useState([]);
   const [selBrand, setSelBrand] = useState(null);
@@ -89,7 +89,7 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode }) {
   const [selColor, setSelColor] = useState(null);
   const [selSizes, setSelSizes] = useState({});
   const [filteredBrands, setFilteredBrands] = useState(null);
-  const [itemName, setItemName] = useState("");
+  const [itemName, setItemName] = useState(defaultItemName || "");
   const lastClickedSize = useRef(null);
 
   useEffect(() => {
@@ -263,7 +263,7 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode }) {
 }
 // ── AS Colour Picker ─────────────────────────────────────────────────────────
 
-export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode }) {
+export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode, defaultItemName }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pricing, setPricing] = useState({});  // { sku: price }
@@ -274,7 +274,7 @@ export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode })
   const [selColor, setSelColor] = useState(null);
   const [selSizes, setSelSizes] = useState({});
   const [inventory, setInventory] = useState({});  // { sku: totalQty }
-  const [itemName, setItemName] = useState("");
+  const [itemName, setItemName] = useState(defaultItemName || "");
   const lastClickedSize = useRef(null);
   const [search, setSearch] = useState("");
 
@@ -462,7 +462,7 @@ export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode })
 }
 
 // ── LA Apparel Picker ────────────────────────────────────────────────────────
-export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode }) {
+export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, defaultItemName }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selCategory, setSelCategory] = useState(null);
@@ -471,7 +471,7 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode }
   const [loadingVariants, setLoadingVariants] = useState(false);
   const [selColor, setSelColor] = useState(null);
   const [selSizes, setSelSizes] = useState({});
-  const [itemName, setItemName] = useState("");
+  const [itemName, setItemName] = useState(defaultItemName || "");
   const [search, setSearch] = useState("");
   const lastClickedSize = useRef(null);
 
@@ -639,7 +639,7 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode }
 }
 
 // ── Favorites Picker ─────────────────────────────────────────────────────────
-export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav, assignMode }) {
+export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav, assignMode, defaultItemName }) {
   const HP_CATEGORIES = ["Crewnecks", "Hats", "Hoodies", "Jackets", "Long Sleeve", "Tees", "Other"];
   const [selCategory, setSelCategory] = useState(null);
   const [selFav, setSelFav] = useState(null);
@@ -649,7 +649,7 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
   const [loading, setLoading] = useState(false);
   const [selColor, setSelColor] = useState(null);
   const [selSizes, setSelSizes] = useState({});
-  const [itemName, setItemName] = useState("");
+  const [itemName, setItemName] = useState(defaultItemName || "");
   const [newColor, setNewColor] = useState("");
   const lastClickedSize = useRef(null);
 
@@ -738,7 +738,7 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
     onAdd({
       id: Date.now() + Math.random(),
       name: itemFullName,
-      blank_vendor: selFav.style_name,
+      blank_vendor: selFav.supplier === "ss" ? `S&S ${selFav.style_name}` : selFav.supplier === "ascolour" ? `AS Colour ${selFav.style_code || selFav.style_name}` : selFav.supplier === "laapparel" ? `LA Apparel ${selFav.style_code || selFav.style_name}` : selFav.style_name,
       blank_sku: selColor,
       style: selFav.style_name,
       color: selColor,
@@ -874,14 +874,14 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
 
 // ── Other / Custom Blank Picker ──────────────────────────────────────────────
 
-export function OtherPicker({ onAdd, onClose, assignMode }) {
+export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selBrand, setSelBrand] = useState(null);
   const [selStyle, setSelStyle] = useState(null);
   const [selColor, setSelColor] = useState(null);
   const [selSizes, setSelSizes] = useState({});
-  const [itemName, setItemName] = useState("");
+  const [itemName, setItemName] = useState(defaultItemName || "");
   const [search, setSearch] = useState("");
   const [showNewForm, setShowNewForm] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);

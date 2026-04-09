@@ -423,11 +423,13 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               </button>
               {assignBlankTo && <span style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>{Array.isArray(assignBlankTo) ? `Assigning blank to ${assignBlankTo.length} items` : `Assigning blank`}</span>}
             </div>
-            {showPicker && <SSPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowPicker(false); } else addItem(item); }} onClose={() => { setShowPicker(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} assignMode={!!assignBlankTo} />}
-            {showASColour && <ASColourPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowASColour(false); } else addItem(item); setShowASColour(false); }} onClose={() => { setShowASColour(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} assignMode={!!assignBlankTo} />}
-            {showLAApparel && <LAApparelPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowLAApparel(false); } else addItem(item); }} onClose={() => { setShowLAApparel(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} assignMode={!!assignBlankTo} />}
-            {showFavorites && <FavoritesPicker favorites={favorites} setFavorites={setFavorites} onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowFavorites(false); } else addItem(item); }} onClose={() => { setShowFavorites(false); setAssignBlankTo(null); }} toggleFav={toggleFav} assignMode={!!assignBlankTo} />}
-            {showOtherPicker && <OtherPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowOtherPicker(false); } else addItem(item); }} onClose={() => { setShowOtherPicker(false); setAssignBlankTo(null); }} assignMode={!!assignBlankTo} />}
+            {(()=>{ const assignName = assignBlankTo ? (workingItems||[]).find(it=>it.id===assignBlankTo)?.name || "" : ""; return <>
+            {showPicker && <SSPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowPicker(false); } else addItem(item); }} onClose={() => { setShowPicker(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
+            {showASColour && <ASColourPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowASColour(false); } else addItem(item); setShowASColour(false); }} onClose={() => { setShowASColour(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
+            {showLAApparel && <LAApparelPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowLAApparel(false); } else addItem(item); }} onClose={() => { setShowLAApparel(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
+            {showFavorites && <FavoritesPicker favorites={favorites} setFavorites={setFavorites} onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowFavorites(false); } else addItem(item); }} onClose={() => { setShowFavorites(false); setAssignBlankTo(null); }} toggleFav={toggleFav} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
+            {showOtherPicker && <OtherPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowOtherPicker(false); } else addItem(item); }} onClose={() => { setShowOtherPicker(false); setAssignBlankTo(null); }} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
+            </>; })()}
           </div>
         </div>
       )}

@@ -243,27 +243,27 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
 
   async function saveToDrive() {
     if (!pdfDoc) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const pdfBlob = pdfDoc.output("blob");
-      const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
-      const driveFile = await uploadToDrive({
-        blob: pdfBlob,
-        fileName: `${safeName} - Product Proof.pdf`,
-        mimeType: "application/pdf",
-        clientName,
-        projectTitle,
-        itemName: item.name || "",
-      });
-      await registerFileInDb({ ...driveFile, itemId: item.id, stage: "proof" });
-      logJobActivity(item.job_id, `Product proof generated for ${item.name}`);
-      onClose(true);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
+    // Close modal immediately, upload in background
+    const pdfBlob = pdfDoc.output("blob");
+    const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
+    onClose(true);
+    // Background upload
+    (async () => {
+      try {
+        const driveFile = await uploadToDrive({
+          blob: pdfBlob,
+          fileName: `${safeName} - Product Proof.pdf`,
+          mimeType: "application/pdf",
+          clientName,
+          projectTitle,
+          itemName: item.name || "",
+        });
+        await registerFileInDb({ ...driveFile, itemId: item.id, stage: "proof" });
+        logJobActivity(item.job_id, `Product proof generated for ${item.name}`);
+      } catch (err) {
+        console.error("Proof upload error:", err);
+      }
+    })();
   }
 
   function handleClose() {

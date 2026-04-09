@@ -439,7 +439,11 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                     </div>
                     {!selectedItemId && <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>}
                   </div>
-                  <div style={{padding:16,display:bodyDisplay,gridTemplateColumns:"280px 1fr",gap:0,alignItems:"start"}}>
+                  <div style={{padding:16,display:bodyDisplay,gridTemplateColumns:"280px 1fr",gap:0,alignItems:"start",position:"relative"}}>
+                    {project?.type_meta?.costing_locked && (
+                      <div onClick={()=>alert("Pricing is locked. Unlock from the banner above to make changes.")}
+                        style={{position:"absolute",inset:0,zIndex:10,cursor:"not-allowed"}} />
+                    )}
                     {/* BLANKS PANEL */}
                     <div style={{display:"flex",flexDirection:"column",gap:12,paddingRight:20,borderRight:"1px solid "+T.border,flexShrink:0}}>
                       {/* BLANKS HEADER */}
