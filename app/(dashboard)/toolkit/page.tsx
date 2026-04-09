@@ -170,7 +170,7 @@ function MockupTool() {
         blankStyle: "",
         blankColor: "",
       });
-      doc.save(`${itemName || "Item"} — Print Proof.pdf`);
+      doc.save(`${itemName || "Item"} — Product Proof.pdf`);
     } catch (err: any) {
       setError(err.message);
     } finally {

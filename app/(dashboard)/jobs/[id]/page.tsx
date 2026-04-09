@@ -497,8 +497,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* ── Sidebar + Content Layout (Y axis: items | content) ── */}
       <div style={{display:"flex",gap:0,minHeight:"calc(100vh - 240px)"}}>
 
-        {/* ── Left Sidebar: Items list (hidden on overview) ── */}
-        {tab !== "overview" && <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.card,overflowY:"auto"}}>
+        {/* ── Left Sidebar: Items list (only on builder + costing) ── */}
+        {(tab === "builder" || tab === "costing") && <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.card,overflowY:"auto"}}>
           <div style={{padding:"8px 16px 6px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.08em"}}>
             Items ({items.length})
           </div>
@@ -554,7 +554,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           })}
         </div>}
 
-        {/* ── Right Content: Tab content ── */}
+        {/* ── Content area ── */}
         <div style={{flex:1,minWidth:0,overflowY:"auto",padding:"0 20px 40px"}}>
       {/* OVERVIEW */}
                   {tab==="overview"&&(
@@ -949,6 +949,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           initialTab="calc"
           hideSubTabs={true}
           selectedItemId={selectedItemId}
+          onUpdateProject={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
         />
       )}
 
@@ -1013,7 +1014,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </>
       )}
       {tab==="blanks"&&(
-        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={setTab} selectedItemId={selectedItemId} />
+        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={setTab} />
       )}
       {tab==="po"&&(
         <POTab
@@ -1022,7 +1023,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           costingData={job.costing_data}
           onRecalcPhase={recalcPhase}
           onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
-          selectedItemId={selectedItemId}
         />
       )}
 

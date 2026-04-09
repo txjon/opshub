@@ -120,8 +120,9 @@ export async function GET(
       "PO sent", "blanks", "PSD processed", "Item created from PSD",
       "costing", "decorator", "stage advanced", "auto-email",
       "buy sheet", "assigned", "reorder", "QB Invoice", "auto-created",
-      "confirmation sent to", "Print proof generated",
-      "created in quickbooks",
+      "confirmation sent to", "Print proof generated", "Product proof generated",
+      "created in quickbooks", "Item created", "created —", "file uploaded",
+      "files uploaded", "mockup", "uploaded for",
     ];
     const activity = (rawActivity || []).filter((a: any) => {
       const msg = (a.message || "").toLowerCase();

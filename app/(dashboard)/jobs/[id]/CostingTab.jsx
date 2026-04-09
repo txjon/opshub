@@ -143,7 +143,7 @@ const CToggle=({label,value,onChange})=>(
   </div>
 );
 
-const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId})=>{
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onUpdateProject})=>{
   const [costTab,setCostTab]=useState(initialTab||"calc");
   const [showSendEmail,setShowSendEmail]=useState(false);
   const [collapsed,setCollapsed]=useState(()=>{ const c={}; (costProds||[]).forEach(p=>{ c[p.id]=true; }); return c; });
@@ -206,12 +206,15 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             </span>
           </div>
           <button onClick={async ()=>{
+            // Save costing first
+            if (onSave) await onSave();
             const { createClient: cc } = await import("@/lib/supabase/client");
             const sb = cc();
             const newVal = !project?.type_meta?.costing_locked;
             const meta = {...(project?.type_meta||{}), costing_locked: newVal, costing_locked_at: newVal ? new Date().toISOString() : null};
             await sb.from("jobs").update({type_meta: meta}).eq("id", project.id);
-            if (onSave) onSave();
+            // Update local state immediately
+            if (onUpdateProject) onUpdateProject({ type_meta: meta });
           }}
             style={{padding:"6px 16px",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer",border:"none",
               background:project?.type_meta?.costing_locked?T.surface:T.green,
@@ -819,7 +822,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 
 export { CostingTab };
 
-export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false, selectedItemId }) {
+export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false, selectedItemId, onUpdateProject }) {
   const [pricingReady, setPricingReady] = useState(false);
   const vendorIdMapRef = React.useRef({});
   const lastBuyItemsRef = React.useRef("");
@@ -1155,7 +1158,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       inclShip={inclShip} setInclShip={setInclShip}
       inclCC={inclCC} setInclCC={setInclCC}
       orderInfo={orderInfo} setOrderInfo={setOrderInfo}
-      costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs} selectedItemId={selectedItemId}
+      costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs} selectedItemId={selectedItemId} onUpdateProject={onUpdateProject}
     />
   );
 }

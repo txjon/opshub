@@ -129,14 +129,9 @@ export function CommandCenter({ alerts, stats }: {
               onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
               onMouseLeave={e => (e.currentTarget.style.background = T.card)}>
 
-              {/* Line 1: Action command */}
-              <div style={{ fontSize: 13, fontWeight: 700, color: alert.color, lineHeight: 1.3, marginBottom: 3 }}>
-                {alert.action}
-              </div>
-
-              {/* Line 2: Context — client, project, id, days */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 11, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+              {/* Line 1: Client — Project */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
                   {alert.clientName} — {alert.jobTitle}
                 </span>
                 <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, marginLeft: 8 }}>
@@ -148,6 +143,11 @@ export function CommandCenter({ alerts, stats }: {
                   )}
                   <span style={{ fontSize: 10, color: T.faint }}>→</span>
                 </span>
+              </div>
+
+              {/* Line 2: Action */}
+              <div style={{ fontSize: 12, fontWeight: 600, color: alert.color, lineHeight: 1.3 }}>
+                {alert.action}
               </div>
 
               {/* Line 3: Client notes (for rejections/revisions) */}

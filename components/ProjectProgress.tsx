@@ -46,7 +46,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
 
   const steps: Step[] = [
     { id: "overview", label: "Overview", done: true, active: false },
-    { id: "builder", label: "Product Builder", done: hasItems && hasProofs, active: !hasItems || !hasProofs, detail: hasItems ? `${items.length}` : undefined },
+    { id: "builder", label: "Product Builder", done: hasItems && items.every(it => it.blank_vendor && (it.totalQty || 0) > 0), active: !hasItems || items.some(it => !it.blank_vendor || !(it.totalQty || 0)), inProgress: hasItems && items.some(it => !it.blank_vendor || !(it.totalQty || 0)), detail: hasItems ? `${items.length}` : undefined },
     { id: "costing", label: "Costing", done: costingLocked, active: hasItems && !costingLocked, inProgress: hasCosting && !costingLocked },
     { id: "quote", label: "Quote", done: quoteApproved, active: costingLocked && !quoteApproved },
     { id: "proofs", label: "Proofs & Invoice", done: paymentMet && allProofsApproved, active: quoteApproved && (!paymentMet || !allProofsApproved) },

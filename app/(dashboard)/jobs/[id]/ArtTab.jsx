@@ -250,14 +250,14 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
       const driveFile = await uploadToDrive({
         blob: pdfBlob,
-        fileName: `${safeName} - Print Proof.pdf`,
+        fileName: `${safeName} - Product Proof.pdf`,
         mimeType: "application/pdf",
         clientName,
         projectTitle,
         itemName: item.name || "",
       });
       await registerFileInDb({ ...driveFile, itemId: item.id, stage: "proof" });
-      logJobActivity(item.job_id, `Print proof generated for ${item.name}`);
+      logJobActivity(item.job_id, `Product proof generated for ${item.name}`);
       onClose(true);
     } catch (err) {
       setError(err.message);
@@ -286,7 +286,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
       <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, width: 900, maxWidth: "95vw", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: font }}>Print Proof — {item.name}</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: font }}>Product Proof — {item.name}</div>
           <button onClick={handleClose} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 18 }}>×</button>
         </div>
 
@@ -819,7 +819,7 @@ export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged,
       setSaveStatus("Uploading proof...");
       const doc = buildProofPdf();
       const pdfBlob = doc.output("blob");
-      const proofFile = await uploadToDrive({ blob: pdfBlob, fileName: `${safeName} - Print Proof.pdf`, mimeType: "application/pdf", ...driveCtx });
+      const proofFile = await uploadToDrive({ blob: pdfBlob, fileName: `${safeName} - Product Proof.pdf`, mimeType: "application/pdf", ...driveCtx });
       await registerFileInDb({ ...proofFile, itemId: item.id, stage: "proof" });
 
       if (folderLink) {
@@ -860,7 +860,7 @@ export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged,
     setDownloading(true);
     try {
       const doc = buildProofPdf();
-      doc.save(`${item.name || "Item"} — Print Proof.pdf`);
+      doc.save(`${item.name || "Item"} — Product Proof.pdf`);
     } catch (err) {
       setError(err.message);
     } finally {

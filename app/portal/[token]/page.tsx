@@ -637,7 +637,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
           }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{viewingProof.fileName}</div>
-              <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>{viewingProof.stage === "mockup" ? "Mockup" : "Print Proof"}</div>
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>{viewingProof.stage === "mockup" ? "Mockup" : "Product Proof"}</div>
             </div>
             <button onClick={() => { setViewingProof(null); setShowRevisionInput(null); }} style={{
               background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.text, cursor: "pointer", padding: "8px 20px",
