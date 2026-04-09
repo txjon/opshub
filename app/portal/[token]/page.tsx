@@ -435,11 +435,8 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                     )}
                   </div>
 
-                  {/* Proof files — compact rows */}
+                  {/* Proof files — compact rows, actions in modal only */}
                   {proofs.map((proof: any) => {
-                    const actionKey = `approve-proof${proof.id}`;
-                    const revKey = `request-revision${proof.id}`;
-                    const isPending = proof.approval === "pending" || proof.approval === "revision_requested";
                     const approvedTime = proof.approvedAt ? fmtDate(proof.approvedAt) : null;
 
                     return (
@@ -447,8 +444,8 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           {proof.driveFileId && (
                             <button onClick={() => setViewingProof(proof)}
-                              style={{ fontSize: 11, color: C.accent, fontWeight: 600, background: "none", border: `1px solid ${C.accent}44`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", flexShrink: 0 }}>
-                              View
+                              style={{ fontSize: 12, color: "#fff", fontWeight: 700, background: C.accent, border: "none", borderRadius: 6, padding: "8px 18px", cursor: "pointer", flexShrink: 0 }}>
+                              View Proof
                             </button>
                           )}
                           <span style={{ fontSize: 11, color: C.muted, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{proof.fileName}</span>
@@ -462,36 +459,6 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                             <span style={{ fontSize: 10, fontWeight: 600, color: C.amber, flexShrink: 0 }}>Pending</span>
                           )}
                         </div>
-
-                        {/* Action buttons — compact inline */}
-                        {isPending && (
-                          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                            <button onClick={() => doAction("approve-proof", { fileId: proof.id })}
-                              disabled={actionLoading === actionKey}
-                              style={{ padding: "5px 14px", borderRadius: 6, background: C.green, color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", opacity: actionLoading === actionKey ? 0.6 : 1 }}>
-                              {actionLoading === actionKey ? "..." : "Approve"}
-                            </button>
-                            <button onClick={() => setShowRevisionInput(showRevisionInput === proof.id ? null : proof.id)}
-                              style={{ padding: "5px 14px", borderRadius: 6, background: "transparent", color: C.red, border: `1px solid ${C.redBorder}`, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                              Request Changes
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Revision note input */}
-                        {showRevisionInput === proof.id && (
-                          <div style={{ marginTop: 6 }}>
-                            <textarea value={revisionNote[proof.id] || ""}
-                              onChange={e => setRevisionNote(prev => ({ ...prev, [proof.id]: e.target.value }))}
-                              placeholder="What changes would you like?"
-                              style={{ width: "100%", minHeight: 50, borderRadius: 6, border: `1px solid ${C.border}`, padding: 8, fontSize: 12, fontFamily: C.font, resize: "vertical", background: C.card, color: C.text, boxSizing: "border-box" }} />
-                            <button onClick={() => doAction("request-revision", { fileId: proof.id, note: revisionNote[proof.id] || "" })}
-                              disabled={actionLoading === revKey}
-                              style={{ marginTop: 4, padding: "5px 14px", borderRadius: 6, background: C.red, color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", opacity: actionLoading === revKey ? 0.6 : 1 }}>
-                              {actionLoading === revKey ? "Sending..." : "Submit"}
-                            </button>
-                          </div>
-                        )}
                       </div>
                     );
                   })}
@@ -648,35 +615,42 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               )}
             </div>
 
-            {/* Action buttons */}
+            {/* Action buttons — all inside modal */}
             {(viewingProof.approval === "pending" || viewingProof.approval === "revision_requested") && (
-              <div style={{
-                padding: "16px 20px", borderTop: `1px solid ${C.border}`,
-                display: "flex", gap: 10, justifyContent: "center",
-              }}>
-                <button
-                  onClick={async () => {
-                    await doAction("approve-proof", { fileId: viewingProof.id });
-                    setViewingProof(null);
-                  }}
-                  disabled={actionLoading === `approve-proof${viewingProof.id}`}
-                  style={{
-                    padding: "12px 32px", borderRadius: 10,
-                    background: C.green, color: "#fff", border: "none",
-                    fontSize: 14, fontWeight: 700, cursor: "pointer",
-                    opacity: actionLoading ? 0.6 : 1,
-                  }}>
-                  Approve
-                </button>
-                <button
-                  onClick={() => { setShowRevisionInput(viewingProof.id); setViewingProof(null); }}
-                  style={{
-                    padding: "12px 32px", borderRadius: 10,
-                    background: "transparent", color: C.red, border: `1px solid ${C.redBorder}`,
-                    fontSize: 14, fontWeight: 700, cursor: "pointer",
-                  }}>
-                  Request Changes
-                </button>
+              <div style={{ padding: "16px 20px", borderTop: `1px solid ${C.border}` }}>
+                {showRevisionInput === viewingProof.id ? (
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 8 }}>What changes would you like?</div>
+                    <textarea value={revisionNote[viewingProof.id] || ""}
+                      onChange={e => setRevisionNote(prev => ({ ...prev, [viewingProof.id]: e.target.value }))}
+                      placeholder="Describe the changes..."
+                      autoFocus
+                      style={{ width: "100%", minHeight: 70, borderRadius: 8, border: `1px solid ${C.border}`, padding: 10, fontSize: 13, fontFamily: C.font, resize: "vertical", background: C.surface, color: C.text, boxSizing: "border-box" }} />
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button onClick={async () => { await doAction("request-revision", { fileId: viewingProof.id, note: revisionNote[viewingProof.id] || "" }); setViewingProof(null); }}
+                        disabled={actionLoading === `request-revision${viewingProof.id}`}
+                        style={{ flex: 1, padding: "10px", borderRadius: 8, background: C.red, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: actionLoading ? 0.6 : 1 }}>
+                        {actionLoading ? "Sending..." : "Submit Changes"}
+                      </button>
+                      <button onClick={() => setShowRevisionInput(null)}
+                        style={{ padding: "10px 20px", borderRadius: 8, background: "transparent", border: `1px solid ${C.border}`, color: C.muted, fontSize: 13, cursor: "pointer" }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+                    <button onClick={async () => { await doAction("approve-proof", { fileId: viewingProof.id }); setViewingProof(null); }}
+                      disabled={actionLoading === `approve-proof${viewingProof.id}`}
+                      style={{ padding: "12px 32px", borderRadius: 10, background: C.green, color: "#fff", border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: actionLoading ? 0.6 : 1 }}>
+                      Approve
+                    </button>
+                    <button onClick={() => setShowRevisionInput(viewingProof.id)}
+                      style={{ padding: "12px 32px", borderRadius: 10, background: "transparent", color: C.red, border: `1px solid ${C.redBorder}`, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                      Request Changes
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
