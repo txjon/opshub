@@ -297,33 +297,109 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   };
 
   // ═══════════════════════════════════════════════════════════════
-  // PSD DROP — creates item + saves as print-ready
+  // FILE DROP — creates items from PSDs + pairs mockup images
   // ═══════════════════════════════════════════════════════════════
   const clientName = project?.clients?.name || "Unknown Client";
   const projectTitle = project?.title || "";
 
-  async function processPsd(file) {
-    if (!file || !file.name.toLowerCase().endsWith(".psd")) return;
-    const itemName = file.name.replace(/\.psd$/i, "").trim();
-    setPsdProcessing({ status: "Reading PSD...", fileName: file.name });
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const { locations, hasTag } = await parsePsd(arrayBuffer);
-      setPsdProcessing({ status: "Creating item...", fileName: file.name });
-      const supabase = createClient();
-      const sortOrder = (items || []).length + safeItems.filter(s => !items?.find(it => it.id === s.id)).length;
-      const { data: newItem } = await supabase.from("items").insert({
-        job_id: project.id, name: itemName, status: "tbd", artwork_status: "not_started", sort_order: sortOrder,
-      }).select("id").single();
-      if (newItem) {
-        setPsdProcessing({ status: "Uploading to Drive...", fileName: file.name });
-        const driveFile = await uploadToDrive({ blob: file, fileName: file.name, mimeType: "application/octet-stream", clientName, projectTitle, itemName });
-        await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "print_ready", notes: JSON.stringify({ psd_locations: locations, psd_has_tag: hasTag }) });
-        logJobActivity(project.id, `Item "${itemName}" created from PSD: ${locations.length} location${locations.length !== 1 ? "s" : ""}${hasTag ? " + tag" : ""}`);
+  function getBaseName(fileName) {
+    return fileName
+      .replace(/\.psd$/i, "")
+      .replace(/[-_ ]?mockup[-_ ]?/i, "")
+      .replace(/[-_ ]?mock[-_ ]?/i, "")
+      .replace(/\.(png|jpg|jpeg|gif|webp)$/i, "")
+      .trim()
+      .toLowerCase();
+  }
+
+  async function processFileDrop(fileList) {
+    const allFiles = Array.from(fileList);
+    if (allFiles.length === 0) return;
+
+    const psds = allFiles.filter(f => f.name.toLowerCase().endsWith(".psd"));
+    const images = allFiles.filter(f => /\.(png|jpg|jpeg|gif|webp)$/i.test(f.name));
+
+    // If no PSDs and no images, open the add modal
+    if (psds.length === 0 && images.length === 0) { setShowAddModal(true); return; }
+
+    // Group by base name
+    const groups = {};
+    for (const f of psds) {
+      const base = getBaseName(f.name);
+      if (!groups[base]) groups[base] = { psd: null, mockup: null, displayName: f.name.replace(/\.psd$/i, "").trim() };
+      groups[base].psd = f;
+    }
+    for (const f of images) {
+      const base = getBaseName(f.name);
+      if (groups[base]) {
+        groups[base].mockup = f;
+      } else {
+        // Image with no matching PSD — still create a group
+        const displayName = f.name.replace(/[-_ ]?mockup[-_ ]?/i, "").replace(/\.(png|jpg|jpeg|gif|webp)$/i, "").trim();
+        groups[base] = { psd: null, mockup: f, displayName: displayName || f.name };
       }
-      if (onItemsChanged) onItemsChanged();
-    } catch (err) { console.error("PSD processing error:", err); }
-    finally { setPsdProcessing(null); }
+    }
+
+    const groupList = Object.values(groups);
+    setPsdProcessing({ status: `Processing ${groupList.length} item${groupList.length !== 1 ? "s" : ""}...`, fileName: "" });
+
+    const supabase = createClient();
+    let created = 0;
+
+    for (let g = 0; g < groupList.length; g++) {
+      const group = groupList[g];
+      const itemName = group.displayName;
+      setPsdProcessing({ status: `${g + 1}/${groupList.length} — ${itemName}`, fileName: group.psd?.name || group.mockup?.name || "" });
+
+      try {
+        let locations = [];
+        let hasTag = false;
+
+        // Parse PSD for print locations
+        if (group.psd) {
+          try {
+            const arrayBuffer = await group.psd.arrayBuffer();
+            const parsed = await parsePsd(arrayBuffer);
+            locations = parsed.locations;
+            hasTag = parsed.hasTag;
+          } catch (e) { console.warn("PSD parse error:", e); }
+        }
+
+        // Create item
+        const sortOrder = (items || []).length + safeItems.filter(s => !items?.find(it => it.id === s.id)).length + created;
+        const { data: newItem } = await supabase.from("items").insert({
+          job_id: project.id, name: itemName, status: "tbd", artwork_status: "not_started", sort_order: sortOrder,
+        }).select("id").single();
+
+        if (newItem) {
+          // Upload PSD as print_ready
+          if (group.psd) {
+            const driveFile = await uploadToDrive({ blob: group.psd, fileName: group.psd.name, mimeType: "application/octet-stream", clientName, projectTitle, itemName });
+            await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "print_ready", notes: JSON.stringify({ psd_locations: locations, psd_has_tag: hasTag }) });
+          }
+
+          // Upload mockup image
+          if (group.mockup) {
+            const driveFile = await uploadToDrive({ blob: group.mockup, fileName: group.mockup.name, mimeType: group.mockup.type || "image/png", clientName, projectTitle, itemName });
+            await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "mockup" });
+          }
+
+          created++;
+          const parts = [];
+          if (group.psd) parts.push(`PSD: ${locations.length} location${locations.length !== 1 ? "s" : ""}${hasTag ? " + tag" : ""}`);
+          if (group.mockup) parts.push("mockup");
+          logJobActivity(project.id, `Item "${itemName}" created — ${parts.join(", ") || "no files"}`);
+        }
+      } catch (err) { console.error("File drop error:", err); }
+    }
+
+    setPsdProcessing(null);
+    if (onItemsChanged) onItemsChanged();
+  }
+
+  // Legacy single PSD processor (for backwards compat)
+  async function processPsd(file) {
+    return processFileDrop([file]);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -403,7 +479,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       <div
         onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accentDim; }}
         onDragLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}
-        onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; const files = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith(".psd")); if (files.length > 0) { for (const f of files) processPsd(f); } else { setShowAddModal(true); } }}
+        onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; const files = Array.from(e.dataTransfer.files); const hasCreatableFiles = files.some(f => f.name.toLowerCase().endsWith(".psd") || /\.(png|jpg|jpeg|gif|webp)$/i.test(f.name)); if (hasCreatableFiles) { processFileDrop(files); } else { setShowAddModal(true); } }}
         onClick={() => { if (!psdProcessing) setShowAddModal(true); }}
         style={{ border: `2px dashed ${T.border}`, borderRadius: 10, padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "center", gap: 16, cursor: "pointer", transition: "all 0.15s" }}
       >
@@ -414,7 +490,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           </div>
         ) : (
           <>
-            <span style={{ fontSize: 13, fontWeight: 600, color: T.accent }}>+ Drop PSD or click to add item</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: T.accent }}>+ Drop files (PSD + mockups) or click to add item</span>
             <span style={{ width: 1, height: 24, background: T.border }} />
             <span style={{ fontSize: 11, color: T.muted }}>Favorites · S&S · AS Colour · LA Apparel · Other</span>
           </>
