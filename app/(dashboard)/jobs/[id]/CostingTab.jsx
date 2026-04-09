@@ -194,6 +194,33 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 
       {/* margin/toggles moved to project totals sidebar */}
 
+      {/* Lock In Pricing */}
+      {costTab==="calc"&&(
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,padding:"8px 14px",background:project?.type_meta?.costing_locked?T.greenDim:T.amberDim,borderRadius:8,border:`1px solid ${project?.type_meta?.costing_locked?T.green+"44":T.amber+"44"}`}}>
+          <div>
+            <span style={{fontSize:12,fontWeight:700,color:project?.type_meta?.costing_locked?T.green:T.amber}}>
+              {project?.type_meta?.costing_locked?"Pricing locked":"Pricing not locked"}
+            </span>
+            <span style={{fontSize:11,color:T.muted,marginLeft:8}}>
+              {project?.type_meta?.costing_locked?"Ready to quote":"Lock in pricing when all items are costed"}
+            </span>
+          </div>
+          <button onClick={async ()=>{
+            const { createClient: cc } = await import("@/lib/supabase/client");
+            const sb = cc();
+            const newVal = !project?.type_meta?.costing_locked;
+            const meta = {...(project?.type_meta||{}), costing_locked: newVal, costing_locked_at: newVal ? new Date().toISOString() : null};
+            await sb.from("jobs").update({type_meta: meta}).eq("id", project.id);
+            if (onSave) onSave();
+          }}
+            style={{padding:"6px 16px",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer",border:"none",
+              background:project?.type_meta?.costing_locked?T.surface:T.green,
+              color:project?.type_meta?.costing_locked?T.muted:"#fff"}}>
+            {project?.type_meta?.costing_locked?"Unlock Pricing":"Lock In Pricing"}
+          </button>
+        </div>
+      )}
+
       {costTab==="calc"&&(
         <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
           <div style={{flex:1,minWidth:0}}>
@@ -357,7 +384,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               const bodyDisplay=isCollapsed?"none":"grid";
               const chevron=isCollapsed?"v":"^";
               return(
-                <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden"}}>
+                <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
                   <div onClick={()=>toggleCollapse(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
                     <span style={{width:24,height:24,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
                     <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8}}>
@@ -366,7 +393,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                     </div>
                     <div style={{display:"flex",gap:0,alignItems:"center"}}>
                       <div style={{textAlign:"right",width:70,flexShrink:0,marginRight:16}}>
-                        <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
+                        <div style={{fontSize:9,color:T.faint,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
                         <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                       </div>
                       <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>
@@ -389,7 +416,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           )}
                         </div>
                         <div style={{textAlign:"right",flexShrink:0}}>
-                          <div style={{fontSize:9,color:"#5a6285",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Sell $/unit</div>
+                          <div style={{fontSize:9,color:T.faint,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Sell $/unit</div>
                           {p._sellOverride?(
                             <div style={{background:T.surface,border:"1px solid "+T.amber,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box"}}>
                               <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
@@ -407,13 +434,13 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         </div>
                       </div>
                     </div>
-                    <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>
+                    {!selectedItemId && <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>}
                   </div>
-                  <div style={{padding:14,display:bodyDisplay,gridTemplateColumns:"400px 400px",gap:0,alignItems:"start",width:"fit-content"}}>
+                  <div style={{padding:16,display:bodyDisplay,gridTemplateColumns:"280px 1fr",gap:0,alignItems:"start"}}>
                     {/* BLANKS PANEL */}
-                    <div style={{display:"flex",flexDirection:"column",gap:12,paddingRight:16,borderRight:"1px solid "+T.border,flexShrink:0}}>
+                    <div style={{display:"flex",flexDirection:"column",gap:12,paddingRight:20,borderRight:"1px solid "+T.border,flexShrink:0}}>
                       {/* BLANKS HEADER */}
-                      <div style={{fontSize:10,fontWeight:700,color:T.accent,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.1em",paddingBottom:6,borderBottom:`1px solid ${T.border}`}}>Blanks</div>
+                      <div style={{fontSize:11,fontWeight:800,color:T.text,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",paddingBottom:8,borderBottom:`2px solid ${T.text}`}}>Blanks</div>
 
                       {/* Line 1: Supplier + All button */}
                       <div style={{marginBottom:0}}>
@@ -427,6 +454,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 style={{flex:1,background:T.surface,border:`1px solid ${T.accent}`,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none"}}/>
                               <button onClick={()=>{if(p._newSupplierVal?.trim())updateProd(i,{...p,supplier:p._newSupplierVal.trim(),_newSupplier:false,_newSupplierVal:""}); }}
                                 style={{background:T.accent,border:"none",borderRadius:6,color:"#fff",cursor:"pointer",padding:"0 10px",fontSize:12}}>✓</button>
+                              <button onClick={()=>updateProd(i,{...p,supplier:"",_newSupplier:false,_newSupplierVal:""})}
+                                style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,cursor:"pointer",padding:"0 8px",fontSize:11}}>✕</button>
                             </div>
                           ):(
                             <select value={p.supplier||""} onChange={e=>e.target.value==="New"?updateProd(i,{...p,supplier:"New",_newSupplier:true,_newSupplierVal:""}):updateProd(i,{...p,supplier:e.target.value})}
@@ -474,10 +503,10 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
                             <thead>
                               <tr style={{background:T.surface}}>
-                                <th style={{padding:"4px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"20%"}}>Size</th>
-                                <th style={{padding:"6px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"20%"}}>Qty</th>
-                                <th style={{padding:"6px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:"25%"}}>Cost</th>
-                                <th style={{padding:"6px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",width:"35%"}}>Subtotal</th>
+                                <th style={{padding:"4px 6px",textAlign:"left",fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:36}}>Size</th>
+                                <th style={{padding:"4px 6px",textAlign:"right",fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:44}}>Qty</th>
+                                <th style={{padding:"4px 6px",textAlign:"right",fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`,width:56}}>Cost</th>
+                                <th style={{padding:"4px 6px",textAlign:"right",fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",width:60}}>Sub</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -488,33 +517,33 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 const isLast=si===p.sizes.length-1;
                                 return(
                                   <tr key={sz} style={{borderBottom:isLast?"none":`1px solid ${T.border}22`,background:qty>0?T.surface:T.card}}>
-                                    <td style={{padding:"3px 12px",fontFamily:mono,fontSize:12,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`}}>{sz}</td>
-                                    <td style={{padding:"3px 8px",textAlign:"left",borderRight:`1px solid ${T.border}`}}>
+                                    <td style={{padding:"2px 6px",fontFamily:mono,fontSize:11,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`}}>{sz}</td>
+                                    <td style={{padding:"2px 4px",textAlign:"right",borderRight:`1px solid ${T.border}`}}>
                                       <input type="text" inputMode="numeric" pattern="[0-9]*" value={qty||""} placeholder="0"
                                         onChange={e=>{const q=parseInt(e.target.value)||0;const newQtys={...(p.qtys||{}),[sz]:q};const newTotal=Object.values(newQtys).reduce((a,v)=>a+v,0);updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}}}
                                         data-costfield onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab")focusNext(e,e.shiftKey);if(e.key==="ArrowDown"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:false},false);}if(e.key==="ArrowUp"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:true},true);}}}
-                                        style={{width:60,textAlign:"left",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono}}/>
+                                        style={{width:36,textAlign:"right",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontFamily:mono}}/>
                                     </td>
-                                    <td style={{padding:"3px 8px",textAlign:"left",borderRight:`1px solid ${T.border}`}}>
-                                      <div style={{display:"flex",alignItems:"center",justifyContent:"flex-start",gap:2}}>
-                                        <span style={{fontSize:11,color:T.faint,fontFamily:mono}}>$</span>
+                                    <td style={{padding:"2px 4px",textAlign:"right",borderRight:`1px solid ${T.border}`}}>
+                                      <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:1}}>
+                                        <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
                                         <input type="text" inputMode="decimal" value={getCostDisplay(p.id,sz,bc)} placeholder="0.00"
                                           onChange={e=>{ const raw=e.target.value; if(/^\d*\.?\d*$/.test(raw)) setCostLocal(p.id,sz,raw); }}
                                           onBlur={()=>commitCost(i,p,sz)}
                                           data-costfield onKeyDown={e=>{if(e.key==="Enter"){commitCost(i,p,sz);focusNext(e,false);}if(e.key==="Tab"){commitCost(i,p,sz);focusNext(e,e.shiftKey);}if(e.key==="ArrowDown"){e.preventDefault();commitCost(i,p,sz);focusNext({...e,key:"Tab",shiftKey:false},false);}if(e.key==="ArrowUp"){e.preventDefault();commitCost(i,p,sz);focusNext({...e,key:"Tab",shiftKey:true},true);}}}
-                                          style={{width:60,textAlign:"left",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontFamily:mono}}/>
+                                          style={{width:44,textAlign:"right",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontFamily:mono}}/>
                                       </div>
                                     </td>
-                                    <td style={{padding:"3px 12px",textAlign:"left",fontFamily:mono,fontSize:12,fontWeight:subtotal>0?600:400,color:subtotal>0?T.text:T.faint}}>{subtotal>0?fmtD(subtotal):"—"}</td>
+                                    <td style={{padding:"2px 6px",textAlign:"right",fontFamily:mono,fontSize:11,fontWeight:subtotal>0?600:400,color:subtotal>0?T.text:T.faint}}>{subtotal>0?fmtD(subtotal):"—"}</td>
                                   </tr>
                                 );
                               })}
                               {p.sizes&&p.sizes.length>1&&(
                                 <tr style={{background:T.surface,borderTop:`1px solid ${T.border}`}}>
-                                  <td style={{padding:"6px 12px",fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`}}>Total</td>
-                                  <td style={{padding:"6px 12px",textAlign:"left",fontFamily:mono,fontWeight:700,color:T.text,borderRight:`1px solid ${T.border}`}}>{p.totalQty||0}</td>
+                                  <td style={{padding:"4px 6px",fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`}}>Total</td>
+                                  <td style={{padding:"4px 6px",textAlign:"right",fontFamily:mono,fontWeight:700,fontSize:11,color:T.text,borderRight:`1px solid ${T.border}`}}>{p.totalQty||0}</td>
                                   <td style={{borderRight:`1px solid ${T.border}`}}/>
-                                  <td style={{padding:"6px 12px",textAlign:"left",fontFamily:mono,fontWeight:700,color:T.accent}}>{fmtD(Object.entries(p.blankCosts||{}).reduce((a,[sz,bc])=>a+bc*(p.qtys?.[sz]||0)*1.035,0))}</td>
+                                  <td style={{padding:"4px 6px",textAlign:"right",fontFamily:mono,fontWeight:700,fontSize:11,color:T.accent}}>{fmtD(Object.entries(p.blankCosts||{}).reduce((a,[sz,bc])=>a+bc*(p.qtys?.[sz]||0)*1.035,0))}</td>
                                 </tr>
                               )}
                             </tbody>
@@ -1117,7 +1146,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     }
   };
   onSaveRef.current = onSave;
-  if (!pricingReady) return <div style={{padding:"2rem",color:"#7a82a0",fontSize:13}}>Loading pricing...</div>;
+  if (!pricingReady) return <div style={{padding:"2rem",color:T.muted,fontSize:13}}>Loading pricing...</div>;
   return (
     <CostingTab
       project={project} buyItems={buyItems} contacts={contacts} onUpdateBuyItems={onUpdateBuyItems}

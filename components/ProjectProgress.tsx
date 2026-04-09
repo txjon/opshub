@@ -7,6 +7,7 @@ type Step = {
   done: boolean;
   active: boolean;
   detail?: string;
+  inProgress?: boolean;
 };
 
 export function ProjectProgress({ job, items, payments, proofStatus, onTabClick, activeTab }: {
@@ -19,6 +20,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
 }) {
   const hasItems = items.length > 0;
   const hasCosting = items.some(it => it.decorator);
+  const costingLocked = !!(job.type_meta as any)?.costing_locked;
   const quoteApproved = job.quote_approved;
   const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
   const hasProofs = items.some(it => (it as any).hasFiles);
@@ -45,8 +47,8 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
   const steps: Step[] = [
     { id: "overview", label: "Overview", done: true, active: false },
     { id: "builder", label: "Product Builder", done: hasItems && hasProofs, active: !hasItems || !hasProofs, detail: hasItems ? `${items.length}` : undefined },
-    { id: "costing", label: "Costing", done: hasCosting, active: hasItems && !hasCosting },
-    { id: "quote", label: "Quote", done: quoteApproved, active: hasCosting && !quoteApproved },
+    { id: "costing", label: "Costing", done: costingLocked, active: hasItems && !costingLocked, inProgress: hasCosting && !costingLocked },
+    { id: "quote", label: "Quote", done: quoteApproved, active: costingLocked && !quoteApproved },
     { id: "proofs", label: "Proofs & Invoice", done: paymentMet && allProofsApproved, active: quoteApproved && (!paymentMet || !allProofsApproved) },
     { id: "blanks", label: "Blanks", done: allBlanksOrdered, active: paymentMet && allProofsApproved && !allBlanksOrdered, detail: apparelItems.length > 0 && blanksOrdered > 0 ? `${blanksOrdered}/${apparelItems.length}` : undefined },
     { id: "po", label: "PO", done: allPosSent, active: allBlanksOrdered && !allPosSent },
@@ -80,8 +82,8 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
                 padding: "6px 16px", borderRadius: 99, fontSize: 12,
                 fontFamily: font, fontWeight: isCurrent ? 700 : isNext ? 600 : step.done ? 500 : 400,
                 cursor: "pointer", border: isCurrent ? `2px solid ${T.accent}` : "2px solid transparent",
-                background: isCurrent ? T.accent : step.done ? T.greenDim : isNext ? T.accentDim : "transparent",
-                color: isCurrent ? "#fff" : step.done ? T.green : isNext ? T.accent : T.faint,
+                background: isCurrent ? T.accent : step.done ? T.greenDim : step.inProgress ? T.amberDim : isNext ? T.accentDim : "transparent",
+                color: isCurrent ? "#fff" : step.done ? T.green : step.inProgress ? T.amber : isNext ? T.accent : T.faint,
                 transition: "all 0.15s",
               }}
             >

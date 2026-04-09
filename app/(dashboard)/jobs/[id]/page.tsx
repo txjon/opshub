@@ -352,45 +352,52 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           }
         }
         router.push("/jobs");
-      }} style={{background:"none",border:"none",color:T.muted,fontSize:12,cursor:"pointer",marginBottom:12,padding:0,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
+      }} style={{background:"none",border:"none",color:T.faint,fontSize:11,cursor:"pointer",marginBottom:8,padding:0,fontFamily:font}}>
         ← All projects
       </button>
 
-      {/* Header */}
-      <div style={{marginBottom:"1.5rem"}}>
-        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}>
-          <div>
-            <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
-              <span style={{fontSize:11,color:T.muted,fontFamily:"'IBM Plex Mono',monospace"}}>{(job as any).type_meta?.qb_invoice_number || job.job_number}</span>
-              {(job as any).type_meta?.qb_invoice_number && <span style={{fontSize:10,color:T.faint,fontFamily:"'IBM Plex Mono',monospace"}}>{job.job_number}</span>}
-              <span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>
-                {job.phase.replace(/_/g," ")}
-              </span>
-              {job.priority==="rush"&&<span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:T.amberDim,color:T.amber}}>Rush</span>}
-              {job.priority==="hot"&&<span style={{padding:"2px 9px",borderRadius:99,fontSize:11,fontWeight:600,background:T.redDim,color:T.red}}>Hot</span>}
-              {saving&&<span style={{fontSize:11,color:T.muted}}>Saving...</span>}
-            </div>
-            <h1 style={{fontSize:26,fontWeight:700,margin:"0 0 3px",letterSpacing:"-0.02em",color:T.text,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>{(job.clients as any)?.name||"No client"}</h1>
-            <div style={{fontSize:16,color:T.muted,marginBottom:6}}>{job.title}</div>
-            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.muted}}>
-              <span>{totalUnits.toLocaleString()} units</span>
-              {(job as any).portal_token && (
-                <button onClick={()=>{
-                  const base=window.location.origin;
-                  navigator.clipboard.writeText(`${base}/portal/${(job as any).portal_token}`);
-                  setPortalCopied(true);
-                  setTimeout(()=>setPortalCopied(false),2000);
-                }} style={{
-                  background:"none",border:`1px solid ${T.border}`,borderRadius:6,
-                  padding:"2px 8px",cursor:"pointer",fontSize:10,fontWeight:600,
-                  color:portalCopied?T.green:T.accent,
-                }}>
-                  {portalCopied?"Copied!":"Copy Client Portal Link"}
-                </button>
-              )}
+      {/* Header — compact single row */}
+      <div style={{marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+          {/* Left: identifiers + name */}
+          <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(job as any).type_meta?.qb_invoice_number || job.job_number}</span>
+                {(job as any).type_meta?.qb_invoice_number && <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>{job.job_number}</span>}
+                <span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>{job.phase.replace(/_/g," ")}</span>
+                {job.priority==="rush"&&<span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:T.amberDim,color:T.amber}}>Rush</span>}
+                {job.priority==="hot"&&<span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:T.redDim,color:T.red}}>Hot</span>}
+                {saving&&<span style={{fontSize:10,color:T.muted}}>Saving...</span>}
+              </div>
+              <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:2}}>
+                <span style={{fontSize:18,fontWeight:800,color:T.text,letterSpacing:"-0.02em"}}>{(job.clients as any)?.name||"No client"}</span>
+                <span style={{fontSize:13,color:T.muted}}>{job.title}</span>
+                <span style={{fontSize:11,color:T.faint}}>{totalUnits.toLocaleString()} units</span>
+              </div>
             </div>
           </div>
-          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
+
+          {/* Right: ship date + actions */}
+          <div style={{display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+            {daysLeft!==null&&(
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:16,fontWeight:700,color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.text}}>
+                  {daysLeft<0?Math.abs(daysLeft)+"d overdue":daysLeft===0?"Ships today":daysLeft+"d to ship"}
+                </div>
+                <div style={{fontSize:10,color:T.muted}}>{new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>
+              </div>
+            )}
+            {(job as any).portal_token && (
+              <button onClick={()=>{
+                const base=window.location.origin;
+                navigator.clipboard.writeText(`${base}/portal/${(job as any).portal_token}`);
+                setPortalCopied(true);
+                setTimeout(()=>setPortalCopied(false),2000);
+              }} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:10,fontWeight:600,color:portalCopied?T.green:T.muted}}>
+                {portalCopied?"Copied!":"Portal Link"}
+              </button>
+            )}
             <button onClick={async()=>{
               if(!window.confirm(`Duplicate "${job.title}" with all items and costing?`)) return;
               const {data:newJob}=await supabase.from("jobs").insert({
@@ -444,34 +451,24 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 await supabase.from("job_contacts").insert({job_id:newJob.id,contact_id:c.id,role_on_job:c.role_on_job});
               }
               router.push(`/jobs/${newJob.id}`);
-            }} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",padding:"5px 12px",cursor:"pointer"}}
+            }} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:10,padding:"4px 10px",cursor:"pointer"}}
               onMouseEnter={e=>e.currentTarget.style.color=T.text}
               onMouseLeave={e=>e.currentTarget.style.color=T.muted}>
-              Duplicate project
+              Duplicate
             </button>
-            {daysLeft!==null&&(
-              <>
-                <div style={{fontSize:22,fontWeight:700,color:daysLeft<0?"#f05353":daysLeft<=3?"#f5a623":T.text,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
-                  {daysLeft<0?Math.abs(daysLeft)+"d overdue":daysLeft===0?"Ships today":daysLeft+"d to ship"}
-                </div>
-                <div style={{fontSize:12,color:T.muted,marginTop:2}}>
-                  {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
-                </div>
-              </>
-            )}
           </div>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginTop:16}}>
+        {/* KPI strip — compact */}
+        <div style={{display:"flex",gap:6,marginTop:8}}>
           {[
-            {label:"Revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():totalCost>0?"$"+Math.round(totalCost*1.43).toLocaleString():"—",color:T.accent},
+            {label:"Revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():totalCost>0?"$"+Math.round(totalCost*1.43).toLocaleString():"—",color:T.text},
             {label:"Cost",value:totalCost>0?"$"+Math.round(totalCost).toLocaleString():"—"},
-            {label:"Net profit",value:totalCost>0?"$"+Math.round((totalRev||totalCost*1.43)-totalCost).toLocaleString():"—",color:"#34c97a"},
-            {label:"Margin",value:totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100).toFixed(1)+"%":"—",color:(()=>{const m=totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100):0;return m>=30?"#34c97a":m>=20?"#f5a623":"#f05353";})()},
+            {label:"Profit",value:totalCost>0?"$"+Math.round((totalRev||totalCost*1.43)-totalCost).toLocaleString():"—",color:T.green},
+            {label:"Margin",value:totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100).toFixed(1)+"%":"—",color:(()=>{const m=totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100):0;return m>=30?T.green:m>=20?T.amber:T.red;})()},
           ].map(s=>(
-            <div key={s.label} style={{background:T.surface,border:"1px solid #2a3050",borderRadius:8,padding:"12px 14px"}}>
-              <div style={{fontSize:12,color:T.muted,marginBottom:4}}>{s.label}</div>
-              <div style={{fontSize:16,fontWeight:500,color:(s as any).color||T.text,textTransform:(s as any).cap?"capitalize":"none"}}>{s.value}</div>
-              {(s as any).sub&&<div style={{fontSize:11,color:T.muted,marginTop:2}}>{(s as any).sub}</div>}
+            <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 12px",flex:1}}>
+              <div style={{fontSize:9,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em"}}>{s.label}</div>
+              <div style={{fontSize:14,fontWeight:700,color:(s as any).color||T.text,fontFamily:mono}}>{s.value}</div>
             </div>
           ))}
         </div>
