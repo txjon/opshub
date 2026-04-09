@@ -7,7 +7,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
-export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick }) {
+export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick, selectedItemId }) {
   const items = useMemo(() => allItems.filter(it => it.garment_type !== "accessory"), [allItems]);
   const supabase = createClient();
   const [localFields, setLocalFields] = useState({});
@@ -304,6 +304,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
 
       {/* Item list */}
       {items.map((item, i) => {
+        if (selectedItemId && item.id !== selectedItemId) return null;
         const f = localFields[item.id] || {};
         const totalUnits = tQty(item.qtys || {});
         const calcCost = item.cost_per_unit != null ? (item.cost_per_unit * totalUnits) : null;

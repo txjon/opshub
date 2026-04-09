@@ -131,7 +131,7 @@ function buildLineItems(cp, allProds) {
 
 const SHIP_METHODS = ["UPS Ground","UPS 2-Day","UPS Next Day","FedEx Ground","FedEx Express","USPS Priority","Freight / LTL","Will Call","Decorator Drop Ship"];
 
-export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
+export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selectedItemId}) {
   const supabase = createClient();
   const [decorators,setDecorators] = useState([]);
   const [shipMethods,setShipMethods] = useState(project?.type_meta?.po_ship_methods || {});
@@ -348,6 +348,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob}) {
       {active&&(
         <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,overflow:"hidden"}}>
           {vItems.map((item,i)=>{
+            if (selectedItemId && item.id !== selectedItemId) return null;
             const idx = sorted.findIndex(it=>it.id===item.id);
             const f = itemFields[item.id]||{};
             const isSaving = Object.keys(saving).some(k=>k.startsWith(item.id)&&saving[k]);

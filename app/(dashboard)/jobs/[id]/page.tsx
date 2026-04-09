@@ -893,6 +893,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             });
           }}
           onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
+          selectedItemId={selectedItemId}
         />
       )}
 
@@ -993,7 +994,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </>
       )}
       {tab==="blanks"&&(
-        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={setTab} />
+        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={setTab} selectedItemId={selectedItemId} />
       )}
       {tab==="po"&&(
         <POTab
@@ -1002,6 +1003,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           costingData={job.costing_data}
           onRecalcPhase={recalcPhase}
           onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
+          selectedItemId={selectedItemId}
         />
       )}
 

@@ -19,7 +19,7 @@ import {
  * ALL save logic is identical to BuySheetTab (1500ms debounce, 3-state qty, temp ID swap).
  * ALL file management delegated to ItemArtSection from ArtTab.
  */
-export function ProductBuilder({ project, items, contacts, onItemsChanged, onRegisterSave, onSaveStatus, onSaved, onUpdateItem }) {
+export function ProductBuilder({ project, items, contacts, onItemsChanged, onRegisterSave, onSaveStatus, onSaved, onUpdateItem, selectedItemId }) {
   // ═══════════════════════════════════════════════════════════════
   // BUY SHEET SAVE INFRASTRUCTURE — copied verbatim from BuySheetTab
   // ═══════════════════════════════════════════════════════════════
@@ -430,7 +430,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 
       {/* ══ Item list ══ */}
       {safeItems.map((item, idx) => {
-        const isExpanded = expandedId === item.id;
+        // If sidebar has a selected item, only render that one
+        if (selectedItemId && item.id !== selectedItemId) return null;
+        const isExpanded = selectedItemId ? true : expandedId === item.id;
         const hasBlank = !!item.blank_vendor;
         const fileCount = 0; // Will be populated by ItemArtSection internally
 
