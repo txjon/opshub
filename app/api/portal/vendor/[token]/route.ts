@@ -192,7 +192,7 @@ export async function GET(
         poSent,
         shipTo: poShipTo,
         shipMethod: poShipMethod,
-        shippingAccount: typeMeta.shipping_account || "",
+        shippingAccount: typeMeta.shipping_account || ((poShipMethod || "").toLowerCase().includes("ups") ? "W28Y51" : ""),
         grandTotal,
         totalUnits,
         items: orderItems,

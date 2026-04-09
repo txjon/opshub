@@ -473,7 +473,12 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       vendor_zip: (decoratorRecord as any)?.zip || firstDecorator?.zip || "",
       payment_terms: (job.payment_terms || "").replace(/_/g, " "),
       ship_method: (job.type_meta as any)?.po_ship_methods?.[vendorName] || orderInfo.shipMethod || "",
-      shipping_account: (job.type_meta as any)?.shipping_account || "",
+      shipping_account: (() => {
+        const manual = (job.type_meta as any)?.shipping_account;
+        if (manual) return manual;
+        const method = ((job.type_meta as any)?.po_ship_methods?.[vendorName] || orderInfo.shipMethod || "").toLowerCase();
+        return method.includes("ups") ? "W28Y51" : "";
+      })(),
       ship_to_address: (job.type_meta as any)?.po_ship_to?.[vendorName]
         || ((job as any).shipping_route === "drop_ship"
           ? (job.type_meta as any)?.venue_address || ""
