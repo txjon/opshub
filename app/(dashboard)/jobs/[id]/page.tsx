@@ -637,7 +637,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
                         <td style={{padding:"6px"}}>
                           <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
-                            background:p.status==="paid"?"#0e3d24":p.status==="void"?"#3d1212":T.amberDim,
+                            background:p.status==="paid"?T.greenDim:p.status==="void"?T.redDim:T.amberDim,
                             color:p.status==="paid"?"#34c97a":p.status==="void"?"#f05353":T.amber}}>{p.status}</span>
                         </td>
                       </tr>
@@ -782,7 +782,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   {contacts.map((c,i)=>(
                     <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,paddingBottom:i<contacts.length-1?6:0,borderBottom:i<contacts.length-1?"1px solid #2a3050":"none"}}>
-                      <div style={{width:26,height:26,borderRadius:"50%",background:"#1e3a6e",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
+                      <div style={{width:26,height:26,borderRadius:"50%",background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
                         {c.name.split(" ").map((n:string)=>n[0]).join("").slice(0,2)}
                       </div>
                       <div style={{flex:1}}>

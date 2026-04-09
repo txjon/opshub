@@ -203,7 +203,7 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
             </tr></thead>
             <tbody>{payments.map(p => {
               const statuses = ["pending", "paid", "void"];
-              const statusStyle = { pending: { bg: T.amberDim, color: T.amber }, paid: { bg: "#0e3d24", color: "#34c97a" }, void: { bg: "#3d1212", color: "#f05353" } };
+              const statusStyle = { pending: { bg: T.amberDim, color: T.amber }, paid: { bg: T.greenDim, color: T.green }, void: { bg: T.redDim, color: T.red } };
               const display = statusStyle[p.status] || statusStyle.pending;
               const nextStatus = () => { const idx = statuses.indexOf(p.status); return statuses[(idx + 1) % statuses.length]; };
               return (

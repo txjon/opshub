@@ -204,8 +204,8 @@ export default function ReceivingPage() {
                   </button>
                 )}
                 <span style={{ marginLeft: job.items.some(it => !it.received_at_hpd) ? 0 : "auto", fontSize: 10, padding: "2px 8px", borderRadius: 99,
-                  background: job.shipping_route === "stage" ? "#2d1f5e" : T.accentDim,
-                  color: job.shipping_route === "stage" ? "#a78bfa" : T.accent }}>
+                  background: job.shipping_route === "stage" ? T.purpleDim : T.accentDim,
+                  color: job.shipping_route === "stage" ? T.purple : T.accent }}>
                   {job.shipping_route === "stage" ? "→ Fulfillment" : "→ Shipping"}
                 </span>
               </div>
