@@ -8,7 +8,7 @@ import { parsePsd } from "./ProcessingTab";
 import { ItemArtSection } from "./ArtTab";
 import {
   detectGarmentType, handleSizeToggle, distribute, DEFAULT_CURVE,
-  SSPicker, ASColourPicker, LAApparelPicker, FavoritesPicker, OtherPicker,
+  SSPicker, ASColourPicker, LAApparelPicker, FavoritesPicker, OtherPicker, CottonCollectivePicker,
 } from "./BuySheetTab";
 
 /**
@@ -211,6 +211,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [showASColour, setShowASColour] = useState(false);
   const [showLAApparel, setShowLAApparel] = useState(false);
   const [showOtherPicker, setShowOtherPicker] = useState(false);
+  const [showCCPicker, setShowCCPicker] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [showAddType, setShowAddType] = useState(null);
   const [assignBlankTo, setAssignBlankTo] = useState(null);
@@ -412,12 +413,12 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 6 }}>
 
       {/* ══ Picker modals (same as BuySheetTab) ══ */}
-      {(showPicker || showASColour || showLAApparel || showFavorites || showOtherPicker) && (
+      {(showPicker || showASColour || showLAApparel || showFavorites || showOtherPicker || showCCPicker) && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
           onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); }}>
           <div onClick={e => e.stopPropagation()} style={{ width: "95vw", maxWidth: 1000, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
             <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
-              <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); if (!assignBlankTo) setShowAddModal(true); setAssignBlankTo(null); }}
+              <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); setShowCCPicker(false); if (!assignBlankTo) setShowAddModal(true); setAssignBlankTo(null); }}
                 style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, fontWeight: 600, padding: "4px 12px", cursor: "pointer" }}>
                 ← {assignBlankTo ? "Cancel" : "Sources"}
               </button>
@@ -429,6 +430,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
             {showLAApparel && <LAApparelPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowLAApparel(false); } else addItem(item); }} onClose={() => { setShowLAApparel(false); setAssignBlankTo(null); }} isFav={isFav} toggleFav={toggleFav} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
             {showFavorites && <FavoritesPicker favorites={favorites} setFavorites={setFavorites} onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowFavorites(false); } else addItem(item); }} onClose={() => { setShowFavorites(false); setAssignBlankTo(null); }} toggleFav={toggleFav} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
             {showOtherPicker && <OtherPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowOtherPicker(false); } else addItem(item); }} onClose={() => { setShowOtherPicker(false); setAssignBlankTo(null); }} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
+            {showCCPicker && <CottonCollectivePicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowCCPicker(false); } else addItem(item); }} onClose={() => { setShowCCPicker(false); setAssignBlankTo(null); }} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
             </>; })()}
           </div>
         </div>
@@ -452,6 +454,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 { label: "S&S Activewear", bg: "#b65722", color: "#fff", action: () => { setShowAddModal(false); setShowPicker(true); } },
                 { label: "AS Colour", bg: "#000", color: "#fff", action: () => { setShowAddModal(false); setShowASColour(true); } },
                 { label: "LA Apparel", bg: "#fff", color: "#000", border: true, action: () => { setShowAddModal(false); setShowLAApparel(true); } },
+                { label: "Cotton Collective", bg: "#2d6b4f", color: "#fff", action: () => { setShowAddModal(false); setShowCCPicker(true); } },
                 { label: "Custom Accessory", bg: T.surface, color: T.text, border: true, action: () => { setShowAddModal(false); setShowAddType("accessory"); } },
                 { label: "Other", bg: T.surface, color: T.text, border: true, action: () => { setShowAddModal(false); setShowOtherPicker(true); } },
               ].map(opt => (

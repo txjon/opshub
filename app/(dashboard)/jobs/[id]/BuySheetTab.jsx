@@ -1757,3 +1757,143 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
     </div>
   );
 }
+
+// ── Cotton Collective Picker ──────────────────────────────────────────────────
+
+export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItemName }) {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [selStyle, setSelStyle] = useState(null);
+  const [selColor, setSelColor] = useState(null);
+  const [selSizes, setSelSizes] = useState({});
+  const [itemName, setItemName] = useState(defaultItemName || "");
+  const lastClickedSize = useRef(null);
+
+  useEffect(() => {
+    fetch("/api/cottoncollective?action=products")
+      .then(r => r.json())
+      .then(d => { setProducts(d.products || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const filtered = search.trim()
+    ? products.filter(p => (p.name + " " + p.sku).toLowerCase().includes(search.toLowerCase()))
+    : products;
+
+  const colors = selStyle ? selStyle.colors : [];
+  const selColorData = selColor ? colors.find(c => c.color === selColor) : null;
+
+  const toggleSz = (sz) => setSelSizes(prev => {
+    const n = { ...prev };
+    if (n[sz]) delete n[sz]; else n[sz] = true;
+    return n;
+  });
+
+  const canAdd = selStyle && selColor && Object.keys(selSizes).length > 0;
+
+  const doAdd = () => {
+    if (!canAdd) return;
+    const allSizes = sortSizes(Object.keys(selSizes));
+    const qtys = {}; allSizes.forEach(sz => { qtys[sz] = 0; });
+    const blankCosts = {};
+    allSizes.forEach(sz => {
+      if (selColorData?.prices?.[sz]) blankCosts[sz] = selColorData.prices[sz];
+    });
+    const itemFullName = itemName.trim() || `Cotton Collective ${selStyle.sku} - ${selColor}`;
+    onAdd({
+      id: Date.now() + Math.random(),
+      name: itemFullName,
+      blank_vendor: `Cotton Collective ${selStyle.sku}`,
+      blank_sku: selColor,
+      style: `Cotton Collective ${selStyle.sku}`,
+      color: selColor,
+      garment_type: detectGarmentType("", itemFullName),
+      sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
+    });
+    setItemName(""); setSelColor(null); setSelSizes({});
+  };
+
+  const colRow = (label, active, onClick) => (
+    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
+      onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
+      onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+      {label}
+    </div>
+  );
+
+  const colHead = (label) => (
+    <div style={{ padding: "6px 11px", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em", background: T.surface, borderBottom: `1px solid ${T.border}`, fontFamily: font }}>{label}</div>
+  );
+
+  return (
+    <div style={{ background: T.card, borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "80vh" }}>
+      {/* Header */}
+      <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#2d6b4f", fontFamily: font }}>Cotton Collective</span>
+        <input value={search} onChange={e => { setSearch(e.target.value); setSelStyle(null); setSelColor(null); setSelSizes({}); }}
+          placeholder="Search styles..." autoFocus
+          style={{ flex: 1, fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none" }} />
+        <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name"
+          style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
+        <button onClick={doAdd} disabled={!canAdd}
+          style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", transition: "all 0.15s" }}>
+          {assignMode ? "Assign to item →" : "Add to buy sheet →"}
+        </button>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: "center", color: T.muted, fontSize: 13 }}>Loading Cotton Collective catalog...</div>
+      ) : (
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          {/* Styles column */}
+          <div style={{ width: 260, borderRight: `1px solid ${T.border}`, overflowY: "auto" }}>
+            {colHead(`Styles (${filtered.length})`)}
+            {filtered.length === 0 && <div style={{ padding: 14, fontSize: 11, color: T.faint }}>No styles found</div>}
+            {filtered.map(p => colRow(
+              <><span style={{ fontWeight: 600 }}>{p.name}</span><span style={{ color: T.faint, marginLeft: 6, fontSize: 10 }}>{p.sku}</span></>,
+              selStyle?.sku === p.sku,
+              () => { setSelStyle(p); setSelColor(null); setSelSizes({}); }
+            ))}
+          </div>
+
+          {/* Colors column */}
+          <div style={{ width: 200, borderRight: `1px solid ${T.border}`, overflowY: "auto" }}>
+            {colHead("Colors")}
+            {!selStyle && <div style={{ padding: 14, fontSize: 11, color: T.faint }}>Select a style</div>}
+            {colors.map(c => colRow(
+              c.color,
+              selColor === c.color,
+              () => { setSelColor(c.color); setSelSizes({}); }
+            ))}
+          </div>
+
+          {/* Sizes column */}
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {colHead("Sizes")}
+            {!selColorData && <div style={{ padding: 14, fontSize: 11, color: T.faint }}>Select a color</div>}
+            {selColorData && selColorData.sizes.map(sz => {
+              const active = !!selSizes[sz];
+              const price = selColorData.prices[sz] || 0;
+              return (
+                <div key={sz} onClick={() => toggleSz(sz)}
+                  style={{ padding: "8px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}`, background: active ? T.accentDim : "transparent" }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 16, height: 16, borderRadius: 3, border: `2px solid ${active ? T.accent : T.border}`, background: active ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {active && <span style={{ color: "#fff", fontSize: 10, fontWeight: 700 }}>✓</span>}
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono }}>{sz}</span>
+                  </div>
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>${price.toFixed(2)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
