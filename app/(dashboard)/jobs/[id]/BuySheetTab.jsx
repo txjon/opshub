@@ -1788,11 +1788,9 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
   const colors = selStyle ? selStyle.colors : [];
   const selColorData = selColor ? colors.find(c => c.color === selColor) : null;
 
-  const toggleSz = (sz) => setSelSizes(prev => {
-    const n = { ...prev };
-    if (n[sz]) delete n[sz]; else n[sz] = true;
-    return n;
-  });
+  const lastClickedSize = useRef(null);
+  const availSizes = selColorData ? selColorData.sizes : [];
+  const toggleSz = (sz, e) => handleSizeToggle(sz, e, availSizes, setSelSizes, lastClickedSize);
 
   const canAdd = selStyle && selColor && Object.keys(selSizes).length > 0;
 
@@ -1853,57 +1851,66 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
       {loading ? (
         <div style={{ padding: 40, textAlign: "center", color: T.muted, fontSize: 13 }}>Loading Cotton Collective catalog...</div>
       ) : (
-        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "0.8fr 1fr 1fr 1fr", height: 300, overflow: "hidden" }}>
           {/* Categories column */}
-          <div style={{ width: 140, borderRight: `1px solid ${T.border}`, overflowY: "auto" }}>
+          <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Categories")}
-            {colRow(<><span style={{ fontWeight: 600 }}>All</span><span style={{ color: T.faint, marginLeft: 4 }}>({products.length})</span></>, !selCategory, () => { setSelCategory(null); setSelStyle(null); setSelColor(null); setSelSizes({}); })}
-            {CAT_ORDER.filter(cat => categories[cat]).map(cat =>
-              colRow(<><span style={{ fontWeight: 600 }}>{cat}</span><span style={{ color: selCategory === cat ? "rgba(255,255,255,0.7)" : T.faint, marginLeft: 4 }}>({categories[cat]})</span></>, selCategory === cat, () => { setSelCategory(cat); setSelStyle(null); setSelColor(null); setSelSizes({}); })
-            )}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {colRow(<><span style={{ fontWeight: 600 }}>All</span><span style={{ color: T.faint, marginLeft: 4 }}>({products.length})</span></>, !selCategory, () => { setSelCategory(null); setSelStyle(null); setSelColor(null); setSelSizes({}); })}
+              {CAT_ORDER.filter(cat => categories[cat]).map(cat =>
+                colRow(<><span style={{ fontWeight: 600 }}>{cat}</span><span style={{ color: selCategory === cat ? "rgba(255,255,255,0.7)" : T.faint, marginLeft: 4 }}>({categories[cat]})</span></>, selCategory === cat, () => { setSelCategory(cat); setSelStyle(null); setSelColor(null); setSelSizes({}); })
+              )}
+            </div>
           </div>
 
           {/* Styles column */}
-          <div style={{ width: 220, borderRight: `1px solid ${T.border}`, overflowY: "auto" }}>
+          <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead(`Styles (${filtered.length})`)}
-            {filtered.length === 0 && <div style={{ padding: 14, fontSize: 11, color: T.faint }}>No styles found</div>}
-            {filtered.map(p => colRow(
-              p.typeLabel || p.name,
-              selStyle?.sku === p.sku,
-              () => { setSelStyle(p); setSelColor(null); setSelSizes({}); },
-              p.sku
-            ))}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {filtered.length === 0 && <div style={{ padding: 14, fontSize: 11, color: T.faint }}>No styles found</div>}
+              {filtered.map(p => colRow(
+                p.typeLabel || p.name,
+                selStyle?.sku === p.sku,
+                () => { setSelStyle(p); setSelColor(null); setSelSizes({}); },
+                p.sku
+              ))}
+            </div>
           </div>
 
           {/* Colors column */}
-          <div style={{ width: 160, borderRight: `1px solid ${T.border}`, overflowY: "auto" }}>
+          <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Colors")}
-            {!selStyle && <div style={{ padding: 14, fontSize: 11, color: T.faint }}>Select a style</div>}
-            {colors.map(c => colRow(c.color, selColor === c.color, () => { setSelColor(c.color); setSelSizes({}); }))}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {!selStyle ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>← Style</div>
+                : colors.map(c => colRow(c.color, selColor === c.color, () => { setSelColor(c.color); setSelSizes({}); }))}
+            </div>
           </div>
 
-          {/* Sizes column */}
-          <div style={{ flex: 1, overflowY: "auto" }}>
+          {/* Sizes column — pill style matching SSPicker */}
+          <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Sizes")}
-            {!selColorData && <div style={{ padding: 14, fontSize: 11, color: T.faint }}>Select a color</div>}
-            {selColorData && selColorData.sizes.map(sz => {
-              const active = !!selSizes[sz];
-              const price = selColorData.prices[sz] || 0;
-              return (
-                <div key={sz} onClick={() => toggleSz(sz)}
-                  style={{ padding: "8px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}`, background: active ? T.accentDim : "transparent" }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
-                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 16, height: 16, borderRadius: 3, border: `2px solid ${active ? T.accent : T.border}`, background: active ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {active && <span style={{ color: "#fff", fontSize: 10, fontWeight: 700 }}>✓</span>}
-                    </div>
-                    <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono }}>{sz}</span>
+            <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+              {!selColorData ? <div style={{ padding: "6px 2px", fontSize: 10, color: T.faint, fontFamily: font }}>← Color</div>
+                : <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {selColorData.sizes.map(sz => {
+                      const on = selSizes[sz] !== undefined;
+                      const price = selColorData.prices[sz] || 0;
+                      return (
+                        <div key={sz} onClick={(e) => toggleSz(sz, e)}
+                          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
+                          <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${price.toFixed(2)}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>${price.toFixed(2)}</span>
-                </div>
-              );
-            })}
+              }
+            </div>
+            {selColor && Object.keys(selSizes).length > 0 && (
+              <div style={{ padding: "5px 10px", borderTop: `1px solid ${T.border}`, fontSize: 10, fontFamily: font, color: T.muted }}>
+                {Object.keys(selSizes).length} size{Object.keys(selSizes).length !== 1 ? "s" : ""} selected · Shift+click for range
+              </div>
+            )}
           </div>
         </div>
       )}
