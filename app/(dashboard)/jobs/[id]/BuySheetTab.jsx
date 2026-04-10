@@ -41,7 +41,7 @@ export function detectGarmentType(category, name) {
   if (n.includes("water bottle") || n.includes("bottle")) return "water_bottle";
   if (n.includes("woven label")) return "woven_labels";
   if (n.includes("tee") || n.includes("t-shirt") || n.includes("tank")) return "tee";
-  return null;
+  return "custom";
 }
 
 // Shift-click range selection for size pickers

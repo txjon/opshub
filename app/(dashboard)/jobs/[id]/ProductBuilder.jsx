@@ -278,7 +278,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     if (!accName.trim()) return;
     addItem({
       id: Date.now() + Math.random(), name: accName.trim(), blank_vendor: accType.trim(), blank_sku: "",
-      garment_type: detectGarmentType("", accName.trim() + " " + accType.trim()) || "accessory",
+      garment_type: detectGarmentType("", accName.trim() + " " + accType.trim()),
       sizes: ["OS"], qtys: { OS: parseInt(accQty) || 0 }, curve: DEFAULT_CURVE,
       totalQty: parseInt(accQty) || 0, blankCosts: {}, cost_per_unit: 0,
     });
@@ -496,7 +496,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               <button onClick={() => {
                 if (assignItem) {
                   // Assign accessory type to existing item
-                  const updates = { garment_type: "accessory", blank_vendor: accType || "Accessory" };
+                  const detectedType = detectGarmentType("", (assignItem.name || "") + " " + (accType || ""));
+                  const updates = { garment_type: detectedType, blank_vendor: accType || "Custom" };
                   assignBlank({ ...updates, blank_sku: "", style: accType || "", color: "", sizes: assignItem.sizes || [], qtys: assignItem.qtys || {}, totalQty: assignItem.totalQty || 0, blankCosts: {} });
                   setShowAddType(null);
                 } else {
@@ -721,7 +722,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                   onChange={e => { e.stopPropagation(); onUpdateItem(item.id, { garment_type: e.target.value || null }); }}
                   style={{ fontSize: 10, padding: "3px 8px", borderRadius: 99, background: T.card, color: T.muted, border: `1px solid ${T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
                   <option value="">type</option>
-                  {["tee","longsleeve","hoodie","crewneck","jacket","pants","shorts","hat","beanie","tote","patch","poster","sticker","custom","socks","bandana","banner","flag","pin","koozie","lighter","towel","water_bottle","samples","accessory"].map(t => (
+                  {["tee","longsleeve","hoodie","crewneck","jacket","pants","shorts","hat","beanie","tote","patch","poster","sticker","custom","socks","bandana","banner","flag","pin","koozie","lighter","towel","water_bottle","samples"].map(t => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>

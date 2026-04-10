@@ -233,8 +233,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               const r=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);
               const mc2=r?(r.margin_pct>=0.30?T.green:r.margin_pct>=0.20?T.amber:T.red):T.faint;
 
-              // ── Accessory slim card ──
-              if (p.garment_type === "accessory") {
+              // ── Non-garment slim card (accessories, patches, stickers, etc.) ──
+              const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
+              if (NON_GARMENT.includes(p.garment_type)) {
                 const accTotal = (p.customCosts||[]).reduce((a,cc) => a + (cc.flat ? (cc.perUnit||cc.amount||0) : (cc.perUnit||cc.amount||0) * (p.totalQty||0)), 0);
                 return (
                   <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
