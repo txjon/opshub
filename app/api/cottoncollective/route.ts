@@ -253,24 +253,59 @@ export async function GET(req: NextRequest) {
         LIME14: "Lime", RSTA12: "Rasta",
       };
 
-      const products = Object.values(styles).map((s: any) => {
-        // Extract prefix: strip "CC" then grab letters before numbers
+      // Step 1: Build per-SKU products with names
+      const skuProducts = Object.values(styles).map((s: any) => {
         const rawPrefix = s.sku.replace(/^CC/, "");
         const prefix = rawPrefix.replace(/[0-9].*/, "");
         const productName = PRODUCT_NAMES[s.sku] || null;
         return {
-          name: productName || s.sku,
           sku: s.sku,
+          fullName: productName || s.sku,
+          prefix,
           category: CATEGORY_MAP[prefix] || "Other",
-          typeLabel: productName || s.sku,
           colors: Object.entries(s.colors).map(([code, data]: [string, any]) => ({
             color: COLOR_NAMES[code] || code,
             code,
+            sku: s.sku,
             sizes: sortSz(data.sizes),
             prices: data.prices,
           })),
         };
       });
+
+      // Step 2: Merge by base product name (strip " — Dye Type" suffix)
+      const merged: Record<string, any> = {};
+      for (const sp of skuProducts) {
+        // Base name: everything before " — " (or full name if no dash)
+        const baseName = sp.fullName.includes(" — ") ? sp.fullName.split(" — ")[0] : sp.fullName;
+        if (!merged[baseName]) {
+          merged[baseName] = { name: baseName, category: sp.category, skus: [], colors: [] };
+        }
+        merged[baseName].skus.push(sp.sku);
+        // Add all colors, dedup by color name
+        for (const c of sp.colors) {
+          const existing = merged[baseName].colors.find((ec: any) => ec.color === c.color);
+          if (!existing) {
+            merged[baseName].colors.push(c);
+          }
+          // If same color name exists with different pricing, keep the one with more sizes
+          else if (c.sizes.length > existing.sizes.length) {
+            Object.assign(existing, c);
+          }
+        }
+      }
+
+      // Step 3: Sort colors alphabetically within each product
+      const products = Object.values(merged).map((p: any) => ({
+        name: p.name,
+        sku: p.skus[0],
+        category: p.category,
+        typeLabel: p.name,
+        colors: p.colors.sort((a: any, b: any) => a.color.localeCompare(b.color)),
+      }));
+
+      // Sort products by name
+      products.sort((a: any, b: any) => a.name.localeCompare(b.name));
 
       // Build category summary
       const categories: Record<string, number> = {};
