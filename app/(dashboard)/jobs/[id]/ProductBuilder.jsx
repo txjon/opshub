@@ -357,7 +357,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     for (let g = 0; g < groupList.length; g++) {
       const group = groupList[g];
       const itemName = group.displayName;
-      setPsdProcessing({ status: `${g + 1}/${groupList.length} — ${itemName}`, fileName: group.psd?.name || group.mockup?.name || "" });
+      setPsdProcessing({ status: `${g + 1}/${groupList.length} — ${itemName}`, fileName: group.psd?.name || group.mockup?.name || "", done: g, total: groupList.length });
 
       try {
         let locations = [];
@@ -519,8 +519,14 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         >
           {psdProcessing ? (
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: T.accent }}>{psdProcessing.status}</div>
-              <div style={{ fontSize: 10, color: T.muted }}>{psdProcessing.fileName}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
+                {psdProcessing.total > 0 && (
+                  <div style={{ flex: 1, height: 6, background: T.surface, borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.round((psdProcessing.done / psdProcessing.total) * 100)}%`, background: T.accent, borderRadius: 3, transition: "width 0.3s" }} />
+                  </div>
+                )}
+                <span style={{ fontSize: 11, fontWeight: 600, color: T.accent, flexShrink: 0 }}>{psdProcessing.status}</span>
+              </div>
             </div>
           ) : (
             <span style={{ fontSize: 12, color: T.faint }}>Drop PSD + mockup files to create items</span>
