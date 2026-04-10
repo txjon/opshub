@@ -40,6 +40,17 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
 
       {/* ── Preview Proofs + View Portal ── */}
       <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => {
+          const allProofs = items.flatMap(it => (itemFiles[it.id] || []).filter(f => f.stage === "proof"));
+          if (allProofs.length > 0) setPreviewProofItem(allProofs[0]);
+        }}
+          style={{ padding: "10px 20px", borderRadius: 8, border: "none", cursor: "pointer",
+            background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
+            transition: "opacity 0.15s" }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+          Preview Proofs
+        </button>
         {job.portal_token && (
           <button onClick={() => window.open(`/portal/${job.portal_token}`, "_blank")}
             style={{ padding: "10px 20px", borderRadius: 8, border: `1px solid ${T.border}`, cursor: "pointer",
@@ -150,15 +161,30 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
         );
       })()}
 
-      {/* Fullscreen proof preview */}
-      {previewProofItem && (
+      {/* Fullscreen proof preview with prev/next */}
+      {previewProofItem && (()=>{
+        const allProofs = items.flatMap(it => (itemFiles[it.id] || []).filter(f => f.stage === "proof"));
+        const currentIdx = allProofs.findIndex(f => f.id === previewProofItem.id);
+        const prevProof = currentIdx > 0 ? allProofs[currentIdx - 1] : null;
+        const nextProof = currentIdx < allProofs.length - 1 ? allProofs[currentIdx + 1] : null;
+        const itemName = items.find(it => it.id === previewProofItem.item_id)?.name || "";
+        return (
         <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 9999, display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "12px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700 }}>{previewProofItem.file_name}</div>
-            <button onClick={() => setPreviewProofItem(null)}
-              style={{ padding: "8px 20px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              Close
-            </button>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{itemName}</div>
+              <div style={{ fontSize: 11, color: T.muted }}>{currentIdx + 1} of {allProofs.length} proofs</div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {prevProof && <button onClick={() => setPreviewProofItem(prevProof)}
+                style={{ padding: "8px 16px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>← Prev</button>}
+              {nextProof && <button onClick={() => setPreviewProofItem(nextProof)}
+                style={{ padding: "8px 16px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Next →</button>}
+              <button onClick={() => setPreviewProofItem(null)}
+                style={{ padding: "8px 20px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                Close
+              </button>
+            </div>
           </div>
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "auto", background: T.bg, padding: 20 }}>
             {/\.pdf$/i.test(previewProofItem.file_name) ? (
@@ -171,7 +197,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             )}
           </div>
         </div>
-      )}
+        );})()}
     </div>
   );
 }
