@@ -381,15 +381,23 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 
         if (newItem) {
           // Upload PSD as print_ready
+          const fileCount = (group.psd ? 1 : 0) + (group.mockup ? 1 : 0);
+          let filesDone = 0;
           if (group.psd) {
-            const driveFile = await uploadToDrive({ blob: group.psd, fileName: group.psd.name, mimeType: "application/octet-stream", clientName, projectTitle, itemName });
+            const driveFile = await uploadToDrive({ blob: group.psd, fileName: group.psd.name, mimeType: "application/octet-stream", clientName, projectTitle, itemName,
+              onProgress: (pct) => setPsdProcessing(prev => ({ ...prev, uploadPct: Math.round((filesDone / fileCount) * 100 + pct / fileCount) }))
+            });
             await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "print_ready", notes: JSON.stringify({ psd_locations: locations, psd_has_tag: hasTag }) });
+            filesDone++;
           }
 
           // Upload mockup image
           if (group.mockup) {
-            const driveFile = await uploadToDrive({ blob: group.mockup, fileName: group.mockup.name, mimeType: group.mockup.type || "image/png", clientName, projectTitle, itemName });
+            const driveFile = await uploadToDrive({ blob: group.mockup, fileName: group.mockup.name, mimeType: group.mockup.type || "image/png", clientName, projectTitle, itemName,
+              onProgress: (pct) => setPsdProcessing(prev => ({ ...prev, uploadPct: Math.round((filesDone / fileCount) * 100 + pct / fileCount) }))
+            });
             await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "mockup" });
+            filesDone++;
           }
 
           created++;
@@ -521,14 +529,16 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
             <div style={{ textAlign: "center" }}>
               <div style={{ width: "100%", textAlign: "center" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: T.accent, marginBottom: 6 }}>{psdProcessing.status}</div>
-                {psdProcessing.total > 0 && (
+                {psdProcessing.total > 0 && (()=>{
+                  const overallPct = Math.round((psdProcessing.done / psdProcessing.total) * 100 + (psdProcessing.uploadPct || 0) / psdProcessing.total);
+                  return (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ flex: 1, height: 8, background: T.surface, borderRadius: 4, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${Math.round(((psdProcessing.done + 1) / psdProcessing.total) * 100)}%`, background: T.accent, borderRadius: 4, transition: "width 0.3s" }} />
+                      <div style={{ height: "100%", width: `${overallPct}%`, background: T.accent, borderRadius: 4, transition: "width 0.15s" }} />
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>{Math.round(((psdProcessing.done + 1) / psdProcessing.total) * 100)}%</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>{overallPct}%</span>
                   </div>
-                )}
+                  );})()}
                 {psdProcessing.fileName && <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>{psdProcessing.fileName}</div>}
               </div>
             </div>
