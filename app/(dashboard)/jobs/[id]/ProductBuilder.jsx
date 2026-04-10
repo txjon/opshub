@@ -214,6 +214,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   // ═══════════════════════════════════════════════════════════════
   const [expandedId, setExpandedId] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showBulkCreate, setShowBulkCreate] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [showASColour, setShowASColour] = useState(false);
   const [showLAApparel, setShowLAApparel] = useState(false);
@@ -510,7 +511,133 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         </div>
         );})()}
 
-      {/* ══ Add item button + File drop zone ══ */}
+      {/* ══ Bulk Create Modal ══ */}
+      {showBulkCreate && (()=>{
+        const BULK_SIZES = ["XS","S","M","L","XL","2XL","3XL","4XL","5XL"];
+        const emptyRow = () => ({ name: "", vendor: "", style: "", color: "", type: "tee", xs:0,s:0,m:0,l:0,xl:0,"2xl":0,"3xl":0,"4xl":0,"5xl":0 });
+        const [rows, setRows] = useState([emptyRow(), emptyRow(), emptyRow(), emptyRow(), emptyRow()]);
+        const [saving, setSaving] = useState(false);
+        const updateRow = (idx, field, val) => setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+        const gridRef = useRef(null);
+
+        const doSave = async () => {
+          const validRows = rows.filter(r => r.name.trim());
+          if (validRows.length === 0) return;
+          setSaving(true);
+          const supabase = createClient();
+          for (let ri = 0; ri < validRows.length; ri++) {
+            const r = validRows[ri];
+            const sizes = BULK_SIZES.filter(sz => (r[sz.toLowerCase()] || 0) > 0);
+            const qtys = {};
+            sizes.forEach(sz => { qtys[sz] = r[sz.toLowerCase()] || 0; });
+            const totalQty = Object.values(qtys).reduce((a, v) => a + v, 0);
+            const sortOrder = (items || []).length + ri;
+            const garmentType = detectGarmentType("", r.name + " " + r.vendor + " " + r.type) || r.type || "tee";
+            await supabase.from("items").insert({
+              job_id: project.id, name: r.name.trim(), blank_vendor: r.vendor.trim() || null, blank_sku: r.color.trim() || null,
+              status: "tbd", artwork_status: "not_started", sort_order: sortOrder,
+              garment_type: garmentType,
+            }).select("id").single().then(async ({ data: newItem }) => {
+              if (newItem && sizes.length > 0) {
+                await supabase.from("buy_sheet_lines").insert(
+                  sizes.map(sz => ({ item_id: newItem.id, size: sz, qty_ordered: qtys[sz] || 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }))
+                );
+                await supabase.from("items").update({ sizes, qtys, totalQty }).eq("id", newItem.id);
+              }
+            });
+          }
+          setSaving(false);
+          setShowBulkCreate(false);
+          if (onItemsChanged) onItemsChanged();
+        };
+
+        return (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          onClick={() => setShowBulkCreate(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, border: `1px solid ${T.border}`, width: "95vw", maxWidth: 1200, maxHeight: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {/* Header */}
+            <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>Bulk Create Items</div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Tab between cells. Enter on last row adds a new row.</div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setRows(prev => [...prev, emptyRow()])}
+                  style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Row</button>
+                <button onClick={doSave} disabled={saving || !rows.some(r => r.name.trim())}
+                  style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: (saving || !rows.some(r => r.name.trim())) ? 0.5 : 1 }}>
+                  {saving ? "Creating..." : `Create ${rows.filter(r => r.name.trim()).length} Items`}
+                </button>
+                <button onClick={() => setShowBulkCreate(false)}
+                  style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer" }}>×</button>
+              </div>
+            </div>
+
+            {/* Grid */}
+            <div ref={gridRef} style={{ flex: 1, overflowX: "auto", overflowY: "auto" }}>
+              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: T.surface, position: "sticky", top: 0, zIndex: 1 }}>
+                    <th style={{ padding: "8px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, width: 30 }}>#</th>
+                    <th style={{ padding: "8px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, minWidth: 180 }}>Item Name</th>
+                    <th style={{ padding: "8px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, minWidth: 120 }}>Vendor / Style</th>
+                    <th style={{ padding: "8px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, minWidth: 100 }}>Color</th>
+                    {BULK_SIZES.map(sz => (
+                      <th key={sz} style={{ padding: "8px 4px", textAlign: "center", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", borderBottom: `1px solid ${T.border}`, width: 50 }}>{sz}</th>
+                    ))}
+                    <th style={{ padding: "8px 6px", textAlign: "right", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", borderBottom: `1px solid ${T.border}`, width: 50 }}>Total</th>
+                    <th style={{ width: 30, borderBottom: `1px solid ${T.border}` }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, ri) => {
+                    const total = BULK_SIZES.reduce((a, sz) => a + (row[sz.toLowerCase()] || 0), 0);
+                    return (
+                      <tr key={ri} style={{ borderBottom: `1px solid ${T.border}22` }}>
+                        <td style={{ padding: "4px 6px", color: T.faint, fontSize: 10, fontFamily: mono }}>{ri + 1}</td>
+                        <td style={{ padding: "2px 2px" }}>
+                          <input value={row.name} onChange={e => updateRow(ri, "name", e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter" && ri === rows.length - 1) setRows(prev => [...prev, emptyRow()]); }}
+                            placeholder="Item name" autoFocus={ri === 0}
+                            style={{ width: "100%", padding: "6px 8px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontWeight: 600 }} />
+                        </td>
+                        <td style={{ padding: "2px 2px" }}>
+                          <input value={row.vendor} onChange={e => updateRow(ri, "vendor", e.target.value)}
+                            placeholder="S&S 1717, AS 5026..."
+                            style={{ width: "100%", padding: "6px 8px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12 }} />
+                        </td>
+                        <td style={{ padding: "2px 2px" }}>
+                          <input value={row.color} onChange={e => updateRow(ri, "color", e.target.value)}
+                            placeholder="Black, Navy..."
+                            style={{ width: "100%", padding: "6px 8px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12 }} />
+                        </td>
+                        {BULK_SIZES.map(sz => (
+                          <td key={sz} style={{ padding: "2px 1px" }}>
+                            <input type="text" inputMode="numeric" value={row[sz.toLowerCase()] || ""}
+                              onChange={e => updateRow(ri, sz.toLowerCase(), parseInt(e.target.value) || 0)}
+                              onFocus={e => e.target.select()}
+                              placeholder="0"
+                              style={{ width: "100%", padding: "6px 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: mono, textAlign: "center" }} />
+                          </td>
+                        ))}
+                        <td style={{ padding: "4px 6px", textAlign: "right", fontFamily: mono, fontWeight: 700, color: total > 0 ? T.text : T.faint, fontSize: 12 }}>{total || "—"}</td>
+                        <td style={{ padding: "2px" }}>
+                          {rows.length > 1 && <button onClick={() => setRows(prev => prev.filter((_, i) => i !== ri))}
+                            style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 11 }}
+                            onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>×</button>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ══ Add item button + Bulk + File drop zone ══ */}
       <div style={{ display: "flex", gap: 8 }}>
         {/* Add Item button */}
         <button onClick={() => { if (!psdProcessing) setShowAddModal(true); }}
@@ -518,6 +645,14 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
           onMouseLeave={e => { e.currentTarget.style.background = T.card; }}>
           + Add Item
+        </button>
+
+        {/* Bulk Create button */}
+        <button onClick={() => setShowBulkCreate(true)}
+          style={{ padding: "14px 20px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontSize: 13, fontWeight: 700, color: T.muted, flexShrink: 0, transition: "all 0.15s" }}
+          onMouseEnter={e => { e.currentTarget.style.background = T.surface; e.currentTarget.style.color = T.text; }}
+          onMouseLeave={e => { e.currentTarget.style.background = T.card; e.currentTarget.style.color = T.muted; }}>
+          Bulk Create
         </button>
 
         {/* File drop zone */}
