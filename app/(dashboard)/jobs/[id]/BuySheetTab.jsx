@@ -79,6 +79,7 @@ export function distribute(total, sizes, curve) {
 
 export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, defaultItemName }) {
   const [query, setQuery] = useState("");
+  const [colorSearch, setColorSearch] = useState("");
   const [brands, setBrands] = useState([]);
   const [selBrand, setSelBrand] = useState(null);
   const [styles, setStyles] = useState([]);
@@ -219,10 +220,11 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, default
         </div>
         <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
           {colHead("Color")}
+          {selStyle && <div style={{ padding: "4px 6px", borderBottom: `1px solid ${T.border}` }}><input value={colorSearch} onChange={e => setColorSearch(e.target.value)} placeholder="Search colors..." style={{ width: "100%", fontFamily: font, fontSize: 11, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 8px", outline: "none", boxSizing: "border-box" }} /></div>}
           <div style={{ flex:1, overflowY:"auto" }}>
             {loadingProducts ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>Loading…</div>
               : !selStyle ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Style</div>
-              : colorNames.map(c => {
+              : colorNames.filter(c => !colorSearch.trim() || c.toLowerCase().includes(colorSearch.toLowerCase())).map(c => {
                 const stock = (colorGroups[c]?.items||[]).reduce((a,p) => a + (p.warehouses||[]).reduce((b,w) => b + w.qty, 0), 0);
                 return colRow(c, selColor===c, () => { setSelColor(c); setSelSizes({}); }, stock > 0 ? `${stock.toLocaleString()} avail` : undefined);
               })}
@@ -264,6 +266,7 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, default
 // ── AS Colour Picker ─────────────────────────────────────────────────────────
 
 export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode, defaultItemName }) {
+  const [colorSearch, setColorSearch] = useState("");
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pricing, setPricing] = useState({});  // { sku: price }
@@ -415,10 +418,11 @@ export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode, d
           </div>
           <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Color")}
+            {selStyle && <div style={{ padding: "4px 6px", borderBottom: `1px solid ${T.border}` }}><input value={colorSearch} onChange={e => setColorSearch(e.target.value)} placeholder="Search colors..." style={{ width: "100%", fontFamily: font, fontSize: 11, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 8px", outline: "none", boxSizing: "border-box" }} /></div>}
             <div style={{ flex: 1, overflowY: "auto" }}>
               {loadingVariants ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>Loading...</div>
                 : !selStyle ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>← Style</div>
-                : colorNames.map(c => {
+                : colorNames.filter(c => !colorSearch.trim() || c.toLowerCase().includes(colorSearch.toLowerCase())).map(c => {
                   const colorVars = colorGroups[c] || [];
                   const stock = colorVars.reduce((a, v) => a + (inventory[v.sku] || 0), 0);
                   return colRow(c, selColor === c, () => { setSelColor(c); setSelSizes({}); }, stock > 0 ? `${stock.toLocaleString()} avail` : undefined);
@@ -463,6 +467,7 @@ export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode, d
 
 // ── LA Apparel Picker ────────────────────────────────────────────────────────
 export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, defaultItemName }) {
+  const [colorSearch, setColorSearch] = useState("");
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selCategory, setSelCategory] = useState(null);
@@ -591,10 +596,11 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, 
           {/* Color */}
           <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Color")}
+            {selStyle && <div style={{ padding: "4px 6px", borderBottom: `1px solid ${T.border}` }}><input value={colorSearch} onChange={e => setColorSearch(e.target.value)} placeholder="Search colors..." style={{ width: "100%", fontFamily: font, fontSize: 11, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 8px", outline: "none", boxSizing: "border-box" }} /></div>}
             <div style={{ flex: 1, overflowY: "auto" }}>
               {!selStyle ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint }}>← Style</div>
                 : loadingVariants ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint }}>Loading...</div>
-                : colorNames.map(c => {
+                : colorNames.filter(c => !colorSearch.trim() || c.toLowerCase().includes(colorSearch.toLowerCase())).map(c => {
                     const stock = colorGroups[c].reduce((a, v) => a + (v.stock || 0), 0);
                     return colRow(c, selColor === c, () => { setSelColor(c); setSelSizes({}); }, stock > 0 ? `${stock.toLocaleString()} avail` : undefined);
                   })
@@ -640,6 +646,7 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, 
 
 // ── Favorites Picker ─────────────────────────────────────────────────────────
 export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggleFav, assignMode, defaultItemName }) {
+  const [colorSearch, setColorSearch] = useState("");
   const HP_CATEGORIES = ["Crewnecks", "Hats", "Hoodies", "Jackets", "Long Sleeve", "Tees", "Other"];
   const [selCategory, setSelCategory] = useState(null);
   const [selFav, setSelFav] = useState(null);
@@ -816,11 +823,12 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
         </div>
         <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {colHead("Color")}
+          {selFav && <div style={{ padding: "4px 6px", borderBottom: `1px solid ${T.border}` }}><input value={colorSearch} onChange={e => setColorSearch(e.target.value)} placeholder="Search colors..." style={{ width: "100%", fontFamily: font, fontSize: 11, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 8px", outline: "none", boxSizing: "border-box" }} /></div>}
           <div style={{ flex: 1, overflowY: "auto" }}>
             {loading ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>Loading...</div>
               : !selFav ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>← Select a favorite</div>
               : <>
-                {colorNames.map(c => {
+                {colorNames.filter(c => !colorSearch.trim() || c.toLowerCase().includes(colorSearch.toLowerCase())).map(c => {
                   const stock = (colorGroups[c] || []).reduce((a, v) => a + (inventory[v.sku] || 0), 0);
                   return colRow(c, selColor === c, () => { setSelColor(c); setSelSizes({}); }, stock > 0 ? `${stock.toLocaleString()} avail` : undefined);
                 })}
@@ -875,6 +883,7 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
 // ── Other / Custom Blank Picker ──────────────────────────────────────────────
 
 export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
+  const [colorSearch, setColorSearch] = useState("");
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selBrand, setSelBrand] = useState(null);
@@ -1059,9 +1068,10 @@ export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
           {/* Color */}
           <div style={{ borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Color")}
+            {selStyle && <div style={{ padding: "4px 6px", borderBottom: `1px solid ${T.border}` }}><input value={colorSearch} onChange={e => setColorSearch(e.target.value)} placeholder="Search colors..." style={{ width: "100%", fontFamily: font, fontSize: 11, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 8px", outline: "none", boxSizing: "border-box" }} /></div>}
             <div style={{ flex: 1, overflowY: "auto" }}>
               {!selStyle ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint }}>← Style</div>
-                : colors.map(c => colRow(c.color, selColor === c.id, () => { setSelColor(c.id); setSelSizes({}); },
+                : colors.filter(c => !colorSearch.trim() || c.color.toLowerCase().includes(colorSearch.toLowerCase())).map(c => colRow(c.color, selColor === c.id, () => { setSelColor(c.id); setSelSizes({}); },
                   `${c.sizes?.length || 0} sizes · $${Object.values(c.costs || {}).filter(v => v > 0)[0]?.toFixed(2) || "—"}`,
                   () => setConfirmDelete(c)))}
             </div>
