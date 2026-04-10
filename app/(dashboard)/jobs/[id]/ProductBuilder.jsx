@@ -473,19 +473,32 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       )}
 
       {/* Accessory modal */}
-      {showAddType === "accessory" && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setShowAddType(null)}>
+      {showAddType === "accessory" && (()=>{
+        const assignItem = assignBlankTo ? (workingItems||[]).find(it => it.id === assignBlankTo) : null;
+        if (assignItem && !accName) setAccName(assignItem.name || "");
+        return (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { setShowAddType(null); setAssignBlankTo(null); }}>
           <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: 400, maxWidth: "90vw" }}>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Custom Accessory</div>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{assignItem ? "Assign as Accessory" : "Custom Accessory"}</div>
+            {assignItem && <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>{assignItem.name}</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div><label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>Type</label><input value={accType} onChange={e => setAccType(e.target.value)} onKeyDown={e => e.key === "Enter" && addAccessory()} list="pb-acc-types" placeholder="Patch - PVC, Sticker..." autoFocus style={{ ...ic, width: "100%", padding: "8px 10px", fontSize: 13, fontFamily: font }} /><datalist id="pb-acc-types">{accTypes.map(t => <option key={t} value={t} />)}</datalist></div>
-              <div><label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>Name</label><input value={accName} onChange={e => setAccName(e.target.value)} onKeyDown={e => e.key === "Enter" && addAccessory()} list="pb-acc-names" placeholder="Item name..." style={{ ...ic, width: "100%", padding: "8px 10px", fontSize: 13, fontFamily: font }} /><datalist id="pb-acc-names">{accCatalog.map(n => <option key={n} value={n} />)}</datalist></div>
+              {!assignItem && <div><label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>Name</label><input value={accName} onChange={e => setAccName(e.target.value)} onKeyDown={e => e.key === "Enter" && addAccessory()} list="pb-acc-names" placeholder="Item name..." style={{ ...ic, width: "100%", padding: "8px 10px", fontSize: 13, fontFamily: font }} /><datalist id="pb-acc-names">{accCatalog.map(n => <option key={n} value={n} />)}</datalist></div>}
               <div><label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>Qty</label><input value={accQty} onChange={e => setAccQty(e.target.value)} onKeyDown={e => e.key === "Enter" && addAccessory()} type="text" inputMode="numeric" placeholder="0" style={{ ...ic, width: 100, padding: "8px 10px", fontSize: 13, textAlign: "center" }} /></div>
-              <button onClick={() => { addAccessory(); setShowAddType(null); }} disabled={!accName.trim()} style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, cursor: accName.trim() ? "pointer" : "default", background: accName.trim() ? T.accent : T.surface, color: accName.trim() ? "#fff" : T.faint }}>Add Item</button>
+              <button onClick={() => {
+                if (assignItem) {
+                  // Assign accessory type to existing item
+                  const updates = { garment_type: "accessory", blank_vendor: accType || "Accessory" };
+                  assignBlank({ ...updates, blank_sku: "", style: accType || "", color: "", sizes: assignItem.sizes || [], qtys: assignItem.qtys || {}, totalQty: assignItem.totalQty || 0, blankCosts: {} });
+                  setShowAddType(null);
+                } else {
+                  addAccessory(); setShowAddType(null);
+                }
+              }} disabled={!assignItem && !accName.trim()} style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, cursor: (assignItem || accName.trim()) ? "pointer" : "default", background: (assignItem || accName.trim()) ? T.accent : T.surface, color: (assignItem || accName.trim()) ? "#fff" : T.faint }}>{assignItem ? "Assign to item" : "Add Item"}</button>
             </div>
           </div>
         </div>
-      )}
+        );})()}
 
       {/* ══ Add item button + File drop zone ══ */}
       <div style={{ display: "flex", gap: 8 }}>
