@@ -1770,6 +1770,7 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
   const [selColor, setSelColor] = useState(null);
   const [selSizes, setSelSizes] = useState({});
   const [itemName, setItemName] = useState(defaultItemName || "");
+  const [colorSearch, setColorSearch] = useState("");
 
   useEffect(() => {
     fetch("/api/cottoncollective?action=products")
@@ -1871,7 +1872,7 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
               {filtered.map(p => colRow(
                 p.typeLabel || p.name,
                 selStyle?.sku === p.sku,
-                () => { setSelStyle(p); setSelColor(null); setSelSizes({}); },
+                () => { setSelStyle(p); setSelColor(null); setSelSizes({}); setColorSearch(""); },
                 p.sku
               ))}
             </div>
@@ -1880,9 +1881,15 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
           {/* Colors column */}
           <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {colHead("Colors")}
+            {selStyle && (
+              <div style={{ padding: "4px 6px", borderBottom: `1px solid ${T.border}` }}>
+                <input value={colorSearch} onChange={e => setColorSearch(e.target.value)} placeholder="Search colors..."
+                  style={{ width: "100%", fontFamily: font, fontSize: 11, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 8px", outline: "none", boxSizing: "border-box" }} />
+              </div>
+            )}
             <div style={{ flex: 1, overflowY: "auto" }}>
               {!selStyle ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>← Style</div>
-                : colors.map(c => colRow(c.color, selColor === c.color, () => { setSelColor(c.color); setSelSizes({}); }))}
+                : colors.filter(c => !colorSearch.trim() || c.color.toLowerCase().includes(colorSearch.toLowerCase())).map(c => colRow(c.color, selColor === c.color, () => { setSelColor(c.color); setSelSizes({}); }))}
             </div>
           </div>
 
