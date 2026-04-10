@@ -497,8 +497,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 if (assignItem) {
                   // Assign accessory type to existing item
                   const detectedType = detectGarmentType("", (assignItem.name || "") + " " + (accType || ""));
+                  const qty = parseInt(accQty) || 0;
                   const updates = { garment_type: detectedType, blank_vendor: accType || "Custom" };
-                  assignBlank({ ...updates, blank_sku: "", style: accType || "", color: "", sizes: assignItem.sizes || [], qtys: assignItem.qtys || {}, totalQty: assignItem.totalQty || 0, blankCosts: {} });
+                  assignBlank({ ...updates, blank_sku: "", style: accType || "", color: "", sizes: qty > 0 ? ["OSFA"] : assignItem.sizes || [], qtys: qty > 0 ? { OSFA: qty } : assignItem.qtys || {}, totalQty: qty || assignItem.totalQty || 0, blankCosts: {} });
                   setShowAddType(null);
                 } else {
                   addAccessory(); setShowAddType(null);
@@ -722,7 +723,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                   onChange={e => { e.stopPropagation(); onUpdateItem(item.id, { garment_type: e.target.value || null }); }}
                   style={{ fontSize: 10, padding: "3px 8px", borderRadius: 99, background: T.card, color: T.muted, border: `1px solid ${T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
                   <option value="">type</option>
-                  {["tee","longsleeve","hoodie","crewneck","jacket","pants","shorts","hat","beanie","tote","patch","poster","sticker","custom","socks","bandana","banner","flag","pin","koozie","lighter","towel","water_bottle","samples"].map(t => (
+                  {["bandana","banner","beanie","crewneck","custom","flag","hat","hoodie","jacket","koozie","lighter","longsleeve","pants","patch","pin","poster","samples","shorts","socks","sticker","tee","tote","towel","water_bottle"].map(t => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
@@ -733,8 +734,24 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
             )}
           </div>
 
+          {/* Simple qty for non-sized items (patches, stickers, etc.) */}
+          {(item.sizes.length === 0 || (item.sizes.length === 1 && item.sizes[0] === "OSFA")) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Qty</span>
+              <input type="text" inputMode="numeric" value={item.totalQty || ""}
+                onChange={e => {
+                  const q = parseInt(e.target.value) || 0;
+                  onUpdateItem(item.id, { totalQty: q, sizes: q > 0 ? ["OSFA"] : [], qtys: q > 0 ? { OSFA: q } : {} });
+                }}
+                onFocus={e => e.target.select()}
+                placeholder="0"
+                style={{ ...ic, width: 70, height: 36, textAlign: "center", fontSize: 16, fontWeight: 700 }} />
+              <span style={{ fontSize: 12, color: T.muted }}>units</span>
+            </div>
+          )}
+
           {/* Sizes & Quantities — labels on top, bigger inputs */}
-          {item.sizes.length > 0 && (
+          {item.sizes.length > 0 && item.sizes[0] !== "OSFA" && (
             <div>
               <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
                 {item.sizes.map((sz, ci) => {
