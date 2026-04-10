@@ -542,7 +542,6 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 await supabase.from("buy_sheet_lines").insert(
                   sizes.map(sz => ({ item_id: newItem.id, size: sz, qty_ordered: qtys[sz] || 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }))
                 );
-                await supabase.from("items").update({ sizes, qtys, totalQty }).eq("id", newItem.id);
               }
             });
           }
