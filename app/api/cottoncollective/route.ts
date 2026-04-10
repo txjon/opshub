@@ -63,8 +63,8 @@ export async function GET(req: NextRequest) {
     const token = await getToken();
 
     if (action === "products") {
-      // Fetch product pricing for this customer
-      const res = await fetch(`${CC_BASE}/getProductPriceByCustomer/${CC_CUSTOMER_ID}`, {
+      // Fetch product pricing — external_id as query param
+      const res = await fetch(`${CC_BASE}/getProductPriceByCustomer?external_id=${CC_CUSTOMER_ID}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -76,53 +76,95 @@ export async function GET(req: NextRequest) {
       const csv = await res.text();
       const rows = parseCSV(csv);
 
-      // Group by style (product) → colors → sizes with pricing
+      // SKU format: CC2FK250SLD-BLKWH-2XL → style-color-size
+      // Multiple rows per SKU for qty tiers (min_qty: 1, 200, etc.)
+      // Use min_qty=1 as base price
       const styles: Record<string, any> = {};
       for (const row of rows) {
-        const sku = row.SKU || row.sku || row.Sku || "";
-        const styleName = row.ProductTitle || row.product_title || row.Title || row.title || row.Style || row.style || sku;
-        const color = row.Color || row.color || row.Colour || row.colour || row.VariantTitle || row.variant_title || "";
-        const size = row.Size || row.size || "";
-        const price = parseFloat(row.Price || row.price || row.CustomerPrice || row.customer_price || "0") || 0;
+        const fullSku = row.sku || "";
+        const minQty = parseInt(row.min_qty || "0") || 0;
+        const price = parseFloat(row.price || "0") || 0;
 
-        const styleKey = styleName.replace(/\s*-\s*$/, "").trim();
-        if (!styleKey) continue;
+        // Only use base price (min_qty = 1)
+        if (minQty > 1) continue;
 
-        if (!styles[styleKey]) {
-          styles[styleKey] = { name: styleKey, sku: sku.split("-")[0] || sku, colors: {} };
+        // Parse SKU: everything up to second-to-last dash is style, last part is size, middle is color
+        const parts = fullSku.split("-");
+        if (parts.length < 3) continue;
+
+        const size = parts[parts.length - 1]; // Last part = size
+        const color = parts[parts.length - 2]; // Second to last = color
+        const styleCode = parts.slice(0, parts.length - 2).join("-"); // Rest = style
+
+        if (!styleCode || !color || !size) continue;
+
+        if (!styles[styleCode]) {
+          styles[styleCode] = { name: styleCode, sku: styleCode, colors: {} };
         }
 
-        const colorKey = color || "Default";
-        if (!styles[styleKey].colors[colorKey]) {
-          styles[styleKey].colors[colorKey] = { sizes: [], prices: {} };
+        if (!styles[styleCode].colors[color]) {
+          styles[styleCode].colors[color] = { sizes: [], prices: {} };
         }
-        if (size && !styles[styleKey].colors[colorKey].sizes.includes(size)) {
-          styles[styleKey].colors[colorKey].sizes.push(size);
+        if (!styles[styleCode].colors[color].sizes.includes(size)) {
+          styles[styleCode].colors[color].sizes.push(size);
         }
-        if (size) {
-          styles[styleKey].colors[colorKey].prices[size] = price;
-        }
+        styles[styleCode].colors[color].prices[size] = price;
       }
 
-      // Convert to array
-      const products = Object.values(styles).map((s: any) => ({
-        name: s.name,
-        sku: s.sku,
-        colors: Object.entries(s.colors).map(([color, data]: [string, any]) => ({
-          color,
-          sizes: data.sizes,
-          prices: data.prices,
-        })),
-      }));
+      // Sort sizes within each color
+      const SIZE_ORDER = ["XS","S","M","L","XL","2XL","3XL","4XL","5XL"];
+      const sortSz = (sizes: string[]) => sizes.sort((a, b) => {
+        const ai = SIZE_ORDER.indexOf(a), bi = SIZE_ORDER.indexOf(b);
+        if (ai === -1 && bi === -1) return a.localeCompare(b);
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      });
 
-      return NextResponse.json({ products, raw_count: rows.length });
+      // Category mapping from SKU prefix
+      const CATEGORY_MAP: Record<string, string> = {
+        SST: "Tees", LST: "Tees", MST: "Tees", DRP: "Tees",
+        CRW: "Crewnecks", HOD: "Hoodies", ZIP: "Hoodies",
+        CRP: "Crops", PNT: "Bottoms", SHR: "Bottoms",
+        VLY: "Tanks", THL: "Thermals", SSK: "Socks", RW: "Raw",
+      };
+      const PREFIX_LABELS: Record<string, string> = {
+        SST: "Short Sleeve Tee", LST: "Long Sleeve Tee", MST: "Muscle Tee", DRP: "Drop Shoulder Tee",
+        CRW: "Crewneck", HOD: "Hoodie", ZIP: "Zip Hoodie",
+        CRP: "Crop", PNT: "Pants", SHR: "Shorts",
+        VLY: "Tank", THL: "Thermal", SSK: "Socks", RW: "Raw",
+      };
+
+      const products = Object.values(styles).map((s: any) => {
+        // Extract prefix: strip "CC" then grab letters before numbers
+        const prefix = s.sku.replace(/^CC/, "").replace(/[0-9].*/, "");
+        return {
+          name: s.name,
+          sku: s.sku,
+          category: CATEGORY_MAP[prefix] || "Other",
+          typeLabel: PREFIX_LABELS[prefix] || prefix,
+          colors: Object.entries(s.colors).map(([color, data]: [string, any]) => ({
+            color,
+            sizes: sortSz(data.sizes),
+            prices: data.prices,
+          })),
+        };
+      });
+
+      // Build category summary
+      const categories: Record<string, number> = {};
+      for (const p of products) {
+        categories[p.category] = (categories[p.category] || 0) + 1;
+      }
+
+      return NextResponse.json({ products, categories, raw_count: rows.length });
     }
 
     if (action === "inventory") {
       const sku = req.nextUrl.searchParams.get("sku") || "";
-      const url = sku
-        ? `${CC_BASE}/getvariantinventory/${CC_CUSTOMER_ID}/${sku}`
-        : `${CC_BASE}/getvariantinventory/${CC_CUSTOMER_ID}`;
+      const params = new URLSearchParams({ customer_id: CC_CUSTOMER_ID });
+      if (sku) params.set("sku", sku);
+      const url = `${CC_BASE}/getvariantinventory?${params}`;
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },

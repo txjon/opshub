@@ -1762,24 +1762,28 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
 
 export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItemName }) {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [selCategory, setSelCategory] = useState(null);
   const [selStyle, setSelStyle] = useState(null);
   const [selColor, setSelColor] = useState(null);
   const [selSizes, setSelSizes] = useState({});
   const [itemName, setItemName] = useState(defaultItemName || "");
-  const lastClickedSize = useRef(null);
 
   useEffect(() => {
     fetch("/api/cottoncollective?action=products")
       .then(r => r.json())
-      .then(d => { setProducts(d.products || []); setLoading(false); })
+      .then(d => { setProducts(d.products || []); setCategories(d.categories || {}); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
 
-  const filtered = search.trim()
-    ? products.filter(p => (p.name + " " + p.sku).toLowerCase().includes(search.toLowerCase()))
-    : products;
+  const filtered = (() => {
+    let list = products;
+    if (selCategory) list = list.filter(p => p.category === selCategory);
+    if (search.trim()) list = list.filter(p => (p.name + " " + p.typeLabel + " " + p.sku).toLowerCase().includes(search.toLowerCase()));
+    return list;
+  })();
 
   const colors = selStyle ? selStyle.colors : [];
   const selColorData = selColor ? colors.find(c => c.color === selColor) : null;
@@ -1800,7 +1804,7 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
     allSizes.forEach(sz => {
       if (selColorData?.prices?.[sz]) blankCosts[sz] = selColorData.prices[sz];
     });
-    const itemFullName = itemName.trim() || `Cotton Collective ${selStyle.sku} - ${selColor}`;
+    const itemFullName = itemName.trim() || `Cotton Collective ${selStyle.typeLabel} - ${selColor}`;
     onAdd({
       id: Date.now() + Math.random(),
       name: itemFullName,
@@ -1808,23 +1812,26 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
       blank_sku: selColor,
       style: `Cotton Collective ${selStyle.sku}`,
       color: selColor,
-      garment_type: detectGarmentType("", itemFullName),
+      garment_type: detectGarmentType(selStyle.category || "", itemFullName + " " + (selStyle.typeLabel || "")),
       sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
     });
     setItemName(""); setSelColor(null); setSelSizes({});
   };
 
-  const colRow = (label, active, onClick) => (
+  const colRow = (label, active, onClick, sub) => (
     <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
       onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
       onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
       {label}
+      {sub && <div style={{ fontSize: 9, color: active ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{sub}</div>}
     </div>
   );
 
   const colHead = (label) => (
     <div style={{ padding: "6px 11px", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em", background: T.surface, borderBottom: `1px solid ${T.border}`, fontFamily: font }}>{label}</div>
   );
+
+  const CAT_ORDER = ["Tees", "Crewnecks", "Hoodies", "Crops", "Tanks", "Bottoms", "Thermals", "Socks", "Raw", "Other"];
 
   return (
     <div style={{ background: T.card, borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "80vh" }}>
@@ -1847,26 +1854,32 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
         <div style={{ padding: 40, textAlign: "center", color: T.muted, fontSize: 13 }}>Loading Cotton Collective catalog...</div>
       ) : (
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          {/* Categories column */}
+          <div style={{ width: 140, borderRight: `1px solid ${T.border}`, overflowY: "auto" }}>
+            {colHead("Categories")}
+            {colRow(<><span style={{ fontWeight: 600 }}>All</span><span style={{ color: T.faint, marginLeft: 4 }}>({products.length})</span></>, !selCategory, () => { setSelCategory(null); setSelStyle(null); setSelColor(null); setSelSizes({}); })}
+            {CAT_ORDER.filter(cat => categories[cat]).map(cat =>
+              colRow(<><span style={{ fontWeight: 600 }}>{cat}</span><span style={{ color: selCategory === cat ? "rgba(255,255,255,0.7)" : T.faint, marginLeft: 4 }}>({categories[cat]})</span></>, selCategory === cat, () => { setSelCategory(cat); setSelStyle(null); setSelColor(null); setSelSizes({}); })
+            )}
+          </div>
+
           {/* Styles column */}
-          <div style={{ width: 260, borderRight: `1px solid ${T.border}`, overflowY: "auto" }}>
+          <div style={{ width: 220, borderRight: `1px solid ${T.border}`, overflowY: "auto" }}>
             {colHead(`Styles (${filtered.length})`)}
             {filtered.length === 0 && <div style={{ padding: 14, fontSize: 11, color: T.faint }}>No styles found</div>}
             {filtered.map(p => colRow(
-              <><span style={{ fontWeight: 600 }}>{p.name}</span><span style={{ color: T.faint, marginLeft: 6, fontSize: 10 }}>{p.sku}</span></>,
+              p.typeLabel || p.name,
               selStyle?.sku === p.sku,
-              () => { setSelStyle(p); setSelColor(null); setSelSizes({}); }
+              () => { setSelStyle(p); setSelColor(null); setSelSizes({}); },
+              p.sku
             ))}
           </div>
 
           {/* Colors column */}
-          <div style={{ width: 200, borderRight: `1px solid ${T.border}`, overflowY: "auto" }}>
+          <div style={{ width: 160, borderRight: `1px solid ${T.border}`, overflowY: "auto" }}>
             {colHead("Colors")}
             {!selStyle && <div style={{ padding: 14, fontSize: 11, color: T.faint }}>Select a style</div>}
-            {colors.map(c => colRow(
-              c.color,
-              selColor === c.color,
-              () => { setSelColor(c.color); setSelSizes({}); }
-            ))}
+            {colors.map(c => colRow(c.color, selColor === c.color, () => { setSelColor(c.color); setSelSizes({}); }))}
           </div>
 
           {/* Sizes column */}
