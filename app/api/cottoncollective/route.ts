@@ -124,25 +124,107 @@ export async function GET(req: NextRequest) {
       // Category mapping from SKU prefix
       const CATEGORY_MAP: Record<string, string> = {
         SST: "Tees", LST: "Tees", MST: "Tees", DRP: "Tees",
+        "2FT": "Tees", "2FK": "Kids",
         CRW: "Crewnecks", HOD: "Hoodies", ZIP: "Hoodies",
         CRP: "Crops", PNT: "Bottoms", SHR: "Bottoms",
-        VLY: "Tanks", THL: "Thermals", SSK: "Socks", RW: "Raw",
+        VLY: "Shorts", THL: "Thermals", SSK: "Socks", RW: "Raw",
       };
-      const PREFIX_LABELS: Record<string, string> = {
-        SST: "Short Sleeve Tee", LST: "Long Sleeve Tee", MST: "Muscle Tee", DRP: "Drop Shoulder Tee",
-        CRW: "Crewneck", HOD: "Hoodie", ZIP: "Zip Hoodie",
-        CRP: "Crop", PNT: "Pants", SHR: "Shorts",
-        VLY: "Tank", THL: "Thermal", SSK: "Socks", RW: "Raw",
+
+      // Full product name mapping: SKU code → real product name from cottoncollective.org
+      const PRODUCT_NAMES: Record<string, string> = {
+        // Tees
+        "CCSST200SPR": "Tour S/S Tee 6.0 oz — Spiral",
+        "CCSST200CLD": "Tour S/S Tee 6.0 oz — Cloud",
+        "CCSST200CRY": "Tour S/S Tee 6.0 oz — Crystal",
+        "CCSST200MNR": "Tour S/S Tee 6.0 oz — Mineral",
+        "CCSST220SLD": "Daily S/S Tee 6.5 oz — Solid",
+        "CCSST220SNW": "Daily S/S Tee 6.5 oz — Snow Wash",
+        "CCSST220HTR": "Daily S/S Tee 6.5 oz — Heather",
+        "CCSST250SLD": "Oversized Box S/S Tee 7.5 oz — Solid",
+        "CCSST250SNW": "Oversized Box S/S Tee 7.5 oz — Snow Wash",
+        "CCSST250HTR": "Oversized Box S/S Tee 7.5 oz — Heather",
+        "CCSST250PGM": "Oversized Box S/S Tee 7.5 oz — Pigment",
+        "CCSST250PFD": "Oversized Box S/S Tee 7.5 oz — PFD",
+        "CCSST250OIL": "Oversized Box S/S Tee 7.5 oz — Oil Wash",
+        "CCSST250ORG": "Oversized Box S/S Tee 7.5 oz — Organic",
+        "CCSST250PTS": "Oversized Box S/S Tee 7.5 oz — Paint Splatter",
+        "CCSST250SN": "Oversized Box S/S Tee 7.5 oz — Snow",
+        "CCSST305SLD": "Heavy Box S/S Tee 9 oz — Solid",
+        "CCSST305SNW": "Heavy Box S/S Tee 9 oz — Snow Wash",
+        // Long Sleeve
+        "CCLST250SLD": "Oversized Box L/S Tee 7.5 oz — Solid",
+        "CCLST250SNW": "Oversized Box L/S Tee 7.5 oz — Snow Wash",
+        "CCLST250CUT": "Oversized Box L/S Tee 7.5 oz — Cut",
+        // Drop Crop
+        "CCDRP235SLD": "Drop Crop S/S Tee 7.0 oz — Solid",
+        "CCDRP235SNW": "Drop Crop S/S Tee 7.0 oz — Snow Wash",
+        "CCDRP235HTR": "Drop Crop S/S Tee 7.0 oz — Heather",
+        // Muscle
+        "CCMST250SLD": "Muscle Tee 7.5 oz — Solid",
+        "CCMST250SNW": "Muscle Tee 7.5 oz — Snow Wash",
+        // Crops
+        "CCCRP250SLD": "Oversized Crop S/S Tee 7.5 oz — Solid",
+        "CCCRP250SNW": "Oversized Crop S/S Tee 7.5 oz — Snow Wash",
+        // Crewnecks
+        "CCCRW510SLD": "Heavy Crew 15 oz — Solid",
+        "CCCRW510SNW": "Heavy Crew 15 oz — Snow Wash",
+        "CCCRW510PGM": "Heavy Crew 15 oz — Pigment",
+        "CCCRW510CRY": "Heavy Crew 15 oz — Crystal",
+        "CCCRW520SLD": "Heavy Crew 15 oz — Solid",
+        // Hoodies
+        "CCHOD376SLD": "Standard Hoodie 11 oz — Solid",
+        "CCHOD376SNW": "Standard Hoodie 11 oz — Snow Wash",
+        "CCHOD475SLD": "Special Hoodie 14 oz — Solid",
+        "CCHOD475SNW": "Special Hoodie 14 oz — Snow Wash",
+        "CCHOD475PGM": "Special Hoodie 14 oz — Pigment",
+        "CCHOD475HTR": "Special Hoodie 14 oz — Heather",
+        "CCHOD475CRY": "Special Hoodie 14 oz — Crystal",
+        "CCHOD475PNT": "Special Hoodie 14 oz — Paint",
+        "CCHOD475PTS": "Special Hoodie 14 oz — Paint Splatter",
+        "CCHOD510SLD": "Heavy Hoodie 15 oz — Solid",
+        "CCHOD510PGM": "Heavy Hoodie 15 oz — Pigment",
+        "CCHOD510PFD": "Heavy Hoodie 15 oz — PFD",
+        // Zip Hoodies
+        "CCZIP376SLD": "Standard Zip Hoodie 11 oz — Solid",
+        "CCZIP376SNW": "Standard Zip Hoodie 11 oz — Snow Wash",
+        "CCZIP475SNW": "Special Zip Hoodie 14 oz — Snow Wash",
+        "CCZIP475PTS": "Special Zip Hoodie 14 oz — Paint Splatter",
+        // Bottoms
+        "CCPNT405SLD": "Special Pant 12.5 oz — Solid",
+        "CCPNT405SNW": "Special Pant 12.5 oz — Snow Wash",
+        "CCPNT405PGM": "Baggy Pant 12 oz — Pigment",
+        "CCPNT405HTR": "Special Pant 12.5 oz — Heather",
+        "CCPNT420SNW": "Baggy Pant 12 oz — Snow Wash",
+        "CCSHR390PGM": "Dunk Short 11.5 oz — Pigment",
+        "CCSHR390SNW": "Dunk Short 11.5 oz — Snow Wash",
+        // Shorts/Tanks
+        "CCVLY420SNW": "Volley Short 12.5 oz — Snow Wash",
+        // Thermals
+        "CCTHL240SLD": "Waffle L/S Tee 7.0 oz — Solid",
+        "CCTHL240SNW": "Waffle L/S Tee 7.0 oz — Snow Wash",
+        "CCTHL240HTR": "Waffle L/S Tee 7.0 oz — Heather",
+        // Socks
+        "CCSSK250SLD": "Socks — Solid",
+        "CCSSK250SNW": "Socks — Snow Wash",
+        // Kids
+        "CC2FT250SLD": "Oversized Kids 2fer L/S Tee 7.5 oz — Solid",
+        "CC2FT250SNW": "Oversized Kids 2fer L/S Tee 7.5 oz — Snow Wash",
+        "CC2FK250SLD": "Oversized Kids S/S Tee 7.5 oz — Solid",
+        "CC2FK250SNW": "Oversized Kids S/S Tee 7.5 oz — Snow Wash",
+        // Raw
+        "CCRW510PFD": "Prepared For Dye (PFD)",
       };
 
       const products = Object.values(styles).map((s: any) => {
         // Extract prefix: strip "CC" then grab letters before numbers
-        const prefix = s.sku.replace(/^CC/, "").replace(/[0-9].*/, "");
+        const rawPrefix = s.sku.replace(/^CC/, "");
+        const prefix = rawPrefix.replace(/[0-9].*/, "");
+        const productName = PRODUCT_NAMES[s.sku] || null;
         return {
-          name: s.name,
+          name: productName || s.sku,
           sku: s.sku,
           category: CATEGORY_MAP[prefix] || "Other",
-          typeLabel: PREFIX_LABELS[prefix] || prefix,
+          typeLabel: productName || s.sku,
           colors: Object.entries(s.colors).map(([color, data]: [string, any]) => ({
             color,
             sizes: sortSz(data.sizes),
