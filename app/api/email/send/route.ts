@@ -219,7 +219,7 @@ export async function POST(req: NextRequest) {
         resend_message_id: data?.id || null,
       });
       // Save sent timestamps for dashboard follow-up tracking
-      if (type === "quote" || type === "invoice") {
+      if (type === "quote" || type === "invoice" || type === "invoice_proofs") {
         const tsKey = type === "quote" ? "quote_sent_at" : "invoice_sent_at";
         const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
         const updateData: any = { type_meta: { ...(jd?.type_meta || {}), [tsKey]: new Date().toISOString() } };
