@@ -585,12 +585,14 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               <span style={{ width: 22, height: 22, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
                 {String.fromCharCode(65 + idx)}
               </span>
-              <input value={item.name || ""} onChange={e => { e.stopPropagation(); onUpdateItem(item.id, { name: e.target.value }); }}
-                onClick={e => e.stopPropagation()} onFocus={e => e.target.select()}
-                placeholder="Item name"
-                style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, background: "transparent", border: "none", outline: "none", color: T.text, padding: "2px 4px", borderRadius: 4, cursor: "text" }}
-                onMouseEnter={e => { e.target.style.background = T.surface; }} onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.background = "transparent"; }}
-                onBlur={e => { e.target.style.background = "transparent"; }} />
+              <div style={{ flex: 1, minWidth: 0 }} onDoubleClick={e => { e.stopPropagation(); const input = e.currentTarget.querySelector("input"); if (input) { input.style.display = "block"; input.focus(); } }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{item.name || "Untitled"}</span>
+                <input value={item.name || ""} onChange={e => { e.stopPropagation(); onUpdateItem(item.id, { name: e.target.value }); }}
+                  onClick={e => e.stopPropagation()} onFocus={e => e.target.select()}
+                  onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+                  onBlur={e => { e.target.style.display = "none"; }}
+                  style={{ display: "none", fontSize: 13, fontWeight: 600, color: T.text, background: T.surface, border: `1px solid ${T.accent}`, outline: "none", width: "100%", padding: "2px 6px", borderRadius: 4, marginTop: 2 }} />
+              </div>
               {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}</span>}
               {!hasBlank && item.garment_type !== "accessory" && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
               <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono, flexShrink: 0, minWidth: 50, textAlign: "right", color: item.totalQty > 0 ? T.text : T.faint }}>{item.totalQty > 0 ? item.totalQty : "—"}</span>
