@@ -350,7 +350,15 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       balanceDue,
     });
 
-    const pdfBuffer = await generatePDF(html);
+    // Add PAID stamp if requested
+    const paidParam = req.nextUrl.searchParams.get("paid");
+    const paidDate = req.nextUrl.searchParams.get("paidDate");
+    let finalHtml = html;
+    if (paidParam === "true") {
+      const stamp = paidDate || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      finalHtml = html.replace("</body>", `<div style="position:fixed;top:40%;left:50%;transform:translate(-50%,-50%) rotate(-25deg);font-size:72px;font-weight:900;color:rgba(26,140,92,0.15);letter-spacing:8px;font-family:system-ui;pointer-events:none;z-index:9999">PAID</div><div style="position:fixed;top:52%;left:50%;transform:translate(-50%,-50%) rotate(-25deg);font-size:18px;font-weight:700;color:rgba(26,140,92,0.25);font-family:system-ui;pointer-events:none;z-index:9999">${stamp}</div></body>`);
+    }
+    const pdfBuffer = await generatePDF(finalHtml);
     const slug = (job.title || jobId).replace(/\s+/g, "-");
     const displayNum = job.type_meta?.qb_invoice_number || job.job_number || jobId.slice(0, 8);
     const filename = `HPD-Invoice-${displayNum}-${slug}.pdf`;

@@ -140,10 +140,12 @@ export async function POST(req: NextRequest) {
 
     // Portal link for client-facing emails (quote, invoice — not PO)
     let portalButton = "";
+    let approveButton = "";
     if (type !== "po") {
       const portalUrl = await getPortalUrl(jobId);
       if (portalUrl) {
-        portalButton = `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px">View Project Portal</a></p>`;
+        portalButton = `<a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#f3f3f5;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px;border:1px solid #dcdce0">View in Portal</a>`;
+        approveButton = `<a href="${portalUrl}" style="display:inline-block;padding:12px 28px;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">Approve Quote</a>`;
       }
     }
 
@@ -172,11 +174,11 @@ export async function POST(req: NextRequest) {
       ...(replyTo ? { replyTo: replyTo } : {}),
       subject: defaultSubject,
       html: type === "quote"
-        ? `<p>Hi,</p><p>Here's your quote — take a look and let us know if you have any questions or want to make changes.</p>${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`
-        : type === "invoice_proofs"
-        ? `<p>Hi,</p><p>Attached is your invoice along with print proofs for review. Please take a look at the proofs and let us know if everything looks good or if you'd like any revisions.</p>${payButton}${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`
+        ? `<p>Hi,</p><p>Your quote is attached. Please review the details and approve when ready.</p><p style="margin:20px 0;display:flex;gap:10px">${approveButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
         : type === "invoice"
-        ? `<p>Hi,</p><p>Attached is your invoice. Let us know if you have any questions.</p>${payButton}${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`
+        ? `<p>Hi,</p><p>Your invoice is attached. You can view proofs and make payment from your project portal.</p><p style="margin:20px 0;display:flex;gap:10px">${payButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
+        : type === "invoice_proofs"
+        ? `<p>Hi,</p><p>Your invoice is attached along with proofs for review. Please approve your proofs and make payment from your portal.</p><p style="margin:20px 0;display:flex;gap:10px">${payButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
         : `<p>Hi,</p><p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p>${vendorPortalButton}<p>You can confirm receipt, update production status, and enter tracking directly from the portal.</p><p>Thanks,<br/>House Party Distro</p>`,
       attachments: [
         {

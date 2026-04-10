@@ -65,6 +65,20 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
         await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
       }
       onUpdateItem(itemId, { pipeline_stage: "shipped", decorator_assignment_id: item.decorator_assignment_id });
+
+      // Auto-notify when ALL items shipped on drop-ship orders
+      if (project.shipping_route === "drop_ship") {
+        const allShipped = items.every(it => it.id === itemId ? true : it.pipeline_stage === "shipped");
+        if (allShipped) {
+          // Send shipped email via server-side API (fire and forget)
+          fetch("/api/email/notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "order_shipped", jobId: project.id }),
+          }).catch(() => {});
+          logJobActivity(project.id, "All items shipped — order complete notification sent to client");
+        }
+      }
     }
     if (onRecalcPhase) onRecalcPhase();
   }

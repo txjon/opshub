@@ -25,6 +25,45 @@ export async function POST(req: NextRequest) {
       if (job?.shipping_route !== "drop_ship") return NextResponse.json({ success: true, skipped: true });
     }
 
+    // Order shipped — send packing slip PDF
+    if (type === "order_shipped") {
+      const { createClient: createAdmin } = await import("@supabase/supabase-js");
+      const { Resend } = await import("resend");
+      const sb = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      const resend = new Resend(process.env.RESEND_API_KEY);
+
+      const { data: job } = await sb.from("jobs").select("*, clients(name)").eq("id", jobId).single();
+      if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+
+      // Get client email
+      const { data: contacts } = await sb.from("job_contacts").select("contacts(email)").eq("job_id", jobId);
+      const clientEmail = contacts?.map((c: any) => c.contacts?.email).filter(Boolean)[0];
+      if (!clientEmail) return NextResponse.json({ success: true, skipped: "no email" });
+
+      // Fetch packing slip PDF
+      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+      const pdfRes = await fetch(`${baseUrl}/api/pdf/packing-slip/${jobId}`, {
+        headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY! },
+      });
+      if (!pdfRes.ok) return NextResponse.json({ error: "PDF generation failed" }, { status: 500 });
+      const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+
+      const portalToken = job.portal_token;
+      const portalUrl = portalToken ? `${baseUrl}/portal/${portalToken}` : "";
+      const portalButton = portalUrl ? `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#f3f3f5;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px;border:1px solid #dcdce0">View Order in Portal</a></p>` : "";
+      const invoiceNum = (job.type_meta as any)?.qb_invoice_number || job.job_number || "";
+
+      await resend.emails.send({
+        from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",
+        to: clientEmail,
+        subject: `Your Order Has Shipped — ${(job.clients as any)?.name || ""} · ${job.title}`,
+        html: `<p>Hi,</p><p>Your order has shipped! Your packing slip with tracking information is attached.</p>${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`,
+        attachments: [{ filename: `HPD-PackingSlip-${invoiceNum}.pdf`, content: pdfBuffer.toString("base64") }],
+      });
+
+      return NextResponse.json({ success: true });
+    }
+
     await sendClientNotification({ jobId, type, trackingNumber, carrier });
     return NextResponse.json({ success: true });
   } catch (e: any) {
