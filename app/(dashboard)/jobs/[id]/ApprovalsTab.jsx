@@ -60,7 +60,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             {approvedCount}/{items.length} approved
           </span>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {items.map((item, i) => {
             const fileApproved = proofStatus[item.id]?.allApproved;
             const manualApproved = item.artwork_status === "approved";
@@ -70,13 +70,12 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             const hasProofFile = files.some(f => f.stage === "proof" && f.approval && f.approval !== "none");
 
             return (
-              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.surface, borderRadius: 8, border: `1px solid ${isApproved ? T.green + "44" : T.border}` }}>
-                <span style={{ width: 22, height: 22, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
+              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: T.surface, borderRadius: 6, border: `1px solid ${isApproved ? T.green + "44" : T.border}` }}>
+                <span style={{ width: 18, height: 18, borderRadius: 4, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
                   {String.fromCharCode(65 + i)}
                 </span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
-                  <div style={{ fontSize: 10, color: T.muted }}>{[item.blank_vendor, item.color || item.blank_sku].filter(Boolean).join(" · ")}</div>
+                <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>{item.name}</span>
                 </div>
                 {/* Generate Proof button */}
                 {mockupFile && (
