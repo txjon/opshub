@@ -11,6 +11,7 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
   const [showInvoiceProofsEmail, setShowInvoiceProofsEmail] = useState(false);
   const [pushingToQB, setPushingToQB] = useState(false);
   const [qbError, setQbError] = useState("");
+  const [showPreview, setShowPreview] = useState(false);
   const [addingPayment, setAddingPayment] = useState(false);
   const [pmType, setPmType] = useState("deposit");
   const [pmAmount, setPmAmount] = useState("");
@@ -74,7 +75,7 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
           ) : "Create QB Invoice"}
         </button>
         <span style={{ fontSize: 16, color: qbInvoiceNumber ? T.accent : T.faint, padding: "0 10px", flexShrink: 0 }}>→</span>
-        <button onClick={() => { window.open(`/api/pdf/invoice/${job.id}`, "_blank"); setPreviewed(true); }} disabled={!qbInvoiceNumber}
+        <button onClick={() => { setShowPreview(true); setPreviewed(true); }} disabled={!qbInvoiceNumber}
           style={{ width: 160, height: 80, borderRadius: 10, border: previewed ? `2px solid ${T.accent}` : "none", cursor: !qbInvoiceNumber ? "default" : "pointer",
             background: !qbInvoiceNumber ? T.surface : previewed ? T.accentDim : T.accent, color: !qbInvoiceNumber ? T.faint : previewed ? T.accent : "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
             opacity: !qbInvoiceNumber ? 0.4 : 1, transition: "opacity 0.15s", textAlign: "center",
@@ -94,6 +95,29 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
           Send Invoice + Portal Link
         </button>
       </div>
+
+      {/* Invoice Preview Modal — fullscreen */}
+      {showPreview && (
+        <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 9999, display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "12px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Invoice Preview</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <a href={`/api/pdf/invoice/${job.id}?download=1`} target="_blank" rel="noopener noreferrer"
+                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, textDecoration: "none", cursor: "pointer" }}>
+                Download PDF
+              </a>
+              <button onClick={() => setShowPreview(false)}
+                style={{ padding: "8px 20px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                Close
+              </button>
+            </div>
+          </div>
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <iframe src={`/api/pdf/invoice/${job.id}`} style={{ width: "100%", height: "100%", border: "none" }} />
+          </div>
+        </div>
+      )}
+
       {/* Manual invoice number */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
         <label style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>Invoice #</label>
