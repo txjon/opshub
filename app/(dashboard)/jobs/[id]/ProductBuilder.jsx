@@ -66,6 +66,13 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       const deleted = saved.filter(s => !current.find(c => c.id === s.id));
       for (const item of deleted) {
         if (typeof item.id === "string" && item.id.length > 20) {
+          // Archive Drive folder before deleting DB records
+          try {
+            await fetch("/api/files/cleanup", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "archive-item", clientName, projectTitle, itemName: item.name, itemId: item.id }),
+            });
+          } catch {} // Non-fatal — delete proceeds even if archive fails
           await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
           await supabase.from("items").delete().eq("id", item.id);
         }

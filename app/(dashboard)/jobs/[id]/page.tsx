@@ -544,7 +544,19 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <div style={{flex:1,minWidth:0}}>
                   <input value={item.name||""} onChange={e => { e.stopPropagation(); setItems((prev: any[]) => prev.map((it: any) => it.id === item.id ? {...it, name: e.target.value} : it)); }}
                     onClick={e => e.stopPropagation()}
-                    onBlur={async e => { const name = e.target.value.trim(); if (name) { const { createClient: cc } = await import("@/lib/supabase/client"); cc().from("items").update({ name }).eq("id", item.id).then(() => {}); } }}
+                    onBlur={async e => {
+                      const newName = e.target.value.trim();
+                      const oldName = item._prevName || item.name;
+                      if (newName && newName !== oldName) {
+                        const { createClient: cc } = await import("@/lib/supabase/client");
+                        cc().from("items").update({ name: newName }).eq("id", item.id).then(() => {});
+                        // Rename Drive folder in background
+                        fetch("/api/files/cleanup", { method: "POST", headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "rename-item", clientName: (job?.clients as any)?.name || "", projectTitle: job?.title || "", itemName: oldName, newName }),
+                        }).catch(() => {});
+                      }
+                    }}
+                    onFocus={e => { (item as any)._prevName = e.target.value; }}
                     placeholder="Item name"
                     style={{fontSize:12,fontWeight:600,color:T.text,background:"transparent",border:"none",outline:"none",width:"100%",padding:"1px 2px",borderRadius:3,cursor:"text"}}
                     onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
