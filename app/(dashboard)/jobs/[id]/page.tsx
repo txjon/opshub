@@ -404,6 +404,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 {portalCopied?"Copied!":"Portal Link"}
               </button>
             )}
+            <button onClick={()=>window.open(`/api/pdf/packing-slip/${job.id}`,"_blank")}
+              style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:10,fontWeight:600,color:T.muted}}>
+              Packing Slip
+            </button>
             <button onClick={async()=>{
               if(!window.confirm(`Duplicate "${job.title}" with all items and costing?`)) return;
               const {data:newJob}=await supabase.from("jobs").insert({
