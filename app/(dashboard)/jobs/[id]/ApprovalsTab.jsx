@@ -33,23 +33,17 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
     });
   }, [items]);
 
-  return (
-    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
+  const [previewProofItem, setPreviewProofItem] = useState(null);
 
-      {/* ── Send Proofs ── */}
+  return (
+    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* ── Preview Proofs + View Portal ── */}
       <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => setShowProofEmail(!showProofEmail)}
-          style={{ flex: 1, padding: "14px", borderRadius: 10, border: "none", cursor: "pointer",
-            background: T.purple, color: "#fff", fontSize: 15, fontWeight: 700, fontFamily: font,
-            transition: "opacity 0.15s" }}
-          onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
-          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-          Send Proofs to Client
-        </button>
         {job.portal_token && (
           <button onClick={() => window.open(`/portal/${job.portal_token}`, "_blank")}
-            style={{ padding: "14px 24px", borderRadius: 10, border: "none", cursor: "pointer",
-              background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: font,
+            style={{ padding: "10px 20px", borderRadius: 8, border: `1px solid ${T.border}`, cursor: "pointer",
+              background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: font,
               transition: "opacity 0.15s", flexShrink: 0 }}
             onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
             onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
@@ -57,18 +51,6 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
           </button>
         )}
       </div>
-      {showProofEmail && (
-        <SendEmailDialog
-          type="proof_link"
-          jobId={job.id}
-          contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
-          defaultEmail={contacts.find(c => c.role_on_job === "primary")?.email || ""}
-          defaultSubject={`Proofs Ready for Approval — ${clientName} · ${job.title}`}
-          customBody={`<p>Hi,</p><p>Your proofs are ready for review. You can view and approve all of them from your project portal.</p><p>Let us know if you have any questions or need changes.</p><p>Welcome to the party,<br/>House Party Distro</p>`}
-          onClose={() => setShowProofEmail(false)}
-          onSent={() => { logJobActivity(job.id, "Proofs sent to client for approval via portal link"); setShowProofEmail(false); }}
-        />
-      )}
 
       {/* ── Proof Approvals ── */}
       <div style={card}>
@@ -106,10 +88,11 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                 {!mockupFile && files.length > 0 && (
                   <span style={{ fontSize: 9, color: T.faint }}>No mockup</span>
                 )}
-                {hasProofFile && !isApproved && (
-                  <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.amberDim, color: T.amber }}>
-                    Proof Sent
-                  </span>
+                {hasProofFile && (
+                  <button onClick={() => { const proofFile = files.find(f => f.stage === "proof"); if (proofFile) setPreviewProofItem(proofFile); }}
+                    style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, border: `1px solid ${T.border}`, cursor: "pointer", background: T.surface, color: T.text }}>
+                    Preview
+                  </button>
                 )}
                 {isApproved && (
                   <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>
@@ -167,6 +150,29 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
           />
         );
       })()}
+
+      {/* Fullscreen proof preview */}
+      {previewProofItem && (
+        <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 9999, display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "12px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>{previewProofItem.file_name}</div>
+            <button onClick={() => setPreviewProofItem(null)}
+              style={{ padding: "8px 20px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              Close
+            </button>
+          </div>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "auto", background: T.bg, padding: 20 }}>
+            {/\.pdf$/i.test(previewProofItem.file_name) ? (
+              <iframe src={`/api/files/view/${encodeURIComponent(previewProofItem.file_name)}?id=${previewProofItem.drive_file_id}`}
+                style={{ width: "100%", height: "100%", border: "none" }} />
+            ) : (
+              <img src={`/api/files/thumbnail?id=${previewProofItem.drive_file_id}`}
+                alt={previewProofItem.file_name}
+                style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 8 }} />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

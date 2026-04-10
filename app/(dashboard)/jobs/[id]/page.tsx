@@ -940,15 +940,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
 
       {tab==="proofs"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:20}}>
-          <ApprovalsTab
-            job={job}
-            items={items}
-            contacts={contacts}
-            proofStatus={proofStatus}
-            onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
-            onRecalcPhase={recalcPhase}
-          />
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start"}}>
           <PaymentTab
             job={job}
             contacts={contacts}
@@ -956,6 +948,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             onReload={loadData}
             onRecalcPhase={recalcPhase}
             onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
+          />
+          <ApprovalsTab
+            job={job}
+            items={items}
+            contacts={contacts}
+            proofStatus={proofStatus}
+            onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
+            onRecalcPhase={recalcPhase}
           />
         </div>
       )}
