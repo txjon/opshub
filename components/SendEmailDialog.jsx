@@ -11,7 +11,7 @@ export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, onSent,
     contacts.forEach((c, i) => { if (c.email) sel[i] = true; });
     return sel;
   });
-  const [email, setEmail] = useState(defaultEmail || "");
+  const [email, setEmail] = useState(hasContacts ? "" : (defaultEmail || ""));
   const [subject, setSubject] = useState(defaultSubject || "");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
