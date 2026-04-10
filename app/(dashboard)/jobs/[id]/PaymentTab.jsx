@@ -62,34 +62,34 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
 
       {/* ── Action Buttons ── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <button onClick={pushToQB} disabled={pushingToQB}
-          style={{ width: 160, height: 80, borderRadius: 10, border: qbInvoiceNumber ? `2px solid ${T.green}` : "none", cursor: pushingToQB ? "default" : "pointer",
-            background: qbInvoiceNumber ? T.greenDim : T.green, color: qbInvoiceNumber ? T.green : "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
+          style={{ flex: 1, minWidth: 100, height: 60, borderRadius: 8, border: qbInvoiceNumber ? `2px solid ${T.green}` : "none", cursor: pushingToQB ? "default" : "pointer",
+            background: qbInvoiceNumber ? T.greenDim : T.green, color: qbInvoiceNumber ? T.green : "#fff", fontSize: 11, fontWeight: 700, fontFamily: font,
             opacity: pushingToQB ? 0.6 : 1, transition: "opacity 0.15s", textAlign: "center",
-            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 10, gap: 2 }}
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 8, gap: 2 }}
           onMouseEnter={e => { if (!pushingToQB) e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
           {pushingToQB ? (qbInvoiceNumber ? "Updating..." : "Creating...") : qbInvoiceNumber ? (
             <><span>✓ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500, opacity: 0.8 }}>Click to update</span></>
           ) : "Create QB Invoice"}
         </button>
-        <span style={{ fontSize: 16, color: qbInvoiceNumber ? T.accent : T.faint, padding: "0 10px", flexShrink: 0 }}>→</span>
+        <span style={{ fontSize: 14, color: qbInvoiceNumber ? T.accent : T.faint, flexShrink: 0 }}>→</span>
         <button onClick={() => { setShowPreview(true); setPreviewed(true); }} disabled={!qbInvoiceNumber}
-          style={{ width: 160, height: 80, borderRadius: 10, border: previewed ? `2px solid ${T.accent}` : "none", cursor: !qbInvoiceNumber ? "default" : "pointer",
-            background: !qbInvoiceNumber ? T.surface : previewed ? T.accentDim : T.accent, color: !qbInvoiceNumber ? T.faint : previewed ? T.accent : "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
+          style={{ flex: 1, minWidth: 100, height: 60, borderRadius: 8, border: previewed ? `2px solid ${T.accent}` : "none", cursor: !qbInvoiceNumber ? "default" : "pointer",
+            background: !qbInvoiceNumber ? T.surface : previewed ? T.accentDim : T.accent, color: !qbInvoiceNumber ? T.faint : previewed ? T.accent : "#fff", fontSize: 11, fontWeight: 700, fontFamily: font,
             opacity: !qbInvoiceNumber ? 0.4 : 1, transition: "opacity 0.15s", textAlign: "center",
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 10 }}
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}
           onMouseEnter={e => { if (qbInvoiceNumber) e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={e => { e.currentTarget.style.opacity = !qbInvoiceNumber ? "0.4" : "1"; }}>
           {previewed ? "✓ Preview Invoice" : "Preview Invoice"}
         </button>
-        <span style={{ fontSize: 16, color: previewed ? T.accent : T.faint, padding: "0 10px", flexShrink: 0 }}>→</span>
+        <span style={{ fontSize: 14, color: previewed ? T.accent : T.faint, flexShrink: 0 }}>→</span>
         <button onClick={() => setShowInvoiceEmail(!showInvoiceEmail)} disabled={!previewed}
-          style={{ width: 200, height: 80, borderRadius: 10, border: "none", cursor: !previewed ? "default" : "pointer",
-            background: !previewed ? T.surface : T.accent, color: !previewed ? T.faint : "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
+          style={{ flex: 1, minWidth: 100, height: 60, borderRadius: 8, border: "none", cursor: !previewed ? "default" : "pointer",
+            background: !previewed ? T.surface : T.accent, color: !previewed ? T.faint : "#fff", fontSize: 11, fontWeight: 700, fontFamily: font,
             opacity: !previewed ? 0.4 : 1, transition: "opacity 0.15s", textAlign: "center",
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 10 }}
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}
           onMouseEnter={e => { if (previewed) e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={e => { e.currentTarget.style.opacity = !previewed ? "0.4" : "1"; }}>
           Send Invoice + Portal Link
