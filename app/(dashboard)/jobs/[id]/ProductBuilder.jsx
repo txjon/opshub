@@ -646,12 +646,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           + Add Item
         </button>
 
-        {/* Bulk Create button */}
-        <button onClick={() => setShowBulkCreate(true)}
-          style={{ padding: "14px 20px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontSize: 13, fontWeight: 700, color: T.muted, flexShrink: 0, transition: "all 0.15s" }}
-          onMouseEnter={e => { e.currentTarget.style.background = T.surface; e.currentTarget.style.color = T.text; }}
-          onMouseLeave={e => { e.currentTarget.style.background = T.card; e.currentTarget.style.color = T.muted; }}>
-          Bulk Create
+        {/* Bulk Create button — coming soon */}
+        <button style={{ padding: "14px 20px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.card, cursor: "default", fontSize: 13, fontWeight: 700, color: T.faint, flexShrink: 0, opacity: 0.6 }}>
+          Bulk Create — Coming Soon
         </button>
 
         {/* File drop zone */}
