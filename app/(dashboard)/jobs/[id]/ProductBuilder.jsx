@@ -564,9 +564,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => setBulkRows(prev => [...prev, bulkEmptyRow()])}
                   style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Row</button>
-                <button onClick={doSave} disabled={bulkSaving || !rows.some(r => r.name.trim())}
-                  style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: (bulkSaving || !rows.some(r => r.name.trim())) ? 0.5 : 1 }}>
-                  {bulkSaving ? "Creating..." : `Create ${rows.filter(r => r.name.trim()).length} Items`}
+                <button onClick={doSave} disabled={bulkSaving || !bulkRows.some(r => r.name.trim())}
+                  style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: (bulkSaving || !bulkRows.some(r => r.name.trim())) ? 0.5 : 1 }}>
+                  {bulkSaving ? "Creating..." : `Create ${bulkRows.filter(r => r.name.trim()).length} Items`}
                 </button>
                 <button onClick={() => setShowBulkCreate(false)}
                   style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer" }}>×</button>
@@ -590,14 +590,14 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row, ri) => {
+                  {bulkRows.map((row, ri) => {
                     const total = BULK_SIZES.reduce((a, sz) => a + (row[sz.toLowerCase()] || 0), 0);
                     return (
                       <tr key={ri} style={{ borderBottom: `1px solid ${T.border}22` }}>
                         <td style={{ padding: "4px 6px", color: T.faint, fontSize: 10, fontFamily: mono }}>{ri + 1}</td>
                         <td style={{ padding: "2px 2px" }}>
                           <input value={row.name} onChange={e => updateRow(ri, "name", e.target.value)}
-                            onKeyDown={e => { if (e.key === "Enter" && ri === rows.length - 1) setBulkRows(prev => [...prev, bulkEmptyRow()]); }}
+                            onKeyDown={e => { if (e.key === "Enter" && ri === bulkRows.length - 1) setBulkRows(prev => [...prev, bulkEmptyRow()]); }}
                             placeholder="Item name" autoFocus={ri === 0}
                             style={{ width: "100%", padding: "6px 8px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontWeight: 600 }} />
                         </td>
@@ -622,7 +622,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                         ))}
                         <td style={{ padding: "4px 6px", textAlign: "right", fontFamily: mono, fontWeight: 700, color: total > 0 ? T.text : T.faint, fontSize: 12 }}>{total || "—"}</td>
                         <td style={{ padding: "2px" }}>
-                          {rows.length > 1 && <button onClick={() => setBulkRows(prev => prev.filter((_, i) => i !== ri))}
+                          {bulkRows.length > 1 && <button onClick={() => setBulkRows(prev => prev.filter((_, i) => i !== ri))}
                             style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 11 }}
                             onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>×</button>}
                         </td>
