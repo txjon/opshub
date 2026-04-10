@@ -110,11 +110,12 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, default
     finally { setLoading(false); }
   };
 
-  const searchByQuery = async () => {
-    if (!query.trim()) return;
+  const searchByQuery = async (q) => {
+    const term = q !== undefined ? q : query;
+    if (!term.trim()) return;
     setSelBrand(null); setStyles([]); setSelStyle(null); setProducts([]); setSelColor(null); setLoading(true);
     try {
-      const res = await fetch(`/api/ss?endpoint=search&q=${encodeURIComponent(query)}`);
+      const res = await fetch(`/api/ss?endpoint=search&q=${encodeURIComponent(term)}`);
       const data = await res.json();
       const results = Array.isArray(data) ? data : [];
       setStyles(results);
@@ -122,6 +123,15 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, default
     } catch { setStyles([]); setFilteredBrands(null); }
     finally { setLoading(false); }
   };
+
+  // Debounced auto-search as you type
+  const searchTimer = useRef(null);
+  useEffect(() => {
+    if (!query.trim() || query.length < 2) return;
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => searchByQuery(query), 400);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [query]);
 
   const loadProducts = async (style) => {
     setSelStyle(style); setLoadingProducts(true); setSelColor(null);
@@ -183,8 +193,8 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, default
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 14px", borderBottom:`1px solid ${T.border}` }}>
         <span style={{ fontSize:12, fontWeight:700, color:T.text, fontFamily:font }}>Browse S&amp;S Catalog</span>
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-          <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key==="Enter" && searchByQuery()} placeholder="Search style # or keyword..." style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", width:200 }} />
-          <button onClick={searchByQuery} disabled={loading} style={{ background:T.accent, color:"#fff", border:"none", borderRadius:6, padding:"5px 12px", fontSize:12, fontFamily:font, fontWeight:600, cursor:"pointer", opacity:loading?0.6:1 }}>{loading?"…":"Search"}</button>
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search style # or keyword..." autoFocus style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", flex:1 }} />
+          {loading && <span style={{ fontSize:10, color:T.muted }}>Searching...</span>}
           <input value={itemName} onChange={e=>setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", width:180 }} />
           <button onClick={doAdd} disabled={!canAdd} style={{ background:canAdd?T.accent:T.surface, color:canAdd?"#fff":T.muted, border:"none", borderRadius:6, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:canAdd?"pointer":"default", transition:"all 0.15s" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
           <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", lineHeight:1 }}>×</button>
