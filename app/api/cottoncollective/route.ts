@@ -276,21 +276,29 @@ export async function GET(req: NextRequest) {
       // Step 2: Merge by base product name (strip " — Dye Type" suffix)
       const merged: Record<string, any> = {};
       for (const sp of skuProducts) {
-        // Base name: everything before " — " (or full name if no dash)
         const baseName = sp.fullName.includes(" — ") ? sp.fullName.split(" — ")[0] : sp.fullName;
+        const dyeType = sp.fullName.includes(" — ") ? sp.fullName.split(" — ")[1] : "";
         if (!merged[baseName]) {
           merged[baseName] = { name: baseName, category: sp.category, skus: [], colors: [] };
         }
         merged[baseName].skus.push(sp.sku);
-        // Add all colors, dedup by color name
         for (const c of sp.colors) {
+          // Check if same color name already exists with different pricing
           const existing = merged[baseName].colors.find((ec: any) => ec.color === c.color);
           if (!existing) {
-            merged[baseName].colors.push(c);
-          }
-          // If same color name exists with different pricing, keep the one with more sizes
-          else if (c.sizes.length > existing.sizes.length) {
-            Object.assign(existing, c);
+            merged[baseName].colors.push({ ...c, dyeType });
+          } else {
+            // Same color name, different price = different dye type. Keep both with qualifier.
+            const existingPrice = existing.prices[existing.sizes[0]] || 0;
+            const newPrice = c.prices[c.sizes[0]] || 0;
+            if (Math.abs(existingPrice - newPrice) > 0.01) {
+              // Price differs — add dye type to both names to differentiate
+              if (!existing.color.includes("(")) {
+                existing.color = `${existing.color} (${existing.dyeType || "Standard"})`;
+              }
+              merged[baseName].colors.push({ ...c, color: `${c.color} (${dyeType || "Standard"})`, dyeType });
+            }
+            // Same price = same product, skip duplicate
           }
         }
       }
