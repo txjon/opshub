@@ -940,15 +940,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
 
       {tab==="proofs"&&(
-        <div style={{display:"grid",gridTemplateColumns:"320px 1fr",gap:20,alignItems:"start"}}>
-          <PaymentTab
-            job={job}
-            contacts={contacts}
-            payments={payments}
-            onReload={loadData}
-            onRecalcPhase={recalcPhase}
-            onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
-          />
+        <div style={{display:"grid",gridTemplateColumns:"2fr 3fr",gap:20,alignItems:"start"}}>
           <ApprovalsTab
             job={job}
             items={items}
@@ -956,6 +948,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             proofStatus={proofStatus}
             onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
             onRecalcPhase={recalcPhase}
+          />
+          <PaymentTab
+            job={job}
+            contacts={contacts}
+            payments={payments}
+            onReload={loadData}
+            onRecalcPhase={recalcPhase}
+            onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
           />
         </div>
       )}
