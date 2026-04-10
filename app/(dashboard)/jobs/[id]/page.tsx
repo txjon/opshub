@@ -1080,6 +1080,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         message={`Are you sure you want to delete "${job?.title}"? This will remove all items, payments, and contacts. This cannot be undone.`}
         confirmLabel="Delete project"
         onConfirm={async () => {
+          // Archive Drive folder before deleting
+          try {
+            await fetch("/api/files/cleanup", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "archive-project", clientName: (job?.clients as any)?.name || "", projectTitle: job?.title || "", jobId: params.id }),
+            });
+          } catch {} // Non-fatal
           for (const item of items) {
             await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
             await supabase.from("decorator_assignments").delete().eq("item_id", item.id);
