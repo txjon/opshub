@@ -349,7 +349,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     }
 
     const groupList = Object.values(groups);
-    setPsdProcessing({ status: `Processing ${groupList.length} item${groupList.length !== 1 ? "s" : ""}...`, fileName: "" });
+    setPsdProcessing({ status: `Processing ${groupList.length} item${groupList.length !== 1 ? "s" : ""}...`, fileName: "", done: 0, total: groupList.length });
 
     const supabase = createClient();
     let created = 0;
@@ -519,13 +519,17 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         >
           {psdProcessing ? (
             <div style={{ textAlign: "center" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
+              <div style={{ width: "100%", textAlign: "center" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.accent, marginBottom: 6 }}>{psdProcessing.status}</div>
                 {psdProcessing.total > 0 && (
-                  <div style={{ flex: 1, height: 6, background: T.surface, borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${Math.round((psdProcessing.done / psdProcessing.total) * 100)}%`, background: T.accent, borderRadius: 3, transition: "width 0.3s" }} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ flex: 1, height: 8, background: T.surface, borderRadius: 4, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${Math.round(((psdProcessing.done + 1) / psdProcessing.total) * 100)}%`, background: T.accent, borderRadius: 4, transition: "width 0.3s" }} />
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>{Math.round(((psdProcessing.done + 1) / psdProcessing.total) * 100)}%</span>
                   </div>
                 )}
-                <span style={{ fontSize: 11, fontWeight: 600, color: T.accent, flexShrink: 0 }}>{psdProcessing.status}</span>
+                {psdProcessing.fileName && <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>{psdProcessing.fileName}</div>}
               </div>
             </div>
           ) : (
