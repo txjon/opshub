@@ -19,6 +19,13 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
   activeTab: string;
 }) {
   const hasItems = items.length > 0;
+  const NON_GARMENT = ["patch","sticker","custom","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","key_chain","woven_labels","bandana","socks","tote"];
+  const itemReady = (it: any) => {
+    const hasBlank = it.blank_vendor || NON_GARMENT.includes(it.garment_type);
+    const qty = it.totalQty || Object.values(it.qtys || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+    return hasBlank && qty > 0;
+  };
+  const builderComplete = hasItems && items.every(itemReady);
   const hasCosting = items.some(it => it.decorator);
   const costingLocked = !!(job.type_meta as any)?.costing_locked;
   const quoteApproved = job.quote_approved;
@@ -46,7 +53,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
 
   const steps: Step[] = [
     { id: "overview", label: "Overview", done: true, active: false },
-    { id: "builder", label: "Product Builder", done: hasItems && items.every(it => it.blank_vendor && (it.totalQty || 0) > 0), active: !hasItems || items.some(it => !it.blank_vendor || !(it.totalQty || 0)), inProgress: hasItems && items.some(it => !it.blank_vendor || !(it.totalQty || 0)), detail: hasItems ? `${items.length}` : undefined },
+    { id: "builder", label: "Product Builder", done: hasItems && builderComplete, active: !hasItems || !builderComplete, inProgress: hasItems && !builderComplete, detail: hasItems ? `${items.length}` : undefined },
     { id: "costing", label: "Costing", done: costingLocked, active: hasItems && !costingLocked, inProgress: hasCosting && !costingLocked },
     { id: "quote", label: "Quote", done: quoteApproved, active: costingLocked && !quoteApproved },
     { id: "proofs", label: "Proofs & Invoice", done: paymentMet && allProofsApproved, active: quoteApproved && (!paymentMet || !allProofsApproved) },
