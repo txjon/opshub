@@ -60,58 +60,28 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       mergedPdf.addPage(page);
     }
 
-    // Add proof/mockup files
+    // Add proof/mockup files — PDFs only (images skipped to stay under email size limits)
+    // Clients view full proof images on the portal via the link in the email
     if (accessToken && files && files.length > 0) {
       for (const file of files) {
         try {
-          // Download file from Google Drive
+          // Only embed PDF proofs (they're already optimized)
+          // Skip images — they blow up the file size (40MB+ with full-res PNGs)
+          if (file.mime_type !== "application/pdf") continue;
+
           const driveRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.drive_file_id}?alt=media`, {
             headers: { Authorization: `Bearer ${accessToken}` },
           });
           if (!driveRes.ok) continue;
           const fileBuffer = await driveRes.arrayBuffer();
 
-          if (file.mime_type === "application/pdf") {
-            // Merge PDF pages
-            const proofPdf = await PDFDocument.load(fileBuffer);
-            const pages = await mergedPdf.copyPages(proofPdf, proofPdf.getPageIndices());
-            for (const page of pages) {
-              mergedPdf.addPage(page);
-            }
-          } else if (file.mime_type?.startsWith("image/")) {
-            // Embed image on a new letter-size page
-            const page = mergedPdf.addPage([612, 792]);
-            const uint8 = new Uint8Array(fileBuffer);
-            let img;
-            if (file.mime_type === "image/png") {
-              img = await mergedPdf.embedPng(uint8);
-            } else {
-              img = await mergedPdf.embedJpg(uint8);
-            }
-
-            // Scale to fit page with margins
-            const margin = 50;
-            const maxW = 612 - margin * 2;
-            const maxH = 792 - margin * 2 - 40; // extra space for label
-            const scale = Math.min(maxW / img.width, maxH / img.height, 1);
-            const drawW = img.width * scale;
-            const drawH = img.height * scale;
-            const x = (612 - drawW) / 2;
-            const y = (792 - drawH) / 2;
-
-            page.drawImage(img, { x, y, width: drawW, height: drawH });
-
-            // Add item name label at top
-            const itemName = (items || []).find(it => it.id === file.item_id)?.name || "";
-            page.drawText(`${itemName} — ${file.stage === "proof" ? "Print Proof" : "Mockup"}`, {
-              x: margin,
-              y: 792 - 30,
-              size: 10,
-              color: rgb(0.5, 0.5, 0.5),
-            });
+          const proofPdf = await PDFDocument.load(fileBuffer);
+          const pages = await mergedPdf.copyPages(proofPdf, proofPdf.getPageIndices());
+          for (const page of pages) {
+            mergedPdf.addPage(page);
           }
-        } catch (e) {
-          console.error("Failed to add file to combined PDF:", file.file_name, e);
+        } catch (fileErr) {
+          console.error(`[Combined PDF] Failed to embed ${file.file_name}:`, fileErr);
         }
       }
     }
