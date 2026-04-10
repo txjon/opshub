@@ -541,26 +541,30 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <span style={{width:18,height:18,borderRadius:4,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>
                   {String.fromCharCode(65+i)}
                 </span>
-                <div style={{flex:1,minWidth:0}}>
+                <div style={{flex:1,minWidth:0}}
+                  onDoubleClick={e => {
+                    e.stopPropagation();
+                    const input = e.currentTarget.querySelector("input");
+                    if (input) { input.style.display = "block"; input.focus(); }
+                  }}>
+                  <div style={{fontSize:12,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name||"Untitled"}</div>
                   <input value={item.name||""} onChange={e => { e.stopPropagation(); setItems((prev: any[]) => prev.map((it: any) => it.id === item.id ? {...it, name: e.target.value} : it)); }}
                     onClick={e => e.stopPropagation()}
                     onBlur={async e => {
+                      e.target.style.display = "none";
                       const newName = e.target.value.trim();
-                      const oldName = item._prevName || item.name;
+                      const oldName = (item as any)._prevName || item.name;
                       if (newName && newName !== oldName) {
                         const { createClient: cc } = await import("@/lib/supabase/client");
                         cc().from("items").update({ name: newName }).eq("id", item.id).then(() => {});
-                        // Rename Drive folder in background
                         fetch("/api/files/cleanup", { method: "POST", headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ action: "rename-item", clientName: (job?.clients as any)?.name || "", projectTitle: job?.title || "", itemName: oldName, newName }),
                         }).catch(() => {});
                       }
                     }}
-                    onFocus={e => { (item as any)._prevName = e.target.value; }}
-                    placeholder="Item name"
-                    style={{fontSize:12,fontWeight:600,color:T.text,background:"transparent",border:"none",outline:"none",width:"100%",padding:"1px 2px",borderRadius:3,cursor:"text"}}
-                    onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
-                    onMouseLeave={e => { if (document.activeElement !== e.currentTarget) e.currentTarget.style.background = "transparent"; }}
+                    onFocus={e => { (item as any)._prevName = e.target.value; e.target.select(); }}
+                    onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                    style={{display:"none",fontSize:12,fontWeight:600,color:T.text,background:T.surface,border:`1px solid ${T.accent}`,outline:"none",width:"100%",padding:"2px 4px",borderRadius:4,marginTop:2}}
                   />
                   <div style={{fontSize:10,color:T.faint,marginTop:1,display:"flex",gap:6,alignItems:"center"}}>
                     <span>{stage === "shipped" ? "Shipped" : stage === "in_production" ? "At decorator" : proofOk && hasBlanks ? "Ready" : !item.blank_vendor ? "No blank" : (item.totalQty||0) === 0 ? "No qty" : proofOk ? "Proofs approved" : "Setup"}</span>
