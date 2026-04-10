@@ -215,6 +215,44 @@ export async function GET(req: NextRequest) {
         "CCRW510PFD": "Prepared For Dye (PFD)",
       };
 
+      // Color code → full color name mapping
+      const COLOR_NAMES: Record<string, string> = {
+        AQUA: "Aqua", AZUL: "Azul", BLANC: "Blanc White", BLUGA: "Blue Agave", BLUHZ: "Blue Haze",
+        BLUSH: "Blush", BKBLU: "Black/Blue", BKGRY: "Black/Grey", BKLEP: "Black Leopard",
+        BKRED: "Black/Red", BKSTR: "Black Stripe", BKTRC: "Black Tri-Color", BKWHT: "Black/White",
+        BLK16: "Black", BLK25: "Black", BLKWH: "Black/White", BRNDL: "Brindle",
+        BRSEA: "Bering Sea", BRWHT: "Brown/White", CAMEL: "Camel", CAMO: "Camo", CAMO5: "Camo",
+        CEMNT: "Cement", CHAR: "Charcoal", CHERRY: "Cherry", CHOC: "Chocolate",
+        CLOVR: "Clover", CUB: "Cub", DIRTY: "Dirty Wash", DKGRN: "Dark Green",
+        DSTBL: "Dusty Blue", DSTCM: "Dusty Camo", FRGRN: "Forest Green",
+        GRAPE: "Grape", GRAY: "Gray", GREY: "Grey", HTRGR: "Heather Grey",
+        JETBK: "Jet Black", LEPRD: "Leopard", LIMO: "Limo Black", LTBLU: "Light Blue",
+        LTGRN: "Light Green", MAHOG: "Mahogany", MSTRD: "Mustard", NATUR: "Natural",
+        NAVY: "Navy", NVY26: "Navy", OATMK: "Oat Milk", OLIVE: "Olive", ORANG: "Orange",
+        OYGB9: "OG Blue", PBVW22: "PB View", PCHCB: "Peach Cobbler",
+        PIGBK: "Pigment Black", PIGOL: "Pigment Olive", PINK: "Pink", PNYW8: "Pine Yellow",
+        PSTL20: "Pastel", PSTL3: "Pastel", PURPL: "Purple", PYBL21: "Plymouth Blue",
+        RNBW6: "Rainbow", RNDRM: "Raindrum", ROJO: "Rojo", RUST: "Rust",
+        SAGE: "Sage", SAND: "Sand", SFGRN: "Seafoam Green", SFORG: "Seafoam Orange",
+        SGGRN: "Sagebrush Green", SLATE: "Slate", SNAKE: "Rattlesnake", SNKBK: "Snake Black",
+        STRBW: "Vintage Wood Camo", STRGW: "Vintage Grey Wood Camo",
+        STRING: "String Tan", STRNG: "String", STRNW: "Vintage String", STRTW: "Stripe White",
+        TANGR: "Tangerine", TRCAM: "Vintage Camo", TRCM2: "Vintage Camo",
+        TRCWH: "Vintage Camo White", TRGR2: "Vintage Grey Camo", TRGRY: "Vintage Grey",
+        ULTGR: "Ultra Grey",
+        VINBLK: "Vintage Black", VINCHC: "Vintage Chocolate", VINGRN: "Vintage Green",
+        VINLIM: "Vintage Lime", VINNVY: "Vintage Navy", VINRD2: "Vintage Red",
+        VINRED: "Vintage Red", WHCAP: "White Cap Off White", WHEAT: "Wheat",
+        WHITE: "White", WHT: "White",
+        YPCGN: "YPC Green", YRBP10: "Yellow RBP",
+        // Numbered variants (spiral/cloud dyes)
+        BRYW19: "Berry Wine", BRYW4: "Berry Wine", BRNW11: "Brown Wine",
+        BKRN13: "Black Rain", BKRD23: "Black Red", CNDY7: "Candy",
+        CPCK17: "Cupcake", GGBL18: "Gag Blue", GMAW1: "GMA White",
+        GRN24: "Green Crystal", GRY27: "Grey Mineral", GREY15: "Grey",
+        LIME14: "Lime", RSTA12: "Rasta",
+      };
+
       const products = Object.values(styles).map((s: any) => {
         // Extract prefix: strip "CC" then grab letters before numbers
         const rawPrefix = s.sku.replace(/^CC/, "");
@@ -225,8 +263,9 @@ export async function GET(req: NextRequest) {
           sku: s.sku,
           category: CATEGORY_MAP[prefix] || "Other",
           typeLabel: productName || s.sku,
-          colors: Object.entries(s.colors).map(([color, data]: [string, any]) => ({
-            color,
+          colors: Object.entries(s.colors).map(([code, data]: [string, any]) => ({
+            color: COLOR_NAMES[code] || code,
+            code,
             sizes: sortSz(data.sizes),
             prices: data.prices,
           })),
