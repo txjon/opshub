@@ -77,7 +77,7 @@ export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, onSent,
   return (
     <div style={{ padding:"12px 14px", background:T.card, border:`1px solid ${T.border}`, borderRadius:8, display:"flex", flexDirection:"column", gap:8 }}>
       <div style={{ fontSize:11, fontWeight:700, color:T.muted, fontFamily:font, textTransform:"uppercase", letterSpacing:"0.06em" }}>
-        Send {type === "quote" ? "Quote" : "Purchase Order"} via Email
+        Send {type === "quote" ? "Quote" : type === "invoice" ? "Invoice" : type === "po" ? "Purchase Order" : "Email"} via Email
       </div>
 
       {hasContacts ? (
