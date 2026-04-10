@@ -764,7 +764,13 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
         <span style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", flexShrink: 0 }}>Files</span>
           {uploading && uploadProgress && (
-            <span style={{ fontSize: 10, color: T.accent }}>Uploading {uploadProgress.done + 1}/{uploadProgress.total}: {uploadProgress.current}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+              <div style={{ flex: 1, height: 6, background: T.surface, borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${Math.round((uploadProgress.done / uploadProgress.total) * 100)}%`, background: T.accent, borderRadius: 3, transition: "width 0.3s" }} />
+              </div>
+              <span style={{ fontSize: 10, color: T.accent, flexShrink: 0, fontFamily: mono, fontWeight: 600 }}>{Math.round((uploadProgress.done / uploadProgress.total) * 100)}%</span>
+              <span style={{ fontSize: 10, color: T.muted, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 150 }}>{uploadProgress.current}</span>
+            </div>
           )}
           {nonMockupFiles.length > 0 && nonMockupFiles.map(f => (
                 <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 6px", borderRadius: 4 }}
