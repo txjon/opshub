@@ -274,32 +274,25 @@ export async function GET(req: NextRequest) {
       });
 
       // Step 2: Merge by base product name (strip " — Dye Type" suffix)
+      // Always include dye type in color name — Solid vs Snow Wash have different prices
+      const DYE_SHORT: Record<string, string> = {
+        "Solid": "Solid", "Snow Wash": "Snow", "Pigment": "Pigment", "Heather": "Heather",
+        "Crystal": "Crystal", "Oil Wash": "Oil", "PFD": "PFD", "Organic": "Organic",
+        "Paint Splatter": "Splatter", "Paint": "Paint", "Cut": "Cut", "Standard": "",
+      };
       const merged: Record<string, any> = {};
       for (const sp of skuProducts) {
         const baseName = sp.fullName.includes(" — ") ? sp.fullName.split(" — ")[0] : sp.fullName;
         const dyeType = sp.fullName.includes(" — ") ? sp.fullName.split(" — ")[1] : "";
+        const dyeShort = DYE_SHORT[dyeType] || dyeType;
         if (!merged[baseName]) {
           merged[baseName] = { name: baseName, category: sp.category, skus: [], colors: [] };
         }
         merged[baseName].skus.push(sp.sku);
         for (const c of sp.colors) {
-          // Check if same color name already exists with different pricing
-          const existing = merged[baseName].colors.find((ec: any) => ec.color === c.color);
-          if (!existing) {
-            merged[baseName].colors.push({ ...c, dyeType });
-          } else {
-            // Same color name, different price = different dye type. Keep both with qualifier.
-            const existingPrice = existing.prices[existing.sizes[0]] || 0;
-            const newPrice = c.prices[c.sizes[0]] || 0;
-            if (Math.abs(existingPrice - newPrice) > 0.01) {
-              // Price differs — add dye type to both names to differentiate
-              if (!existing.color.includes("(")) {
-                existing.color = `${existing.color} (${existing.dyeType || "Standard"})`;
-              }
-              merged[baseName].colors.push({ ...c, color: `${c.color} (${dyeType || "Standard"})`, dyeType });
-            }
-            // Same price = same product, skip duplicate
-          }
+          // Always qualify with dye type to prevent price conflicts
+          const qualifiedName = dyeShort ? `${c.color} (${dyeShort})` : c.color;
+          merged[baseName].colors.push({ ...c, color: qualifiedName });
         }
       }
 
