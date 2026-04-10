@@ -60,48 +60,38 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
 
-      {/* ── 3 Big Action Buttons ── */}
+      {/* ── Action Buttons ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0 }}>
         <button onClick={pushToQB} disabled={pushingToQB}
-          style={{ width: 160, height: 160, borderRadius: 10, border: qbInvoiceNumber ? `2px solid ${T.green}` : "none", cursor: pushingToQB ? "default" : "pointer",
-            background: qbInvoiceNumber ? T.greenDim : T.green, color: qbInvoiceNumber ? T.green : "#fff", fontSize: 13, fontWeight: 700, fontFamily: font,
+          style={{ width: 160, height: 80, borderRadius: 10, border: qbInvoiceNumber ? `2px solid ${T.green}` : "none", cursor: pushingToQB ? "default" : "pointer",
+            background: qbInvoiceNumber ? T.greenDim : T.green, color: qbInvoiceNumber ? T.green : "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
             opacity: pushingToQB ? 0.6 : 1, transition: "opacity 0.15s", textAlign: "center",
-            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 14, gap: 4 }}
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 10, gap: 2 }}
           onMouseEnter={e => { if (!pushingToQB) e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
           {pushingToQB ? (qbInvoiceNumber ? "Updating..." : "Creating...") : qbInvoiceNumber ? (
-            <><span>✓ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500, opacity: 0.8 }}>Click to update</span>
-            {job.type_meta?.qb_invoice_created_at && <span style={{ fontSize: 9, fontWeight: 400, opacity: 0.6 }}>{new Date(job.type_meta.qb_invoice_created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}</>
-          ) : "Create QuickBooks Invoice"}
+            <><span>✓ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500, opacity: 0.8 }}>Click to update</span></>
+          ) : "Create QB Invoice"}
         </button>
-        <span style={{ fontSize: 18, color: qbInvoiceNumber ? T.accent : T.faint, padding: "0 12px", flexShrink: 0 }}>→</span>
+        <span style={{ fontSize: 16, color: qbInvoiceNumber ? T.accent : T.faint, padding: "0 10px", flexShrink: 0 }}>→</span>
         <button onClick={() => { window.open(`/api/pdf/invoice/${job.id}`, "_blank"); setPreviewed(true); }} disabled={!qbInvoiceNumber}
-          style={{ width: 160, height: 160, borderRadius: 10, border: previewed ? `2px solid ${T.accent}` : "none", cursor: !qbInvoiceNumber ? "default" : "pointer",
-            background: !qbInvoiceNumber ? T.surface : previewed ? T.accentDim : T.accent, color: !qbInvoiceNumber ? T.faint : previewed ? T.accent : "#fff", fontSize: 13, fontWeight: 700, fontFamily: font,
+          style={{ width: 160, height: 80, borderRadius: 10, border: previewed ? `2px solid ${T.accent}` : "none", cursor: !qbInvoiceNumber ? "default" : "pointer",
+            background: !qbInvoiceNumber ? T.surface : previewed ? T.accentDim : T.accent, color: !qbInvoiceNumber ? T.faint : previewed ? T.accent : "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
             opacity: !qbInvoiceNumber ? 0.4 : 1, transition: "opacity 0.15s", textAlign: "center",
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 14 }}
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 10 }}
           onMouseEnter={e => { if (qbInvoiceNumber) e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={e => { e.currentTarget.style.opacity = !qbInvoiceNumber ? "0.4" : "1"; }}>
           {previewed ? "✓ Preview Invoice" : "Preview Invoice"}
         </button>
-        <span style={{ fontSize: 18, color: previewed ? T.accent : T.faint, padding: "0 12px", flexShrink: 0 }}>→</span>
+        <span style={{ fontSize: 16, color: previewed ? T.accent : T.faint, padding: "0 10px", flexShrink: 0 }}>→</span>
         <button onClick={() => setShowInvoiceEmail(!showInvoiceEmail)} disabled={!previewed}
-          style={{ width: 160, height: 160, borderRadius: 10, border: "none", cursor: !previewed ? "default" : "pointer",
-            background: !previewed ? T.surface : T.purple, color: !previewed ? T.faint : "#fff", fontSize: 13, fontWeight: 700, fontFamily: font,
-            opacity: !previewed ? 0.4 : 1, transition: "opacity 0.15s", textAlign: "center",
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 14 }}
-          onMouseEnter={e => { if (previewed) e.currentTarget.style.opacity = "0.85"; }}
-          onMouseLeave={e => { e.currentTarget.style.opacity = !previewed ? "0.4" : "1"; }}>
-          Send Invoice
-        </button>
-        <button onClick={() => setShowInvoiceProofsEmail(!showInvoiceProofsEmail)} disabled={!previewed}
-          style={{ width: 160, height: 160, borderRadius: 10, border: "none", cursor: !previewed ? "default" : "pointer",
+          style={{ width: 200, height: 80, borderRadius: 10, border: "none", cursor: !previewed ? "default" : "pointer",
             background: !previewed ? T.surface : T.accent, color: !previewed ? T.faint : "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
             opacity: !previewed ? 0.4 : 1, transition: "opacity 0.15s", textAlign: "center",
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 14 }}
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 10 }}
           onMouseEnter={e => { if (previewed) e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={e => { e.currentTarget.style.opacity = !previewed ? "0.4" : "1"; }}>
-          Invoice + Proofs
+          Send Invoice + Portal Link
         </button>
       </div>
       {/* Manual invoice number */}
@@ -139,17 +129,6 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
           defaultSubject={`Invoice — ${job.clients?.name || ""} · ${job.title}`}
           onClose={() => setShowInvoiceEmail(false)}
           onSent={() => { logJobActivity(job.id, "Invoice sent to client"); setShowInvoiceEmail(false); }}
-        />
-      )}
-      {showInvoiceProofsEmail && (
-        <SendEmailDialog
-          type="invoice_proofs"
-          jobId={job.id}
-          contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
-          defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
-          defaultSubject={`Invoice & Proofs — ${job.clients?.name || ""} · ${job.title}`}
-          onClose={() => setShowInvoiceProofsEmail(false)}
-          onSent={() => { logJobActivity(job.id, "Invoice + proofs sent to client"); setShowInvoiceProofsEmail(false); }}
         />
       )}
 
