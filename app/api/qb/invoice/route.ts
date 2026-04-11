@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getOrCreateCustomer, createInvoice, updateInvoice, type QBLineItem } from "@/lib/quickbooks";
+import { buildPrintersMap, calcCostProduct as sharedCalc } from "@/lib/pricing";
 
 // Garment type → QB Product/Service name mapping
 const QB_PRODUCT_MAP: Record<string, string> = {
@@ -71,22 +72,34 @@ export async function POST(req: NextRequest) {
 
     // Build line items from costing_data (source of truth for pricing)
     const costProds: any[] = job.costing_data?.costProds || [];
-    const costingSummary = job.costing_summary || {};
+    const costMargin = job.costing_data?.costMargin || "30%";
+    const inclShip = job.costing_data?.inclShip ?? true;
+    const inclCC = job.costing_data?.inclCC ?? true;
+    const costingLocked = job.type_meta?.costing_locked || false;
     const lineItems: QBLineItem[] = [];
+
+    // Load decorator pricing for recalculation (only needed if not locked)
+    let PRINTERS: Record<string, any> = {};
+    if (!costingLocked) {
+      const { data: decorators } = await admin.from("decorators").select("name, short_code, pricing_data, capabilities").order("name");
+      PRINTERS = buildPrintersMap(decorators || []);
+    }
 
     for (const item of (items || [])) {
       const lines = item.buy_sheet_lines || [];
       const totalQty = lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
       if (totalQty === 0) continue;
 
-      // Use costing_data sellOverride as primary, then costing_summary-derived, then items table fallback
       const cp = costProds.find((p: any) => p.id === item.id);
       let sellPerUnit = 0;
-      if (cp?.sellOverride) {
+      if (costingLocked) {
+        // Locked: use frozen price from items table
+        sellPerUnit = parseFloat(item.sell_per_unit) || 0;
+      } else if (cp?.sellOverride) {
         sellPerUnit = cp.sellOverride;
-      } else if (costingSummary.grossRev && costingSummary.totalQty) {
-        // No override — use the auto-calculated price from costing summary
-        sellPerUnit = item.sell_per_unit || 0;
+      } else if (cp) {
+        const r = sharedCalc(cp, costMargin, inclShip, inclCC, costProds, PRINTERS);
+        sellPerUnit = r ? Math.round(r.sellPerUnit * 100) / 100 : (item.sell_per_unit || 0);
       } else {
         sellPerUnit = item.sell_per_unit || 0;
       }

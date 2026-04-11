@@ -200,6 +200,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const inclShip: boolean = costingData.inclShip !== undefined ? costingData.inclShip : true;
     const inclCC: boolean = costingData.inclCC !== undefined ? costingData.inclCC : true;
     const orderInfo = costingData.orderInfo || {};
+    const costingLocked = job.type_meta?.costing_locked || false;
 
     const { data: items } = await supabase
       .from("items")
@@ -227,7 +228,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const terms = TERMS_LABELS[termsRaw] || termsRaw.replace(/_/g, " ") || "—";
 
     let prods: any[] = [];
-    if (costProds.length > 0) {
+    if (costProds.length > 0 && !costingLocked) {
+      // Pricing not locked: recalculate using current decorator pricing
       prods = costProds.map(p => {
         const savedQtys = p.qtys || {};
         const totalQty = p.totalQty || Object.values(savedQtys).reduce((a: number, v: any) => a + v, 0);
@@ -235,9 +237,6 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         const r = calcCostProduct(p, costMargin, inclShip, inclCC, costProds);
         if (!r || r.grossRev === 0) return null;
         const dbItem = (items || []).find((it: any) => it.id === p.id);
-        // Always use pricing engine result (respects sellOverride from costing_data)
-        const finalSell = r.sellPerUnit;
-        const finalRev = Math.round(finalSell * totalQty * 100) / 100;
         return {
           name: p.name || dbItem?.name || "Item",
           style: p.style || dbItem?.blank_vendor || "",
@@ -245,8 +244,29 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
           sizes: sortSizes(Object.keys(savedQtys).filter(sz => (savedQtys[sz] || 0) > 0)),
           qtys: savedQtys,
           totalQty,
-          sellPerUnit: finalSell,
-          grossRev: finalRev,
+          sellPerUnit: r.sellPerUnit,
+          grossRev: r.grossRev,
+        };
+      }).filter(Boolean);
+    } else if (costProds.length > 0 && costingLocked) {
+      // Pricing is locked: use saved sell_per_unit values from items table
+      prods = costProds.map(p => {
+        const savedQtys = p.qtys || {};
+        const totalQty = p.totalQty || Object.values(savedQtys).reduce((a: number, v: any) => a + v, 0);
+        if (totalQty === 0) return null;
+        const dbItem = (items || []).find((it: any) => it.id === p.id);
+        const sellPerUnit = parseFloat(dbItem?.sell_per_unit) || 0;
+        const grossRev = sellPerUnit * totalQty;
+        if (grossRev === 0) return null;
+        return {
+          name: p.name || dbItem?.name || "Item",
+          style: p.style || dbItem?.blank_vendor || "",
+          color: p.color || dbItem?.blank_sku || "",
+          sizes: sortSizes(Object.keys(savedQtys).filter(sz => (savedQtys[sz] || 0) > 0)),
+          qtys: savedQtys,
+          totalQty,
+          sellPerUnit,
+          grossRev,
         };
       }).filter(Boolean);
     }
