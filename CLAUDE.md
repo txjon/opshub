@@ -2,6 +2,34 @@
 
 Internal operations platform for House Party Distro, a custom apparel company in Las Vegas. Built iteratively — started in Claude.ai, continued in Claude Code. Will also be used by Jon's second company (touring artists/bands) — ~90% feature overlap, same codebase.
 
+## MANDATORY: Before Writing Any Code
+
+DO NOT write code until you have completed these steps. No exceptions.
+
+1. **Read every file you're about to change.** Not grep. Read.
+2. **Find every place the affected data is read.** Grep the entire codebase for the field name. List them.
+3. **State your plan in plain English before coding.** What changes, what reads it, what needs to update. Get confirmation if the scope is bigger than a UI tweak.
+4. **If you're unsure about something, ask.** Don't guess and ship.
+
+## What "done" means
+
+A change is not done when it compiles. It's done when:
+- Every surface that displays the affected data shows the correct value
+- No stale state exists anywhere (sidebar, header, PDFs, portal, other pages)
+- The save path and every read path have been verified
+
+## Don't
+
+- Don't recalculate what's already saved. Read the saved value.
+- Don't copy logic into multiple files. One source, one function, import it.
+- Don't fix symptoms. Find the actual cause.
+- Don't make changes to files you haven't read in this conversation.
+- Don't batch multiple independent fixes without verifying each one.
+
+## Pricing Source of Truth
+
+`items.sell_per_unit` is the single source of truth for pricing. It is set by CostingTab (auto-calculated from margin or manually overridden), rounded to the nearest cent, and saved to the items table. Every surface that displays a price — quote PDF, invoice PDF, QB invoice, client portal, sidebar, header KPIs — reads this value. No recalculation. No pricing engine on output surfaces.
+
 ## Stack
 
 - **Next.js 14** (App Router, `app/` directory)
