@@ -25,25 +25,19 @@ const PHASE_COLORS: Record<string,{bg:string,text:string,label:string}> = {
   cancelled:     { bg:T.accentDim, text:T.muted, label:"Cancelled" },
 };
 
-const getPct = (stage: string|null) => {
-  const pcts: Record<string,number> = { blanks_ordered:25, in_production:50, shipped:100 };
-  return stage ? (pcts[stage] || 0) : 0;
-};
-
 function getItemProgress(job: any): string {
   const items = job.items || [];
   if (!items.length) return "";
   const total = items.length;
   const phase = job.phase;
-  if (phase === "complete") return `${total}/${total} complete`;
-  const shipped = items.filter((it: any) => it.pipeline_stage === "shipped" && it.ship_tracking).length;
+  if (phase === "complete" || phase === "cancelled") return "";
+  const received = items.filter((it: any) => it.received_at_hpd).length;
+  if (received > 0 && received < total) return `${received}/${total} received`;
+  const shipped = items.filter((it: any) => it.pipeline_stage === "shipped").length;
   if (shipped > 0) return `${shipped}/${total} shipped`;
   const inProd = items.filter((it: any) => it.pipeline_stage === "in_production" || it.pipeline_stage === "shipped").length;
-  if (inProd > 0) return `${inProd}/${total} in production`;
-  const apparel = items.filter((it: any) => it.garment_type !== "accessory");
-  const ordered = apparel.filter((it: any) => it.blanks_order_number).length;
-  if (apparel.length > 0 && ordered > 0) return `${ordered}/${apparel.length} blanks ordered`;
-  return `${total} items`;
+  if (inProd > 0) return `${inProd}/${total} at decorator`;
+  return "";
 }
 
 import { T, font, mono } from "@/lib/theme";
@@ -72,10 +66,9 @@ export default function JobsPage() {
   }
 
   const getJobPct = (job: Job) => {
-    const items = job.items || [];
-    if (!items.length) return 0;
-    const pcts = items.map((it: any) => getPct(it.pipeline_stage || it.decorator_assignments?.[0]?.pipeline_stage || null));
-    return Math.round(pcts.reduce((a,p) => a+p, 0) / pcts.length);
+    const phase = job.phase;
+    const pcts: Record<string,number> = { intake:10, pending:20, ready:30, pre_production:40, production:60, receiving:80, shipping:85, fulfillment:90, complete:100, cancelled:0 };
+    return pcts[phase] || 0;
   };
 
   const getInHandsDate = (job: Job) => job.type_meta?.in_hands_date || job.type_meta?.show_date || null;
@@ -213,7 +206,6 @@ export default function JobsPage() {
           const phase = PHASE_COLORS[job.phase] || PHASE_COLORS.intake;
           const flags = getFlags(job);
           const pct = getJobPct(job);
-          const pctColor = pct === 100 ? T.green : pct >= 60 ? T.accent : pct >= 30 ? T.amber : T.muted;
           const ih = getInHandsDate(job);
           const daysLeft = ih ? Math.ceil((new Date(ih).getTime() - now.getTime()) / (1000*60*60*24)) : null;
           const itemCount = job.items?.length || 0;
@@ -254,34 +246,30 @@ export default function JobsPage() {
                 <div style={{ fontSize:13, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
                   {job.clients?.name||"No client"}
                 </div>
-                <div style={{ fontSize:12, color:"#9aa3c0", marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                <div style={{ fontSize:12, color:T.faint, marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
                   {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{invNum || job.job_number}</span>{invNum && <span style={{ color:T.faint, marginLeft:4, fontSize:10 }}>{job.job_number}</span>}
                 </div>
               </div>
 
-              {/* Status signals */}
-              <div style={{ display:"flex", gap:4, alignItems:"center", flex:1, flexWrap:"wrap" }}>
-                {job.quote_approved && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.greenDim, color:T.green, whiteSpace:"nowrap" }}>Quote Approved</span>}
-                {invNum && !(job as any).payment_records?.some((p:any) => p.status === "paid") && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.accentDim, color:T.accent, whiteSpace:"nowrap" }}>Invoice Ready</span>}
-                {(job as any).payment_records?.some((p:any) => p.status === "paid") && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.greenDim, color:T.green, whiteSpace:"nowrap" }}>Paid</span>}
-                {job.items?.some((it:any) => it.pipeline_stage === "shipped") && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.purpleDim, color:T.purple, whiteSpace:"nowrap" }}>Items Shipped</span>}
+              {/* Status — show the single most relevant state */}
+              <div style={{ display:"flex", gap:4, alignItems:"center", flex:1 }}>
+                {(() => {
+                  const paid = (job as any).payment_records?.some((p:any) => p.status === "paid");
+                  if (paid) return <span style={{ fontSize:9, fontWeight:600, padding:"3px 8px", borderRadius:99, background:T.greenDim, color:"#2a9e5c", whiteSpace:"nowrap" }}>Paid</span>;
+                  if (invNum) return <span style={{ fontSize:9, fontWeight:600, padding:"3px 8px", borderRadius:99, background:T.blueDim, color:"#3a8a9e", whiteSpace:"nowrap" }}>Invoice Sent</span>;
+                  if (job.quote_approved) return <span style={{ fontSize:9, fontWeight:600, padding:"3px 8px", borderRadius:99, background:T.greenDim, color:"#2a9e5c", whiteSpace:"nowrap" }}>Quote Approved</span>;
+                  return null;
+                })()}
               </div>
 
               {/* Units */}
               <span style={{ fontSize:13, fontWeight:600, color:T.text, fontFamily:mono }}>{totalUnits>0?totalUnits.toLocaleString():"—"} <span style={{ fontSize:11, fontWeight:400, color:T.muted }}>units</span></span>
 
-              {/* Phase infographic */}
-              <div style={{ width:330, flexShrink:0 }}>
-                <div style={{ position:"relative", background:phase.bg, borderRadius:8, padding:"6px 10px", overflow:"hidden" }}>
-                  {/* Progress fill */}
-                  <div style={{ position:"absolute", top:0, left:0, bottom:0, width:pct+"%", background:phase.text+"18", borderRadius:8, transition:"width 0.4s" }}/>
-                  <div style={{ position:"relative", display:"flex", alignItems:"center", justifyContent:"space-between", whiteSpace:"nowrap", overflow:"hidden" }}>
-                    <div style={{ overflow:"hidden", textOverflow:"ellipsis" }}>
-                      <span style={{ fontSize:14, fontWeight:700, color:phase.text }}>{phase.label}</span>
-                      {progress && <span style={{ fontSize:12, color:"rgba(255,255,255,0.6)", marginLeft:6, fontFamily:mono }}>{progress}</span>}
-                    </div>
-                    <span style={{ fontSize:12, fontWeight:700, color:"rgba(255,255,255,0.5)", fontFamily:mono, marginLeft:6, flexShrink:0 }}>{pct}%</span>
-                  </div>
+              {/* Phase */}
+              <div style={{ width:280, flexShrink:0 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:99, background:phase.bg, color:phase.text, whiteSpace:"nowrap" }}>{phase.label}</span>
+                  {progress && <span style={{ fontSize:10, color:T.muted, fontFamily:mono, whiteSpace:"nowrap" }}>{progress}</span>}
                 </div>
               </div>
 
@@ -292,7 +280,7 @@ export default function JobsPage() {
                     <div style={{ fontSize:13, fontWeight:700, color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.muted, fontFamily:mono }}>
                       {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Today":daysLeft+"d"}
                     </div>
-                    <div style={{ fontSize:10, color:"#9aa3c0" }}>
+                    <div style={{ fontSize:10, color:T.faint }}>
                       {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
                     </div>
                   </>
