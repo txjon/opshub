@@ -295,7 +295,7 @@ export default function ReceivingPage() {
                       return (
                         <tr key={item.id} style={{ borderBottom: i < job.items.length - 1 ? `1px solid ${T.border}` : "none", verticalAlign: "top" }}>
                           <td style={{ padding: "8px", fontWeight: 600 }}>
-                            {item.name}
+                            <span style={{ fontSize: 10, fontWeight: 700, color: T.purple, fontFamily: mono, marginRight: 6 }}>{item.letter}</span>{item.name}
                             <div style={{ fontSize: 10, color: T.faint, fontWeight: 400 }}>{[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ")}</div>
                             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 3, alignItems: "center" }}>
                               {(receivingPhotos[item.id] || []).map((p, pi) => (

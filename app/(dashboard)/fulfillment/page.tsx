@@ -80,7 +80,7 @@ export default function FulfillmentPage() {
     if (sourceJobIds.length > 0) {
       const { data: receivedItems } = await supabase
         .from("items")
-        .select("job_id, name, received_qtys, received_at_hpd, buy_sheet_lines(size, qty_ordered)")
+        .select("job_id, name, sort_order, received_qtys, received_at_hpd, buy_sheet_lines(size, qty_ordered)")
         .in("job_id", sourceJobIds)
         .eq("received_at_hpd", true);
 
@@ -95,7 +95,7 @@ export default function FulfillmentPage() {
           received[l.size] = rq[l.size] ?? l.qty_ordered ?? 0;
         }
         receivedByJob[it.job_id].push({
-          name: it.name,
+          name: it.name, letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
           sizes,
           received_qtys: received,
           total: Object.values(received).reduce((a, v) => a + v, 0),
@@ -126,15 +126,16 @@ export default function FulfillmentPage() {
 
       const { data: items } = await supabase
         .from("items")
-        .select("id, name, job_id, pipeline_stage, ship_tracking, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code))")
+        .select("id, name, job_id, sort_order, pipeline_stage, ship_tracking, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code))")
         .in("job_id", jobIds)
-        .in("pipeline_stage", ["in_production", "shipped"]);
+        .in("pipeline_stage", ["in_production", "shipped"])
+        .order("sort_order");
 
       setIncoming((items || []).map((it: any) => {
         const job = jobMap[it.job_id];
         const dec = it.decorator_assignments?.[0]?.decorators;
         return {
-          id: it.id, name: it.name,
+          id: it.id, name: it.name, letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
           job_title: job?.title || "",
           client_name: (job?.clients as any)?.name || "",
           decorator: dec?.short_code || dec?.name || "—",
@@ -473,7 +474,7 @@ export default function FulfillmentPage() {
                 <div key={item.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1.5fr 1fr 70px 80px 80px", padding: "8px 14px", alignItems: "center", borderBottom: i < incoming.length - 1 ? `1px solid ${T.border}` : "none" }}>
                   <div style={{ fontSize: 12, color: T.text }}>{item.client_name}</div>
                   <div style={{ fontSize: 12, color: T.muted }}>{item.job_title}</div>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>{item.name}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}><span style={{ fontSize: 10, fontWeight: 700, color: T.purple, fontFamily: mono, marginRight: 6 }}>{item.letter}</span>{item.name}</div>
                   <div style={{ fontSize: 11, color: T.accent }}>{item.decorator}</div>
                   <div style={{ fontSize: 12, fontFamily: mono, fontWeight: 600 }}>{item.total_units.toLocaleString()}</div>
                   <div>

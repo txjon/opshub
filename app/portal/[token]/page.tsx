@@ -99,9 +99,9 @@ export default function PortalPage({ params }: { params: { token: string } }) {
     }
   }, [activeToken]);
 
-  async function loadPortal(token?: string) {
+  async function loadPortal(token?: string, skipCache = false) {
     const t = token || activeToken;
-    if (projectCache[t]) { setData(projectCache[t]); return; }
+    if (!skipCache && projectCache[t]) { setData(projectCache[t]); return; }
     setLoading(true);
     try {
       const res = await fetch(`/api/portal/${t}`);
@@ -129,9 +129,8 @@ export default function PortalPage({ params }: { params: { token: string } }) {
         body: JSON.stringify({ action, ...extra }),
       });
       if (res.ok) {
-        // Bust cache so fresh data loads
         setProjectCache(prev => { const n = {...prev}; delete n[activeToken]; return n; });
-        await loadPortal();
+        await loadPortal(undefined, true);
         setShowRevisionInput(null);
       }
     } catch {}
@@ -287,6 +286,109 @@ export default function PortalPage({ params }: { params: { token: string } }) {
             {PHASE_STEPS[currentIdx]?.label || project.phaseLabel}
           </div>
         </div>
+
+        {/* ── Payment Section ── */}
+        {invoiceNumber && (
+          <div style={{
+            background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
+            padding: isMobile ? "16px" : "20px 24px", marginBottom: 20,
+          }}>
+            <h2 style={{ margin: "0 0 16px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.muted }}>Payment</h2>
+
+            {/* Balance strip + View Invoice */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: isMobile ? 12 : 24,
+              flexWrap: "wrap", marginBottom: 12,
+            }}>
+              <div>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>Total</div>
+                <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtD(quote.total)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>Paid</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: C.green }}>{fmtD(totalPaid)}</div>
+              </div>
+              {balance > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>Balance Due</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: C.red }}>{fmtD(balance)}</div>
+                </div>
+              )}
+              <a href={`/api/pdf/invoice/${(project as any).id || ""}?portal=${activeToken}`} target="_blank" rel="noopener noreferrer"
+                style={{
+                  marginLeft: "auto", padding: "6px 14px", borderRadius: 6, textDecoration: "none",
+                  background: C.surface, color: C.text, border: `1px solid ${C.border}`,
+                  fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
+                }}>
+                View Invoice #{invoiceNumber}
+              </a>
+            </div>
+
+            {/* Pay button — dynamic: "Approve & Pay Now" when proofs pending */}
+            {paymentLink && balance > 0 && (
+              hasProofs && !allProofsApproved ? (
+                <button onClick={async () => {
+                  await doAction("approve-all-proofs");
+                  window.open(paymentLink, "_blank");
+                }}
+                  disabled={!!actionLoading}
+                  style={{
+                    display: "block", textAlign: "center", width: "100%",
+                    padding: "14px 0", borderRadius: 10, border: "none", cursor: "pointer",
+                    background: C.accent, color: "#fff",
+                    fontSize: 15, fontWeight: 700, opacity: actionLoading ? 0.6 : 1,
+                  }}>
+                  Approve & Pay Now — {fmtD(balance)}
+                </button>
+              ) : (
+                <a href={paymentLink} target="_blank" rel="noopener noreferrer"
+                  style={{
+                    display: "block", textAlign: "center", width: "100%",
+                    padding: "14px 0", borderRadius: 10, textDecoration: "none",
+                    background: C.accent, color: "#fff",
+                    fontSize: 15, fontWeight: 700,
+                  }}>
+                  Pay Now — {fmtD(balance)}
+                </a>
+              )
+            )}
+
+            {/* Payment history */}
+            {payments.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>History</div>
+                {payments.map(p => (
+                  <div key={p.id} style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "8px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13,
+                  }}>
+                    <div>
+                      <span style={{ fontWeight: 500 }}>{p.type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</span>
+                      {p.invoiceNumber && <span style={{ color: C.faint, marginLeft: 8, fontSize: 11 }}>#{p.invoiceNumber}</span>}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontWeight: 600 }}>{fmtD(p.amount)}</span>
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99,
+                        background: p.status === "paid" ? C.greenBg : p.status === "overdue" ? C.redBg : C.amberBg,
+                        color: p.status === "paid" ? C.green : p.status === "overdue" ? C.red : C.amber,
+                      }}>
+                        {p.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Terms */}
+            {project.paymentTerms && (
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 12 }}>
+                Terms: {project.paymentTerms.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Quote Section ── */}
         {hasQuote && (
@@ -467,7 +569,13 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: C.greenBg, color: C.green, border: `1px solid ${C.greenBorder}` }}>All Approved</span>
               )}
               {!allProofsApproved && pendingProofCount > 0 && (
-                <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: C.amberBg, color: C.amber, border: `1px solid ${C.amberBorder}` }}>{pendingProofCount} pending</span>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: C.amberBg, color: C.amber, border: `1px solid ${C.amberBorder}` }}>{pendingProofCount} pending</span>
+                  <button onClick={() => doAction("approve-all-proofs")} disabled={!!actionLoading}
+                    style={{ padding: "4px 14px", borderRadius: 99, border: "none", cursor: "pointer", background: C.green, color: "#fff", fontSize: 11, fontWeight: 700, opacity: actionLoading ? 0.6 : 1 }}>
+                    Approve All
+                  </button>
+                </div>
               )}
             </div>
 
@@ -511,96 +619,6 @@ export default function PortalPage({ params }: { params: { token: string } }) {
           </div>
         )}
 
-        {/* ── Payment Section ── */}
-        {invoiceNumber && (
-          <div style={{
-            background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
-            padding: isMobile ? "16px" : "20px 24px", marginBottom: 20,
-          }}>
-            <h2 style={{ margin: "0 0 16px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.muted }}>Payment</h2>
-
-            {/* Balance strip */}
-            <div style={{
-              display: "flex", gap: isMobile ? 12 : 24,
-              flexWrap: "wrap", marginBottom: 16,
-            }}>
-              <div>
-                <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>Total</div>
-                <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtD(quote.total)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>Paid</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: C.green }}>{fmtD(totalPaid)}</div>
-              </div>
-              {balance > 0 && (
-                <div>
-                  <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>Balance Due</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: C.red }}>{fmtD(balance)}</div>
-                </div>
-              )}
-            </div>
-
-            {/* View/Download Invoice */}
-            <a href={`/api/pdf/invoice/${(project as any).id || ""}?portal=${activeToken}`} target="_blank" rel="noopener noreferrer"
-              style={{
-                display: "block", textAlign: "center", width: "100%", boxSizing: "border-box",
-                padding: "12px 0", borderRadius: 8, textDecoration: "none", marginBottom: 12,
-                background: C.surface, color: C.text, border: `1px solid ${C.border}`,
-                fontSize: 13, fontWeight: 600,
-              }}>
-              View Invoice #{invoiceNumber}
-            </a>
-
-            {/* Pay button */}
-            {paymentLink && balance > 0 && (
-              <a href={paymentLink} target="_blank" rel="noopener noreferrer"
-                style={{
-                  display: "block", textAlign: "center", width: "100%",
-                  padding: "14px 0", borderRadius: 10, textDecoration: "none",
-                  background: C.accent, color: "#fff",
-                  fontSize: 15, fontWeight: 700,
-                }}>
-                Pay Now — {fmtD(balance)}
-              </a>
-            )}
-
-            {/* Payment history */}
-            {payments.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>History</div>
-                {payments.map(p => (
-                  <div key={p.id} style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "8px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13,
-                  }}>
-                    <div>
-                      <span style={{ fontWeight: 500 }}>{p.type.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</span>
-                      {p.invoiceNumber && <span style={{ color: C.faint, marginLeft: 8, fontSize: 11 }}>#{p.invoiceNumber}</span>}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontWeight: 600 }}>{fmtD(p.amount)}</span>
-                      <span style={{
-                        fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99,
-                        background: p.status === "paid" ? C.greenBg : p.status === "overdue" ? C.redBg : C.amberBg,
-                        color: p.status === "paid" ? C.green : p.status === "overdue" ? C.red : C.amber,
-                      }}>
-                        {p.status}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Terms */}
-            {project.paymentTerms && (
-              <div style={{ fontSize: 11, color: C.faint, marginTop: 12 }}>
-                Terms: {project.paymentTerms.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ── Activity Timeline ── */}
         {activity.length > 0 && (
           <div style={{
@@ -639,7 +657,10 @@ export default function PortalPage({ params }: { params: { token: string } }) {
           }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{viewingProof.fileName}</div>
-              <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>{viewingProof.stage === "mockup" ? "Mockup" : "Product Proof"}</div>
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>
+                {viewingProof.stage === "mockup" ? "Mockup" : "Product Proof"}
+                {(() => { const pending = actualProofs.filter(p => p.approval === "pending"); const idx = pending.findIndex(p => p.id === viewingProof.id); return pending.length > 1 && idx >= 0 ? ` · ${idx + 1} of ${pending.length}` : ""; })()}
+              </div>
             </div>
             <button onClick={() => { setViewingProof(null); setShowRevisionInput(null); }} style={{
               background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.text, cursor: "pointer", padding: "8px 20px",
@@ -687,10 +708,20 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                   </div>
                 ) : (
                   <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-                    <button onClick={async () => { await doAction("approve-proof", { fileId: viewingProof.id }); setViewingProof(null); }}
+                    <button onClick={async () => {
+                      const currentId = viewingProof.id;
+                      await doAction("approve-proof", { fileId: currentId });
+                      // Auto-advance to next pending proof
+                      const pending = actualProofs.filter(p => p.approval === "pending" && p.id !== currentId);
+                      if (pending.length > 0) {
+                        setViewingProof(pending[0]);
+                      } else {
+                        setViewingProof(null);
+                      }
+                    }}
                       disabled={actionLoading === `approve-proof${viewingProof.id}`}
                       style={{ padding: "12px 32px", borderRadius: 10, background: C.green, color: "#fff", border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: actionLoading ? 0.6 : 1 }}>
-                      Approve
+                      {(() => { const remaining = actualProofs.filter(p => p.approval === "pending" && p.id !== viewingProof.id).length; return remaining > 0 ? `Approve · ${remaining} more` : "Approve"; })()}
                     </button>
                     <button onClick={() => setShowRevisionInput(viewingProof.id)}
                       style={{ padding: "12px 32px", borderRadius: 10, background: "transparent", color: C.red, border: `1px solid ${C.redBorder}`, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>

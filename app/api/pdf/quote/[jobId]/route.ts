@@ -288,6 +288,8 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
       }).filter((p: any) => p.totalQty > 0);
     }
 
+    // Round each line item's grossRev to 2 decimals before summing — total matches what client sees
+    prods = prods.map(p => ({ ...p, grossRev: Math.round(p.grossRev * 100) / 100, sellPerUnit: Math.round(p.sellPerUnit * 100) / 100 }));
     const quoteTotal = prods.reduce((a, p) => a + p.grossRev, 0);
 
     const html = renderQuoteHTML({

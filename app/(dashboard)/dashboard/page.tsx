@@ -282,8 +282,8 @@ export default async function DashboardPage() {
         action: `Fulfillment — ${label}`, href: `/warehouse`, column: "production" });
     }
 
-    // 14. Ships soon (0-3 days) — proactive deadline warning
-    if (j.target_ship_date) {
+    // 14. Ships soon (0-3 days) — proactive deadline warning (skip if already receiving/shipping/fulfillment/complete)
+    if (j.target_ship_date && !["receiving","shipping","fulfillment","complete","cancelled"].includes(j.phase)) {
       const daysToShip = Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000);
       if (daysToShip >= 0 && daysToShip <= 3) {
         alerts.push({ ...base, priority: 2, type: "shipping_soon", color: T.amber,

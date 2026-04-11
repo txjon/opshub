@@ -72,7 +72,7 @@ export default function ShippingPage() {
                     {job.items.map(item => (
                       <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: T.surface, borderRadius: 6 }}>
                         <div>
-                          <span style={{ fontSize: 12, fontWeight: 500, color: T.text }}>{item.name}</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: T.purple, fontFamily: mono, marginRight: 4 }}>{item.letter}</span><span style={{ fontSize: 12, fontWeight: 500, color: T.text }}>{item.name}</span>
                           {item.blank_vendor && <span style={{ fontSize: 10, color: T.faint, marginLeft: 6 }}>{item.blank_vendor}</span>}
                         </div>
                         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>

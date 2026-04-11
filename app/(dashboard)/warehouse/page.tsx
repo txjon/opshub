@@ -17,6 +17,7 @@ const FULFILLMENT_STAGES = [
 type WarehouseItem = {
   id: string;
   name: string;
+  letter: string;
   blank_vendor: string | null;
   blank_sku: string | null;
   job_id: string;
@@ -95,6 +96,7 @@ export default function WarehousePage() {
           return {
             id: it.id,
             name: it.name,
+            letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
             blank_vendor: it.blank_vendor,
             blank_sku: it.blank_sku,
             job_id: it.job_id,
@@ -300,7 +302,7 @@ export default function WarehousePage() {
                     return (
                       <tr key={item.id} style={{ borderBottom: i < job.items.length - 1 ? `1px solid ${T.border}` : "none", verticalAlign: "top" }}>
                         <td style={{ padding: "8px", fontWeight: 600 }}>
-                          {item.name}
+                          <span style={{ fontSize: 10, fontWeight: 700, color: T.purple, fontFamily: mono, marginRight: 6 }}>{item.letter}</span>{item.name}
                           <div style={{ fontSize: 10, color: T.faint, fontWeight: 400 }}>{[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ")}</div>
                         </td>
                         <td style={{ padding: "8px", fontFamily: mono, fontSize: 11, color: T.muted }}>{item.ship_tracking || "—"}</td>
@@ -398,7 +400,7 @@ export default function WarehousePage() {
                       onMouseEnter={e => { e.currentTarget.style.borderColor = T.amber; e.currentTarget.style.color = T.amber; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = "transparent"; e.currentTarget.style.color = T.muted; }}
                       title="Click to revert to incoming">
-                      {item.name} · {tQty(item.qtys)} units
+                      {item.letter} {item.name} · {tQty(item.qtys)} units
                     </span>
                   ))}
                 </div>
@@ -460,7 +462,7 @@ export default function WarehousePage() {
                         onMouseEnter={e => { e.currentTarget.style.color = T.amber; }}
                         onMouseLeave={e => { e.currentTarget.style.color = T.muted; }}
                         title="Click to revert to incoming">
-                        {item.name} · {tQty(item.qtys)} units
+                        {item.letter} {item.name} · {tQty(item.qtys)} units
                       </span>
                     ))}
                   </div>

@@ -38,31 +38,6 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 12 }}>
 
-      {/* ── Preview Proofs + View Portal ── */}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => {
-          const allProofs = items.flatMap(it => (itemFiles[it.id] || []).filter(f => f.stage === "proof"));
-          if (allProofs.length > 0) setPreviewProofItem(allProofs[0]);
-        }}
-          style={{ padding: "10px 20px", borderRadius: 8, border: "none", cursor: "pointer",
-            background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
-            transition: "opacity 0.15s" }}
-          onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
-          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-          Preview Proofs
-        </button>
-        {job.portal_token && (
-          <button onClick={() => window.open(`/portal/${job.portal_token}`, "_blank")}
-            style={{ padding: "10px 20px", borderRadius: 8, border: `1px solid ${T.border}`, cursor: "pointer",
-              background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: font,
-              transition: "opacity 0.15s", flexShrink: 0 }}
-            onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
-            onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-            View Portal
-          </button>
-        )}
-      </div>
-
       {/* ── Proof Approvals ── */}
       <div style={card}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
@@ -92,7 +67,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                 {mockupFile && (
                   <button onClick={() => setProofModalItem(item)}
                     style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: T.amber, color: "#fff" }}>
-                    {files.some(f => f.stage === "proof") ? "Regenerate Proof" : "Generate Proof"}
+                    {files.some(f => f.stage === "proof") ? "Revise" : "Generate Proof"}
                   </button>
                 )}
                 {!mockupFile && files.length > 0 && (
@@ -104,30 +79,38 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                     Preview
                   </button>
                 )}
-                {isApproved && (
-                  <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>
-                    Approved
-                  </span>
-                )}
                 <button onClick={async () => {
-                  const newStatus = manualApproved ? "not_started" : "approved";
+                  const newStatus = isApproved ? "not_started" : "approved";
                   await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
                   if (onUpdateItem) onUpdateItem(item.id, { artwork_status: newStatus });
-                  if (newStatus === "approved") logJobActivity(job.id, `${item.name} proof manually approved`);
+                  if (newStatus === "approved") logJobActivity(job.id, `${item.name} proof approved`);
                   if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
                 }}
-                  style={{ padding: "3px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-                    background: manualApproved ? T.greenDim : T.surface,
-                    color: manualApproved ? T.green : T.muted,
-                    border: `1px solid ${manualApproved ? T.green + "44" : T.border}`,
+                  style={{ padding: "3px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer",
+                    background: isApproved ? T.greenDim : T.surface,
+                    color: isApproved ? T.green : T.muted,
+                    border: `1px solid ${isApproved ? T.green + "44" : T.border}`,
                   }}>
-                  {manualApproved ? "Approved" : "Approve"}
+                  {isApproved ? "Approved" : "Approve"}
                 </button>
               </div>
             );
           })}
         </div>
       </div>
+
+      {/* ── Preview Proofs ── */}
+      <button onClick={() => {
+        const allProofs = items.flatMap(it => (itemFiles[it.id] || []).filter(f => f.stage === "proof"));
+        if (allProofs.length > 0) setPreviewProofItem(allProofs[0]);
+      }}
+        style={{ padding: "10px 20px", borderRadius: 8, border: "none", cursor: "pointer", alignSelf: "flex-start",
+          background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
+          transition: "opacity 0.15s" }}
+        onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+        onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+        Preview Proofs
+      </button>
 
       {/* ── Proof Modal ── */}
       {proofModalItem && (() => {

@@ -16,6 +16,7 @@ export const FULFILLMENT_STAGES = [
 export type WarehouseItem = {
   id: string;
   name: string;
+  letter: string;
   blank_vendor: string | null;
   blank_sku: string | null;
   job_id: string;
@@ -113,7 +114,7 @@ export function useWarehouse() {
         items: relevant.map((it: any) => {
           const lines = it.buy_sheet_lines || [];
           return {
-            id: it.id, name: it.name, blank_vendor: it.blank_vendor, blank_sku: it.blank_sku,
+            id: it.id, name: it.name, letter: String.fromCharCode(65 + (it.sort_order ?? 0)), blank_vendor: it.blank_vendor, blank_sku: it.blank_sku,
             job_id: it.job_id, pipeline_stage: it.pipeline_stage, ship_tracking: it.ship_tracking, ship_notes: it.ship_notes || "",
             received_at_hpd: it.received_at_hpd || false, received_at_hpd_at: it.received_at_hpd_at,
             sizes: sortSizes(lines.map((l: any) => l.size)),

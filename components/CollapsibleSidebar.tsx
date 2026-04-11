@@ -3,7 +3,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut, Menu, X } from "lucide-react";
-import { SidebarNotifications } from "@/components/DashboardShell";
 import { GlobalSearch } from "@/components/GlobalSearch";
 
 type NavItem = { href?: string; label?: string; roles?: string[]; section?: string };
@@ -26,9 +25,6 @@ export function CollapsibleSidebar({
         >
           {open ? <X size={18} /> : <Menu size={18} />}
         </button>
-        <div className="mt-3">
-          <SidebarNotifications userId={userId} />
-        </div>
       </div>
 
       {/* Expanded drawer — slides over */}

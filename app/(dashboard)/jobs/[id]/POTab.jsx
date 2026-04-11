@@ -303,6 +303,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
         </div>
       </div>
       {showSendEmail&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowSendEmail(false)}>
+        <div style={{background:T.card,borderRadius:12,width:"95vw",maxWidth:600,maxHeight:"90vh",overflow:"auto",padding:0}} onClick={e=>e.stopPropagation()}>
         <SendEmailDialog
           type="po"
           jobId={project.id}
@@ -321,6 +323,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             if(onRecalcPhase) setTimeout(onRecalcPhase, 300);
           }}
         />
+        </div>
+        </div>
       )}
 
       {/* Warnings and status */}

@@ -759,7 +759,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 handleDist={handleDist} removeItem={removeItem} setAssignBlankTo={setAssignBlankTo}
                 setShowAddModal={setShowAddModal} onItemsChanged={onItemsChanged}
                 onUpdateItem={(id, updates) => { updateLocal(workingItems.map(it => it.id === id ? {...it, ...updates} : it)); onUpdateItem(id, updates); }}
-                ic={ic}
+                ic={ic} costingLocked={costingLocked}
               />
             )}
           </div>
@@ -779,7 +779,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 // ═══════════════════════════════════════════════════════════════
 // Expanded item body — manages its own file state per item
 // ═══════════════════════════════════════════════════════════════
-function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, ic }) {
+function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, ic, costingLocked }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);

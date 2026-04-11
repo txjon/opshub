@@ -251,6 +251,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       }).filter(Boolean);
     }
 
+    prods = prods.map((p: any) => ({ ...p, grossRev: Math.round(p.grossRev * 100) / 100, sellPerUnit: Math.round(p.sellPerUnit * 100) / 100 }));
     const quoteTotal = prods.reduce((a: number, p: any) => a + p.grossRev, 0);
     const taxAmount = job.type_meta?.qb_tax_amount || 0;
     const totalPaid = (payments || []).filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + p.amount, 0);

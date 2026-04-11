@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { LogOut } from "lucide-react";
-import { DashboardShell, SidebarNotifications } from "@/components/DashboardShell";
+import { DashboardShell } from "@/components/DashboardShell";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { CollapsibleSidebar } from "@/components/CollapsibleSidebar";
 

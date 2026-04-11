@@ -65,7 +65,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), costing_summary, type_meta, items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, garment_type, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, type_meta, payment_records(status), items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, garment_type, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -262,7 +262,8 @@ export default function JobsPage() {
               {/* Status signals */}
               <div style={{ display:"flex", gap:4, alignItems:"center", flex:1, flexWrap:"wrap" }}>
                 {job.quote_approved && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.greenDim, color:T.green, whiteSpace:"nowrap" }}>Quote Approved</span>}
-                {invNum && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.accentDim, color:T.accent, whiteSpace:"nowrap" }}>Invoice Ready</span>}
+                {invNum && !(job as any).payment_records?.some((p:any) => p.status === "paid") && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.accentDim, color:T.accent, whiteSpace:"nowrap" }}>Invoice Ready</span>}
+                {(job as any).payment_records?.some((p:any) => p.status === "paid") && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.greenDim, color:T.green, whiteSpace:"nowrap" }}>Paid</span>}
                 {job.items?.some((it:any) => it.pipeline_stage === "shipped") && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.purpleDim || "#2d1f5e", color:T.purple || "#a78bfa", whiteSpace:"nowrap" }}>Items Shipped</span>}
               </div>
 

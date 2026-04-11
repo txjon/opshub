@@ -10,7 +10,7 @@ import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
 type ProdItem = {
-  id: string; name: string; job_id: string;
+  id: string; name: string; job_id: string; letter: string;
   pipeline_stage: string | null; ship_tracking: string | null;
   pipeline_timestamps: Record<string, string> | null;
   blank_vendor: string | null; blank_sku: string | null;
@@ -95,7 +95,7 @@ export default function ProductionPage() {
       const totalUnits = lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
 
       const prodItem: ProdItem = {
-        id: it.id, name: it.name, job_id: it.job_id,
+        id: it.id, name: it.name, job_id: it.job_id, letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
         pipeline_stage: it.pipeline_stage === "shipped" ? "shipped" : "in_production",
         ship_tracking: it.ship_tracking,
         pipeline_timestamps: it.pipeline_timestamps || {},
@@ -512,6 +512,7 @@ export default function ProductionPage() {
                           }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                               <div>
+                                <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, marginRight: 8 }}>{item.letter}</span>
                                 <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{item.name}</span>
                                 <span style={{ fontSize: 10, color: T.muted, marginLeft: 8 }}>
                                   {item.blank_vendor} · {item.total_units} units

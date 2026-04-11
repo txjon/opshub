@@ -111,33 +111,44 @@ export async function GET(
       .order("created_at", { ascending: false })
       .limit(50);
 
-    // Filter to events the client should see (hide internal ops like POs, blanks, PSD processing)
-    const CLIENT_SAFE_KEYWORDS = [
-      "quote", "proof", "mockup", "payment", "invoice", "approved",
-      "revision", "shipped", "tracking", "delivered", "sent to client",
-    ];
-    const INTERNAL_KEYWORDS = [
-      "PO sent", "blanks", "PSD processed", "Item created from PSD",
-      "costing", "decorator", "stage advanced", "auto-email",
-      "buy sheet", "assigned", "reorder", "QB Invoice", "auto-created",
-      "confirmation sent to", "Print proof generated", "Product proof generated",
-      "created in quickbooks", "Item created", "created —", "file uploaded",
-      "files uploaded", "mockup", "uploaded for",
-    ];
-    const activity = (rawActivity || []).filter((a: any) => {
-      const msg = (a.message || "").toLowerCase();
-      if (INTERNAL_KEYWORDS.some(k => msg.includes(k.toLowerCase()))) return false;
-      return CLIENT_SAFE_KEYWORDS.some(k => msg.includes(k.toLowerCase()));
-    }).map((a: any) => {
-      let msg = a.message || "";
-      // Rewrite messages for client view
-      if (/quote sent to client/i.test(msg)) msg = "Quote delivered";
-      if (/invoice sent to client/i.test(msg)) {
+    // Only show events the client cares about — whitelist approach
+    const activity: any[] = [];
+    const seen = new Set<string>();
+    for (const a of (rawActivity || [])) {
+      const msg = (a.message || "");
+      const msgLower = msg.toLowerCase();
+
+      // Skip internal operations
+      if (/po sent|blanks|psd|costing|decorator|stage advanced|auto-email|buy sheet|assigned|reorder|qb invoice|auto-created|confirmation sent|proof generated|product proof|created in quickbooks|item created|created —|file uploaded|files uploaded|uploaded for|mockup generated|returned to production/i.test(msg)) continue;
+
+      // Only allow specific client-facing events
+      let clientMsg = null;
+      if (/quote sent to client/i.test(msg)) clientMsg = "Quote delivered";
+      else if (/quote approved/i.test(msg)) clientMsg = "Quote approved";
+      else if (/quote rejected|revision requested/i.test(msg) && /quote/i.test(msg)) clientMsg = msg;
+      else if (/invoice sent to client/i.test(msg)) {
         const invNum = (job.type_meta as any)?.qb_invoice_number;
-        msg = invNum ? `Invoice #${invNum} delivered` : "Invoice delivered";
+        clientMsg = invNum ? `Invoice #${invNum} delivered` : "Invoice delivered";
       }
-      return { ...a, message: msg };
-    }).slice(0, 15);
+      else if (/invoice \+ proofs sent/i.test(msg)) clientMsg = "Invoice and proofs delivered";
+      else if (/payment received/i.test(msg)) clientMsg = msg;
+      else if (/proof approved by client/i.test(msg)) {
+        // Consolidate per-item approvals: extract item name, dedupe
+        const match = msg.match(/for (.+)$/);
+        clientMsg = match ? `${match[1]} proof approved` : "Proof approved";
+      }
+      else if (/proofs sent to client/i.test(msg)) clientMsg = "Proofs delivered";
+      else if (/shipped|tracking/i.test(msg) && !/decorator|warehouse|production/i.test(msg)) clientMsg = msg;
+
+      if (!clientMsg) continue;
+
+      // Deduplicate: skip if same message already shown
+      if (seen.has(clientMsg)) continue;
+      seen.add(clientMsg);
+
+      activity.push({ ...a, message: clientMsg });
+      if (activity.length >= 15) break;
+    }
 
     // Build thumbnail map: item_id → first mockup/proof driveFileId
     const thumbnailMap: Record<string, string> = {};
@@ -250,9 +261,9 @@ export async function GET(
       client: { name: clientName },
       quote: {
         items: quoteItems,
-        subtotal: costingSummary?.grossRev || 0,
+        subtotal: quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0),
         tax: typeMeta.qb_tax_amount || 0,
-        total: typeMeta.qb_total_with_tax || costingSummary?.grossRev || 0,
+        total: typeMeta.qb_total_with_tax || quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0),
       },
       items: itemsWithProofs,
       payments: (payments || []).map((p: any) => ({
@@ -376,6 +387,30 @@ export async function POST(
       // Auto-email client confirmation (fire-and-forget)
       sendClientNotification({ jobId: job.id, type: "quote_approved" }).catch(() => {});
 
+
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === "approve-all-proofs") {
+      // Approve all pending proofs for this job
+      const itemIds = items.map((it: any) => it.id);
+      if (itemIds.length > 0) {
+        await sb.from("item_files")
+          .update({ approval: "approved", approved_at: new Date().toISOString() })
+          .in("item_id", itemIds)
+          .eq("stage", "proof")
+          .eq("approval", "pending");
+
+        // Also mark items as manually approved
+        await sb.from("items")
+          .update({ artwork_status: "approved" })
+          .in("id", itemIds);
+      }
+
+      await sb.from("job_activity").insert({
+        job_id: job.id, user_id: null, type: "auto",
+        message: "All proofs approved by client via portal",
+      });
 
       return NextResponse.json({ success: true });
     }

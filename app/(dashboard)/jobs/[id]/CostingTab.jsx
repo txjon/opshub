@@ -518,30 +518,29 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})}                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:72,boxSizing:"border-box"}}/>
                       </div>
                       {r&&(
-                        <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
-                          {(()=>{
-                            const bi=buyItems.find(b=>b.id===p.id);
-                            const actualBlank=bi?.blanks_order_cost?parseFloat(bi.blanks_order_cost):null;
-                            const blankDiff=actualBlank!==null?actualBlank-r.blankCost:null;
-                            const actualProfit=actualBlank!==null?r.netProfit-(actualBlank-r.blankCost):null;
-                            const actualMargin=actualProfit!==null&&r.grossRev>0?actualProfit/r.grossRev:null;
-                            return [
-                            ["Revenue",  fmtD(r.grossRev),       T.accent,  null],
-                            ["Blanks",   fmtD(r.blankCost),      T.text,    null],
-                            ...(actualBlank!==null?[["Actual Blanks",fmtD(actualBlank),blankDiff>0?T.red:T.green,blankDiff>0?T.redDim:T.greenDim]]:[]),
-                            ["PO",       fmtD(r.poTotal),        T.text,    null],
-                            ...(r.shipping>0?[["Ship", fmtD(r.shipping), T.text, null]]:[]),
-                            ...(r.ccFees>0?[["CC Fees", fmtD(r.ccFees), T.text, null]]:[]),
-                            ["Profit",   fmtD(r.netProfit),      mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
-                            ...(actualMargin!==null?[["Actual Margin",fmtP(actualMargin*100),actualMargin>=0.3?T.green:actualMargin>=0.2?T.amber:T.red,actualMargin>=0.3?T.greenDim:actualMargin>=0.2?T.amberDim:T.redDim]]:[]),
-                            ["Margin",   fmtP(r.margin_pct),     mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
-                            ["Per Pc",   fmtD(r.profitPerPiece), mc2,       mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim],
-                          ]})().map(([l,v,c,bg])=>(
-                            <div key={l} style={{background:bg||T.surface,border:`1px solid ${T.border}22`,borderRadius:6,padding:"4px 8px",minWidth:70}}>
-                              <div style={{fontSize:8,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.05em"}}>{l}</div>
-                              <div style={{fontSize:11,fontWeight:700,color:c,fontFamily:mono}}>{v}</div>
-                            </div>
-                          ))}
+                        <div style={{background:T.card,borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden",marginTop:4}}>
+                          <div style={{padding:"6px 10px",background:T.surface,fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:`1px solid ${T.border}`}}>Item Summary</div>
+                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
+                            <tbody>
+                              {[
+                                ["Revenue",    fmtD(r.grossRev),       T.accent],
+                                ["Blanks",     fmtD(r.blankCost),      T.text],
+                                ["PO Total",   fmtD(r.poTotal),        T.text],
+                                ...(r.shipping>0?[["Shipping", fmtD(r.shipping), T.text]]:[]),
+                                ...(r.ccFees>0?[["CC Fees", fmtD(r.ccFees), T.text]]:[]),
+                                ["Net Profit", fmtD(r.netProfit),      mc2],
+                                ["Margin",     fmtP(r.margin_pct),     mc2],
+                                ["Per Piece",  fmtD(r.profitPerPiece), mc2],
+                              ].map(([l,v,c],idx)=>{
+                                const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
+                                return (
+                                <tr key={l} style={{background:isProfit?(mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim):T.card,borderBottom:`1px solid ${T.border}22`}}>
+                                  <td style={{padding:"5px 10px",color:T.muted,fontFamily:font,fontWeight:500}}>{l}</td>
+                                  <td style={{padding:"5px 10px",color:c,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{v}</td>
+                                </tr>
+                              );})}
+                            </tbody>
+                          </table>
                         </div>
                       )}
                     </div>{/* end blanks panel */}
@@ -559,6 +558,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             const totPO=results.reduce((a,r)=>a+r.poTotal,0);
             const totShip=results.reduce((a,r)=>a+r.shipping,0);
             const totQty=results.reduce((a,r)=>a+r.qty,0);
+            const totActualBlanks=buyItems.reduce((a,bi)=>a+(bi.blanks_order_cost?parseFloat(bi.blanks_order_cost):0),0);
             const profitPc=totQty>0?totProfit/totQty:0;
             // PO totals by vendor
             const poByVendor={};
@@ -593,6 +593,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       ["Net Profit", fmtD(totProfit),   mc],
                       ["Margin",     fmtP(netMarg),     mc],
                       ["Per Piece",  fmtD(profitPc),    mc],
+                      ...(totActualBlanks>0?[["Actual Blanks", fmtD(totActualBlanks), totActualBlanks>totBlank?T.red:T.green]]:[]),
                     ].map(([l,v,c],idx)=>{
                       const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
                       const isVendorSub=l.startsWith("  ");
@@ -634,7 +635,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             </div>
             <div style={{fontSize:12,color:T.muted,fontFamily:font,marginBottom:10}}>Preview — this is what your client sees</div>
             {showSendEmail&&(
-              <div style={{marginBottom:14}}>
+              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowSendEmail(false)}>
+              <div style={{background:T.card,borderRadius:12,width:"95vw",maxWidth:600,maxHeight:"90vh",overflow:"auto"}} onClick={e=>e.stopPropagation()}>
                 <SendEmailDialog
                   type="quote"
                   jobId={project.id}
@@ -644,6 +646,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                   onClose={()=>setShowSendEmail(false)}
                   onSent={()=>logJobActivity(project.id, "Quote sent to client")}
                 />
+              </div>
               </div>
             )}
             <div style={{background:"#fff",borderRadius:12,border:"1px solid #e5e7eb",overflow:"hidden",fontFamily:"Georgia, serif",color:"#111"}}>
@@ -1060,9 +1063,9 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const { createClient } = await import("@/lib/supabase/client");
         const supabase = createClient();
         const results = costProds.map(p => calcCostProduct(p, costMargin, inclShip, inclCC, costProds)).filter(Boolean);
-        const grossRev = results.reduce((a,r) => a + r.grossRev, 0);
-        const totalCost = results.reduce((a,r) => a + r.totalCost, 0);
-        const netProfit = results.reduce((a,r) => a + r.netProfit, 0);
+        const grossRev = Math.round(results.reduce((a,r) => a + Math.round(r.grossRev * 100) / 100, 0) * 100) / 100;
+        const totalCost = Math.round(results.reduce((a,r) => a + r.totalCost, 0) * 100) / 100;
+        const netProfit = Math.round((grossRev - totalCost) * 100) / 100;
         const totalQty = results.reduce((a,r) => a + r.qty, 0);
         const margin = grossRev > 0 ? netProfit / grossRev * 100 : 0;
         const avgPerUnit = totalQty > 0 ? grossRev / totalQty : 0;
