@@ -236,19 +236,71 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               // ── Non-garment slim card (accessories, patches, stickers, etc.) ──
               const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
               if (NON_GARMENT.includes(p.garment_type)) {
-                const accTotal = (p.customCosts||[]).reduce((a,cc) => a + (cc.flat ? (cc.perUnit||cc.amount||0) : (cc.perUnit||cc.amount||0) * (p.totalQty||0)), 0);
+                const accTotal = (p.customCosts||[]).reduce((a,cc) => a + (cc.flat ? (parseFloat(cc.perUnit)||parseFloat(cc.amount)||0) : (parseFloat(cc.perUnit)||parseFloat(cc.amount)||0) * (p.totalQty||0)), 0);
                 return (
                   <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
-                    {/* Header: Letter + Name + Qty + Total */}
+                    {/* Header: Letter + Name + Qty + Sell $/unit override */}
                     <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
                       <span style={{width:24,height:24,borderRadius:5,background:T.purpleDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.purple,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
-                      <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600,flex:1}}>{p.name||"Accessory"}</span>
-                      <span style={{fontSize:10,color:T.purple,fontWeight:600}}>Accessory</span>
-                      <span style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0)} units</span>
-                      {accTotal > 0 && <span style={{fontSize:12,fontWeight:700,color:T.green,fontFamily:mono}}>{fmtD(accTotal)}</span>}
+                      <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8}}>
+                        <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||"Accessory"}</span>
+                        <span style={{fontSize:10,color:T.purple,fontWeight:600}}>Accessory</span>
+                      </div>
+                      <div style={{display:"flex",gap:0,alignItems:"center"}}>
+                        <div style={{textAlign:"right",width:70,flexShrink:0,marginRight:16}}>
+                          <div style={{fontSize:9,color:T.faint,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
+                          <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
+                        </div>
+                        <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>
+                        <div style={{display:"flex",alignItems:"center",gap:8}} onClick={e=>e.stopPropagation()}>
+                          <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+                            {p._sellOverride?(
+                              <>
+                                <button onClick={()=>updateProd(i,{...p,sellOverride:parseFloat(p._sellOverrideVal)||null,_sellOverride:false})}
+                                  style={{background:T.green,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"}}>save</button>
+                                <button onClick={()=>updateProd(i,{...p,_sellOverride:false,sellOverride:null,_sellOverrideVal:null})}
+                                  style={{background:"none",border:"1px solid "+T.border,borderRadius:4,color:T.muted,cursor:"pointer",padding:"2px 0",fontSize:9,fontFamily:font,width:52,textAlign:"center"}}>cancel</button>
+                              </>
+                            ):(
+                              <>
+                                <button onClick={()=>updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""})}
+                                  style={{fontSize:9,color:T.amber,fontFamily:font,background:"none",border:"1px solid "+T.amber+"44",borderRadius:4,cursor:"pointer",padding:"2px 0",width:52,textAlign:"center"}}>override</button>
+                                <button onClick={()=>updateProd(i,{...p,sellOverride:null})}
+                                  style={{fontSize:9,color:p.sellOverride?T.accent:T.faint,fontFamily:font,background:"none",border:"1px solid "+(p.sellOverride?T.accent+"44":T.border),borderRadius:4,cursor:"pointer",padding:"2px 0",width:52,textAlign:"center"}}>auto</button>
+                              </>
+                            )}
+                          </div>
+                          <div style={{textAlign:"right",flexShrink:0}}>
+                            <div style={{fontSize:9,color:T.faint,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>Sell $/unit</div>
+                            {p._sellOverride?(
+                              <div style={{background:T.surface,border:"1px solid "+T.amber,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box"}}>
+                                <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
+                                <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus
+                                  onFocus={e=>e.target.select()}
+                                  onChange={e=>updateProd(i,{...p,_sellOverrideVal:e.target.value})}
+                                  style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.amber,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
+                              </div>
+                            ):(
+                              <div style={{background:T.surface,border:"1px solid "+(p.sellOverride?T.amber:T.border),borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box"}}>
+                                <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
+                                <span style={{fontSize:12,fontWeight:700,color:p.sellOverride?T.amber:r?.sellPerUnit>0?T.green:T.faint,fontFamily:mono}}>{p.sellOverride?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    {/* Custom cost line items only */}
+                    {/* Vendor selector + Cost line items */}
                     <div style={{padding:"12px 16px"}}>
+                      {/* Vendor / Decorator selector */}
+                      <div style={{marginBottom:12}}>
+                        <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Vendor</div>
+                        <select value={p.printVendor||""} onChange={e=>{updateProd(i,{...p,printVendor:e.target.value});}}
+                          style={{background:T.surface,border:`1px solid ${p.printVendor?T.accent+"66":T.border}`,borderRadius:6,color:p.printVendor?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",minWidth:180}}>
+                          <option value="">— select vendor —</option>
+                          {Object.keys(PRINTERS).map(pr=><option key={pr} value={pr}>{pr}</option>)}
+                        </select>
+                      </div>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Cost Line Items</div>
                         <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -256,11 +308,6 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           {(p.customCosts||[]).length < 6 && <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
                             style={{fontSize:11,color:T.accent,fontFamily:font,background:"none",border:`1px solid ${T.accent}44`,borderRadius:5,cursor:"pointer",padding:"2px 10px"}}>+ Add</button>}
                         </div>
-                      </div>
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                        <span style={{fontSize:11,color:T.faint}}>{(p.customCosts||[]).length}/6 line items</span>
-                        {(p.customCosts||[]).length < 6 && <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
-                          style={{fontSize:11,color:T.accent,fontFamily:font,background:"none",border:`1px solid ${T.accent}44`,borderRadius:5,cursor:"pointer",padding:"2px 10px"}}>+ Add</button>}
                       </div>
                       {(p.customCosts||[]).length>0&&(
                         <div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden",marginBottom:10}}>
@@ -275,7 +322,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             <tbody>
                               {(p.customCosts||[]).map((cc,ci)=>{
                                 const isFlat=!!cc.flat;
-                                const costVal=cc.perUnit||cc.amount||0;
+                                const costVal=parseFloat(cc.perUnit)||parseFloat(cc.amount)||0;
                                 const total=isFlat?costVal:costVal*(p.totalQty||0);
                                 return(
                                   <tr key={ci} style={{borderBottom:ci<p.customCosts.length-1?`1px solid ${T.border}`:"none",background:ci%2===0?T.card:T.surface}}>
@@ -312,23 +359,26 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           </table>
                         </div>
                       )}
-                      {/* Item summary */}
+                      {/* Item summary — table format matching Project Totals sidebar */}
                       {r&&(
-                        <div style={{borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
-                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
+                        <div style={{background:T.card,borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+                          <div style={{padding:"6px 10px",background:T.surface,fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:`1px solid ${T.border}`}}>Item Summary</div>
+                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
                             <tbody>
                               {[
                                 ["Revenue",        fmtD(r.grossRev),        T.accent],
                                 ["Total Cost",     fmtD(r.totalCost),       T.text],
                                 ["Net Profit",     fmtD(r.netProfit),       mc2],
                                 ["Margin",         fmtP(r.margin_pct),      mc2],
-                                ["Profit / Piece", fmtD(r.profitPerPiece),  mc2],
-                              ].map(([l,v,c],idx)=>(
-                                <tr key={l} style={{borderBottom:idx<4?`1px solid ${T.border}22`:"none",background:idx>=2?(mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim):T.surface}}>
-                                  <td style={{padding:"6px 12px",fontSize:11,fontWeight:500,color:T.muted,fontFamily:font,width:"50%"}}>{l}</td>
-                                  <td style={{padding:"6px 12px",fontSize:13,fontWeight:700,color:c,fontFamily:mono,textAlign:"right"}}>{v}</td>
+                                ["Per Piece",      fmtD(r.profitPerPiece),  mc2],
+                              ].map(([l,v,c],idx)=>{
+                                const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
+                                return (
+                                <tr key={l} style={{background:isProfit?(mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim):T.card,borderBottom:`1px solid ${T.border}22`}}>
+                                  <td style={{padding:"5px 10px",color:T.muted,fontFamily:font,fontWeight:500}}>{l}</td>
+                                  <td style={{padding:"5px 10px",color:c,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{v}</td>
                                 </tr>
-                              ))}
+                              );})}
                             </tbody>
                           </table>
                         </div>
@@ -855,7 +905,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       blankCostPerUnit,
       totalQty: Object.values(it.qtys || {}).reduce((a, v) => a + v, 0),
       garment_type: it.garment_type || null,
-      ...(it.garment_type === "accessory" && !saved ? { customCosts: [{desc:it.blank_vendor||"",perUnit:0,flat:false},{desc:"",perUnit:0,flat:true},{desc:"",perUnit:0,flat:true}] } : {}),
+      ...((()=>{ const NG=["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]; return NG.includes(it.garment_type) && !saved ? { customCosts: [{desc:"",perUnit:0,flat:false},{desc:"",perUnit:0,flat:false}] } : {}; })()),
     };
   });
 
@@ -1016,7 +1066,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const vnd = (it.blank_vendor || "").toLowerCase();
         const autoSupplier = vnd.startsWith("as colour")||vnd.startsWith("as color")?"AS Colour":vnd.startsWith("la apparel")||vnd.startsWith("los angeles")?"LA Apparel":vnd.startsWith("sanmar")||vnd.startsWith("port ")||vnd.startsWith("sport-tek")||vnd.startsWith("district")?"Sanmar":["comfort colors","gildan","bella","next level","tultex","hanes","champion","jerzees","fruit of the loom","independent trading","alternative","allmade","american apparel","rabbit skins","lat ","m&o ","augusta","badger","boxercraft"].some(b=>vnd.startsWith(b))?"S&S":"";
         const newItem = { ...EMPTY_COST_PRODUCT(), id: it.id, name: it.name || "", style: it.blank_vendor || "", color: it.blank_sku || "", sizes: sortSizes(it.sizes || []), qtys: it.qtys || {}, blankCosts, totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a, v) => a + v, 0), garment_type: it.garment_type || null, supplier: autoSupplier };
-        if (it.garment_type === "accessory") newItem.customCosts = [{desc:it.blank_vendor||"",perUnit:0,flat:false},{desc:"",perUnit:0,flat:true},{desc:"",perUnit:0,flat:true}];
+        { const NG=["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]; if (NG.includes(it.garment_type)) newItem.customCosts = [{desc:"",perUnit:0,flat:false},{desc:"",perUnit:0,flat:false}]; }
         return newItem;
       });
       // Update existing + remove deleted

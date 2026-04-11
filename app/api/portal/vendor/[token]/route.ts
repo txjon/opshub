@@ -231,17 +231,107 @@ export async function GET(
     for (const job of (completedJobs || [])) {
       const costingData = job.costing_data as any;
       if (!costingData?.costProds?.length) continue;
-      const decItems = costingData.costProds.filter((cp: any) =>
+      const allCostProds = costingData.costProds;
+      const decItems = allCostProds.filter((cp: any) =>
         cp.printVendor === decorator.short_code || cp.printVendor === decorator.name
       );
       if (decItems.length === 0) continue;
+
+      const itemIds = decItems.map((cp: any) => cp.id);
+      const { data: cItems } = await sb
+        .from("items")
+        .select("id, name, garment_type, blank_vendor, blank_sku, pipeline_stage, drive_link, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, sort_order, buy_sheet_lines(size, qty_ordered)")
+        .in("id", itemIds)
+        .order("sort_order");
+
+      if (!cItems?.length) continue;
+
+      const typeMeta = (job.type_meta || {}) as any;
+      const poSent = (typeMeta.po_sent_vendors || []).includes(decorator.name) ||
+                     (typeMeta.po_sent_vendors || []).includes(decorator.short_code);
+
+      // Fetch mockup thumbnails
+      const { data: cMockups } = await sb
+        .from("item_files")
+        .select("item_id, drive_file_id")
+        .in("item_id", itemIds)
+        .eq("stage", "mockup")
+        .order("created_at", { ascending: false });
+      const cMockupByItem: Record<string, string> = {};
+      for (const f of (cMockups || [])) {
+        if (!cMockupByItem[f.item_id]) cMockupByItem[f.item_id] = f.drive_file_id;
+      }
+
+      // Letter map
+      const { data: cAllJobItems } = await sb
+        .from("items")
+        .select("id, sort_order")
+        .eq("job_id", job.id)
+        .order("sort_order");
+      const cLetterMap: Record<string, string> = {};
+      (cAllJobItems || []).forEach((it: any, idx: number) => {
+        cLetterMap[it.id] = String.fromCharCode(65 + idx);
+      });
+
+      const poShipTo = typeMeta.po_ship_to?.[decorator.name] || typeMeta.po_ship_to?.[decorator.short_code]
+        || (job.shipping_route === "drop_ship" ? (typeMeta.venue_address || null) : "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89139");
+      const poShipMethod = typeMeta.po_ship_methods?.[decorator.name] || typeMeta.po_ship_methods?.[decorator.short_code] || null;
+
+      let grandTotal = 0;
+      const orderItems = cItems.map((item: any) => {
+        const costProd = decItems.find((cp: any) => cp.id === item.id);
+        const lines = item.buy_sheet_lines || [];
+        const sizes = lines.map((l: any) => l.size);
+        const qtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
+        const totalQty = lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
+        const decoLines = costProd
+          ? calcDecorationLines({ ...costProd, totalQty }, allCostProds, printers)
+          : [];
+        const itemTotal = decoLines.reduce((a: number, l: any) => a + l.total, 0);
+        grandTotal += itemTotal;
+        const supplier = costProd?.supplier || item.blank_vendor || "";
+        const incoming = item.incoming_goods || (supplier ? "Blanks from " + supplier : "");
+        return {
+          id: item.id,
+          name: item.name,
+          letter: cLetterMap[item.id] || "",
+          garmentType: item.garment_type,
+          blankVendor: item.blank_vendor,
+          blankSku: item.blank_sku || costProd?.color || "",
+          pipelineStage: item.pipeline_stage || "complete",
+          driveLink: item.drive_link,
+          incomingGoods: incoming,
+          productionNotes: item.production_notes_po,
+          packingNotes: item.packing_notes,
+          shipTracking: item.ship_tracking,
+          shipQtys: item.ship_qtys,
+          sizes,
+          qtys,
+          totalQty,
+          decoLines,
+          itemTotal,
+          mockupThumb: cMockupByItem[item.id] ? `/api/files/thumbnail?id=${cMockupByItem[item.id]}` : null,
+          blanksOrdered: !!item.blanks_order_number,
+        };
+      });
+
+      const totalUnits = orderItems.reduce((a: number, i: any) => a + i.totalQty, 0);
+
       completedOrders.push({
         jobId: job.id,
         jobNumber: job.job_number || "",
         jobTitle: job.title || "",
         clientName: clientMap[job.client_id] || "",
+        phase: job.phase,
         shipDate: job.target_ship_date,
-        items: decItems.map((cp: any) => ({ name: cp.name || "Item" })),
+        shippingRoute: job.shipping_route,
+        poSent,
+        shipTo: poShipTo,
+        shipMethod: poShipMethod,
+        shippingAccount: typeMeta.shipping_account || "",
+        grandTotal,
+        totalUnits,
+        items: orderItems,
       });
     }
 

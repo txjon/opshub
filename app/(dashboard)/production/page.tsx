@@ -185,11 +185,16 @@ export default function ProductionPage() {
     }
     logJobActivity(item.job_id, `${item.name} shipped from decorator${item.ship_tracking ? ` — tracking: ${item.ship_tracking}` : ""}`);
     notifyTeam(`Item shipped from decorator — ${item.name} incoming to warehouse`, "production", item.job_id, "job");
-    // Auto-email client for drop-ship orders (fire-and-forget)
-    fetch("/api/email/notify", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId: item.job_id, type: "order_shipped_dropship", trackingNumber: item.ship_tracking || undefined }),
-    }).catch(() => {});
+    // Auto-email client for drop-ship orders — only when ALL items in the job are shipped
+    const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage").eq("job_id", item.job_id);
+    const allShipped = (jobItems || []).every(it => it.id === item.id ? true : it.pipeline_stage === "shipped");
+    if (allShipped) {
+      fetch("/api/email/notify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: item.job_id, type: "order_shipped_dropship", trackingNumber: item.ship_tracking || undefined }),
+      }).catch(() => {});
+      logJobActivity(item.job_id, "All items shipped — order shipped notification sent to client");
+    }
     loadAll();
   }
 

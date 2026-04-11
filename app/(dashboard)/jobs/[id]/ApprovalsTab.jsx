@@ -33,6 +33,19 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
     });
   }, [items]);
 
+  function reloadFiles() {
+    const ids = items.map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
+    if (ids.length === 0) return;
+    supabase.from("item_files").select("*").in("item_id", ids).then(({ data }) => {
+      const byItem = {};
+      for (const f of (data || [])) {
+        if (!byItem[f.item_id]) byItem[f.item_id] = [];
+        byItem[f.item_id].push(f);
+      }
+      setItemFiles(byItem);
+    });
+  }
+
   const [previewProofItem, setPreviewProofItem] = useState(null);
 
   return (
@@ -124,21 +137,8 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             mockupFile={mockupFile}
             files={files}
             costingData={job.costing_data}
-            onClose={(saved) => {
-              setProofModalItem(null);
-              if (saved) {
-                // Reload files to update proof status
-                const ids = items.map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
-                supabase.from("item_files").select("*").in("item_id", ids).then(({ data }) => {
-                  const byItem = {};
-                  for (const f of (data || [])) {
-                    if (!byItem[f.item_id]) byItem[f.item_id] = [];
-                    byItem[f.item_id].push(f);
-                  }
-                  setItemFiles(byItem);
-                });
-              }
-            }}
+            onClose={() => setProofModalItem(null)}
+            onSaved={reloadFiles}
             onUpdateItem={onUpdateItem}
           />
         );

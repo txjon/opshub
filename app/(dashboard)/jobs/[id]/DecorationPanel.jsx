@@ -57,13 +57,14 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
         <div style={{fontSize:11,fontWeight:800,color:T.text,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Decoration</div>
         {i>0&&costProds[i-1]&&<button onClick={()=>{const prev=costProds[i-1];updateProd(i,{...p,
           printVendor:prev.printVendor,
+          decorationType:prev.decorationType||"",
           printLocations:JSON.parse(JSON.stringify(prev.printLocations||{})),
           printCount:prev.printCount||4,
           tagPrint:prev.tagPrint, tagRepeat:prev.tagRepeat, tagShared:prev.tagShared, tagShareGroup:prev.tagShareGroup,
+          finishingQtys:prev.finishingQtys?{...prev.finishingQtys}:{},
           setupFees:{...(prev.setupFees||{})},
-          specialty:{...(prev.specialty||{})},
-          packaging:prev.packaging, packagingVariant:prev.packagingVariant,
-          finishing:{...(prev.finishing||{})},
+          specialtyQtys:prev.specialtyQtys?{...prev.specialtyQtys}:{},
+          isFleece:!!prev.isFleece,
           customCosts:prev.customCosts?JSON.parse(JSON.stringify(prev.customCosts)):[]
         });}}
           style={{fontSize:10,color:T.accent,fontFamily:font,background:T.accentDim,border:"1px solid "+T.accent+"44",borderRadius:5,cursor:"pointer",padding:"2px 10px",fontWeight:600}}>⎘ Copy from previous</button>}
@@ -386,7 +387,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
         );
       })()}
 
-      {/* Specialty + Custom Costs — side by side */}
+      {/* Specialty + Custom Costs — side by side, custom costs spans full width when expanded */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"start"}}>
       {p.printVendor && pr.specialty && Object.keys(pr.specialty).length>0 ? (()=>{
         const activeSpecs = Object.entries(pr.specialty).filter(([key])=>{
@@ -439,12 +440,12 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
         );
       })() : <div/>}
 
-      {/* Custom Costs */}
-      {p.garment_type !== "accessory" ? (()=>{
+      {/* Custom Costs — spans full width when expanded to prevent overflow */}
+      {(()=>{
         const activeCosts = (p.customCosts||[]).filter(c=>c.desc);
         const customSummary = activeCosts.length>0 ? activeCosts.map(c=>c.desc).join(", ") : "None";
         return (
-        <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+        <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden",...(p._customOpen?{gridColumn:"1 / -1"}:{})}}>
           <button onClick={()=>updateProd(i,{...p,_customOpen:!p._customOpen})}
             style={{width:"100%",padding:"6px 10px",background:T.surface,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",fontFamily:font}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -456,23 +457,23 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
           {p._customOpen && (
             <div style={{padding:"8px 10px",display:"flex",flexDirection:"column",gap:4}}>
               {(p.customCosts||[]).map((cc,ci)=>(
-                <div key={ci} style={{display:"flex",alignItems:"center",gap:6,fontSize:11}}>
+                <div key={ci} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,minWidth:0}}>
                   <input value={cc.desc||""} onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
-                    style={{flex:1,background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,padding:"3px 6px",outline:"none",fontFamily:font}}/>
-                  <div style={{display:"flex",gap:2}}>
+                    style={{flex:1,minWidth:0,background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,padding:"3px 6px",outline:"none",fontFamily:font}}/>
+                  <div style={{display:"flex",gap:2,flexShrink:0}}>
                     {[{label:"/ unit",flat:false},{label:"flat",flat:true}].map(opt=>{
                       const sel=cc.flat===opt.flat;
                       return <button key={opt.label} onClick={()=>{const c=[...p.customCosts];c[ci]={...c[ci],flat:opt.flat};updateProd(i,{...p,customCosts:c});}}
                         style={{padding:"2px 6px",fontSize:8,fontWeight:600,border:`1px solid ${sel?T.accent:T.border}`,borderRadius:4,cursor:"pointer",background:sel?T.accent:"transparent",color:sel?"#fff":T.faint}}>{opt.label}</button>;
                     })}
                   </div>
-                  <div style={{display:"flex",alignItems:"center"}}>
+                  <div style={{display:"flex",alignItems:"center",flexShrink:0}}>
                     <span style={{fontSize:9,color:T.faint,marginRight:1}}>$</span>
                     <input type="text" inputMode="decimal" value={cc.perUnit||cc.amount||""} onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],perUnit:e.target.value,amount:e.target.value};updateProd(i,{...p,customCosts:c});}}
                       style={{width:44,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,fontFamily:mono,outline:"none",padding:"2px"}}/>
                   </div>
                   <button onClick={()=>{const c=p.customCosts.filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
-                    style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:10}}
+                    style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:10,flexShrink:0}}
                     onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
                 </div>
               ))}
@@ -485,7 +486,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
           )}
         </div>
         );
-      })() : <div/>}
+      })()}
       </div>
       </>}
     </div>

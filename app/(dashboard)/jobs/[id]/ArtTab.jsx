@@ -97,7 +97,7 @@ export function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabe
   );
 }
 
-export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem }) {
+export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved }) {
   const METHODS = ["Screen Print", "DTF", "Embroidery"];
   const INSTRUCTIONS = ["Bulk Fold", "Piece Package", "Back Design Facing Out", "Smooth Plastisol Ink"];
 
@@ -260,6 +260,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
         });
         await registerFileInDb({ ...driveFile, itemId: item.id, stage: "proof" });
         logJobActivity(item.job_id, `Product proof generated for ${item.name}`);
+        if (onSaved) onSaved();
       } catch (err) {
         console.error("Proof upload error:", err);
       }

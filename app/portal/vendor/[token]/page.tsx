@@ -247,7 +247,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
         {/* Right content */}
         <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "24px 28px" }}>
         {(() => {
-          const order = [...orders, ...completed].find(o => o.jobId === selectedOrderId);
+          const order = [...orders, ...completedOrders].find(o => o.jobId === selectedOrderId);
           if (!order) return <div style={{ padding: 40, textAlign: "center", color: C.muted }}>Select an order</div>;
           const shipInfo = order.shipDate ? daysUntil(order.shipDate) : null;
           const pendingItems = order.items.filter(i => i.pipelineStage === "pending");

@@ -292,14 +292,29 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     setAccType(""); setAccName(""); setAccQty("");
   };
 
-  // Drag reorder
-  const handleDrop = (idx) => {
+  // Drag reorder — saves sort_order to DB immediately (not debounced)
+  const handleDrop = async (idx) => {
     if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setDragOverIdx(null); return; }
     const newItems = [...(workingItems || [])];
     const [moved] = newItems.splice(dragIdx, 1);
     newItems.splice(idx, 0, moved);
     updateLocal(newItems);
+    setSavedSnapshot(prev => {
+      const parsed = JSON.parse(prev);
+      // Reorder savedSnapshot to match so dirty detection doesn't re-trigger for sort alone
+      const idOrder = newItems.map(it => it.id);
+      parsed.sort((a, b) => idOrder.indexOf(a.id) - idOrder.indexOf(b.id));
+      return JSON.stringify(parsed);
+    });
     setDragIdx(null); setDragOverIdx(null);
+    // Persist sort_order to DB immediately
+    const supabase = createClient();
+    for (let i = 0; i < newItems.length; i++) {
+      const id = newItems[i].id;
+      if (typeof id === "string" && id.length > 20) {
+        await supabase.from("items").update({ sort_order: i }).eq("id", id);
+      }
+    }
   };
 
   // Distribute

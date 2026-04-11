@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { sendClientNotification } from "@/lib/auto-email";
 import { buildPrintersMap, calcCostProduct } from "@/lib/pricing";
 
 const admin = () =>
@@ -383,10 +382,6 @@ export async function POST(
           }))
         );
       }
-
-      // Auto-email client confirmation (fire-and-forget)
-      sendClientNotification({ jobId: job.id, type: "quote_approved" }).catch(() => {});
-
 
       return NextResponse.json({ success: true });
     }

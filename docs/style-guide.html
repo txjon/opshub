@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsHub — Visual Style Guide</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'IBM Plex Sans', sans-serif; background: #f4f4f6; color: #1a1a1a; padding: 40px; }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+  h1 { font-size: 28px; font-weight: 800; margin-bottom: 8px; letter-spacing: -0.02em; }
+  h2 { font-size: 18px; font-weight: 700; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 2px solid #1a1a1a; }
+  h3 { font-size: 13px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; margin: 24px 0 12px; }
+  .subtitle { font-size: 13px; color: #6b6b78; margin-bottom: 32px; }
+  .section { background: #fff; border: 1px solid #dcdce0; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .label { font-size: 11px; color: #a0a0ad; min-width: 120px; flex-shrink: 0; }
+  .swatch { width: 32px; height: 32px; border-radius: 6px; border: 1px solid #dcdce0; flex-shrink: 0; }
+  .color-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .color-name { font-size: 12px; font-weight: 600; min-width: 100px; }
+  .color-val { font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: #6b6b78; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  th { text-align: left; padding: 6px 10px; font-size: 9px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 2px solid #1a1a1a; }
+  td { padding: 8px 10px; border-bottom: 1px solid #eaeaee; vertical-align: middle; }
+  .note { font-size: 11px; color: #a0a0ad; margin-top: 4px; }
+  .inconsistency { background: #fce8e8; border-left: 3px solid #c43030; padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 8px 0; font-size: 12px; color: #c43030; }
+</style>
+</head>
+<body>
+
+<h1>OpsHub Visual Style Guide</h1>
+<p class="subtitle">Every pill, badge, status indicator, and color used across the app — generated from codebase audit</p>
+
+<!-- ═══ COLORS ═══ -->
+<h2>Color Palette</h2>
+<div class="section">
+  <h3>Core</h3>
+  <div class="color-row"><div class="swatch" style="background:#1a1a1a"></div><span class="color-name">T.accent / T.text</span><span class="color-val">#1a1a1a</span></div>
+  <div class="color-row"><div class="swatch" style="background:#6b6b78"></div><span class="color-name">T.muted</span><span class="color-val">#6b6b78</span></div>
+  <div class="color-row"><div class="swatch" style="background:#a0a0ad"></div><span class="color-name">T.faint</span><span class="color-val">#a0a0ad</span></div>
+  <div class="color-row"><div class="swatch" style="background:#ffffff;border:1px solid #dcdce0"></div><span class="color-name">T.card</span><span class="color-val">#ffffff</span></div>
+  <div class="color-row"><div class="swatch" style="background:#eaeaee"></div><span class="color-name">T.surface</span><span class="color-val">#eaeaee</span></div>
+  <div class="color-row"><div class="swatch" style="background:#f4f4f6"></div><span class="color-name">T.bg</span><span class="color-val">#f4f4f6</span></div>
+  <div class="color-row"><div class="swatch" style="background:#dcdce0"></div><span class="color-name">T.border</span><span class="color-val">#dcdce0</span></div>
+  <div class="color-row"><div class="swatch" style="background:#e8e8ec"></div><span class="color-name">T.accentDim</span><span class="color-val">#e8e8ec</span></div>
+
+  <h3>Semantic</h3>
+  <div class="color-row"><div class="swatch" style="background:#1a8c5c"></div><span class="color-name">T.green</span><span class="color-val">#1a8c5c</span></div>
+  <div class="color-row"><div class="swatch" style="background:#e6f5ee"></div><span class="color-name">T.greenDim</span><span class="color-val">#e6f5ee</span></div>
+  <div class="color-row"><div class="swatch" style="background:#b45309"></div><span class="color-name">T.amber</span><span class="color-val">#b45309</span></div>
+  <div class="color-row"><div class="swatch" style="background:#fef3e0"></div><span class="color-name">T.amberDim</span><span class="color-val">#fef3e0</span></div>
+  <div class="color-row"><div class="swatch" style="background:#c43030"></div><span class="color-name">T.red</span><span class="color-val">#c43030</span></div>
+  <div class="color-row"><div class="swatch" style="background:#fce8e8"></div><span class="color-name">T.redDim</span><span class="color-val">#fce8e8</span></div>
+  <div class="color-row"><div class="swatch" style="background:#7c3aed"></div><span class="color-name">T.purple</span><span class="color-val">#7c3aed</span></div>
+  <div class="color-row"><div class="swatch" style="background:#ede9fe"></div><span class="color-name">T.purpleDim</span><span class="color-val">#ede9fe</span></div>
+</div>
+
+<!-- ═══ PHASE PILLS ═══ -->
+<h2>Phase Pills</h2>
+<div class="section">
+  <p class="note" style="margin-bottom:16px">Shown on job detail header, projects list, and dashboard. These use a mix of T.xxx and hardcoded hex — inconsistencies flagged below.</p>
+  <div class="row">
+    <span style="padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#eaeaee;color:#6b6b78">intake</span>
+    <span style="padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#EEEDFE;color:#3C3489">pending</span>
+    <span style="padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#fef3e0;color:#b45309">ready</span>
+    <span style="padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#E6F1FB;color:#0C447C">production</span>
+    <span style="padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#FAEEDA;color:#633806">receiving</span>
+    <span style="padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#E6F1FB;color:#0C447C">shipping</span>
+    <span style="padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#ede9fe;color:#7c3aed">fulfillment</span>
+    <span style="padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#EAF3DE;color:#27500A">complete</span>
+    <span style="padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#FCEBEB;color:#791F1F">on_hold</span>
+    <span style="padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#eaeaee;color:#6b6b78">cancelled</span>
+  </div>
+  <div class="inconsistency">
+    <strong>Inconsistency:</strong> Phase colors use hardcoded hex (#EEEDFE, #3C3489, #E6F1FB, #0C447C, etc.) instead of the T.xxx theme system. "pending" and "production" use custom blue/indigo not in the theme. "receiving" uses custom warm tones not in the theme. Only "ready", "fulfillment", "on_hold" use T.xxx colors.
+  </div>
+</div>
+
+<!-- ═══ PAYMENT STATUS ═══ -->
+<h2>Payment Status</h2>
+<div class="section">
+  <div class="row">
+    <span style="padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#fef3e0;color:#b45309">draft</span>
+    <span style="padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#fef3e0;color:#b45309">sent</span>
+    <span style="padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#fef3e0;color:#b45309">viewed</span>
+    <span style="padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#fef3e0;color:#b45309">partial</span>
+    <span style="padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#e6f5ee;color:#1a8c5c">paid</span>
+    <span style="padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#fce8e8;color:#c43030">overdue</span>
+    <span style="padding:1px 7px;border-radius:99px;font-size:10px;font-weight:600;background:#fce8e8;color:#c43030">void</span>
+  </div>
+  <div class="inconsistency">
+    <strong>Inconsistency:</strong> draft, sent, viewed, and partial all use T.amber — no visual distinction between these states. A client seeing "sent" vs "viewed" vs "partial" all look identical.
+  </div>
+</div>
+
+<!-- ═══ PROJECT LIST SIGNALS ═══ -->
+<h2>Project List Status Signals</h2>
+<div class="section">
+  <div class="row">
+    <span style="padding:2px 6px;border-radius:99px;font-size:9px;font-weight:600;background:#e6f5ee;color:#1a8c5c;white-space:nowrap">Quote Approved</span>
+    <span style="padding:2px 6px;border-radius:99px;font-size:9px;font-weight:600;background:#e8e8ec;color:#1a1a1a;white-space:nowrap">Invoice Ready</span>
+    <span style="padding:2px 6px;border-radius:99px;font-size:9px;font-weight:600;background:#e6f5ee;color:#1a8c5c;white-space:nowrap">Paid</span>
+    <span style="padding:2px 6px;border-radius:99px;font-size:9px;font-weight:600;background:#ede9fe;color:#7c3aed;white-space:nowrap">Items Shipped</span>
+  </div>
+</div>
+
+<!-- ═══ PRIORITY FLAGS ═══ -->
+<h2>Priority Flags</h2>
+<div class="section">
+  <div class="row">
+    <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;background:#3d1212;color:#f05353">Hot</span>
+    <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;background:#3d2a08;color:#f5a623">Rush</span>
+    <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;background:#2a3050;color:#7a82a0">Normal</span>
+  </div>
+  <div class="inconsistency">
+    <strong>Inconsistency:</strong> Priority colors use dark backgrounds with light text — a holdover from the old dark theme. These don't match the light-theme pill pattern used everywhere else (light bg, dark text).
+  </div>
+</div>
+
+<!-- ═══ PROOF APPROVAL ═══ -->
+<h2>Proof Approval</h2>
+<div class="section">
+  <div class="row">
+    <span style="padding:3px 12px;border-radius:6px;font-size:11px;font-weight:600;background:#eaeaee;color:#6b6b78;border:1px solid #dcdce0">Approve</span>
+    <span style="padding:3px 12px;border-radius:6px;font-size:11px;font-weight:600;background:#e6f5ee;color:#1a8c5c;border:1px solid rgba(26,140,92,0.27)">Approved</span>
+    <span style="padding:3px 10px;border-radius:6px;font-size:10px;font-weight:600;background:#b45309;color:#fff;border:none">Revise</span>
+    <span style="padding:3px 10px;border-radius:6px;font-size:10px;font-weight:600;background:#1a8c5c;color:#fff;border:none">Generate Proof</span>
+  </div>
+  <div class="inconsistency">
+    <strong>Inconsistency:</strong> "Revise" and "Generate Proof" are solid-fill buttons while "Approve/Approved" are outline-style pills. Mixed border-radius (6px vs 99px used elsewhere).
+  </div>
+</div>
+
+<!-- ═══ PROGRESS STEPS ═══ -->
+<h2>Progress Steps (Project Progress Bar)</h2>
+<div class="section">
+  <div class="row">
+    <span style="display:flex;align-items:center;gap:4px;padding:6px 16px;border-radius:99px;font-size:12px;font-weight:700;background:#1a1a1a;color:#fff;border:2px solid #1a1a1a"><span style="font-size:8px"></span> Current</span>
+    <span style="display:flex;align-items:center;gap:4px;padding:6px 16px;border-radius:99px;font-size:12px;font-weight:500;background:#e6f5ee;color:#1a8c5c;border:2px solid transparent"><span style="font-size:8px">&#10003;</span> Done</span>
+    <span style="display:flex;align-items:center;gap:4px;padding:6px 16px;border-radius:99px;font-size:12px;font-weight:600;background:#fef3e0;color:#b45309;border:2px solid transparent"><span style="font-size:8px">&#9675;</span> In Progress</span>
+    <span style="display:flex;align-items:center;gap:4px;padding:6px 16px;border-radius:99px;font-size:12px;font-weight:600;background:#e8e8ec;color:#1a1a1a;border:2px solid transparent"><span style="font-size:8px">&#8594;</span> Next</span>
+    <span style="display:flex;align-items:center;gap:4px;padding:6px 16px;border-radius:99px;font-size:12px;font-weight:400;background:transparent;color:#a0a0ad;border:2px solid transparent"><span style="font-size:8px">&#9675;</span> Inactive</span>
+  </div>
+</div>
+
+<!-- ═══ PIPELINE STATUS ═══ -->
+<h2>Pipeline Status (Production / Warehouse)</h2>
+<div class="section">
+  <h3>Production</h3>
+  <div class="row">
+    <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;background:#e8e8ec;color:#1a1a1a">in production</span>
+    <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;background:#e6f5ee;color:#1a8c5c">shipped</span>
+    <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;background:#e6f5ee;color:#1a8c5c">All Shipped</span>
+  </div>
+
+  <h3>Receiving</h3>
+  <div class="row">
+    <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;background:#eaeaee;color:#6b6b78">Pending</span>
+    <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;background:#e6f5ee;color:#1a8c5c">Received</span>
+    <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;background:#fef3e0;color:#b45309">Variance</span>
+  </div>
+
+  <h3>Shipping Route</h3>
+  <div class="row">
+    <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;background:#ede9fe;color:#7c3aed">&rarr; Fulfillment</span>
+    <span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600;background:#e8e8ec;color:#1a1a1a">&rarr; Shipping</span>
+  </div>
+
+  <h3>Fulfillment Stages</h3>
+  <div class="row">
+    <span style="padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;background:rgba(180,83,9,0.13);color:#b45309;border:1px solid rgba(180,83,9,0.4)"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#b45309;margin-right:5px"></span>Staged</span>
+    <span style="padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;background:rgba(124,58,237,0.13);color:#7c3aed;border:1px solid rgba(124,58,237,0.4)"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#7c3aed;margin-right:5px"></span>Packing</span>
+    <span style="padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;background:rgba(26,140,92,0.13);color:#1a8c5c;border:1px solid rgba(26,140,92,0.4)"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#1a8c5c;margin-right:5px"></span>Shipped</span>
+  </div>
+  <div class="inconsistency">
+    <strong>Inconsistency:</strong> Fulfillment stages use borderRadius: 6 with dot indicators. Other status pills use borderRadius: 99 without dots. Different patterns for the same concept (stage progression).
+  </div>
+</div>
+
+<!-- ═══ BLANKS GATES ═══ -->
+<h2>Blanks Tab Gates</h2>
+<div class="section">
+  <div class="row">
+    <span style="font-size:12px;font-weight:600;color:#1a8c5c">&#10003;</span>
+    <span style="font-size:12px;color:#6b6b78">Quote approved</span>
+    &nbsp;&nbsp;
+    <span style="font-size:12px;font-weight:600;color:#c43030">&#10005;</span>
+    <span style="font-size:12px;color:#6b6b78">Payment received</span>
+    &nbsp;&nbsp;
+    <span style="font-size:12px;font-weight:600;color:#1a8c5c">&#10003;</span>
+    <span style="font-size:12px;color:#6b6b78">Proofs approved</span>
+  </div>
+</div>
+
+<!-- ═══ DECORATION TYPE ═══ -->
+<h2>Decoration & Item Type Badges</h2>
+<div class="section">
+  <div class="row">
+    <span style="padding:1px 7px;border-radius:6px;font-size:10px;font-weight:500;background:#e8e8ec;color:#1a1a1a">screen print</span>
+    <span style="padding:1px 7px;border-radius:6px;font-size:10px;font-weight:500;background:#e8e8ec;color:#1a1a1a">embroidery</span>
+    <span style="padding:1px 7px;border-radius:6px;font-size:10px;font-weight:600;background:#ede9fe;color:#7c3aed">Accessory</span>
+  </div>
+  <div class="inconsistency">
+    <strong>Inconsistency:</strong> Decoration types use borderRadius: 6, while status pills use borderRadius: 99. "Accessory" uses purple while decoration types use accent gray.
+  </div>
+</div>
+
+<!-- ═══ DASHBOARD ALERTS ═══ -->
+<h2>Dashboard Alert Cards</h2>
+<div class="section">
+  <p class="note" style="margin-bottom:16px">Alert cards use the alert's color for the action text. Card itself is T.card with T.border.</p>
+  <div class="row">
+    <span style="padding:4px 12px;border-radius:99px;font-size:11px;font-weight:600;background:#fce8e8;color:#c43030">Critical</span>
+    <span style="padding:4px 12px;border-radius:99px;font-size:11px;font-weight:600;background:#fef3e0;color:#b45309">Action Needed</span>
+    <span style="padding:4px 12px;border-radius:99px;font-size:11px;font-weight:600;background:#e6f5ee;color:#1a8c5c">All Clear</span>
+  </div>
+  <h3>Alert colors by type</h3>
+  <table>
+    <thead><tr><th>Alert Type</th><th>Color</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td>Overdue payment</td><td>T.red</td><td style="color:#c43030;font-weight:600">Payment 14d overdue</td></tr>
+      <tr><td>Send quote</td><td>T.accent</td><td style="color:#1a1a1a;font-weight:600">Send quote to client</td></tr>
+      <tr><td>Follow up</td><td>T.amber</td><td style="color:#b45309;font-weight:600">Quote sent 5d ago — follow up</td></tr>
+      <tr><td>Order blanks</td><td>T.purple</td><td style="color:#7c3aed;font-weight:600">Order blanks — all gates met</td></tr>
+      <tr><td>Incoming</td><td>T.green</td><td style="color:#1a8c5c;font-weight:600">3 items incoming to warehouse</td></tr>
+      <tr><td>Ships soon</td><td>T.amber</td><td style="color:#b45309;font-weight:600">Ships in 2d — verify status</td></tr>
+      <tr><td>Stalled</td><td>T.red</td><td style="color:#c43030;font-weight:600">Stalled 12d at decorator</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══ QUANTITY INDICATORS ═══ -->
+<h2>Quantity Mismatch Indicators</h2>
+<div class="section">
+  <h3>Production (shipped vs ordered)</h3>
+  <div class="row">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+      <span style="font-size:9px;color:#6b6b78;font-family:'IBM Plex Mono',monospace">M</span>
+      <input type="text" value="18" readonly style="width:44px;padding:4px;text-align:center;font-size:11px;font-family:'IBM Plex Mono',monospace;border:1px solid #b45309;border-radius:4px;color:#b45309;background:#fff">
+      <span style="font-size:8px;color:#a0a0ad;font-family:'IBM Plex Mono',monospace">20</span>
+    </div>
+    <span class="label">Less than ordered = amber</span>
+  </div>
+  <div class="row">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+      <span style="font-size:9px;color:#6b6b78;font-family:'IBM Plex Mono',monospace">M</span>
+      <input type="text" value="22" readonly style="width:44px;padding:4px;text-align:center;font-size:11px;font-family:'IBM Plex Mono',monospace;border:1px solid #1a8c5c;border-radius:4px;color:#1a8c5c;background:#fff">
+      <span style="font-size:8px;color:#a0a0ad;font-family:'IBM Plex Mono',monospace">20</span>
+    </div>
+    <span class="label">More than ordered = green</span>
+  </div>
+  <div class="row">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+      <span style="font-size:9px;color:#6b6b78;font-family:'IBM Plex Mono',monospace">M</span>
+      <input type="text" value="20" readonly style="width:44px;padding:4px;text-align:center;font-size:11px;font-family:'IBM Plex Mono',monospace;border:1px solid #dcdce0;border-radius:4px;color:#1a1a1a;background:#fff">
+      <span style="font-size:8px;color:#a0a0ad;font-family:'IBM Plex Mono',monospace">20</span>
+    </div>
+    <span class="label">Matches = default</span>
+  </div>
+</div>
+
+<!-- ═══ COSTING KPI ═══ -->
+<h2>Costing KPI Tables</h2>
+<div class="section">
+  <h3>Project Totals / Item Summary format</h3>
+  <div style="background:#fff;border-radius:8px;border:1px solid #dcdce0;overflow:hidden;max-width:240px">
+    <div style="padding:6px 10px;background:#eaeaee;font-size:9px;font-weight:700;color:#6b6b78;text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid #dcdce0">Project Totals</div>
+    <table style="margin:0">
+      <tr style="border-bottom:1px solid rgba(220,220,224,0.13)"><td style="padding:5px 10px;color:#6b6b78;font-weight:500">Revenue</td><td style="padding:5px 10px;color:#1a1a1a;font-family:'IBM Plex Mono',monospace;font-weight:700;text-align:right">$3,103.82</td></tr>
+      <tr style="border-bottom:1px solid rgba(220,220,224,0.13)"><td style="padding:5px 10px;color:#6b6b78;font-weight:500">Blanks</td><td style="padding:5px 10px;color:#1a1a1a;font-family:'IBM Plex Mono',monospace;font-weight:700;text-align:right">$1,505.07</td></tr>
+      <tr style="border-bottom:1px solid rgba(220,220,224,0.13)"><td style="padding:5px 10px;color:#6b6b78;font-weight:500">PO Total</td><td style="padding:5px 10px;color:#1a1a1a;font-family:'IBM Plex Mono',monospace;font-weight:700;text-align:right">$1,029.50</td></tr>
+      <tr style="background:#e6f5ee;border-bottom:1px solid rgba(220,220,224,0.13)"><td style="padding:5px 10px;color:#6b6b78;font-weight:500">Net Profit</td><td style="padding:5px 10px;color:#1a8c5c;font-family:'IBM Plex Mono',monospace;font-weight:700;text-align:right">$310.38</td></tr>
+      <tr style="background:#e6f5ee;border-bottom:1px solid rgba(220,220,224,0.13)"><td style="padding:5px 10px;color:#6b6b78;font-weight:500">Margin</td><td style="padding:5px 10px;color:#1a8c5c;font-family:'IBM Plex Mono',monospace;font-weight:700;text-align:right">10.0%</td></tr>
+      <tr style="background:#e6f5ee"><td style="padding:5px 10px;color:#6b6b78;font-weight:500">Per Piece</td><td style="padding:5px 10px;color:#1a8c5c;font-family:'IBM Plex Mono',monospace;font-weight:700;text-align:right">$1.22</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ MARGIN COLORS ═══ -->
+<h2>Margin Health Colors</h2>
+<div class="section">
+  <table>
+    <thead><tr><th>Range</th><th>Color</th><th>Background</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td>&ge; 30%</td><td>T.green (#1a8c5c)</td><td>T.greenDim (#e6f5ee)</td><td><span style="background:#e6f5ee;color:#1a8c5c;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11px">35.2%</span></td></tr>
+      <tr><td>20-29%</td><td>T.amber (#b45309)</td><td>T.amberDim (#fef3e0)</td><td><span style="background:#fef3e0;color:#b45309;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11px">24.1%</span></td></tr>
+      <tr><td>&lt; 20%</td><td>T.red (#c43030)</td><td>T.redDim (#fce8e8)</td><td><span style="background:#fce8e8;color:#c43030;padding:2px 8px;border-radius:4px;font-weight:700;font-size:11px">12.8%</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══ SUMMARY ═══ -->
+<h2>Inconsistencies Summary</h2>
+<div class="section">
+  <table>
+    <thead><tr><th>#</th><th>Issue</th><th>Where</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Phase pills use hardcoded hex colors outside the T.xxx system (blue, indigo, warm tones)</td><td>Job detail header, jobs list</td></tr>
+      <tr><td>2</td><td>Priority flags use dark backgrounds (old dark theme) instead of light bg pattern</td><td>Jobs list, job header</td></tr>
+      <tr><td>3</td><td>Payment statuses draft/sent/viewed/partial all look identical (all amber)</td><td>Payment tab, overview</td></tr>
+      <tr><td>4</td><td>Decoration type badges use borderRadius:6 while status pills use 99</td><td>Production tab, costing</td></tr>
+      <tr><td>5</td><td>Fulfillment stages use dot+border pattern, different from all other status indicators</td><td>Warehouse, fulfillment pages</td></tr>
+      <tr><td>6</td><td>Proof buttons mix solid-fill and outline styles, borderRadius 6 vs 99</td><td>Approvals tab</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div style="text-align:center;color:#a0a0ad;font-size:11px;margin-top:40px;padding-bottom:40px">
+  Generated from OpsHub codebase — April 11, 2026
+</div>
+
+</body>
+</html>

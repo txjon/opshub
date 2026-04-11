@@ -28,7 +28,7 @@ export async function parsePsd(arrayBuffer) {
     locations.push({
       placement: PLACEMENT_MAP[group.name] || group.name,
       colorCount: colors.length,
-      colorNames: colors,
+      colorNames: sortSizes(colors),
     });
   }
 
