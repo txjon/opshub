@@ -48,6 +48,46 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
 
   const [previewProofItem, setPreviewProofItem] = useState(null);
 
+  // Generate All state
+  const [generateAllItems, setGenerateAllItems] = useState([]);
+  const [generateAllIndex, setGenerateAllIndex] = useState(0);
+  const isGenerateAll = generateAllItems.length > 0;
+  const generateAllCurrent = isGenerateAll ? generateAllItems[generateAllIndex] : null;
+
+  // Items eligible for Generate All: have a mockup file
+  const itemsWithMockups = items.filter(item => {
+    const files = itemFiles[item.id] || [];
+    return files.some(f => f.stage === "mockup" || f.file_name?.toLowerCase().includes("mockup"));
+  });
+
+  function startGenerateAll() {
+    if (itemsWithMockups.length === 0) return;
+    setGenerateAllItems(itemsWithMockups);
+    setGenerateAllIndex(0);
+  }
+
+  function handleGenerateAllClose(saved) {
+    if (saved) {
+      // User saved — advance to next item
+      const nextIdx = generateAllIndex + 1;
+      if (nextIdx < generateAllItems.length) {
+        setGenerateAllIndex(nextIdx);
+      } else {
+        // All done
+        setGenerateAllItems([]);
+        setGenerateAllIndex(0);
+      }
+    } else {
+      // User cancelled — stop the sequence
+      setGenerateAllItems([]);
+      setGenerateAllIndex(0);
+    }
+  }
+
+  function handleGenerateAllSaved() {
+    reloadFiles();
+  }
+
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 12 }}>
 
@@ -112,21 +152,33 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
         </div>
       </div>
 
-      {/* ── Preview Proofs ── */}
-      <button onClick={() => {
-        const allProofs = items.flatMap(it => (itemFiles[it.id] || []).filter(f => f.stage === "proof"));
-        if (allProofs.length > 0) setPreviewProofItem(allProofs[0]);
-      }}
-        style={{ padding: "10px 20px", borderRadius: 8, border: "none", cursor: "pointer", alignSelf: "flex-start",
-          background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
-          transition: "opacity 0.15s" }}
-        onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
-        onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-        Preview Proofs
-      </button>
+      {/* ── Action Buttons ── */}
+      <div style={{ display: "flex", gap: 8, alignSelf: "flex-start" }}>
+        <button onClick={() => {
+          const allProofs = items.flatMap(it => (itemFiles[it.id] || []).filter(f => f.stage === "proof"));
+          if (allProofs.length > 0) setPreviewProofItem(allProofs[0]);
+        }}
+          style={{ padding: "10px 20px", borderRadius: 8, border: "none", cursor: "pointer",
+            background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
+            transition: "opacity 0.15s" }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+          Preview Proofs
+        </button>
+        {itemsWithMockups.length > 0 && (
+          <button onClick={startGenerateAll}
+            style={{ padding: "10px 20px", borderRadius: 8, border: "none", cursor: "pointer",
+              background: T.amber, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
+              transition: "opacity 0.15s" }}
+            onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+            onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+            Generate All ({itemsWithMockups.length})
+          </button>
+        )}
+      </div>
 
-      {/* ── Proof Modal ── */}
-      {proofModalItem && (() => {
+      {/* ── Proof Modal (single item) ── */}
+      {proofModalItem && !isGenerateAll && (() => {
         const files = itemFiles[proofModalItem.id] || [];
         const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
         return (
@@ -140,6 +192,27 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             onClose={() => setProofModalItem(null)}
             onSaved={reloadFiles}
             onUpdateItem={onUpdateItem}
+          />
+        );
+      })()}
+
+      {/* ── Proof Modal (Generate All flow) ── */}
+      {isGenerateAll && generateAllCurrent && (() => {
+        const files = itemFiles[generateAllCurrent.id] || [];
+        const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
+        return (
+          <ProofModal
+            key={generateAllCurrent.id}
+            item={generateAllCurrent}
+            clientName={clientName}
+            projectTitle={projectTitle}
+            mockupFile={mockupFile}
+            files={files}
+            costingData={job.costing_data}
+            onClose={handleGenerateAllClose}
+            onSaved={handleGenerateAllSaved}
+            onUpdateItem={onUpdateItem}
+            generateAllCounter={`${generateAllIndex + 1} of ${generateAllItems.length}`}
           />
         );
       })()}
