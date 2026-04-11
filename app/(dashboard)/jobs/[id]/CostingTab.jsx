@@ -1155,12 +1155,18 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
             }
           }
         }
-        // Update parent items with decorator names so progress bar reflects costing status
+        // Update parent items with decorator names + sell_per_unit so sidebar and progress bar stay current
         if (onUpdateBuyItems) {
-          const decMap = {};
-          for (const cp of costProds) { if (cp.printVendor) decMap[cp.id] = cp.printVendor; }
-          if (Object.keys(decMap).length > 0) {
-            onUpdateBuyItems(prev => prev.map(bi => decMap[bi.id] ? {...bi, decorator: decMap[bi.id]} : bi));
+          const itemMap = {};
+          for (const cp of costProds) {
+            const r2 = results.find(r => r.id === cp.id || r.name === cp.name);
+            const updates = {};
+            if (cp.printVendor) updates.decorator = cp.printVendor;
+            if (r2?.sellPerUnit > 0) updates.sell_per_unit = r2.sellPerUnit;
+            if (Object.keys(updates).length > 0) itemMap[cp.id] = updates;
+          }
+          if (Object.keys(itemMap).length > 0) {
+            onUpdateBuyItems(prev => prev.map(bi => itemMap[bi.id] ? {...bi, ...itemMap[bi.id]} : bi));
           }
         }
       } catch(e) { console.error("Failed to save costing data", e); }
