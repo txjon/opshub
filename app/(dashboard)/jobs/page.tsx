@@ -12,17 +12,17 @@ type Job = {
 };
 
 const PHASE_COLORS: Record<string,{bg:string,text:string,label:string}> = {
-  intake:        { bg:"#2a3050", text:"#7a82a0", label:"Intake" },
-  pending:       { bg:"#2d1f5e", text:"#a78bfa", label:"Pending" },
-  ready:         { bg:"#3d2a08", text:"#f5a623", label:"Ready" },
-  pre_production:{ bg:"#2d1f5e", text:"#a78bfa", label:"Pre-Production" },
-  production:    { bg:"#1e3a6e", text:"#4f8ef7", label:"Production" },
-  receiving:     { bg:"#3d2a08", text:"#f5a623", label:"Receiving" },
-  shipping:      { bg:"#1e3a6e", text:"#4f8ef7", label:"Shipping" },
-  fulfillment:   { bg:"#2d1f5e", text:"#a78bfa", label:"Fulfillment" },
-  complete:      { bg:"#0e3d24", text:"#34c97a", label:"Complete" },
-  on_hold:       { bg:"#3d1212", text:"#f05353", label:"On Hold" },
-  cancelled:     { bg:"#2a3050", text:"#7a82a0", label:"Cancelled" },
+  intake:        { bg:T.accentDim, text:T.accent, label:"Intake" },
+  pending:       { bg:T.amberDim, text:"#a07008", label:"Pending" },
+  ready:         { bg:T.amberDim, text:"#a07008", label:"Ready" },
+  pre_production:{ bg:T.blueDim, text:"#3a8a9e", label:"Pre-Production" },
+  production:    { bg:T.blueDim, text:"#3a8a9e", label:"Production" },
+  receiving:     { bg:T.blueDim, text:"#3a8a9e", label:"Receiving" },
+  shipping:      { bg:T.blueDim, text:"#3a8a9e", label:"Shipping" },
+  fulfillment:   { bg:T.purpleDim, text:"#c4207a", label:"Fulfillment" },
+  complete:      { bg:T.greenDim, text:"#2a9e5c", label:"Complete" },
+  on_hold:       { bg:T.redDim, text:T.red, label:"On Hold" },
+  cancelled:     { bg:T.accentDim, text:T.muted, label:"Cancelled" },
 };
 
 const getPct = (stage: string|null) => {
@@ -219,9 +219,9 @@ export default function JobsPage() {
           const itemCount = job.items?.length || 0;
 
           const priorityStyle: Record<string,{bg:string,text:string,label:string}> = {
-            hot:    { bg:"#3d1212", text:"#f05353", label:"Hot" },
-            rush:   { bg:"#3d2a08", text:"#f5a623", label:"Rush" },
-            normal: { bg:"#2a3050", text:"#7a82a0", label:"Normal" },
+            hot:    { bg:T.purpleDim, text:"#c4207a", label:"Hot" },
+            rush:   { bg:T.amberDim, text:"#a07008", label:"Rush" },
+            normal: { bg:T.accentDim, text:T.accent, label:"Normal" },
           };
           const pri = priorityStyle[job.priority] || priorityStyle.normal;
           const borderColor = job.priority==="hot" ? T.red+"44" : job.priority==="rush" ? T.amber+"44" : daysLeft!==null&&daysLeft<0 ? T.red+"44" : T.border;
@@ -264,7 +264,7 @@ export default function JobsPage() {
                 {job.quote_approved && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.greenDim, color:T.green, whiteSpace:"nowrap" }}>Quote Approved</span>}
                 {invNum && !(job as any).payment_records?.some((p:any) => p.status === "paid") && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.accentDim, color:T.accent, whiteSpace:"nowrap" }}>Invoice Ready</span>}
                 {(job as any).payment_records?.some((p:any) => p.status === "paid") && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.greenDim, color:T.green, whiteSpace:"nowrap" }}>Paid</span>}
-                {job.items?.some((it:any) => it.pipeline_stage === "shipped") && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.purpleDim || "#2d1f5e", color:T.purple || "#a78bfa", whiteSpace:"nowrap" }}>Items Shipped</span>}
+                {job.items?.some((it:any) => it.pipeline_stage === "shipped") && <span style={{ fontSize:9, fontWeight:600, padding:"2px 6px", borderRadius:99, background:T.purpleDim, color:T.purple, whiteSpace:"nowrap" }}>Items Shipped</span>}
               </div>
 
               {/* Units */}

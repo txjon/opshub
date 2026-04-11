@@ -2,14 +2,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-const T = {
-  text: "#e8eaf2", muted: "#8a92b0", faint: "#515a78", card: "#151923",
-  surface: "#1a1f2e", border: "#313a56", accent: "#6c8cff", accentDim: "#1e2a4a",
-  green: "#34c97a", greenDim: "#0e2a1a", amber: "#f5a623", amberDim: "#3d2a08",
-  red: "#e85d5d", redDim: "#3d1a1a", purple: "#a78bfa", purpleDim: "#2d1f5e",
-};
-const font = "'Inter', -apple-system, sans-serif";
-const mono = "'IBM Plex Mono', monospace";
+import { T, font, mono } from "@/lib/theme";
 const fmtD = (n: number) => "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 const fmtPct = (n: number) => (n * 100).toFixed(1) + "%";
 const daysBetween = (a: string, b: string) => Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);

@@ -12,9 +12,9 @@ type Contact = { id:string; name:string; email:string|null; phone:string|null; r
 type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; payment_records:any[]; };
 
 const PHASE_COLORS: Record<string,{bg:string,text:string}> = {
-  intake:{bg:T.faint,text:T.muted}, pending:{bg:"#2d1f5e",text:"#a78bfa"},
-  ready:{bg:T.amberDim,text:T.amber}, production:{bg:T.accentDim,text:T.accent},
-  receiving:{bg:T.amberDim,text:T.amber}, fulfillment:{bg:"#2d1f5e",text:"#a78bfa"},
+  intake:{bg:T.accentDim,text:T.accent}, pending:{bg:T.amberDim,text:"#a07008"},
+  ready:{bg:T.amberDim,text:"#a07008"}, production:{bg:T.blueDim,text:"#3a8a9e"},
+  receiving:{bg:T.blueDim,text:"#3a8a9e"}, fulfillment:{bg:T.purpleDim,text:"#c4207a"},
   complete:{bg:T.greenDim,text:T.green}, on_hold:{bg:T.redDim,text:T.red},
   cancelled:{bg:T.faint,text:T.muted},
 };

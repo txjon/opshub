@@ -8,18 +8,18 @@ export default function Error({ reset }: { error: Error; reset: () => void }) {
       flexDirection: "column",
       alignItems: "center",
       justifyContent: "center",
-      background: "#0f1117",
-      color: "#e8eaf2",
+      background: "#f4f4f6",
+      color: "#1a1a1a",
       fontFamily: "'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",
     }}>
-      <h1 style={{ fontSize: 48, fontWeight: 700, margin: 0, color: "#f05353" }}>Something went wrong</h1>
-      <p style={{ fontSize: 16, color: "#8a92b0", marginTop: 8 }}>An unexpected error occurred.</p>
+      <h1 style={{ fontSize: 48, fontWeight: 700, margin: 0, color: "#ff324d" }}>Something went wrong</h1>
+      <p style={{ fontSize: 16, color: "#6b6b78", marginTop: 8 }}>An unexpected error occurred.</p>
       <button
         onClick={() => reset()}
         style={{
           marginTop: 24,
           padding: "10px 24px",
-          background: "#4f8ef7",
+          background: "#73b6c9",
           color: "#fff",
           border: "none",
           borderRadius: 8,

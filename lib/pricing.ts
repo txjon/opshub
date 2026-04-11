@@ -5,8 +5,6 @@
  * All three consumers MUST use these functions to ensure consistent numbers.
  */
 
-const MARGIN_TIERS: Record<string, number> = { "10%": 1.15, "15%": 1.26, "20%": 1.33, "25%": 1.43, "30%": 1.53 };
-
 export function buildPrintersMap(decorators: any[]): Record<string, any> {
   const map: Record<string, any> = {};
   for (const d of decorators) {

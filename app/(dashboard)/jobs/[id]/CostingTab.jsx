@@ -681,7 +681,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 </div>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                <button onClick={()=>setShowSendEmail(!showSendEmail)} style={{background:T.purple,color:"#fff",border:"none",borderRadius:7,padding:"6px 16px",fontSize:12,fontFamily:font,fontWeight:600,cursor:"pointer",width:"100%"}}>Send to Client</button>
+                <button onClick={()=>setShowSendEmail(!showSendEmail)} style={{background:T.blue,color:"#fff",border:"none",borderRadius:8,padding:"10px 16px",fontSize:13,fontWeight:700,fontFamily:font,cursor:"pointer",width:"100%"}}>Send to Client</button>
                 <button onClick={()=>{const a=document.createElement("a");a.href=`/api/pdf/quote/${project.id}`;a.download="quote.pdf";a.click();}} style={{background:T.accent,color:"#fff",border:"none",borderRadius:7,padding:"6px 16px",fontSize:12,fontFamily:font,fontWeight:600,cursor:"pointer",width:"100%"}}>Download</button>
               </div>
             </div>

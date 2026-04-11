@@ -291,7 +291,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               </div>
             )}
             <div style={{display:"flex",flexDirection:"column",gap:6,width:170}}>
-              <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.purple:T.surface,border:"1px solid "+(ready?T.purple:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
+              <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.blue:T.surface,border:"1px solid "+(ready?T.blue:T.border),borderRadius:8,color:ready?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
                 Send to Decorator
               </button>
               <button onClick={()=>{ if(ready) window.open(`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`,"_blank"); }} disabled={!ready}

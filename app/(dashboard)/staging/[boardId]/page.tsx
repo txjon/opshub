@@ -7,13 +7,13 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   Pending: { bg: T.amberDim, text: T.amber },
   Approved: { bg: T.greenDim, text: T.green },
-  "Changes Requested": { bg: "#3d2a08", text: "#f5a623" },
+  "Changes Requested": { bg: T.amberDim, text: "#a07008" },
   Rejected: { bg: T.redDim, text: T.red },
   "In Production": { bg: T.accentDim, text: T.accent },
   "LANDED": { bg: T.greenDim, text: T.green },
   "On Hold": { bg: T.redDim, text: T.red },
-  "Locating a Source": { bg: "#2d1f5e", text: T.purple },
-  "Reference Sample Sent to Factory": { bg: "#2d1f5e", text: T.purple },
+  "Locating a Source": { bg: T.purpleDim, text: "#c4207a" },
+  "Reference Sample Sent to Factory": { bg: T.purpleDim, text: "#c4207a" },
   "NEED REVISIONS - SWATCHES WORKING": { bg: T.amberDim, text: T.amber },
   "Done - Awaiting Shipping": { bg: T.greenDim, text: T.green },
 };
