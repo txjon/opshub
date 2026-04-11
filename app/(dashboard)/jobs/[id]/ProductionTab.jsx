@@ -25,7 +25,7 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
       let changed = false;
       items.forEach(it => {
         if (!next[it.id]) {
-          next[it.id] = { ship_tracking: it.ship_tracking || "", ship_qtys: it.ship_qtys || {} };
+          next[it.id] = { ship_tracking: it.ship_tracking || "", ship_notes: it.ship_notes || "", ship_qtys: it.ship_qtys || {} };
           changed = true;
         }
       });
@@ -55,8 +55,20 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
 
   async function markShipped(itemId) {
     const f = localFields[itemId] || {};
-    const tracking = f.ship_tracking || "";
-    await supabase.from("items").update({ ship_tracking: tracking || null, pipeline_stage: "shipped" }).eq("id", itemId);
+    // Flush all pending debounces for this item
+    for (const key of Object.keys(saveTimers.current).filter(k => k.startsWith(itemId))) {
+      clearTimeout(saveTimers.current[key]);
+      delete pendingSaves.current[key];
+      delete saveTimers.current[key];
+    }
+    await supabase.from("items").update({
+      ship_tracking: f.ship_tracking || null,
+      ship_notes: f.ship_notes || null,
+      ship_qtys: f.ship_qtys || null,
+      pipeline_stage: "shipped",
+      received_at_hpd: false,
+      received_at_hpd_at: null,
+    }).eq("id", itemId);
     const item = items.find(it => it.id === itemId);
     if (item) {
       logJobActivity(item.job_id, `${item.name} shipped from decorator${tracking ? " — tracking: " + tracking : ""}`);

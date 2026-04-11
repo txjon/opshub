@@ -50,6 +50,14 @@ export async function getItemFolderIdDirect(token: string, clientName: string, p
   return itemFolder;
 }
 
+export async function getPackingSlipFolderId(token: string, clientName: string, projectTitle: string): Promise<string> {
+  const rootId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+  const clientFolder = await findOrCreateFolder(token, clientName, rootId);
+  const projectFolder = await findOrCreateFolder(token, projectTitle, clientFolder);
+  const slipFolder = await findOrCreateFolder(token, "Packing Slips", projectFolder);
+  return slipFolder;
+}
+
 export async function getReceivingFolderId(token: string, shipmentLabel: string): Promise<string> {
   const rootId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
   const receivingFolder = await findOrCreateFolder(token, "Receiving", rootId);

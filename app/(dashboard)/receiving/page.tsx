@@ -4,7 +4,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { useWarehouse, tQty } from "@/lib/use-warehouse";
-import { uploadToReceiving } from "@/lib/drive-upload-client";
+import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 
 type OutsideShipment = {
   id: string;
@@ -22,7 +22,7 @@ type OutsideShipment = {
 };
 
 export default function ReceivingPage() {
-  const { loading, incoming, updateReceivedQty, markReceived, undoReceived } = useWarehouse();
+  const { loading, incoming, updateReceivedQty, markReceived, undoReceived, returnToProduction } = useWarehouse();
   const supabase = createClient();
 
   const [outsideShipments, setOutsideShipments] = useState<OutsideShipment[]>([]);
@@ -35,11 +35,37 @@ export default function ReceivingPage() {
   const [jobs, setJobs] = useState<{ id: string; title: string; client_name: string; job_number: string }[]>([]);
   const [tab, setTab] = useState<"production" | "outside">("production");
   const [conditionNote, setConditionNote] = useState<Record<string, string>>({});
+  const [packingSlips, setPackingSlips] = useState<Record<string, { file_name: string; drive_link: string }[]>>({});
+  const [receivingPhotos, setReceivingPhotos] = useState<Record<string, { file_name: string; drive_link: string }[]>>({});
+  const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
+  const [viewingSlips, setViewingSlips] = useState<{ files: { file_name: string; drive_link: string }[]; index: number; title: string } | null>(null);
+  const photoInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
     loadOutside();
     loadJobs();
   }, []);
+
+  // Load packing slips + receiving photos when incoming data is available
+  useEffect(() => {
+    if (incoming.length === 0) return;
+    const itemIds = incoming.flatMap(j => j.items.map(it => it.id));
+    if (itemIds.length === 0) return;
+    supabase.from("item_files").select("item_id, file_name, drive_link, stage")
+      .in("stage", ["packing_slip", "receiving_photo"])
+      .in("item_id", itemIds)
+      .then(({ data }) => {
+        const slips: Record<string, { file_name: string; drive_link: string }[]> = {};
+        const photos: Record<string, { file_name: string; drive_link: string }[]> = {};
+        for (const f of (data || [])) {
+          const target = f.stage === "packing_slip" ? slips : photos;
+          if (!target[f.item_id]) target[f.item_id] = [];
+          target[f.item_id].push({ file_name: f.file_name, drive_link: f.drive_link });
+        }
+        setPackingSlips(slips);
+        setReceivingPhotos(photos);
+      });
+  }, [incoming]);
 
   async function loadOutside() {
     const { data } = await supabase
@@ -114,6 +140,28 @@ export default function ReceivingPage() {
   async function resolveShipment(id: string) {
     await supabase.from("outside_shipments").update({ resolved: true }).eq("id", id);
     setOutsideShipments(prev => prev.filter(s => s.id !== id));
+  }
+
+  async function handlePhotoUpload(file: File, job: any, item: any) {
+    setUploadingPhoto(item.id);
+    try {
+      const result = await uploadToDrive({
+        blob: file, fileName: file.name, mimeType: file.type || "image/jpeg",
+        clientName: job.client_name, projectTitle: job.title, itemName: item.name,
+      });
+      await registerFileInDb({
+        fileId: result.fileId, webViewLink: result.webViewLink, folderLink: result.folderLink,
+        fileName: file.name, mimeType: file.type, fileSize: file.size,
+        itemId: item.id, stage: "receiving_photo", notes: null,
+      });
+      setReceivingPhotos(prev => ({
+        ...prev,
+        [item.id]: [...(prev[item.id] || []), { file_name: file.name, drive_link: result.webViewLink }],
+      }));
+    } catch (err) {
+      console.error("Photo upload error:", err);
+    }
+    setUploadingPhoto(null);
   }
 
   // Stats
@@ -194,21 +242,41 @@ export default function ReceivingPage() {
                 <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
                 <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
                 <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.display_number}</span>
-                {job.items.some(it => !it.received_at_hpd) && (
+                <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
                   <button onClick={async () => {
-                    for (const it of job.items.filter(i => !i.received_at_hpd)) {
-                      await markReceived(it);
-                    }
-                  }} style={{ marginLeft: "auto", fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 4, background: T.green, color: "#fff", border: "none", cursor: "pointer" }}>
-                    Receive All
+                    for (const it of job.items) await returnToProduction(it);
+                  }} style={{ fontSize: 10, padding: "4px 12px", borderRadius: 4, background: "none", color: T.amber, border: `1px solid ${T.amber}44`, cursor: "pointer" }}>
+                    ← Return All
                   </button>
-                )}
+                  {job.items.some(it => !it.received_at_hpd) && (
+                    <button onClick={async () => {
+                      for (const it of job.items.filter(i => !i.received_at_hpd)) await markReceived(it);
+                    }} style={{ fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 4, background: T.green, color: "#fff", border: "none", cursor: "pointer" }}>
+                      Receive All
+                    </button>
+                  )}
+                </div>
                 <span style={{ marginLeft: job.items.some(it => !it.received_at_hpd) ? 0 : "auto", fontSize: 10, padding: "2px 8px", borderRadius: 99,
                   background: job.shipping_route === "stage" ? T.purpleDim : T.accentDim,
                   color: job.shipping_route === "stage" ? T.purple : T.accent }}>
                   {job.shipping_route === "stage" ? "→ Fulfillment" : "→ Shipping"}
                 </span>
               </div>
+              {/* Packing slips from production */}
+              {(() => {
+                const jobSlips = job.items.flatMap(it => (packingSlips[it.id] || []).map(s => s));
+                const unique = jobSlips.filter((s, i, arr) => arr.findIndex(x => x.file_name === s.file_name) === i);
+                if (unique.length === 0) return null;
+                return (
+                  <div style={{ padding: "6px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 6 }}>
+                    <button onClick={() => setViewingSlips({ files: unique, index: 0, title: job.client_name })}
+                      style={{ fontSize: 10, padding: "3px 10px", borderRadius: 4, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font }}>
+                      View packing slips ({unique.length})
+                    </button>
+                  </div>
+                );
+              })()}
+
               <div style={{ padding: "10px 14px" }}>
                 <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
                   <thead>
@@ -223,12 +291,32 @@ export default function ReceivingPage() {
                       const shippedQty = tQty(item.ship_qtys);
                       const totalQty = tQty(item.qtys);
                       const receivedTotal = tQty(item.received_qtys);
-                      const hasVariance = item.received_at_hpd && receivedTotal > 0 && receivedTotal !== (shippedQty || totalQty);
+                      const hasVariance = item.received_at_hpd && receivedTotal > 0 && receivedTotal !== (shippedQty ?? totalQty);
                       return (
                         <tr key={item.id} style={{ borderBottom: i < job.items.length - 1 ? `1px solid ${T.border}` : "none", verticalAlign: "top" }}>
                           <td style={{ padding: "8px", fontWeight: 600 }}>
                             {item.name}
                             <div style={{ fontSize: 10, color: T.faint, fontWeight: 400 }}>{[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ")}</div>
+                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 3, alignItems: "center" }}>
+                              {(receivingPhotos[item.id] || []).map((p, pi) => (
+                                <a key={pi} href={p.drive_link} target="_blank" rel="noopener noreferrer"
+                                  style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: T.surface, color: T.muted, textDecoration: "none" }}>
+                                  {p.file_name}
+                                </a>
+                              ))}
+                              {uploadingPhoto === item.id ? (
+                                <span style={{ fontSize: 9, color: T.accent }}>Uploading...</span>
+                              ) : (
+                                <>
+                                  <button onClick={() => photoInputRefs.current[item.id]?.click()}
+                                    style={{ fontSize: 9, color: T.faint, background: "none", border: `1px dashed ${T.border}`, borderRadius: 3, padding: "1px 6px", cursor: "pointer" }}>
+                                    + Photo
+                                  </button>
+                                  <input ref={el => { photoInputRefs.current[item.id] = el; }} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
+                                    onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload(f, job, item); e.target.value = ""; }} />
+                                </>
+                              )}
+                            </div>
                           </td>
                           <td style={{ padding: "8px" }}>
                             <div style={{ fontFamily: mono, fontSize: 11, color: T.muted }}>{item.ship_tracking || "—"}</div>
@@ -252,7 +340,7 @@ export default function ReceivingPage() {
                                 );
                               })}
                             </div>
-                            {hasVariance && <div style={{ fontSize: 9, color: T.red, marginTop: 4 }}>Variance: {receivedTotal - (shippedQty || totalQty)} units</div>}
+                            {hasVariance && <div style={{ fontSize: 9, color: T.red, marginTop: 4 }}>Variance: {receivedTotal - (shippedQty ?? totalQty)} units</div>}
                           </td>
                           <td style={{ padding: "8px" }}>
                             {item.received_at_hpd ? (
@@ -269,12 +357,20 @@ export default function ReceivingPage() {
                               />
                             )}
                           </td>
-                          <td style={{ padding: "8px", textAlign: "right" }}>
-                            {item.received_at_hpd ? (
-                              <button onClick={() => undoReceived(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>Undo</button>
-                            ) : (
-                              <button onClick={() => markReceived(item)} style={{ fontSize: 10, fontWeight: 600, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "4px 12px", cursor: "pointer" }}>Receive</button>
-                            )}
+                          <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                              {item.received_at_hpd ? (
+                                <>
+                                  <button onClick={() => undoReceived(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>Undo</button>
+                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.amber, background: "none", border: `1px solid ${T.amber}44`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
+                                </>
+                              ) : (
+                                <>
+                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
+                                  <button onClick={() => markReceived(item)} style={{ fontSize: 10, fontWeight: 600, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "4px 12px", cursor: "pointer" }}>Receive</button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -444,6 +540,44 @@ export default function ReceivingPage() {
           )}
         </div>
       )}
+      {/* Packing slip viewer modal */}
+      {viewingSlips && (
+        <div onClick={() => setViewingSlips(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: T.card, borderRadius: 12, width: "90vw", maxWidth: 900, height: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 14, fontWeight: 700 }}>{viewingSlips.title} — Packing Slips</span>
+                {viewingSlips.files.length > 1 && (
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{viewingSlips.index + 1} / {viewingSlips.files.length}</span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {viewingSlips.files.length > 1 && (
+                  <>
+                    <button onClick={() => setViewingSlips(v => v ? { ...v, index: Math.max(0, v.index - 1) } : null)} disabled={viewingSlips.index === 0}
+                      style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.border}`, background: "none", color: viewingSlips.index === 0 ? T.faint : T.text, cursor: "pointer", fontSize: 12 }}>Prev</button>
+                    <button onClick={() => setViewingSlips(v => v ? { ...v, index: Math.min(v.files.length - 1, v.index + 1) } : null)} disabled={viewingSlips.index === viewingSlips.files.length - 1}
+                      style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.border}`, background: "none", color: viewingSlips.index === viewingSlips.files.length - 1 ? T.faint : T.text, cursor: "pointer", fontSize: 12 }}>Next</button>
+                  </>
+                )}
+                <a href={viewingSlips.files[viewingSlips.index].drive_link} target="_blank" rel="noopener noreferrer"
+                  style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.border}`, background: "none", color: T.accent, cursor: "pointer", fontSize: 11, textDecoration: "none" }}>Open in Drive</a>
+                <button onClick={() => setViewingSlips(null)}
+                  style={{ padding: "4px 10px", borderRadius: 4, border: "none", background: T.surface, color: T.muted, cursor: "pointer", fontSize: 12 }}>Close</button>
+              </div>
+            </div>
+            <div style={{ padding: "6px 16px", fontSize: 11, color: T.muted, borderBottom: `1px solid ${T.border}` }}>
+              {viewingSlips.files[viewingSlips.index].file_name}
+            </div>
+            <div style={{ flex: 1 }}>
+              <iframe src={viewingSlips.files[viewingSlips.index].drive_link.replace("/view", "/preview")} style={{ width: "100%", height: "100%", border: "none" }} allow="autoplay" />
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

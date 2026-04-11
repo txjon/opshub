@@ -41,8 +41,9 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
   const qty = p.totalQty || 0; if (qty === 0) return null;
 
   // Blank cost buffer: LA Apparel 10%, all others 5%
-  const isLAApparel = (p.blank_vendor || p.blankVendor || "").startsWith("LA Apparel");
-  const blankBuffer = isLAApparel ? 1.10 : 1.05;
+  const vendor = (p.blank_vendor || p.blankVendor || "");
+  const is10pct = vendor.startsWith("LA Apparel") || vendor.startsWith("Cotton Collective");
+  const blankBuffer = is10pct ? 1.10 : 1.05;
   const blankCost = (() => {
     if (p.blankCosts && Object.keys(p.blankCosts).length > 0) {
       let total = 0;

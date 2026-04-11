@@ -27,6 +27,7 @@ type WarehouseItem = {
   sizes: string[];
   qtys: Record<string, number>;
   ship_qtys: Record<string, number>;
+  decorator_assignment_id: string | null;
 };
 
 type WarehouseJob = {
@@ -63,11 +64,13 @@ export default function WarehousePage() {
     if (!dbJobs?.length) { setJobs([]); setLoading(false); return; }
 
     const jobIds = dbJobs.map(j => j.id);
-    const { data: allItems } = await supabase
-      .from("items")
-      .select("*, buy_sheet_lines(size, qty_ordered)")
-      .in("job_id", jobIds)
-      .order("sort_order");
+    const [itemsRes, assignmentsRes] = await Promise.all([
+      supabase.from("items").select("*, buy_sheet_lines(size, qty_ordered)").in("job_id", jobIds).order("sort_order"),
+      supabase.from("decorator_assignments").select("id, item_id").in("job_id", jobIds),
+    ]);
+    const allItems = itemsRes.data;
+    const assignmentMap: Record<string, string> = {};
+    for (const a of (assignmentsRes.data || [])) assignmentMap[a.item_id] = a.id;
 
     const mapped: WarehouseJob[] = [];
     for (const j of dbJobs) {
@@ -103,6 +106,7 @@ export default function WarehousePage() {
             qtys: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered])),
             ship_qtys: it.ship_qtys || {},
             received_qtys: it.received_qtys || {},
+            decorator_assignment_id: assignmentMap[it.id] || null,
           };
         }),
       });
@@ -173,6 +177,26 @@ export default function WarehousePage() {
       ...j,
       items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: false, received_at_hpd_at: null } : it),
     })));
+    setTimeout(() => recalcJobPhase(item.job_id), 300);
+  }
+
+  async function returnToProduction(item: WarehouseItem) {
+    await supabase.from("items").update({
+      pipeline_stage: "in_production",
+      received_at_hpd: false,
+      received_at_hpd_at: null,
+    }).eq("id", item.id);
+    if (item.decorator_assignment_id) {
+      await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
+    }
+    logJobActivity(item.job_id, `${item.name} returned to production from receiving`);
+    setJobs(prev => {
+      const updated = prev.map(j => ({
+        ...j, items: j.items.map(it => it.id === item.id ? { ...it, pipeline_stage: "in_production", received_at_hpd: false, received_at_hpd_at: null } : it),
+      }));
+      // Remove job if no items left in warehouse pipeline
+      return updated.filter(j => j.items.some(it => it.pipeline_stage === "shipped" || it.received_at_hpd));
+    });
     setTimeout(() => recalcJobPhase(item.job_id), 300);
   }
 
@@ -271,7 +295,7 @@ export default function WarehousePage() {
                     const shippedQty = tQty(item.ship_qtys);
                     const receivedQtys = (item as any).received_qtys || {};
                     const receivedTotal = tQty(receivedQtys);
-                    const hasVariance = item.received_at_hpd && receivedTotal > 0 && receivedTotal !== (shippedQty || totalQty);
+                    const hasVariance = item.received_at_hpd && receivedTotal > 0 && receivedTotal !== (shippedQty ?? totalQty);
                     return (
                       <tr key={item.id} style={{ borderBottom: i < job.items.length - 1 ? `1px solid ${T.border}` : "none", verticalAlign: "top" }}>
                         <td style={{ padding: "8px", fontWeight: 600 }}>
@@ -299,7 +323,7 @@ export default function WarehousePage() {
                           </div>
                           {hasVariance && (
                             <div style={{ fontSize: 9, color: T.red, marginTop: 4 }}>
-                              Variance: {receivedTotal - (shippedQty || totalQty)} units
+                              Variance: {receivedTotal - (shippedQty ?? totalQty)} units
                             </div>
                           )}
                         </td>
@@ -310,11 +334,17 @@ export default function WarehousePage() {
                             <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.surface, color: T.muted }}>Pending</span>
                           )}
                         </td>
-                        <td style={{ padding: "8px", textAlign: "right" }}>
+                        <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
                           {item.received_at_hpd ? (
-                            <button onClick={() => undoReceived(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>Undo</button>
+                            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                              <button onClick={() => undoReceived(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>Undo</button>
+                              <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.amber, background: "none", border: `1px solid ${T.amber}44`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
+                            </div>
                           ) : (
-                            <button onClick={() => markReceived(item)} style={{ fontSize: 10, fontWeight: 600, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Confirm</button>
+                            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                              <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
+                              <button onClick={() => markReceived(item)} style={{ fontSize: 10, fontWeight: 600, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Confirm</button>
+                            </div>
                           )}
                         </td>
                       </tr>

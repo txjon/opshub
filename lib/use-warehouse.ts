@@ -28,6 +28,7 @@ export type WarehouseItem = {
   ship_qtys: Record<string, number>;
   received_qtys: Record<string, number>;
   ship_notes: string;
+  decorator_assignment_id: string | null;
 };
 
 export type WarehouseJob = {
@@ -68,12 +69,15 @@ export function useWarehouse() {
     if (!dbJobs?.length) { setJobs([]); setLoading(false); return; }
 
     const jobIds = dbJobs.map(j => j.id);
-    const [itemsRes, contactsRes] = await Promise.all([
+    const [itemsRes, contactsRes, assignmentsRes] = await Promise.all([
       supabase.from("items").select("*, buy_sheet_lines(size, qty_ordered)").in("job_id", jobIds).order("sort_order"),
       supabase.from("job_contacts").select("job_id, role_on_job, contacts(name, phone, email)").in("job_id", jobIds),
+      supabase.from("decorator_assignments").select("id, item_id").in("job_id", jobIds),
     ]);
     const allItems = itemsRes.data;
     const allContacts = contactsRes.data || [];
+    const assignmentMap: Record<string, string> = {};
+    for (const a of (assignmentsRes.data || [])) assignmentMap[a.item_id] = a.id;
 
     const mapped: WarehouseJob[] = [];
     for (const j of dbJobs) {
@@ -113,6 +117,7 @@ export function useWarehouse() {
             qtys: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered])),
             ship_qtys: it.ship_qtys || {},
             received_qtys: it.received_qtys || {},
+            decorator_assignment_id: assignmentMap[it.id] || null,
           };
         }),
       });
@@ -189,6 +194,22 @@ export function useWarehouse() {
     setTimeout(() => recalcJobPhase(item.job_id), 300);
   }
 
+  async function returnToProduction(item: WarehouseItem) {
+    await supabase.from("items").update({
+      pipeline_stage: "in_production",
+      received_at_hpd: false,
+      received_at_hpd_at: null,
+    }).eq("id", item.id);
+    if (item.decorator_assignment_id) {
+      await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
+    }
+    logJobActivity(item.job_id, `${item.name} returned to production from receiving`);
+    setJobs(prev => prev.map(j => ({
+      ...j, items: j.items.map(it => it.id === item.id ? { ...it, pipeline_stage: "in_production", received_at_hpd: false, received_at_hpd_at: null } : it),
+    })));
+    setTimeout(() => recalcJobPhase(item.job_id), 300);
+  }
+
   async function updateFulfillment(jobId: string, status: string | null, tracking?: string) {
     const updates: any = { fulfillment_status: status };
     if (tracking !== undefined) updates.fulfillment_tracking = tracking;
@@ -216,7 +237,7 @@ export function useWarehouse() {
 
   return {
     loading, jobs, setJobs, incoming, shipThrough, fulfillment,
-    updateReceivedQty, markReceived, undoReceived,
+    updateReceivedQty, markReceived, undoReceived, returnToProduction,
     updateFulfillment, debounceFulfillmentTracking,
     supabase, logJobActivity,
   };

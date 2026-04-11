@@ -2,8 +2,10 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
+import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -21,7 +23,7 @@ type ProdItem = {
 
 type ProjectGroup = {
   jobId: string; jobNumber: string; invoiceNumber: string | null; jobTitle: string; clientName: string;
-  shipDate: string | null; phase: string;
+  shipDate: string | null; phase: string; completedAt: string | null;
   decoratorGroups: DecoratorGroup[];
   totalItems: number; totalUnits: number;
 };
@@ -42,6 +44,12 @@ export default function ProductionPage() {
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterStalled, setFilterStalled] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [packingSlips, setPackingSlips] = useState<Record<string, { id: string; file_name: string; drive_link: string; folder_link?: string }[]>>({});
+  const [uploadingSlip, setUploadingSlip] = useState<string | null>(null);
+  const [slipProgress, setSlipProgress] = useState(0);
+  const [slipStatus, setSlipStatus] = useState<string | null>(null);
+  const [viewingSlips, setViewingSlips] = useState<{ files: { file_name: string; drive_link: string }[]; index: number; title: string } | null>(null);
+  const slipInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const saveTimers = useRef<Record<string, any>>({});
   const now = new Date();
 
@@ -49,10 +57,13 @@ export default function ProductionPage() {
 
   async function loadAll() {
     setLoading(true);
-    const { data: jobs } = await supabase
-      .from("jobs")
-      .select("id, title, job_number, target_ship_date, phase, type_meta, clients(name)")
-      .in("phase", ["production", "receiving", "fulfillment"]);
+    // Active jobs + recently completed (last 30 days)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+    const [activeRes, completedRes] = await Promise.all([
+      supabase.from("jobs").select("id, title, job_number, target_ship_date, phase, type_meta, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
+      supabase.from("jobs").select("id, title, job_number, target_ship_date, phase, type_meta, phase_timestamps, clients(name)").eq("phase", "complete").gte("updated_at", thirtyDaysAgo),
+    ]);
+    const jobs = [...(activeRes.data || []), ...(completedRes.data || [])];
 
     if (!jobs?.length) { setProjects([]); setLoading(false); return; }
 
@@ -103,7 +114,8 @@ export default function ProductionPage() {
           invoiceNumber: (job as any).type_meta?.qb_invoice_number || null,
           jobTitle: job.title,
           clientName: job.clients?.name || "", shipDate: job.target_ship_date,
-          phase: job.phase, decoratorGroups: [], totalItems: 0, totalUnits: 0,
+          phase: job.phase, completedAt: (job as any).phase_timestamps?.complete || null,
+          decoratorGroups: [], totalItems: 0, totalUnits: 0,
         };
       }
       projectMap[it.job_id].totalItems++;
@@ -136,6 +148,19 @@ export default function ProductionPage() {
     });
 
     setProjects(sorted);
+
+    // Load packing slip files for all items
+    const allItemIds = (allItems || []).map((it: any) => it.id);
+    if (allItemIds.length > 0) {
+      const { data: slipFiles } = await supabase.from("item_files").select("id, item_id, file_name, drive_link, notes").eq("stage", "packing_slip").in("item_id", allItemIds);
+      const slipMap: Record<string, { id: string; file_name: string; drive_link: string; folder_link?: string }[]> = {};
+      for (const f of (slipFiles || [])) {
+        if (!slipMap[f.item_id]) slipMap[f.item_id] = [];
+        slipMap[f.item_id].push({ id: f.id, file_name: f.file_name, drive_link: f.drive_link, folder_link: f.notes || undefined });
+      }
+      setPackingSlips(slipMap);
+    }
+
     setLoading(false);
   }
 
@@ -143,9 +168,15 @@ export default function ProductionPage() {
   async function markShipped(item: ProdItem) {
     const ts = new Date().toISOString();
     const timestamps = { ...(item.pipeline_timestamps || {}), shipped: ts };
+    // Flush ALL pending debounces for this item
+    for (const key of Object.keys(saveTimers.current).filter(k => k.includes(item.id))) {
+      clearTimeout(saveTimers.current[key]);
+      delete saveTimers.current[key];
+    }
     await supabase.from("items").update({
       pipeline_stage: "shipped", pipeline_timestamps: timestamps,
       ship_notes: item.ship_notes || null, ship_tracking: item.ship_tracking || null,
+      ship_qtys: item.ship_qtys || null,
       received_at_hpd: false, received_at_hpd_at: null,
     }).eq("id", item.id);
     if (item.decorator_assignment_id) {
@@ -186,6 +217,41 @@ export default function ProductionPage() {
     }, 800);
   }
 
+  async function handlePackingSlipUpload(file: File, project: ProjectGroup, dgItems: ProdItem[]) {
+    const key = project.jobId + "_" + (dgItems[0]?.decorator_id || "");
+    setUploadingSlip(key);
+    setSlipProgress(0);
+    setSlipStatus(null);
+    try {
+      setSlipStatus("Uploading to Drive...");
+      const result = await uploadToDrive({
+        blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream",
+        clientName: project.clientName, projectTitle: project.jobTitle, itemName: "Packing Slips",
+        onProgress: (pct: number) => setSlipProgress(pct),
+      });
+      setSlipStatus(`Registering ${dgItems.length} items...`);
+      // Register against all items in this decorator group
+      for (const item of dgItems) {
+        await registerFileInDb({
+          fileId: result.fileId, webViewLink: result.webViewLink, folderLink: result.folderLink,
+          fileName: file.name, mimeType: file.type, fileSize: file.size,
+          itemId: item.id, stage: "packing_slip", notes: result.folderLink,
+        });
+        setPackingSlips(prev => ({
+          ...prev,
+          [item.id]: [...(prev[item.id] || []), { id: result.fileId, file_name: file.name, drive_link: result.webViewLink, folder_link: result.folderLink }],
+        }));
+      }
+      setSlipStatus("Uploaded");
+      setTimeout(() => setSlipStatus(null), 2000);
+    } catch (err: any) {
+      alert("Packing slip error: " + err.message);
+    }
+    setUploadingSlip(null);
+    setSlipProgress(0);
+    setSlipStatus(null);
+  }
+
   // ── Stats ──
   const allItems = projects.flatMap(p => p.decoratorGroups.flatMap(dg => dg.items));
   const atDecorator = allItems.filter(it => it.pipeline_stage === "in_production").length;
@@ -201,7 +267,7 @@ export default function ProductionPage() {
   }).length;
   const decorators = useMemo(() => [...new Set(allItems.map(it => it.decorator_name).filter(Boolean))].sort(), [projects]);
 
-  // ── Filter ──
+  // ── Filter & split active vs completed ──
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     return projects.filter(p => {
@@ -211,6 +277,31 @@ export default function ProductionPage() {
       return true;
     });
   }, [projects, search, filterDecorator]);
+
+  const activeProjects = filtered.filter(p => p.decoratorGroups.some(dg => dg.items.some(it => it.pipeline_stage === "in_production")));
+  const completedProjects = filtered.filter(p => p.decoratorGroups.every(dg => dg.items.every(it => it.pipeline_stage === "shipped")) || p.phase === "complete");
+
+  // Group completed by time period
+  const groupByPeriod = (projects: ProjectGroup[]) => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const recent: ProjectGroup[] = [];
+    const lastWeek: ProjectGroup[] = [];
+    const older: ProjectGroup[] = [];
+
+    for (const p of projects) {
+      const ts = p.completedAt || p.decoratorGroups.flatMap(dg => dg.items.map(it => it.pipeline_timestamps?.shipped)).filter(Boolean).sort().pop();
+      const d = ts ? new Date(ts) : new Date(0);
+      if (d >= yesterday) recent.push(p);
+      else if (d >= weekAgo) lastWeek.push(p);
+      else older.push(p);
+    }
+    return { recent, lastWeek, older };
+  };
+  const completedGroups = groupByPeriod(completedProjects);
+  const [showCompleted, setShowCompleted] = useState(true);
 
   const getDaysToShip = (d: string | null) => {
     if (!d) return null;
@@ -268,12 +359,12 @@ export default function ProductionPage() {
         </select>
       </div>
 
-      {/* Project rows */}
-      {filtered.length === 0 && (
+      {/* ── Active Projects ── */}
+      {activeProjects.length === 0 && completedProjects.length === 0 && (
         <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>No active production</div>
       )}
 
-      {filtered.map(project => {
+      {activeProjects.map(project => {
         const isExpanded = expanded.has(project.jobId);
         const ship = shipDatePill(project.shipDate);
         const allShipped = project.decoratorGroups.every(dg => dg.items.every(it => it.pipeline_stage === "shipped"));
@@ -377,6 +468,36 @@ export default function ProductionPage() {
                       </div>
                     </div>
 
+                    {/* Packing slip upload */}
+                    {(() => {
+                      const dgKey = project.jobId + "_" + (dg.decoratorId || "");
+                      const dgSlips = dg.items.flatMap(it => packingSlips[it.id] || []);
+                      const uniqueSlips = dgSlips.filter((s, i, arr) => arr.findIndex(x => x.file_name === s.file_name) === i);
+                      const folderLink = dgSlips.find(s => s.folder_link)?.folder_link;
+                      return (
+                        <div style={{ padding: "6px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          {uniqueSlips.length > 0 && (
+                            <button onClick={(e) => { e.stopPropagation(); setViewingSlips({ files: uniqueSlips, index: 0, title: dg.shortCode || dg.decoratorName }); }}
+                              style={{ fontSize: 10, padding: "3px 10px", borderRadius: 4, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font }}>
+                              View {dg.shortCode || dg.decoratorName} packing slips ({uniqueSlips.length})
+                            </button>
+                          )}
+                          {uploadingSlip === dgKey ? (
+                            <span style={{ fontSize: 10, color: T.accent }}>{slipStatus || `${slipProgress}%`}</span>
+                          ) : (
+                            <>
+                              <button onClick={(e) => { e.stopPropagation(); slipInputRefs.current[dgKey]?.click(); }}
+                                style={{ fontSize: 10, color: T.faint, background: "none", border: `1px dashed ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>
+                                {uniqueSlips.length > 0 ? "+ Add" : "Upload Packing Slip"}
+                              </button>
+                              <input ref={el => { slipInputRefs.current[dgKey] = el; }} type="file" accept="image/*,.pdf" style={{ display: "none" }}
+                                onChange={e => { const f = e.target.files?.[0]; if (f) handlePackingSlipUpload(f, project, dg.items); e.target.value = ""; }} />
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     {/* Items */}
                     <div style={{ padding: "10px 14px" }}>
                       {dg.items.map(item => {
@@ -432,13 +553,14 @@ export default function ProductionPage() {
                             </div>
                             {/* Per-size ship qty (collapsed, expand on click) */}
                             {!isShipped && item.sizes.length > 0 && (
-                              <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
                                 {item.sizes.map(sz => {
                                   const ordered = item.qtys[sz] || 0;
-                                  const shipped = (item.ship_qtys || {})[sz] || ordered;
+                                  const shipped = (item.ship_qtys || {})[sz] ?? ordered;
+                                  const diffColor = shipped < ordered ? T.amber : shipped > ordered ? T.green : null;
                                   return (
-                                    <div key={sz} style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 10 }}>
-                                      <span style={{ color: T.faint, width: 24 }}>{sz}</span>
+                                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                      <span style={{ fontSize: 9, color: T.muted, fontFamily: mono }}>{sz}</span>
                                       <input
                                         type="text" inputMode="numeric" value={shipped}
                                         onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
@@ -455,9 +577,9 @@ export default function ProductionPage() {
                                             supabase.from("items").update({ ship_qtys: newQtys }).eq("id", item.id);
                                           }, 800);
                                         }}
-                                        style={{ ...ic, width: 32, padding: "2px 4px", textAlign: "center", fontSize: 10, fontFamily: mono }}
+                                        style={{ ...ic, width: 44, padding: "4px", textAlign: "center", fontSize: 11, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: diffColor || T.text }}
                                       />
-                                      <span style={{ color: T.faint }}>/{ordered}</span>
+                                      <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{ordered}</span>
                                     </div>
                                   );
                                 })}
@@ -476,6 +598,103 @@ export default function ProductionPage() {
           </div>
         );
       })}
+
+      {/* ── Completed ── */}
+      {completedProjects.length > 0 && (
+        <div>
+          <button onClick={() => setShowCompleted(!showCompleted)}
+            style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "8px 0", width: "100%" }}>
+            <span style={{ fontSize: 11, color: T.faint, transform: showCompleted ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>▶</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Completed</span>
+            <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{completedProjects.length}</span>
+            <div style={{ flex: 1, height: 1, background: T.border }} />
+          </button>
+
+          {showCompleted && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {([
+                { label: "Recently", items: completedGroups.recent },
+                { label: "Last 7 days", items: completedGroups.lastWeek },
+                { label: "Last 30 days", items: completedGroups.older },
+              ] as const).filter(g => g.items.length > 0).map(group => (
+                <div key={group.label}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", padding: "6px 0 4px" }}>{group.label}</div>
+                  {group.items.map(project => (
+                    <Link key={project.jobId} href={`/jobs/${project.jobId}?tab=production`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+                      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 16px", marginBottom: 4, display: "flex", alignItems: "center", gap: 10, opacity: 0.8, cursor: "pointer", transition: "opacity 0.15s" }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = "0.8"; }}>
+                        <span style={{ fontSize: 13, fontWeight: 700 }}>{project.invoiceNumber || project.jobNumber}</span>
+                        <span style={{ fontSize: 12, color: T.muted }}>{project.clientName}</span>
+                        <span style={{ fontSize: 11, color: T.faint }}>— {project.jobTitle}</span>
+                        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 10, color: T.muted }}>{project.totalItems} items · {project.totalUnits.toLocaleString()} units</span>
+                          <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>
+                            {project.phase === "complete" ? "Complete" : "All Shipped"}
+                          </span>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Packing slip viewer modal */}
+      {viewingSlips && (
+        <div onClick={() => setViewingSlips(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: T.card, borderRadius: 12, width: "90vw", maxWidth: 900, height: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {/* Header */}
+            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 14, fontWeight: 700 }}>{viewingSlips.title} — Packing Slips</span>
+                {viewingSlips.files.length > 1 && (
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{viewingSlips.index + 1} / {viewingSlips.files.length}</span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {viewingSlips.files.length > 1 && (
+                  <>
+                    <button onClick={() => setViewingSlips(v => v ? { ...v, index: Math.max(0, v.index - 1) } : null)} disabled={viewingSlips.index === 0}
+                      style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.border}`, background: "none", color: viewingSlips.index === 0 ? T.faint : T.text, cursor: "pointer", fontSize: 12 }}>
+                      Prev
+                    </button>
+                    <button onClick={() => setViewingSlips(v => v ? { ...v, index: Math.min(v.files.length - 1, v.index + 1) } : null)} disabled={viewingSlips.index === viewingSlips.files.length - 1}
+                      style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.border}`, background: "none", color: viewingSlips.index === viewingSlips.files.length - 1 ? T.faint : T.text, cursor: "pointer", fontSize: 12 }}>
+                      Next
+                    </button>
+                  </>
+                )}
+                <a href={viewingSlips.files[viewingSlips.index].drive_link} target="_blank" rel="noopener noreferrer"
+                  style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.border}`, background: "none", color: T.accent, cursor: "pointer", fontSize: 11, textDecoration: "none" }}>
+                  Open in Drive
+                </a>
+                <button onClick={() => setViewingSlips(null)}
+                  style={{ padding: "4px 10px", borderRadius: 4, border: "none", background: T.surface, color: T.muted, cursor: "pointer", fontSize: 12 }}>
+                  Close
+                </button>
+              </div>
+            </div>
+            {/* File name */}
+            <div style={{ padding: "6px 16px", fontSize: 11, color: T.muted, borderBottom: `1px solid ${T.border}` }}>
+              {viewingSlips.files[viewingSlips.index].file_name}
+            </div>
+            {/* Embed */}
+            <div style={{ flex: 1 }}>
+              <iframe
+                src={viewingSlips.files[viewingSlips.index].drive_link.replace("/view", "/preview")}
+                style={{ width: "100%", height: "100%", border: "none" }}
+                allow="autoplay"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -6,97 +6,18 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 
-// ── Shared calc (same as quote route) ────────────────────────────────────────
+// ── Pricing — uses shared lib/pricing.ts (single source of truth) ────────────
+import { buildPrintersMap, calcCostProduct as sharedCalc } from "@/lib/pricing";
+
 let PRINTERS: Record<string, any> = {};
+
 async function loadPrinters(supabase: any) {
-  const { data } = await supabase.from("decorators").select("name, short_code, pricing_data").order("name");
-  const map: Record<string, any> = {};
-  for (const d of (data || [])) {
-    const key = d.short_code || d.name;
-    const pd = d.pricing_data || {};
-    map[key] = { qtys: pd.qtys || [], prices: pd.prices || {}, tagPrices: pd.tagPrices || [], finishing: pd.finishing || {}, setup: pd.setup || {}, specialty: pd.specialty || {}, packaging: pd.packaging || {}, minimums: pd.minimums || {} };
-  }
-  PRINTERS = map;
+  const { data } = await supabase.from("decorators").select("name, short_code, pricing_data, capabilities").order("name");
+  PRINTERS = buildPrintersMap(data || []);
 }
 
-function lookupPrintPrice(pk: string, qty: number, colors: number) {
-  const p = PRINTERS[pk]; if (!p || !p.qtys.length) return 0;
-  const minQty = p.qtys[0] || 0;
-  if (qty < minQty && p.minimums?.print > 0) return p.minimums.print / qty;
-  let idx = 0; for (let i = 0; i < p.qtys.length; i++) { if (qty >= p.qtys[i]) idx = i; }
-  return (p.prices[colors] || [])[idx] || 0;
-}
-function lookupTagPrice(pk: string, qty: number) {
-  const p = PRINTERS[pk]; if (!p || !p.tagPrices.length) return 0;
-  const minQty = p.qtys[0] || 0;
-  if (qty < minQty && p.minimums?.tagPrint > 0) return p.minimums.tagPrint / qty;
-  let idx = 0; for (let i = 0; i < p.qtys.length; i++) { if (qty >= p.qtys[i]) idx = i; }
-  return p.tagPrices[idx] || 0;
-}
-
-function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[] = []) {
-  const qty = p.totalQty || Object.values(p.qtys || {}).reduce((a: number, v: any) => a + v, 0);
-  if (qty === 0) return null;
-  const blankCost = Object.entries(p.blankCosts || {}).reduce((a, [sz, bc]: [string, any]) => a + (bc || 0) * ((p.qtys || {})[sz] || 0) * 1.035, 0);
-  let printTotal = 0;
-  for (let loc = 1; loc <= 6; loc++) {
-    const ld = p.printLocations?.[loc]; if (!ld || (!ld.location && !ld.screens)) continue;
-    const printer = ld.printer || p.printVendor; if (!printer) continue;
-    const isShared = ld.shared && ld.shareGroup;
-    let sharedQty = 0;
-    if (isShared) { sharedQty = allProds.reduce((sum, cp) => { const m = Object.values(cp.printLocations || {}).find((l: any) => l.shared && l.shareGroup && l.shareGroup.trim().toLowerCase() === ld.shareGroup.trim().toLowerCase() && l.screens > 0); return sum + (m ? cp.totalQty || 0 : 0); }, 0); }
-    const effectiveQty = isShared && sharedQty > 0 ? sharedQty : qty;
-    printTotal += lookupPrintPrice(printer, effectiveQty, ld.screens);
-  }
-  if (p.tagPrint && p.printVendor) {
-    const tagGroup = p.tagShareGroup || "";
-    let tagEffQty = qty;
-    if (tagGroup && allProds) { tagEffQty = allProds.reduce((sum, cp) => cp.tagPrint && cp.tagShareGroup && cp.tagShareGroup.trim().toLowerCase() === tagGroup.trim().toLowerCase() ? sum + (cp.totalQty || 0) : sum, 0) || qty; }
-    printTotal += lookupTagPrice(p.printVendor, tagEffQty);
-  }
-  let finUnitRate = 0;
-  if (p.finishingQtys && p.printVendor) {
-    const pr = PRINTERS[p.printVendor];
-    const activeLocs = [1,2,3,4,5,6].filter(loc => { const ld = p.printLocations?.[loc]; return ld?.location || ld?.screens > 0; }).length || 0;
-    if (pr) {
-      if (p.finishingQtys["Packaging_on"]) { const variant = p.isFleece ? "Fleece" : (p.finishingQtys["Packaging_variant"] || "Tee"); finUnitRate += (pr.packaging?.[variant] || pr.finishing?.[variant] || 0); }
-      Object.keys(p.finishingQtys || {}).forEach((fk: string) => { if (fk.endsWith("_on") && p.finishingQtys[fk]) { const key = fk.replace("_on", ""); if (key !== "Packaging") { finUnitRate += (pr.finishing?.[key] || pr.specialty?.[key] || 0); } } });
-    }
-  }
-  let specUnitRate = 0;
-  if (p.specialtyQtys && p.printVendor) {
-    const pr = PRINTERS[p.printVendor];
-    if (pr) { const activeLocs = [1,2,3,4,5,6].filter(loc => { const ld = p.printLocations?.[loc]; return ld?.location || ld?.screens > 0; }).length || 0; Object.keys(pr.specialty || {}).forEach((key: string) => { const isFleece = key === "Fleece Upcharge"; const isOn = isFleece ? p.isFleece : p.specialtyQtys?.[key + "_on"]; if (isOn) { const count = isFleece ? (activeLocs + (p.tagPrint ? 1 : 0)) : (p.specialtyQtys?.[key + "_count"] !== undefined ? p.specialtyQtys[key + "_count"] : activeLocs); specUnitRate += (pr.specialty[key] || 0) * count; } }); }
-  }
-  let setupTotal = 0;
-  if (p.setupFees && p.printVendor) {
-    const pr = PRINTERS[p.printVendor];
-    if (pr) {
-      const activeLocs = [1,2,3,4,5,6].filter(loc => { const ld = p.printLocations?.[loc]; return ld?.location || ld?.screens > 0; });
-      const autoScreens = activeLocs.reduce((sum, loc) => sum + (p.printLocations?.[loc]?.screens || 0), 0);
-      const activeSizes = (p.sizes || []).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
-      const tagScreenCount = p.tagPrint && !p.tagRepeat ? activeSizes : 0;
-      for (const k of Object.keys(pr.setup || {})) {
-        const isScreensKey = (s: string) => s === "Screens" || s.toLowerCase().replace(/\s/g, "") === "screens";
-        const isTagScreensKey = (s: string) => s === "TagScreens" || s === "Tag Screens" || s.toLowerCase().replace(/\s/g, "") === "tagscreens";
-        if (isScreensKey(k)) setupTotal += (pr.setup[k] || 0) * autoScreens;
-        else if (isTagScreensKey(k) && !p.tagRepeat) setupTotal += (pr.setup[k] || 0) * tagScreenCount;
-        else { const specCount = (() => { for (const sk of Object.keys(p.specialtyQtys || {})) { if (!sk.endsWith("_on") || !p.specialtyQtys[sk]) continue; const specName = sk.replace("_on", "").toLowerCase(); if (k.toLowerCase().includes(specName)) return p.specialtyQtys[sk.replace("_on", "_count")] || 0; } return null; })(); if (specCount !== null) setupTotal += (pr.setup[k] || 0) * specCount; else setupTotal += (pr.setup[k] || 0) * (p.setupFees[k] || 0); }
-      }
-    }
-    if (p.setupFees.manualCost > 0) setupTotal += p.setupFees.manualCost;
-  }
-  const customTotal = (p.customCosts || []).reduce((a: number, c: any) => { const v = c.perUnit || c.amount || 0; return a + (c.flat ? v : v * qty); }, 0);
-  const poTotal = (printTotal + finUnitRate + specUnitRate) * qty + setupTotal + customTotal;
-  const shipping = inclShip && p.garment_type !== "accessory" ? qty * (p.isFleece ? 1.50 : 0.65) : 0;
-  const totalCost = blankCost + poTotal + shipping;
-  const marginPct = (parseFloat((margin || "30%").replace("%", "")) / 100) || 0.30;
-  const ccRate = inclCC ? 0.03 : 0;
-  const divisor = 1 - marginPct - ccRate;
-  const autoGrossRev = divisor > 0 ? (totalCost / divisor) : 0;
-  const grossRevFinal = p.sellOverride ? p.sellOverride * qty : autoGrossRev;
-  const sellPerUnit = qty > 0 ? grossRevFinal / qty : 0;
-  return { qty, grossRev: grossRevFinal, sellPerUnit };
+function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[]) {
+  return sharedCalc(p, margin, inclShip, inclCC, allProds, PRINTERS);
 }
 
 const fmtD = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

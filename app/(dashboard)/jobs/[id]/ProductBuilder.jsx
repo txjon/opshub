@@ -23,6 +23,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   // ═══════════════════════════════════════════════════════════════
   // BUY SHEET SAVE INFRASTRUCTURE — copied verbatim from BuySheetTab
   // ═══════════════════════════════════════════════════════════════
+  const costingLocked = !!project?.type_meta?.costing_locked;
   const [localItems, setLocalItems] = useState(null);
   const [savedSnapshot, setSavedSnapshot] = useState(JSON.stringify(items || []));
   const onSaveRef = useRef(null);
@@ -190,7 +191,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   }));
   const grandTotal = safeItems.reduce((a, it) => a + (it.totalQty || 0), 0);
   const removeItem = (id) => updateLocal((workingItems || []).filter(x => x.id !== id));
-  const addItem = (item) => updateLocal([...(workingItems || []), item]);
+  const addItem = (item) => { if (costingLocked) return; updateLocal([...(workingItems || []), item]); };
   const assignBlank = (blankData) => {
     if (!assignBlankTo) return;
     const targetIds = Array.isArray(assignBlankTo) ? assignBlankTo : [assignBlankTo];
@@ -433,6 +434,13 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 6 }}>
 
+      {costingLocked && (
+        <div style={{ padding: "10px 14px", background: T.amberDim, border: `1px solid ${T.amber}44`, borderRadius: 8, display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: T.amber }}>Costing is locked</span>
+          <span style={{ fontSize: 11, color: T.muted }}>Unlock pricing in the Costing tab to edit items, quantities, or blanks</span>
+        </div>
+      )}
+
       {/* ══ Picker modals (same as BuySheetTab) ══ */}
       {(showPicker || showASColour || showLAApparel || showFavorites || showOtherPicker || showCCPicker) && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
@@ -639,13 +647,16 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       {/* ══ Add item button + Bulk + File drop zone ══ */}
       <div style={{ display: "flex", gap: 8 }}>
         {/* Add Item button */}
+        {!costingLocked && (
         <button onClick={() => { if (!psdProcessing) setShowAddModal(true); }}
           style={{ padding: "14px 24px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontSize: 13, fontWeight: 700, color: T.text, flexShrink: 0, transition: "all 0.15s" }}
           onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
           onMouseLeave={e => { e.currentTarget.style.background = T.card; }}>
           + Add Item
         </button>
+        )}
 
+        {!costingLocked && <>
         {/* Bulk Create button — coming soon */}
         <button style={{ padding: "14px 20px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.card, cursor: "default", fontSize: 13, fontWeight: 700, color: T.faint, flexShrink: 0, opacity: 0.6 }}>
           Bulk Create — Coming Soon
@@ -679,6 +690,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
             <span style={{ fontSize: 12, color: T.faint }}>Drop PSD + mockup files to create items</span>
         )}
         </div>
+        </>}
       </div>
 
       {/* Grand total */}
@@ -842,8 +854,8 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
         {/* Info stack */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Blank — clickable to change */}
-          <div onClick={e => { e.stopPropagation(); setAssignBlankTo(item.id); setShowAddModal(true); }}
-            style={{ cursor: "pointer", padding: "12px 16px", background: T.surface, borderRadius: 8, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s" }}
+          <div onClick={e => { e.stopPropagation(); if (costingLocked) return; setAssignBlankTo(item.id); setShowAddModal(true); }}
+            style={{ cursor: costingLocked ? "default" : "pointer", padding: "12px 16px", background: T.surface, borderRadius: 8, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s" }}
             onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
             onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
             {hasBlank ? (
@@ -869,14 +881,15 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
           {(item.sizes.length === 0 || (item.sizes.length === 1 && item.sizes[0] === "OSFA")) && (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Qty</span>
-              <input type="text" inputMode="numeric" value={item.totalQty || ""}
+              <input type="text" inputMode="numeric" value={item.totalQty || ""} disabled={costingLocked}
                 onChange={e => {
+                  if (costingLocked) return;
                   const q = parseInt(e.target.value) || 0;
                   onUpdateItem(item.id, { totalQty: q, sizes: q > 0 ? ["OSFA"] : [], qtys: q > 0 ? { OSFA: q } : {} });
                 }}
                 onFocus={e => e.target.select()}
                 placeholder="0"
-                style={{ ...ic, width: 70, height: 36, textAlign: "center", fontSize: 16, fontWeight: 700 }} />
+                style={{ ...ic, width: 70, height: 36, textAlign: "center", fontSize: 16, fontWeight: 700, opacity: costingLocked ? 0.5 : 1 }} />
               <span style={{ fontSize: 12, color: T.muted }}>units</span>
             </div>
           )}
@@ -893,17 +906,18 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                       <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, fontFamily: mono }}>{sz}</span>
                       <input
                         ref={el => { inputRefs.current[`${idx}_${ci}`] = el; }}
-                        type="text" inputMode="numeric" value={displayVal}
-                        onChange={e => { setLocalQty(item.id, sz, e.target.value); scheduleCommit(idx, item.id, sz); }}
+                        type="text" inputMode="numeric" value={displayVal} disabled={costingLocked}
+                        onChange={e => { if (costingLocked) return; setLocalQty(item.id, sz, e.target.value); scheduleCommit(idx, item.id, sz); }}
                         onFocus={e => e.target.select()}
                         onBlur={() => commitQty(idx, item.id, sz)}
                         onKeyDown={e => {
+                          if (costingLocked) return;
                           if (e.key === "Enter" || e.key === "ArrowDown") { commitQty(idx, item.id, sz); const next = inputRefs.current[`${idx + 1}_${ci}`]; if (next) next.focus(); }
                           else if (e.key === "ArrowUp") { commitQty(idx, item.id, sz); const prev = inputRefs.current[`${idx - 1}_${ci}`]; if (prev) prev.focus(); }
                           else if (e.key === "Tab" || e.key === "ArrowRight") { if (!e.shiftKey) { e.preventDefault(); commitQty(idx, item.id, sz); const next = inputRefs.current[`${idx}_${ci + 1}`] || inputRefs.current[`${idx + 1}_0`]; if (next) next.focus(); } }
                           else if (e.key === "ArrowLeft" || (e.key === "Tab" && e.shiftKey)) { e.preventDefault(); commitQty(idx, item.id, sz); const prev = inputRefs.current[`${idx}_${ci - 1}`] || inputRefs.current[`${idx - 1}_${item.sizes.length - 1}`]; if (prev) prev.focus(); }
                         }}
-                        style={{ ...ic, width: 48, height: 36, textAlign: "center", fontSize: 14, fontWeight: 600, padding: "4px" }}
+                        style={{ ...ic, width: 48, height: 36, textAlign: "center", fontSize: 14, fontWeight: 600, padding: "4px", opacity: costingLocked ? 0.5 : 1 }}
                       />
                   </div>
                 );
@@ -913,7 +927,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                 <span style={{ fontSize: 20, fontWeight: 800, fontFamily: mono }}>{item.totalQty}</span>
                 <div style={{ fontSize: 9, color: T.muted }}>units</div>
               </div>
-              <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}>Dist</button>
+              {!costingLocked && <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}>Dist</button>}
             </div>
             {distRow === idx && (
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
