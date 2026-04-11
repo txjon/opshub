@@ -39,22 +39,39 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const invoiceNum = (job.type_meta as any)?.qb_invoice_number || jobNumber;
     const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-    const itemRows = (items || []).filter((it: any) => it.pipeline_stage === "shipped" || it.ship_tracking).map((item: any, i: number) => {
+    const route = job.shipping_route || "ship_through";
+    const isDropShip = route === "drop_ship";
+
+    const itemRows = (items || []).filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking).map((item: any, i: number) => {
       const lines = item.buy_sheet_lines || [];
-      const sizeQtys = lines.filter((l: any) => l.qty_ordered > 0).map((l: any) => `${l.size}: ${l.qty_ordered}`).join(", ");
-      const totalQty = lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
+      // Drop ship: use ship_qtys (what decorator shipped). Ship-through/stage: use received_qtys (what HPD confirmed).
+      const qtySource = isDropShip ? (item.ship_qtys || {}) : (item.received_qtys || {});
+      const orderedQtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
+      // Use route-appropriate qtys, fall back to ordered
+      const finalQtys: Record<string, number> = {};
+      for (const l of lines) {
+        finalQtys[l.size] = qtySource[l.size] ?? orderedQtys[l.size] ?? 0;
+      }
+      const sizeQtys = Object.entries(finalQtys).filter(([, q]) => q > 0).map(([sz, q]) => `${sz}: ${q}`).join(", ");
+      const totalQty = Object.values(finalQtys).reduce((a, v) => a + v, 0);
+      // Drop ship: decorator tracking. Ship-through/stage: HPD outbound tracking.
+      const tracking = isDropShip ? (item.ship_tracking || "—") : (job.fulfillment_tracking || "—");
       return `<tr style="border-bottom:1px solid #e0e0e4">
         <td style="padding:10px 8px;font-weight:600">${String.fromCharCode(65 + i)}</td>
         <td style="padding:10px 8px;font-weight:600">${item.name || "Item"}</td>
         <td style="padding:10px 8px;color:#6b6b78;font-size:11px">${item.blank_vendor || ""}${item.color ? " · " + item.color : ""}</td>
         <td style="padding:10px 8px;font-family:monospace;font-size:11px">${sizeQtys}</td>
         <td style="padding:10px 8px;font-weight:700;text-align:right">${totalQty}</td>
-        <td style="padding:10px 8px;font-family:monospace;font-size:11px">${item.ship_tracking || "—"}</td>
+        <td style="padding:10px 8px;font-family:monospace;font-size:11px">${tracking}</td>
       </tr>`;
     }).join("");
 
-    const totalUnits = (items || []).filter((it: any) => it.pipeline_stage === "shipped" || it.ship_tracking)
-      .reduce((a: number, it: any) => a + (it.buy_sheet_lines || []).reduce((b: number, l: any) => b + (l.qty_ordered || 0), 0), 0);
+    const totalUnits = (items || []).filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking)
+      .reduce((a: number, it: any) => {
+        const lines = it.buy_sheet_lines || [];
+        const qtySource = isDropShip ? (it.ship_qtys || {}) : (it.received_qtys || {});
+        return a + lines.reduce((b: number, l: any) => b + (qtySource[l.size] ?? l.qty_ordered ?? 0), 0);
+      }, 0);
 
     const shipTo = (job.type_meta as any)?.venue_address || (job.type_meta as any)?.po_ship_to?.default || "";
 

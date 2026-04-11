@@ -64,13 +64,13 @@ export default function WarehousePage() {
     if (!dbJobs?.length) { setJobs([]); setLoading(false); return; }
 
     const jobIds = dbJobs.map(j => j.id);
-    const [itemsRes, assignmentsRes] = await Promise.all([
-      supabase.from("items").select("*, buy_sheet_lines(size, qty_ordered)").in("job_id", jobIds).order("sort_order"),
-      supabase.from("decorator_assignments").select("id, item_id").in("job_id", jobIds),
-    ]);
-    const allItems = itemsRes.data;
+    const { data: allItems } = await supabase.from("items").select("*, buy_sheet_lines(size, qty_ordered)").in("job_id", jobIds).order("sort_order");
     const assignmentMap: Record<string, string> = {};
-    for (const a of (assignmentsRes.data || [])) assignmentMap[a.item_id] = a.id;
+    if (allItems?.length) {
+      const itemIds = allItems.map((it: any) => it.id);
+      const { data: assignments } = await supabase.from("decorator_assignments").select("id, item_id").in("item_id", itemIds);
+      for (const a of (assignments || [])) assignmentMap[a.item_id] = a.id;
+    }
 
     const mapped: WarehouseJob[] = [];
     for (const j of dbJobs) {
@@ -185,6 +185,7 @@ export default function WarehousePage() {
       pipeline_stage: "in_production",
       received_at_hpd: false,
       received_at_hpd_at: null,
+      received_qtys: null,
     }).eq("id", item.id);
     if (item.decorator_assignment_id) {
       await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
@@ -192,7 +193,7 @@ export default function WarehousePage() {
     logJobActivity(item.job_id, `${item.name} returned to production from receiving`);
     setJobs(prev => {
       const updated = prev.map(j => ({
-        ...j, items: j.items.map(it => it.id === item.id ? { ...it, pipeline_stage: "in_production", received_at_hpd: false, received_at_hpd_at: null } : it),
+        ...j, items: j.items.map(it => it.id === item.id ? { ...it, pipeline_stage: "in_production", received_at_hpd: false, received_at_hpd_at: null, received_qtys: null } : it),
       }));
       // Remove job if no items left in warehouse pipeline
       return updated.filter(j => j.items.some(it => it.pipeline_stage === "shipped" || it.received_at_hpd));

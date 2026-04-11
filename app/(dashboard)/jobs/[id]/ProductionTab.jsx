@@ -11,7 +11,7 @@ const getPct = (s) => {
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
-export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
+export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
   const supabase = createClient();
   const [localFields, setLocalFields] = useState({});
   const saveTimers = useRef({});
@@ -64,14 +64,15 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
     await supabase.from("items").update({
       ship_tracking: f.ship_tracking || null,
       ship_notes: f.ship_notes || null,
-      ship_qtys: f.ship_qtys || null,
+      ship_qtys: f.ship_qtys && Object.keys(f.ship_qtys).length > 0 ? f.ship_qtys : null,
       pipeline_stage: "shipped",
       received_at_hpd: false,
       received_at_hpd_at: null,
+      received_qtys: null,
     }).eq("id", itemId);
     const item = items.find(it => it.id === itemId);
     if (item) {
-      logJobActivity(item.job_id, `${item.name} shipped from decorator${tracking ? " — tracking: " + tracking : ""}`);
+      logJobActivity(item.job_id, `${item.name} shipped from decorator${f.ship_tracking ? " — tracking: " + f.ship_tracking : ""}`);
       notifyTeam(`${item.name} shipped from decorator — incoming to warehouse`, "production", item.job_id, "job");
       if (item.decorator_assignment_id) {
         await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
@@ -79,10 +80,9 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase }) {
       onUpdateItem(itemId, { pipeline_stage: "shipped", decorator_assignment_id: item.decorator_assignment_id });
 
       // Auto-notify when ALL items shipped on drop-ship orders
-      if (project.shipping_route === "drop_ship") {
+      if (project?.shipping_route === "drop_ship") {
         const allShipped = items.every(it => it.id === itemId ? true : it.pipeline_stage === "shipped");
         if (allShipped) {
-          // Send shipped email via server-side API (fire and forget)
           fetch("/api/email/notify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },

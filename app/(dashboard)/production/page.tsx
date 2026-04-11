@@ -173,11 +173,12 @@ export default function ProductionPage() {
       clearTimeout(saveTimers.current[key]);
       delete saveTimers.current[key];
     }
+    const shipQtysToSave = item.ship_qtys && Object.keys(item.ship_qtys).length > 0 ? item.ship_qtys : null;
     await supabase.from("items").update({
       pipeline_stage: "shipped", pipeline_timestamps: timestamps,
       ship_notes: item.ship_notes || null, ship_tracking: item.ship_tracking || null,
-      ship_qtys: item.ship_qtys || null,
-      received_at_hpd: false, received_at_hpd_at: null,
+      ship_qtys: shipQtysToSave,
+      received_at_hpd: false, received_at_hpd_at: null, received_qtys: null,
     }).eq("id", item.id);
     if (item.decorator_assignment_id) {
       await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
@@ -197,7 +198,7 @@ export default function ProductionPage() {
     delete timestamps.shipped;
     await supabase.from("items").update({
       pipeline_stage: "in_production", pipeline_timestamps: timestamps,
-      received_at_hpd: false, received_at_hpd_at: null,
+      received_at_hpd: false, received_at_hpd_at: null, received_qtys: null,
     }).eq("id", item.id);
     if (item.decorator_assignment_id) {
       await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
