@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { buildPrintersMap, calcCostProduct } from "@/lib/pricing";
+// Pricing source of truth: items.sell_per_unit
 
 const admin = () =>
   createClient(
@@ -165,20 +165,6 @@ export async function GET(
     const quoteItems: any[] = [];
 
     if (costingData?.costProds) {
-      // Load decorator pricing for accurate per-item calculation
-      const vendorKeys = [...new Set(costingData.costProds.map((cp: any) => cp.printVendor).filter(Boolean))];
-      let printers: Record<string, any> = {};
-      if (vendorKeys.length > 0) {
-        const { data: decs } = await sb
-          .from("decorators")
-          .select("name, short_code, pricing_data")
-          .or(vendorKeys.map((k: string) => `short_code.eq.${k},name.eq.${k}`).join(","));
-        printers = buildPrintersMap(decs || []);
-      }
-
-      const costMargin = costingData.margin || "30%";
-      const inclShip = costingData.inclShip ?? false;
-      const inclCC = costingData.inclCC ?? false;
       const costProds = costingData.costProds;
 
       for (const cp of costProds) {
@@ -191,10 +177,9 @@ export async function GET(
           );
         if (totalQty <= 0) continue;
 
-        // Use pricing engine for accurate sell price
-        const r = calcCostProduct(cp, costMargin, inclShip, inclCC, costProds, printers);
-        const sellPerUnit = r ? r.sellPerUnit : (item?.sell_per_unit || 0);
-        const grossRev = r ? r.grossRev : sellPerUnit * totalQty;
+        // items.sell_per_unit is the source of truth
+        const sellPerUnit = parseFloat(item?.sell_per_unit) || 0;
+        const grossRev = Math.round(sellPerUnit * totalQty * 100) / 100;
 
         quoteItems.push({
           name: cp.name || item?.name || "Item",
@@ -203,8 +188,8 @@ export async function GET(
           sizes: cp.sizes || item?.sizes || [],
           qtys: cp.qtys || item?.qtys || {},
           qty: totalQty,
-          sellPerUnit: Math.round(sellPerUnit * 100) / 100,
-          total: Math.round(grossRev * 100) / 100,
+          sellPerUnit,
+          total: grossRev,
         });
       }
     }

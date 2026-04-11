@@ -7,19 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 
-// ── Pricing — uses shared lib/pricing.ts (single source of truth) ────────────
-import { buildPrintersMap, calcCostProduct as sharedCalc } from "@/lib/pricing";
-
-let PRINTERS: Record<string, any> = {};
-
-async function loadPrinters(supabase: any) {
-  const { data } = await supabase.from("decorators").select("name, short_code, pricing_data, capabilities").order("name");
-  PRINTERS = buildPrintersMap(data || []);
-}
-
-function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[]) {
-  return sharedCalc(p, margin, inclShip, inclCC, allProds, PRINTERS);
-}
+// Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
 
 const fmtD = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -185,9 +173,6 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
   try {
     const { jobId } = params;
 
-    // Load decorator pricing from DB
-    await loadPrinters(supabase);
-
     const { data: job, error: jobError } = await supabase
       .from("jobs")
       .select("*, clients(name)")
@@ -198,14 +183,9 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
 
-    // Get costing data — this is the source of truth for pricing
     const costingData = job.costing_data || {};
     const costProds: any[] = costingData.costProds || [];
-    const costMargin: string = costingData.costMargin || "30%";
-    const inclShip: boolean = costingData.inclShip !== undefined ? costingData.inclShip : true;
-    const inclCC: boolean = costingData.inclCC !== undefined ? costingData.inclCC : true;
     const orderInfo = costingData.orderInfo || {};
-    const costingLocked = job.type_meta?.costing_locked || false;
 
     // Fetch buy_sheet_lines for accurate qtys
     const { data: items } = await supabase
@@ -238,35 +218,8 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
       return ai - bi;
     });
 
-    // When pricing is locked, use the saved sell_per_unit values instead of recalculating
-    // This ensures the quote shows the same prices that were displayed when "Lock In Pricing" was clicked
-    if (costProds.length > 0 && !costingLocked) {
-      prods = costProds
-        .map(p => {
-          // Use saved qtys from costProds — this matches exactly what the quote tab shows
-          const savedQtys = p.qtys || {};
-          const totalQty = p.totalQty || Object.values(savedQtys).reduce((a: number, v: any) => a + v, 0);
-          if (totalQty === 0) return null;
-
-          const r = calcCostProduct(p, costMargin, inclShip, inclCC, costProds);
-          if (!r || r.grossRev === 0) return null;
-
-          const dbItem = (items || []).find((it: any) => it.id === p.id);
-
-          return {
-            name: p.name || dbItem?.name || "Item",
-            style: p.style || dbItem?.blank_vendor || "",
-            color: p.color || dbItem?.blank_sku || "",
-            sizes: sortSizes(Object.keys(savedQtys).filter(sz => (savedQtys[sz] || 0) > 0)),
-            qtys: savedQtys,
-            totalQty,
-            sellPerUnit: r.sellPerUnit,
-            grossRev: r.grossRev,
-          };
-        })
-        .filter(Boolean);
-    } else if (costProds.length > 0 && costingLocked) {
-      // Pricing is locked: use saved sell_per_unit values from items table
+    // items.sell_per_unit is the source of truth — set by CostingTab (auto-calc or override), rounded to cent
+    if (costProds.length > 0) {
       prods = costProds
         .map(p => {
           const savedQtys = p.qtys || {};
@@ -275,7 +228,7 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
 
           const dbItem = (items || []).find((it: any) => it.id === p.id);
           const sellPerUnit = parseFloat(dbItem?.sell_per_unit) || 0;
-          const grossRev = sellPerUnit * totalQty;
+          const grossRev = Math.round(sellPerUnit * totalQty * 100) / 100;
           if (grossRev === 0) return null;
 
           return {
@@ -317,7 +270,6 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     }
 
     // Round each line item's grossRev to 2 decimals before summing — total matches what client sees
-    prods = prods.map(p => ({ ...p, grossRev: Math.round(p.grossRev * 100) / 100, sellPerUnit: Math.round(p.sellPerUnit * 100) / 100 }));
     const quoteTotal = prods.reduce((a, p) => a + p.grossRev, 0);
 
     const html = renderQuoteHTML({
