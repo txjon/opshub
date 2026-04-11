@@ -161,9 +161,11 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 
   // Note: buyItems sync is handled by CostingTabWrapper (updates both costProds + savedCostProds)
 
-  const results=costProds.map(p=>calcCostProduct(p,costMargin,inclShip,inclCC,costProds)).filter(Boolean);
+  const rawResults=costProds.map(p=>calcCostProduct(p,costMargin,inclShip,inclCC,costProds)).filter(Boolean);
+  // Round sellPerUnit to cent (same as what gets saved to items.sell_per_unit) so display matches PDFs
+  const results=rawResults.map(r=>({...r, sellPerUnit: Math.round(r.sellPerUnit*100)/100, grossRev: Math.round(Math.round(r.sellPerUnit*100)/100 * r.qty * 100)/100 }));
   const totGross=results.reduce((a,r)=>a+r.grossRev,0);
-  const totProfit=results.reduce((a,r)=>a+r.netProfit,0);
+  const totProfit=totGross - results.reduce((a,r)=>a+r.totalCost,0);
   const netMarg=totGross>0?totProfit/totGross:0;
   const mc=netMarg>=0.30?T.green:netMarg>=0.20?T.amber:T.red;
   const today=new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
@@ -665,7 +667,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
       {/* Client Quote */}
       {costTab==="quote"&&(()=>{
         const quoteProds=costProds.filter(p=>(p.totalQty||0)>0);
-        const quoteTotal=quoteProds.reduce((a,p)=>{const r2=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);return a+(r2?.grossRev||0);},0);
+        const quoteTotal=quoteProds.reduce((a,p)=>{const r2=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);if(!r2) return a; const spu=Math.round(r2.sellPerUnit*100)/100; return a+Math.round(spu*r2.qty*100)/100;},0);
         const approved=project.prodStatus==="Awaiting Deposit"||project.prodStatus==="Ready for Production"||project.prodStatus==="Bulk Production";
         return(
           <div style={{maxWidth:680,margin:"0 auto"}}>
@@ -749,8 +751,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                   <tbody>
                     {quoteProds.map((p,pi)=>{
                       const r2=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);
-                      const lineTotal=r2?.grossRev||0;
-                      const unitPrice=r2?.sellPerUnit||0;
+                      const unitPrice=r2?Math.round(r2.sellPerUnit*100)/100:0;
+                      const lineTotal=r2?Math.round(unitPrice*r2.qty*100)/100:0;
                       return(
                         <tr key={pi} style={{borderBottom:"0.5px solid #eeeeee"}}>
                           <td style={{padding:"12px 12px 12px 0",verticalAlign:"top"}}>
@@ -1112,8 +1114,10 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       try {
         const { createClient } = await import("@/lib/supabase/client");
         const supabase = createClient();
-        const results = costProds.map(p => calcCostProduct(p, costMargin, inclShip, inclCC, costProds)).filter(Boolean);
-        const grossRev = Math.round(results.reduce((a,r) => a + Math.round(r.grossRev * 100) / 100, 0) * 100) / 100;
+        const rawResults = costProds.map(p => calcCostProduct(p, costMargin, inclShip, inclCC, costProds)).filter(Boolean);
+        // Round sellPerUnit to cent first, then derive grossRev — matches what gets saved to items.sell_per_unit
+        const results = rawResults.map(r => ({ ...r, sellPerUnit: Math.round(r.sellPerUnit * 100) / 100, grossRev: Math.round(Math.round(r.sellPerUnit * 100) / 100 * r.qty * 100) / 100 }));
+        const grossRev = results.reduce((a, r) => a + r.grossRev, 0);
         const totalCost = Math.round(results.reduce((a,r) => a + r.totalCost, 0) * 100) / 100;
         const netProfit = Math.round((grossRev - totalCost) * 100) / 100;
         const totalQty = results.reduce((a,r) => a + r.qty, 0);
