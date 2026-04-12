@@ -387,8 +387,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
         );
       })()}
 
-      {/* Specialty + Custom Costs — side by side, custom costs spans full width when expanded */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,alignItems:"start"}}>
+      {/* Specialty + Custom Costs — stacked, full width */}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {p.printVendor && pr.specialty && Object.keys(pr.specialty).length>0 ? (()=>{
         const activeSpecs = Object.entries(pr.specialty).filter(([key])=>{
           const isFleece = key.toLowerCase().includes("fleece");
@@ -438,14 +438,14 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
           )}
         </div>
         );
-      })() : <div/>}
+      })() : null}
 
-      {/* Custom Costs — spans full width when expanded to prevent overflow */}
+      {/* Custom Costs */}
       {(()=>{
         const activeCosts = (p.customCosts||[]).filter(c=>c.desc);
         const customSummary = activeCosts.length>0 ? activeCosts.map(c=>c.desc).join(", ") : "None";
         return (
-        <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden",...(p._customOpen?{gridColumn:"1 / -1"}:{})}}>
+        <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden"}}>
           <button onClick={()=>updateProd(i,{...p,_customOpen:!p._customOpen})}
             style={{width:"100%",padding:"6px 10px",background:T.surface,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",fontFamily:font}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
