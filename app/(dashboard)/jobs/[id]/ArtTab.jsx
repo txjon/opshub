@@ -122,6 +122,9 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     return instr;
   })();
 
+  // Ensure logo is loaded for PDF generation
+  useEffect(() => { preloadLogo(); }, []);
+
   const [methods, setMethods] = useState([defaultMethod]);
   const [selInstructions, setSelInstructions] = useState(defaultInstructions);
   const [notes, setNotes] = useState("");
