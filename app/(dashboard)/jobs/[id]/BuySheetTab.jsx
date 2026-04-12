@@ -755,7 +755,7 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
     onAdd({
       id: Date.now() + Math.random(),
       name: itemFullName,
-      blank_vendor: selFav.supplier === "ss" ? `S&S ${selFav.style_name}` : selFav.supplier === "ascolour" ? `AS Colour ${selFav.style_code || selFav.style_name}` : selFav.supplier === "laapparel" ? `LA Apparel ${selFav.style_code || selFav.style_name}` : selFav.style_name,
+      blank_vendor: selFav.style_name || selFav.style_code || "",
       blank_sku: selColor,
       style: selFav.style_name,
       color: selColor,

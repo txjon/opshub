@@ -432,6 +432,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     }
 
     setPsdProcessing(null);
+    // Clear local state so fresh items from DB take over
+    setLocalItems(null);
     if (onItemsChanged) onItemsChanged();
   }
 

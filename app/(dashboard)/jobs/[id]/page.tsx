@@ -501,6 +501,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             }
           }
           setTab(t);
+          window.history.replaceState(null, "", `?tab=${t}`);
         }} />
       )}
 
