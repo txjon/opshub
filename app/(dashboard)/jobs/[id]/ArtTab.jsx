@@ -286,9 +286,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   const ic = { width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, boxSizing: "border-box" };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
-      onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, width: 900, maxWidth: "95vw", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+    <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 100, display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: font }}>Product Proof — {item.name}</span>
@@ -376,7 +374,6 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
           </div>
         </div>
       </div>
-    </div>
   );
 }
 
