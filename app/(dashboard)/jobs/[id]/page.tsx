@@ -666,16 +666,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               {/* Shipping details */}
               <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Ship date</label><input style={{...ic,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date</label><input style={{...ic,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
                     const ship = e.target.value;
                     const updates: any = { target_ship_date: ship };
                     if (ship) updates.priority = calculatePriority(ship);
                     setJob(j => j ? {...j, ...updates} : j);
                     saveJob(updates);
-                  }}/></div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>In-hands date</label><input style={{...ic,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.type_meta?.in_hands_date||job.type_meta?.show_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
-                    upd("type_meta",{...job.type_meta,in_hands_date:e.target.value});
                   }}/></div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
                     <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>

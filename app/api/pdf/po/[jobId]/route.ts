@@ -465,7 +465,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const poData = {
       job_number: ((job.type_meta as any)?.qb_invoice_number || job.job_number) + itemLetters,
       client_name: (job.clients as any)?.name || "—",
-      target_ship_date: job.target_ship_date,
+      target_ship_date: (job.type_meta as any)?.po_ship_dates?.[vendorName] || job.target_ship_date,
       vendor_name: vendorName,
       vendor_short_code: (decoratorRecord as any)?.short_code || firstDecorator?.short_code || vendorName,
       vendor_email: (decoratorRecord as any)?.email || firstDecorator?.email || "",

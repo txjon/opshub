@@ -113,7 +113,8 @@ export default function ProductionPage() {
           jobId: job.id, jobNumber: job.job_number,
           invoiceNumber: (job as any).type_meta?.qb_invoice_number || null,
           jobTitle: job.title,
-          clientName: job.clients?.name || "", shipDate: job.target_ship_date,
+          clientName: job.clients?.name || "",
+          shipDate: (() => { const vDates = Object.values((job as any).type_meta?.po_ship_dates || {}).filter(Boolean) as string[]; return vDates.length > 0 ? vDates.sort()[0] : job.target_ship_date; })(),
           phase: job.phase, completedAt: (job as any).phase_timestamps?.complete || null,
           decoratorGroups: [], totalItems: 0, totalUnits: 0,
         };

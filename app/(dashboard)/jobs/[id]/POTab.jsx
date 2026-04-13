@@ -135,6 +135,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const supabase = createClient();
   const [decorators,setDecorators] = useState([]);
   const [shipMethods,setShipMethods] = useState(project?.type_meta?.po_ship_methods || {});
+  const [poShipDates,setPoShipDates] = useState(project?.type_meta?.po_ship_dates || {});
   const [poShipTo,setPoShipTo] = useState(project?.type_meta?.po_ship_to || {});
   const [selectedVendor,setSelectedVendor] = useState("");
 
@@ -231,8 +232,15 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   return (
     <div style={{fontFamily:font,color:T.text,display:"flex",flexDirection:"column",gap:12}}>
 
+      {/* In-hands date notice */}
+      {project.target_ship_date && (
+        <div style={{background:T.amberDim,border:`1px solid ${T.amber}44`,borderRadius:8,padding:"8px 14px",display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:11,fontWeight:600,color:"#a07008"}}>Client requested in-hands: {new Date(project.target_ship_date+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span>
+        </div>
+      )}
+
       <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-        {/* Single row: Vendor | Ship Method | Ship To | Actions */}
+        {/* Single row: Vendor | Ship Method | Ship Date | Ship To | Actions */}
         <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
           {/* Vendor */}
           <div style={{display:"flex",flexDirection:"column",gap:4,alignSelf:"center"}}>
@@ -246,6 +254,21 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 </button>
               ))}
             </div>
+          </div>
+          {/* Ship By Date — per vendor */}
+          <div style={{display:"flex",flexDirection:"column",gap:4,alignSelf:"center"}}>
+            <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
+            <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
+              onChange={async e=>{
+                const val=e.target.value;
+                const updated={...poShipDates,[active]:val};
+                setPoShipDates(updated);
+                const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
+                const meta = { ...(fresh?.type_meta || {}), po_ship_dates: updated };
+                await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
+                if(onUpdateJob) onUpdateJob({type_meta:meta});
+              }}
+              style={{background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}} />
           </div>
           {/* Ship Method */}
           <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180,alignSelf:"center"}}>

@@ -71,7 +71,7 @@ export default function JobsPage() {
     return pcts[phase] || 0;
   };
 
-  const getInHandsDate = (job: Job) => job.type_meta?.in_hands_date || job.type_meta?.show_date || null;
+  const getInHandsDate = (job: Job) => job.target_ship_date || job.type_meta?.in_hands_date || job.type_meta?.show_date || null;
 
   const getFlags = (job: Job) => {
     const flags: { label: string; color: string }[] = [];

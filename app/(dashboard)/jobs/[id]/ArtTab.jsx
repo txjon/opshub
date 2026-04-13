@@ -216,10 +216,13 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   useEffect(() => {
     if (!mockupDataUrl) return;
     try {
-      const printInfo = (psdPrintInfo || []).map(p => ({
-        ...p,
-        callout: callouts[p.placement] || "",
-      }));
+      const activeSizes = item.qtys ? Object.keys(item.qtys).filter(sz => item.qtys[sz] > 0) : null;
+      const hasActiveSizes = activeSizes && activeSizes.length > 0;
+      const printInfo = (psdPrintInfo || []).map(p => {
+        const isTag = (p.placement || "").toLowerCase() === "tag" || (p.placement || "").toLowerCase() === "tags";
+        const colors = (isTag && hasActiveSizes) ? (p.colors || []).filter(c => activeSizes.includes(c.name)) : (p.colors || []);
+        return { ...p, colors, callout: callouts[p.placement] || "" };
+      });
 
       const doc = generateProofPdfClient({
         mockupDataUrl,
@@ -230,8 +233,8 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
         blankStyle: item.blank_sku || "",
         blankColor: item.color || "",
         method: methods.join(", "),
-        instructions: [...selInstructions, ...(notes.trim() ? [notes.trim()] : [])].join(" · "),
-        notes: "",
+        instructions: selInstructions,
+        notes: notes.trim(),
       });
 
       const pdfBlob = doc.output("blob");

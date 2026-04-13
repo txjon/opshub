@@ -282,19 +282,23 @@ export default async function DashboardPage() {
         action: `Fulfillment — ${label}`, href: `/warehouse`, column: "production" });
     }
 
-    // 14. Ships soon (0-3 days) — proactive deadline warning (skip if already receiving/shipping/fulfillment/complete)
-    if (j.target_ship_date && !["receiving","shipping","fulfillment","complete","cancelled"].includes(j.phase)) {
-      const daysToShip = Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000);
-      if (daysToShip >= 0 && daysToShip <= 3) {
-        alerts.push({ ...base, priority: 2, type: "shipping_soon", color: T.amber,
-          action: `Ships in ${daysToShip}d — verify status`, href: `/jobs/${j.id}`, column: "production" });
+    // 14. Ships soon — use earliest vendor ship date, fall back to in-hands date
+    {
+      const poShipDates = Object.values((j as any).type_meta?.po_ship_dates || {}).filter(Boolean) as string[];
+      const earliestShipDate = poShipDates.length > 0 ? poShipDates.sort()[0] : j.target_ship_date;
+      if (earliestShipDate && !["receiving","shipping","fulfillment","complete","cancelled"].includes(j.phase)) {
+        const daysToShip = Math.ceil((new Date(earliestShipDate).getTime() - now.getTime()) / 86400000);
+        if (daysToShip >= 0 && daysToShip <= 3) {
+          alerts.push({ ...base, priority: 2, type: "shipping_soon", color: T.amber,
+            action: `Ships in ${daysToShip}d — verify status`, href: `/jobs/${j.id}`, column: "production" });
+        }
       }
     }
 
     // 15. No ship date set — projects past intake with no deadline
     if (!j.target_ship_date && j.phase !== "intake" && items.length > 0) {
       alerts.push({ ...base, priority: 2, type: "no_ship_date", color: T.muted,
-        action: "No ship date set", href: `/jobs/${j.id}`, column: "production" });
+        action: "No in-hands date set", href: `/jobs/${j.id}`, column: "production" });
     }
   }
 
