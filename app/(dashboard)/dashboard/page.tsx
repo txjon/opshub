@@ -9,7 +9,7 @@ export default async function DashboardPage() {
   // ── Data Loading ──
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("*, clients(name), quote_approved, quote_approved_at, type_meta, costing_data, costing_summary, payment_terms, shipping_route, fulfillment_status, quote_rejection_notes, items(id, name, pipeline_stage, blanks_order_number, ship_tracking, artwork_status, garment_type, received_at_hpd, pipeline_timestamps, buy_sheet_lines(qty_ordered))")
+    .select("*, clients(name), quote_approved, quote_approved_at, type_meta, costing_data, costing_summary, payment_terms, shipping_route, fulfillment_status, quote_rejection_notes, items(id, name, pipeline_stage, blanks_order_number, ship_tracking, artwork_status, garment_type, received_at_hpd, pipeline_timestamps, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
     .not("phase", "in", '("complete","cancelled","on_hold")')
     .order("target_ship_date", { ascending: true, nullsFirst: false });
 
@@ -357,9 +357,8 @@ export default async function DashboardPage() {
   const decoratorCounts: Record<string, number> = {};
   for (const it of allItems) {
     if (it.pipeline_stage === "in_production" || it.pipeline_stage === "shipped") {
-      const costProds = activeJobs.find((j: any) => j.id === it.job_id)?.costing_data?.costProds || [];
-      const cp = costProds.find((c: any) => c.id === it.id);
-      const vendor = cp?.printVendor || "Unassigned";
+      const da = (it as any).decorator_assignments?.[0]?.decorators;
+      const vendor = da?.short_code || da?.name || "Unassigned";
       decoratorCounts[vendor] = (decoratorCounts[vendor] || 0) + 1;
     }
   }
