@@ -218,9 +218,19 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     try {
       const activeSizes = item.qtys ? Object.keys(item.qtys).filter(sz => item.qtys[sz] > 0) : null;
       const hasActiveSizes = activeSizes && activeSizes.length > 0;
+      // Normalize size names for matching: XXL→2XL, XXXL→3XL, 2X→2XL, etc.
+      const normalizeSize = (s) => {
+        const u = (s || "").toUpperCase().trim();
+        if (u === "XXL" || u === "2X") return "2XL";
+        if (u === "XXXL" || u === "3X") return "3XL";
+        if (u === "XXXXL" || u === "4X") return "4XL";
+        if (u === "XXXXXL" || u === "5X") return "5XL";
+        return u;
+      };
+      const activeSizesNorm = hasActiveSizes ? activeSizes.map(normalizeSize) : null;
       const printInfo = (psdPrintInfo || []).map(p => {
         const isTag = (p.placement || "").toLowerCase() === "tag" || (p.placement || "").toLowerCase() === "tags";
-        const colors = (isTag && hasActiveSizes) ? (p.colors || []).filter(c => activeSizes.includes(c.name)) : (p.colors || []);
+        const colors = (isTag && activeSizesNorm) ? (p.colors || []).filter(c => activeSizesNorm.includes(normalizeSize(c.name))) : (p.colors || []);
         return { ...p, colors, callout: callouts[p.placement] || "" };
       });
 
