@@ -14,6 +14,7 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
     { href: "/production", label: "Production" },
   ],
   distro: [
+    { href: "/distro", label: "Dashboard" },
     { href: "/receiving", label: "Receiving" },
     { href: "/shipping", label: "Shipping" },
     { href: "/fulfillment", label: "Fulfillment" },
@@ -45,12 +46,12 @@ const DEPT_ICONS: Record<Department, { icon: string; label: string }> = {
 
 // Cross-links between departments
 const DEPT_CROSSLINKS: Partial<Record<Department, { href: string; label: string; dept: Department }>> = {
-  labs: { href: "/receiving", label: "Distro →", dept: "distro" },
+  labs: { href: "/distro", label: "Distro →", dept: "distro" },
   distro: { href: "/dashboard", label: "← Labs", dept: "labs" },
 };
 
 function detectDept(pathname: string): Department {
-  if (["/receiving", "/shipping", "/fulfillment", "/ecomm"].some(p => pathname.startsWith(p))) return "distro";
+  if (["/distro", "/receiving", "/shipping", "/fulfillment", "/ecomm"].some(p => pathname.startsWith(p))) return "distro";
   if (["/clients", "/decorators"].some(p => pathname.startsWith(p))) return "contacts";
   if (["/settings", "/reports"].some(p => pathname.startsWith(p))) return "settings";
   return "labs";
