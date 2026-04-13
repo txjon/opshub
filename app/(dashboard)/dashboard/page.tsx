@@ -59,9 +59,34 @@ export default async function DashboardPage() {
     }
   }
 
+  // ── New clients without jobs (from onboard form) ──
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+  const { data: newClients } = await supabase
+    .from("clients")
+    .select("id, name, created_at, notes")
+    .gte("created_at", sevenDaysAgo)
+    .order("created_at", { ascending: false });
+
+  // Filter to clients with no jobs
+  const clientIdsWithJobs = new Set((jobs || []).map(j => j.client_id).filter(Boolean));
+  const { data: allJobClients } = await supabase.from("jobs").select("client_id").not("client_id", "is", null);
+  for (const jc of (allJobClients || [])) { if (jc.client_id) clientIdsWithJobs.add(jc.client_id); }
+  const newClientsNoJobs = (newClients || []).filter(c => !clientIdsWithJobs.has(c.id));
+
   // ── Generate Alerts ──
   const activeJobs = jobs || [];
   const alerts: any[] = [];
+
+  // New client onboarded — needs project created
+  for (const c of newClientsNoJobs) {
+    alerts.push({
+      priority: 1, type: "new_client", color: T.blue,
+      action: `New client — create project`,
+      jobId: "", jobTitle: "", clientName: c.name, invoiceNumber: null,
+      jobNumber: "", shipDate: null, contacts: [],
+      href: `/clients/${c.id}`, column: "sales",
+    });
+  }
 
   for (const j of activeJobs) {
     const items = j.items || [];
