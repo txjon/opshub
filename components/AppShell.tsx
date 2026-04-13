@@ -114,8 +114,8 @@ export function AppShell({
                   width: 40, height: 40, borderRadius: 8,
                   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                   gap: 2, textDecoration: "none", transition: "all 0.15s",
-                  background: isActive ? "#333" : "transparent",
-                  color: isActive ? "#fff" : "#666",
+                  background: isActive ? "#73b6c9" : "transparent",
+                  color: isActive ? "#000" : "#fff",
                 }}
               >
                 <Icon size={18} />
