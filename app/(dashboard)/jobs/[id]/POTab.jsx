@@ -340,9 +340,20 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`);
             // Track which vendors have received POs
             const updatedVendors = [...new Set([...(project.type_meta?.po_sent_vendors||[]), active])];
-            const meta = {...(project.type_meta||{}), po_sent_vendors: updatedVendors, po_ship_methods: shipMethods};
+            const meta = {...(project.type_meta||{}), po_sent_vendors: updatedVendors, po_ship_methods: shipMethods, po_ship_dates: poShipDates};
             await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
             if(onUpdateJob) onUpdateJob({type_meta:meta});
+            // Advance items for this vendor to in_production
+            for (const it of vItems) {
+              if (it.pipeline_stage === "blanks_ordered" || !it.pipeline_stage) {
+                await supabase.from("items").update({ pipeline_stage: "in_production", pipeline_timestamps: { ...(it.pipeline_timestamps || {}), in_production: new Date().toISOString() } }).eq("id", it.id);
+              }
+              const costProd = costingData?.costProds?.find(cp => cp.id === it.id);
+              if (costProd?.printVendor) {
+                const { data: da } = await supabase.from("decorator_assignments").select("id").eq("item_id", it.id).limit(1).single();
+                if (da) await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", da.id);
+              }
+            }
             if(onRecalcPhase) setTimeout(onRecalcPhase, 300);
           }}
         />
