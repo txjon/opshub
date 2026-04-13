@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import { MessageSquare, X } from "lucide-react";
 
 type Message = {
   id: string;
@@ -80,7 +81,7 @@ export function PartyLine({ currentUserId }: { currentUserId: string }) {
           transition: "all 0.15s",
         }}
       >
-        {open ? "✕" : "💬"}
+        {open ? <X size={18} /> : <MessageSquare size={18} />}
       </button>
 
       {/* Chat drawer */}

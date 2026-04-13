@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
+import { Search } from "lucide-react";
 
 type Result = {
   type: "project" | "client" | "item" | "decorator";
@@ -190,7 +191,7 @@ export function GlobalSearch() {
           color: T.faint, fontSize: 12, fontFamily: font,
           cursor: "pointer", textAlign: "left",
         }}>
-        <span style={{ fontSize: 13 }}>🔍</span>
+        <Search size={14} />
         <span style={{ flex: 1 }}>Search...</span>
         <span style={{ fontSize: 9, fontFamily: mono, color: T.faint, background: T.card, padding: "1px 4px", borderRadius: 3 }}>⌘K</span>
       </button>
