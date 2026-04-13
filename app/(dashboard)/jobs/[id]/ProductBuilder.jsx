@@ -34,20 +34,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const updateLocal = (newItems) => setLocalItems(newItems);
 
   useEffect(() => {
-    const incoming = items || [];
-    if (localItems === null) {
-      setSavedSnapshot(JSON.stringify(incoming));
-    } else {
-      // Merge: keep local edits for existing items, add new items from DB
-      const localMap = Object.fromEntries(localItems.map(it => [it.id, it]));
-      const merged = incoming.map(it => localMap[it.id] ? { ...it, ...localMap[it.id], sizes: localMap[it.id].sizes || it.sizes, qtys: localMap[it.id].qtys || it.qtys } : it);
-      // Add any local-only items (temp IDs not yet in DB)
-      const dbIds = new Set(incoming.map(it => it.id));
-      const localOnly = localItems.filter(it => !dbIds.has(it.id));
-      const final = [...merged, ...localOnly];
-      setLocalItems(final);
-      setSavedSnapshot(JSON.stringify(final));
-    }
+    if (localItems === null) setSavedSnapshot(JSON.stringify(items || []));
   }, [items]);
 
   // Auto-save: 1500ms debounce
@@ -445,6 +432,10 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     }
 
     setPsdProcessing(null);
+    // New items were created in DB — clear localItems so fresh items prop takes over
+    // This is safe here because PSD drop is the start of the workflow (no unsaved edits to lose)
+    setLocalItems(null);
+    setSavedSnapshot("");
     if (onItemsChanged) onItemsChanged();
   }
 
@@ -855,7 +846,6 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
     setUploading(false); setUploadProgress(null);
     loadFiles();
     logJobActivity(project.id, `${allFiles.length} file${allFiles.length > 1 ? "s" : ""} uploaded for ${item.name}`);
-    if (onItemsChanged) onItemsChanged();
   }
 
   async function deleteFile(file) {
