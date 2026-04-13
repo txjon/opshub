@@ -308,6 +308,25 @@ export default async function DashboardPage() {
   const allItems = activeJobs.flatMap(j => j.items || []);
   const totalUnits = allItems.reduce((a: number, it: any) => a + (it.buy_sheet_lines || []).reduce((b: number, l: any) => b + (l.qty_ordered || 0), 0), 0);
 
+  // Total prints: (active print locations + tag) × qty per item
+  const totalPrints = activeJobs.reduce((total: number, j: any) => {
+    const costProds = (j.costing_data?.costProds || []);
+    for (const cp of costProds) {
+      const qty = cp.totalQty || 0;
+      if (qty === 0) continue;
+      const activeLocs = [1,2,3,4,5,6].filter(loc => {
+        const ld = cp.printLocations?.[loc];
+        return ld?.screens > 0 || ld?.location;
+      }).length;
+      const hasTag = cp.tagPrint ? 1 : 0;
+      // Non-garment with custom costs = 1 decoration
+      const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
+      const decoCount = NON_GARMENT.includes(cp.garment_type) ? (cp.customCosts?.length > 0 ? 1 : 0) : activeLocs + hasTag;
+      total += decoCount * qty;
+    }
+    return total;
+  }, 0);
+
   // Summary counts for production team
   const needsBlanks = activeJobs.filter(j => {
     const qa = (j as any).quote_approved;
@@ -367,6 +386,7 @@ export default async function DashboardPage() {
     active: activeJobs.length,
     items: allItems.length,
     units: totalUnits,
+    prints: totalPrints,
     sales: alerts.filter(a => a.column === "sales").length,
     production: alerts.filter(a => a.column === "production").length,
     shippingThisWeek: activeJobs.filter(j => {

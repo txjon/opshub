@@ -26,7 +26,7 @@ const daysUntil = (iso: string) => Math.ceil((new Date(iso).getTime() - Date.now
 export function CommandCenter({ alerts, stats }: {
   alerts: Alert[];
   stats: {
-    active: number; items: number; units: number; sales: number; production: number; shippingThisWeek: number;
+    active: number; items: number; units: number; prints: number; sales: number; production: number; shippingThisWeek: number;
     needsBlanks: number; needsPO: number; needsProofs: number;
     atDecorator: number; shipped: number; stalled: number; awaitingClient: number;
     decoratorCounts: Record<string, number>;
@@ -204,6 +204,7 @@ export function CommandCenter({ alerts, stats }: {
               { label: "Projects", value: stats.active, color: T.accent },
               { label: "Items", value: stats.items, color: T.blue },
               { label: "Units", value: stats.units.toLocaleString(), color: T.blue },
+              { label: "Prints", value: stats.prints.toLocaleString(), color: T.purple },
             ].map(kpi => (
               <div key={kpi.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 14px", textAlign: "center" }}>
                 <div style={{ fontSize: 18, fontWeight: 800, color: kpi.color, fontFamily: mono }}>{kpi.value}</div>
