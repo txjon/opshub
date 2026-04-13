@@ -34,7 +34,17 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const updateLocal = (newItems) => setLocalItems(newItems);
 
   useEffect(() => {
-    if (localItems === null) setSavedSnapshot(JSON.stringify(items || []));
+    if (localItems === null) {
+      setSavedSnapshot(JSON.stringify(items || []));
+    } else {
+      // Merge new items from DB into localItems (e.g., after PSD upload creates items)
+      const localIds = new Set(localItems.map(it => it.id));
+      const newItems = (items || []).filter(it => !localIds.has(it.id));
+      if (newItems.length > 0) {
+        setLocalItems(prev => [...(prev || []), ...newItems]);
+        setSavedSnapshot(JSON.stringify([...(localItems || []), ...newItems]));
+      }
+    }
   }, [items]);
 
   // Auto-save: 1500ms debounce
@@ -432,8 +442,6 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     }
 
     setPsdProcessing(null);
-    // Clear local state so fresh items from DB take over
-    setLocalItems(null);
     if (onItemsChanged) onItemsChanged();
   }
 

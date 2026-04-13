@@ -10,7 +10,7 @@ export const SKIP_GROUPS = ['Shirt Color','Shadows','Highlights','Mask','Client 
 
 export async function parsePsd(arrayBuffer) {
   const { readPsd } = await import("ag-psd");
-  const psd = readPsd(new Uint8Array(arrayBuffer));
+  const psd = readPsd(new Uint8Array(arrayBuffer), { skipCompositeImageData: true, skipLayerImageData: true, skipThumbnail: true });
   const groups = [...(psd.children || [])].reverse();
   const locations = [];
   let hasTag = false;
