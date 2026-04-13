@@ -34,16 +34,19 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const updateLocal = (newItems) => setLocalItems(newItems);
 
   useEffect(() => {
+    const incoming = items || [];
     if (localItems === null) {
-      setSavedSnapshot(JSON.stringify(items || []));
+      setSavedSnapshot(JSON.stringify(incoming));
     } else {
-      // Merge new items from DB into localItems (e.g., after PSD upload creates items)
-      const localIds = new Set(localItems.map(it => it.id));
-      const newItems = (items || []).filter(it => !localIds.has(it.id));
-      if (newItems.length > 0) {
-        setLocalItems(prev => [...(prev || []), ...newItems]);
-        setSavedSnapshot(JSON.stringify([...(localItems || []), ...newItems]));
-      }
+      // Merge: keep local edits for existing items, add new items from DB
+      const localMap = Object.fromEntries(localItems.map(it => [it.id, it]));
+      const merged = incoming.map(it => localMap[it.id] ? { ...it, ...localMap[it.id], sizes: localMap[it.id].sizes || it.sizes, qtys: localMap[it.id].qtys || it.qtys } : it);
+      // Add any local-only items (temp IDs not yet in DB)
+      const dbIds = new Set(incoming.map(it => it.id));
+      const localOnly = localItems.filter(it => !dbIds.has(it.id));
+      const final = [...merged, ...localOnly];
+      setLocalItems(final);
+      setSavedSnapshot(JSON.stringify(final));
     }
   }, [items]);
 
