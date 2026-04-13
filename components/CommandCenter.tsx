@@ -25,7 +25,7 @@ const daysUntil = (iso: string) => Math.ceil((new Date(iso).getTime() - Date.now
 
 export function CommandCenter({ alerts, stats }: {
   alerts: Alert[];
-  stats: { active: number; sales: number; production: number; shippingThisWeek: number };
+  stats: { active: number; items: number; units: number; sales: number; production: number; shippingThisWeek: number };
 }) {
   const [emailModal, setEmailModal] = useState<{ type: string; jobId: string; contacts: any[]; subject: string; vendor?: string } | null>(null);
   const [invoiceModal, setInvoiceModal] = useState<{ jobId: string; jobTitle: string; clientName: string; currentNumber: string | null } | null>(null);
@@ -187,10 +187,24 @@ export function CommandCenter({ alerts, stats }: {
     <div style={{ fontFamily: font, color: T.text }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>Command Center</div>
-          <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
-            {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} · {stats.active} active projects
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>Command Center</div>
+            <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
+              {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 12 }}>
+            {[
+              { label: "Projects", value: stats.active, color: T.accent },
+              { label: "Items", value: stats.items, color: T.blue },
+              { label: "Units", value: stats.units.toLocaleString(), color: T.blue },
+            ].map(kpi => (
+              <div key={kpi.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 14px", textAlign: "center" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: kpi.color, fontFamily: mono }}>{kpi.value}</div>
+                <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>{kpi.label}</div>
+              </div>
+            ))}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>

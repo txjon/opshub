@@ -305,8 +305,13 @@ export default async function DashboardPage() {
   // Sort: critical first, then high, then medium
   alerts.sort((a, b) => a.priority - b.priority);
 
+  const allItems = activeJobs.flatMap(j => j.items || []);
+  const totalUnits = allItems.reduce((a: number, it: any) => a + (it.buy_sheet_lines || []).reduce((b: number, l: any) => b + (l.qty_ordered || 0), 0), 0);
+
   const stats = {
     active: activeJobs.length,
+    items: allItems.length,
+    units: totalUnits,
     sales: alerts.filter(a => a.column === "sales").length,
     production: alerts.filter(a => a.column === "production").length,
     shippingThisWeek: activeJobs.filter(j => {
