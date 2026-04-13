@@ -212,7 +212,7 @@ export function GlobalSearch() {
           }}>
             {/* Input */}
             <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 16, color: T.muted }}>🔍</span>
+              <Search size={16} style={{ color: T.muted }} />
               <input
                 ref={inputRef}
                 value={query}
