@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { LogOut, FlaskConical, Truck, Users, Cog } from "lucide-react";
 import { GlobalSearch } from "@/components/GlobalSearch";
 
 type Department = "labs" | "distro" | "contacts" | "settings";
@@ -37,11 +37,11 @@ const SIDE_QUESTS = [
   { href: "/ecomm", label: "E-Comm" },
 ];
 
-const DEPT_ICONS: Record<Department, { icon: string; label: string }> = {
-  labs: { icon: "⚡", label: "Labs" },
-  distro: { icon: "📦", label: "Distro" },
-  contacts: { icon: "👥", label: "Contacts" },
-  settings: { icon: "⚙", label: "Settings" },
+const DEPT_ICONS: Record<Department, { Icon: any; label: string }> = {
+  labs: { Icon: FlaskConical, label: "Labs" },
+  distro: { Icon: Truck, label: "Distro" },
+  contacts: { Icon: Users, label: "Contacts" },
+  settings: { Icon: Cog, label: "Settings" },
 };
 
 // Cross-links between departments
@@ -101,7 +101,7 @@ export function AppShell({
           </div>
 
           {/* Department icons */}
-          {(Object.entries(DEPT_ICONS) as [Department, { icon: string; label: string }][]).map(([dept, { icon, label }]) => {
+          {(Object.entries(DEPT_ICONS) as [Department, { Icon: any; label: string }][]).map(([dept, { Icon, label }]) => {
             if (!hasDept(dept)) return null;
             const isActive = activeDept === dept;
             return (
@@ -113,12 +113,12 @@ export function AppShell({
                 style={{
                   width: 40, height: 40, borderRadius: 8,
                   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                  gap: 1, textDecoration: "none", transition: "all 0.15s",
+                  gap: 2, textDecoration: "none", transition: "all 0.15s",
                   background: isActive ? "#333" : "transparent",
-                  color: isActive ? "#fff" : "#888",
+                  color: isActive ? "#fff" : "#666",
                 }}
               >
-                <span style={{ fontSize: 18 }}>{icon}</span>
+                <Icon size={18} />
                 <span style={{ fontSize: 7, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>{label}</span>
               </Link>
             );
