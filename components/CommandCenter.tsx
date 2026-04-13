@@ -25,7 +25,12 @@ const daysUntil = (iso: string) => Math.ceil((new Date(iso).getTime() - Date.now
 
 export function CommandCenter({ alerts, stats }: {
   alerts: Alert[];
-  stats: { active: number; items: number; units: number; sales: number; production: number; shippingThisWeek: number };
+  stats: {
+    active: number; items: number; units: number; sales: number; production: number; shippingThisWeek: number;
+    needsBlanks: number; needsPO: number; needsProofs: number;
+    atDecorator: number; shipped: number; stalled: number; awaitingClient: number;
+    decoratorCounts: Record<string, number>;
+  };
 }) {
   const [emailModal, setEmailModal] = useState<{ type: string; jobId: string; contacts: any[]; subject: string; vendor?: string } | null>(null);
   const [invoiceModal, setInvoiceModal] = useState<{ jobId: string; jobTitle: string; clientName: string; currentNumber: string | null } | null>(null);
@@ -225,6 +230,36 @@ export function CommandCenter({ alerts, stats }: {
           )}
         </div>
       </div>
+
+      {/* Pipeline summary */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {[
+          { label: "Needs Blanks", value: stats.needsBlanks, color: stats.needsBlanks > 0 ? T.amber : T.faint },
+          { label: "Needs PO", value: stats.needsPO, color: stats.needsPO > 0 ? T.amber : T.faint },
+          { label: "Awaiting Proofs", value: stats.needsProofs, color: stats.needsProofs > 0 ? T.amber : T.faint },
+          { label: "At Decorator", value: stats.atDecorator, color: stats.atDecorator > 0 ? T.blue : T.faint },
+          { label: "Shipped", value: stats.shipped, color: stats.shipped > 0 ? T.green : T.faint },
+          { label: "Stalled 7d+", value: stats.stalled, color: stats.stalled > 0 ? T.red : T.faint },
+          { label: "Awaiting Client", value: stats.awaitingClient, color: stats.awaitingClient > 0 ? T.muted : T.faint },
+        ].map(s => (
+          <div key={s.label} style={{ flex: 1, minWidth: 90, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, fontFamily: mono }}>{s.value}</div>
+            <div style={{ fontSize: 8, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 2 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Decorator breakdown */}
+      {Object.keys(stats.decoratorCounts).length > 0 && (
+        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>At Decorators:</span>
+          {Object.entries(stats.decoratorCounts).sort((a, b) => b[1] - a[1]).map(([vendor, count]) => (
+            <span key={vendor} style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 99, background: T.blueDim, color: "#3a8a9e" }}>
+              {vendor} {count}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Two-column layout */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>

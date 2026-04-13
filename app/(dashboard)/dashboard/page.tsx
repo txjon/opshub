@@ -308,6 +308,62 @@ export default async function DashboardPage() {
   const allItems = activeJobs.flatMap(j => j.items || []);
   const totalUnits = allItems.reduce((a: number, it: any) => a + (it.buy_sheet_lines || []).reduce((b: number, l: any) => b + (l.qty_ordered || 0), 0), 0);
 
+  // Summary counts for production team
+  const needsBlanks = activeJobs.filter(j => {
+    const qa = (j as any).quote_approved;
+    const items = j.items || [];
+    const payments = paymentsByJob[j.id] || [];
+    const terms = j.payment_terms || "";
+    const paymentMet = terms === "net_15" || terms === "net_30" || payments.some((p: any) => p.status === "paid" || p.status === "partial");
+    const allProofs = items.length > 0 && items.every((it: any) => proofMap[it.id]?.allApproved || it.artwork_status === "approved");
+    const apparel = items.filter((it: any) => it.garment_type !== "accessory");
+    const blanksOrdered = apparel.filter((it: any) => it.blanks_order_number).length;
+    return qa && paymentMet && allProofs && apparel.length > 0 && blanksOrdered < apparel.length;
+  }).length;
+
+  const needsPO = activeJobs.filter(j => {
+    const typeMeta = (j.type_meta || {}) as any;
+    const poSent = typeMeta.po_sent_vendors || [];
+    const costProds = ((j as any).costing_data?.costProds || []);
+    const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))] as string[];
+    return vendors.length > 0 && vendors.some((v: string) => !poSent.includes(v));
+  }).length;
+
+  const needsProofs = activeJobs.filter(j => {
+    const items = j.items || [];
+    return items.some((it: any) => proofMap[it.id]?.pendingCount > 0);
+  }).length;
+
+  const atDecorator = allItems.filter((it: any) => it.pipeline_stage === "in_production").length;
+  const shipped = allItems.filter((it: any) => it.pipeline_stage === "shipped" && !it.received_at_hpd).length;
+  const stalled = allItems.filter((it: any) => {
+    if (it.pipeline_stage !== "in_production") return false;
+    const ts = it.pipeline_timestamps?.in_production;
+    if (!ts) return false;
+    return Math.floor((Date.now() - new Date(ts).getTime()) / 86400000) >= 7;
+  }).length;
+
+  const awaitingClient = activeJobs.filter(j => {
+    const qa = (j as any).quote_approved;
+    const items = j.items || [];
+    const payments = paymentsByJob[j.id] || [];
+    const terms = j.payment_terms || "";
+    const paymentMet = terms === "net_15" || terms === "net_30" || payments.some((p: any) => p.status === "paid" || p.status === "partial");
+    const allProofs = items.length > 0 && items.every((it: any) => proofMap[it.id]?.allApproved || it.artwork_status === "approved");
+    return !qa || !paymentMet || !allProofs;
+  }).length;
+
+  // Decorator breakdown
+  const decoratorCounts: Record<string, number> = {};
+  for (const it of allItems) {
+    if (it.pipeline_stage === "in_production" || it.pipeline_stage === "shipped") {
+      const costProds = activeJobs.find((j: any) => j.id === it.job_id)?.costing_data?.costProds || [];
+      const cp = costProds.find((c: any) => c.id === it.id);
+      const vendor = cp?.printVendor || "Unassigned";
+      decoratorCounts[vendor] = (decoratorCounts[vendor] || 0) + 1;
+    }
+  }
+
   const stats = {
     active: activeJobs.length,
     items: allItems.length,
@@ -319,6 +375,14 @@ export default async function DashboardPage() {
       const d = Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000);
       return d >= -1 && d <= 7;
     }).length,
+    needsBlanks,
+    needsPO,
+    needsProofs,
+    atDecorator,
+    shipped,
+    stalled,
+    awaitingClient,
+    decoratorCounts,
   };
 
   return <CommandCenter alerts={alerts} stats={stats} />;
