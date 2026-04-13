@@ -130,6 +130,16 @@ export async function POST(req: NextRequest) {
         },
       }).eq("id", jobId);
 
+      // Auto-notify client that invoice was revised
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+        await fetch(`${baseUrl}/api/email/notify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY! },
+          body: JSON.stringify({ jobId, type: "invoice_revised" }),
+        });
+      } catch {} // Non-fatal
+
       return NextResponse.json({
         success: true,
         updated: true,

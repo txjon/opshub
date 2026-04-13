@@ -460,8 +460,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       .from("decorators").select("*").ilike("name", vendorName).single()
       .then((r: any) => r).catch(() => ({ data: null, error: null }));
 
+    const itemLetters = vendorItems.map((it: any) => it.letter).join("");
+
     const poData = {
-      job_number: (job.type_meta as any)?.qb_invoice_number || job.job_number,
+      job_number: ((job.type_meta as any)?.qb_invoice_number || job.job_number) + itemLetters,
       client_name: (job.clients as any)?.name || "—",
       target_ship_date: job.target_ship_date,
       vendor_name: vendorName,
@@ -492,7 +494,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const slug = (job.title || jobId).replace(/\s+/g, "-");
     const vendorSlug = vendorName.replace(/\s+/g, "-");
     const displayNum = (job.type_meta as any)?.qb_invoice_number || job.job_number;
-    const filename = `HPD-PO-${displayNum}-${vendorSlug}-${slug}.pdf`;
+    const filename = `HPD-PO-${displayNum}${itemLetters}-${vendorSlug}-${slug}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
     return new NextResponse(pdfBuffer, {

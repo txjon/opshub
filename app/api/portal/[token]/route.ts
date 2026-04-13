@@ -249,6 +249,12 @@ export async function GET(
         tax: typeMeta.qb_tax_amount || 0,
         total: typeMeta.qb_total_with_tax || quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0),
       },
+      invoiceStale: (() => {
+        if (!typeMeta.qb_invoice_number) return false;
+        const quoteSubtotal = quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0);
+        const qbSubtotal = (typeMeta.qb_total_with_tax || 0) - (typeMeta.qb_tax_amount || 0);
+        return Math.abs(quoteSubtotal - qbSubtotal) > 0.01;
+      })(),
       items: itemsWithProofs,
       payments: (payments || []).map((p: any) => ({
         id: p.id,
@@ -373,7 +379,8 @@ export async function POST(
 
     if (action === "approve-all-proofs") {
       // Approve all pending proofs for this job
-      const itemIds = items.map((it: any) => it.id);
+      const { data: jobItems } = await sb.from("items").select("id").eq("job_id", job.id);
+      const itemIds = (jobItems || []).map((it: any) => it.id);
       if (itemIds.length > 0) {
         await sb.from("item_files")
           .update({ approval: "approved", approved_at: new Date().toISOString() })

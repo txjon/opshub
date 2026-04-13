@@ -22,6 +22,11 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
   const qbPaymentLink = job.type_meta?.qb_payment_link;
   const [previewed, setPreviewed] = useState(false);
 
+  // Detect stale QB invoice — current pricing doesn't match QB total
+  const currentSubtotal = (job.costing_summary?.grossRev || 0);
+  const qbSubtotal = (job.type_meta?.qb_total_with_tax || 0) - (job.type_meta?.qb_tax_amount || 0);
+  const invoiceStale = qbInvoiceNumber && Math.abs(currentSubtotal - qbSubtotal) > 0.01;
+
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" };
   const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
@@ -64,13 +69,19 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
       {/* ── Action Buttons ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <button onClick={pushToQB} disabled={pushingToQB}
-          style={{ flex: 1, minWidth: 100, height: 60, borderRadius: 8, border: qbInvoiceNumber ? `2px solid ${T.green}` : "none", cursor: pushingToQB ? "default" : "pointer",
-            background: qbInvoiceNumber ? T.greenDim : T.green, color: qbInvoiceNumber ? T.green : "#fff", fontSize: 11, fontWeight: 700, fontFamily: font,
+          style={{ flex: 1, minWidth: 100, height: 60, borderRadius: 8,
+            border: invoiceStale ? `2px solid ${T.red}` : qbInvoiceNumber ? `2px solid ${T.green}` : "none",
+            cursor: pushingToQB ? "default" : "pointer",
+            background: invoiceStale ? T.redDim : qbInvoiceNumber ? T.greenDim : T.blue,
+            color: invoiceStale ? T.red : qbInvoiceNumber ? T.green : "#fff",
+            fontSize: 11, fontWeight: 700, fontFamily: font,
             opacity: pushingToQB ? 0.6 : 1, transition: "opacity 0.15s", textAlign: "center",
             display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 8, gap: 2 }}
           onMouseEnter={e => { if (!pushingToQB) e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
-          {pushingToQB ? (qbInvoiceNumber ? "Updating..." : "Creating...") : qbInvoiceNumber ? (
+          {pushingToQB ? (qbInvoiceNumber ? "Updating..." : "Creating...") : invoiceStale ? (
+            <><span>⚠ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500 }}>Pricing changed — click to update</span></>
+          ) : qbInvoiceNumber ? (
             <><span>✓ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500, opacity: 0.8 }}>Click to update</span></>
           ) : "Create QB Invoice"}
         </button>

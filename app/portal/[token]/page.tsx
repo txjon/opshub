@@ -156,7 +156,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
     );
   }
 
-  const { project, client, quote, items, payments, paymentLink, invoiceNumber, activity } = data;
+  const { project, client, quote, items, payments, paymentLink, invoiceNumber, invoiceStale, activity } = data;
 
   const totalPaid = payments.filter(p => p.status === "paid").reduce((s, p) => s + p.amount, 0);
   const balance = (quote.total || 0) - totalPaid;
@@ -308,7 +308,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>Paid</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: C.green }}>{fmtD(totalPaid)}</div>
               </div>
-              {balance > 0 && (
+              {balance > 0 && !invoiceStale && (
                 <div>
                   <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>Balance Due</div>
                   <div style={{ fontSize: 18, fontWeight: 700, color: C.red }}>{fmtD(balance)}</div>
@@ -324,8 +324,12 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               </a>
             </div>
 
-            {/* Pay button — dynamic: "Approve & Pay Now" when proofs pending */}
-            {paymentLink && balance > 0 && (
+            {/* Pay button — hidden when invoice is stale */}
+            {invoiceStale ? (
+              <div style={{ textAlign: "center", padding: "12px 0", fontSize: 12, color: C.muted, background: C.surface, borderRadius: 8 }}>
+                Your invoice is being updated — you'll be notified when it's ready.
+              </div>
+            ) : paymentLink && balance > 0 && (
               hasProofs && !allProofsApproved ? (
                 <button onClick={async () => {
                   await doAction("approve-all-proofs");
