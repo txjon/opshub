@@ -58,11 +58,14 @@ function detectDept(pathname: string): Department {
 }
 
 export function AppShell({
-  email, role, isManager, userId, children,
+  email, role, isOwner, departments, extraAccess, userId, children,
 }: {
-  email: string; role: string; isManager: boolean; userId: string; children: React.ReactNode;
+  email: string; role: string; isOwner: boolean; departments: string[]; extraAccess: string[]; userId: string; children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const isViewer = role === "viewer";
+  const hasDept = (d: string) => departments.includes(d);
+  const hasExtra = (page: string) => extraAccess.includes(page);
   const [activeDept, setActiveDept] = useState<Department>(detectDept(pathname));
   const [showSideQuests, setShowSideQuests] = useState(false);
 
@@ -99,7 +102,7 @@ export function AppShell({
 
           {/* Department icons */}
           {(Object.entries(DEPT_ICONS) as [Department, { icon: string; label: string }][]).map(([dept, { icon, label }]) => {
-            if (dept === "settings" && !isManager) return null;
+            if (!hasDept(dept)) return null;
             const isActive = activeDept === dept;
             return (
               <Link
@@ -181,7 +184,7 @@ export function AppShell({
             )}
 
             {/* Side quests dropdown */}
-            <div style={{ position: "relative", marginLeft: 4 }}>
+            {SIDE_QUESTS.some(sq => hasExtra(sq.label.toLowerCase())) && <div style={{ position: "relative", marginLeft: 4 }}>
               <button
                 onClick={() => setShowSideQuests(!showSideQuests)}
                 style={{
@@ -200,7 +203,7 @@ export function AppShell({
                     background: "#fff", border: "1px solid #dcdce0", borderRadius: 8,
                     boxShadow: "0 4px 12px rgba(0,0,0,0.08)", minWidth: 140, padding: 4,
                   }}>
-                    {SIDE_QUESTS.map(sq => (
+                    {SIDE_QUESTS.filter(sq => hasExtra(sq.label.toLowerCase())).map(sq => (
                       <Link
                         key={sq.href}
                         href={sq.href}
@@ -218,7 +221,7 @@ export function AppShell({
                   </div>
                 </>
               )}
-            </div>
+            </div>}
           </div>
 
           {/* Right: search + user */}

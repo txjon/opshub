@@ -15,14 +15,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .single();
 
   const role = profile?.role ?? "readonly";
-  const isManager = role === "manager";
+  const isOwner = role === "owner";
+  const departments: string[] = profile?.departments || [];
+  const extraAccess: string[] = profile?.extra_access || [];
 
   return (
     <>
       <AppShell
         email={user.email || ""}
         role={role}
-        isManager={isManager}
+        isOwner={isOwner}
+        departments={departments}
+        extraAccess={extraAccess}
         userId={user.id}
       >
         {children}
