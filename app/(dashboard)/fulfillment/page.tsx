@@ -57,6 +57,7 @@ export default function FulfillmentPage() {
   const [labsJobs, setLabsJobs] = useState<{ id: string; title: string; client_name: string }[]>([]);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
+  const [outsideShipments, setOutsideShipments] = useState<any[]>([]);
   const [logForm, setLogForm] = useState<Record<string, { starting: string; shipped: string; remaining: string; notes: string }>>({});
   const [tab, setTab] = useState<"active" | "incoming" | "complete">("active");
 
@@ -146,6 +147,10 @@ export default function FulfillmentPage() {
         };
       }));
     }
+
+    // Load outside shipments routed to stage
+    const { data: outsideData } = await supabase.from("outside_shipments").select("*").eq("route", "stage").order("received_at", { ascending: false });
+    setOutsideShipments(outsideData || []);
 
     setLoading(false);
   }
@@ -516,6 +521,33 @@ export default function FulfillmentPage() {
             );
           })}
         </div>
+      )}
+
+      {/* Outside shipments routed to staging */}
+      {outsideShipments.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 8 }}>Outside Shipments — Staged</div>
+          {outsideShipments.map(s => (
+            <div key={s.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{s.description}</div>
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                    {[s.sender, s.carrier, s.tracking].filter(Boolean).join(" · ")}
+                    {s.condition && s.condition !== "good" && <span style={{ marginLeft: 8, color: T.amber }}>{s.condition}</span>}
+                  </div>
+                </div>
+                <button onClick={async () => {
+                  await supabase.from("outside_shipments").update({ route: "fulfilled" }).eq("id", s.id);
+                  setOutsideShipments(prev => prev.filter(x => x.id !== s.id));
+                }}
+                  style={{ fontSize: 10, fontWeight: 600, padding: "5px 14px", borderRadius: 6, border: "none", background: T.green, color: "#fff", cursor: "pointer" }}>
+                  Mark Fulfilled
+                </button>
+              </div>
+            </div>
+          ))}
+        </>
       )}
     </div>
   );

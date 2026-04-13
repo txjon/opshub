@@ -1,11 +1,19 @@
 "use client";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { T, font, mono } from "@/lib/theme";
 import { useWarehouse, tQty } from "@/lib/use-warehouse";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { createClient } from "@/lib/supabase/client";
 
 export default function ShippingPage() {
   const { loading, shipThrough, undoReceived, updateFulfillment, debounceFulfillmentTracking, supabase, setJobs } = useWarehouse();
+  const [outsideShipments, setOutsideShipments] = useState<any[]>([]);
+  const db = createClient();
+
+  useEffect(() => {
+    db.from("outside_shipments").select("*").eq("route", "ship_through").eq("resolved", true).order("received_at", { ascending: false }).then(({ data }) => setOutsideShipments(data || []));
+  }, []);
 
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
   const ic: React.CSSProperties = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box" as const, outline: "none" };
@@ -136,6 +144,32 @@ export default function ShippingPage() {
             </div>
           );
         })
+      )}
+      {/* Outside shipments routed to ship-through */}
+      {outsideShipments.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 8 }}>Outside Shipments</div>
+          {outsideShipments.map(s => (
+            <div key={s.id} style={{ ...card, padding: "12px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{s.description}</div>
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                    {[s.sender, s.carrier, s.tracking].filter(Boolean).join(" · ")}
+                    {s.job_id && <span style={{ marginLeft: 8, color: T.blue }}> Linked to project</span>}
+                  </div>
+                </div>
+                <button onClick={async () => {
+                  await db.from("outside_shipments").update({ route: "shipped" }).eq("id", s.id);
+                  setOutsideShipments(prev => prev.filter(x => x.id !== s.id));
+                }}
+                  style={{ fontSize: 10, fontWeight: 600, padding: "5px 14px", borderRadius: 6, border: "none", background: T.green, color: "#fff", cursor: "pointer" }}>
+                  Mark Shipped
+                </button>
+              </div>
+            </div>
+          ))}
+        </>
       )}
     </div>
   );

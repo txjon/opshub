@@ -137,8 +137,8 @@ export default function ReceivingPage() {
     loadOutside();
   }
 
-  async function resolveShipment(id: string) {
-    await supabase.from("outside_shipments").update({ resolved: true }).eq("id", id);
+  async function routeShipment(id: string, route: "ship_through" | "stage") {
+    await supabase.from("outside_shipments").update({ route, resolved: true }).eq("id", id);
     setOutsideShipments(prev => prev.filter(s => s.id !== id));
   }
 
@@ -530,10 +530,16 @@ export default function ReceivingPage() {
                       )}
                     </div>
                   </div>
-                  <button onClick={() => resolveShipment(s.id)}
-                    style={{ fontSize: 10, padding: "4px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: "pointer", flexShrink: 0 }}>
-                    Resolve
-                  </button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
+                    <button onClick={() => routeShipment(s.id, "ship_through")}
+                      style={{ fontSize: 10, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", background: T.blue, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
+                      → Ship-through
+                    </button>
+                    <button onClick={() => routeShipment(s.id, "stage")}
+                      style={{ fontSize: 10, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", background: T.purple, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
+                      → Stage
+                    </button>
+                  </div>
                 </div>
               </div>
             ))
