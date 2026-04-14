@@ -320,11 +320,7 @@ export default async function DashboardPage() {
       }
     }
 
-    // 15. No ship date set — projects past intake with no deadline
-    if (!j.target_ship_date && j.phase !== "intake" && items.length > 0) {
-      alerts.push({ ...base, priority: 2, type: "no_ship_date", color: T.muted,
-        action: "No in-hands date set", href: `/jobs/${j.id}`, column: "production" });
-    }
+    // 15. No ship date set — removed, not mandatory
   }
 
   // Sort: critical first, then high, then medium
