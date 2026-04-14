@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
@@ -139,6 +139,22 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const [poShipTo,setPoShipTo] = useState(project?.type_meta?.po_ship_to || {});
   const [selectedVendor,setSelectedVendor] = useState("");
 
+  // Debounced type_meta save — prevents race conditions when changing ship date, method, ship-to rapidly
+  const metaSaveTimer = useRef(null);
+  const pendingMeta = useRef({});
+  const saveTypeMeta = useCallback((updates) => {
+    pendingMeta.current = { ...pendingMeta.current, ...updates };
+    if (metaSaveTimer.current) clearTimeout(metaSaveTimer.current);
+    metaSaveTimer.current = setTimeout(async () => {
+      const changes = pendingMeta.current;
+      pendingMeta.current = {};
+      const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
+      const meta = { ...(fresh?.type_meta || {}), ...changes };
+      await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
+      if (onUpdateJob) onUpdateJob({ type_meta: meta });
+    }, 500);
+  }, [project?.id]);
+
   const HPD_WAREHOUSE = "House Party Distro\n4670 W Silverado Ranch Blvd. STE 120\nLas Vegas, NV 89118";
   const clientAddress = project?.type_meta?.venue_address || "";
   const shippingRoute = project?.shipping_route || "ship_through";
@@ -259,28 +275,22 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
           <div style={{display:"flex",flexDirection:"column",gap:4,alignSelf:"center"}}>
             <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
             <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
-              onChange={async e=>{
+              onChange={e=>{
                 const val=e.target.value;
                 const updated={...poShipDates,[active]:val};
                 setPoShipDates(updated);
-                const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
-                const meta = { ...(fresh?.type_meta || {}), po_ship_dates: updated };
-                await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
-                if(onUpdateJob) onUpdateJob({type_meta:meta});
+                saveTypeMeta({ po_ship_dates: updated });
               }}
               style={{background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}} />
           </div>
           {/* Ship Method */}
           <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180,alignSelf:"center"}}>
             <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
-            <select value={shipMethods[active]||""} onChange={async e=>{
+            <select value={shipMethods[active]||""} onChange={e=>{
               const val=e.target.value;
               const updated={...shipMethods,[active]:val};
               setShipMethods(updated);
-              const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
-              const meta = { ...(fresh?.type_meta || {}), po_ship_methods: updated };
-              await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
-              if(onUpdateJob) onUpdateJob({type_meta:meta});
+              saveTypeMeta({ po_ship_methods: updated });
             }}
               style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
               <option value="">— select —</option>
@@ -295,14 +305,11 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 {shippingRoute==="drop_ship"?"Client address":"HPD warehouse"}
               </span>
             </div>
-            <textarea value={poShipTo[active]||defaultShipTo} onChange={async e=>{
+            <textarea value={poShipTo[active]||defaultShipTo} onChange={e=>{
               const val=e.target.value;
               const updated={...poShipTo,[active]:val};
               setPoShipTo(updated);
-              const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
-              const meta = { ...(fresh?.type_meta || {}), po_ship_to: updated };
-              await supabase.from("jobs").update({ type_meta: meta }).eq("id", project.id);
-              if(onUpdateJob) onUpdateJob({type_meta:meta});
+              saveTypeMeta({ po_ship_to: updated });
             }}
               style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"8px 10px",outline:"none",resize:"vertical",minHeight:110,lineHeight:1.4}}/>
           </div>

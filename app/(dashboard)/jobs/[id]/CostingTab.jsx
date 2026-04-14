@@ -1156,7 +1156,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
             onUpdateBuyItems(prev => prev.map(bi => itemMap[bi.id] ? {...bi, ...itemMap[bi.id]} : bi));
           }
         }
-      } catch(e) { console.error("Failed to save costing data", e); }
+      } catch(e) { console.error("Failed to save costing data", e); setSaveStatus("error"); if(onSaveStatus) onSaveStatus("error"); }
     }
   };
   onSaveRef.current = onSave;

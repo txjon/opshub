@@ -241,6 +241,32 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     }
   }
 
+  // Centralized tab switch — flushes ALL pending saves before navigating
+  async function switchTab(t: string) {
+    try {
+      // Flush all pending saves in parallel
+      await Promise.all([
+        flushJobSave(),
+        saveBuySheetRef.current?.(),
+        saveCostingRef.current?.(),
+      ]);
+    } catch (e) {
+      console.error("Save flush failed on tab switch:", e);
+      // Still switch — data is in local state and will retry
+    }
+    // Refresh data for tabs that read from DB
+    if (["quote","overview","proofs"].includes(t)) {
+      const { data: fresh } = await supabase.from("jobs").select("quote_approved, quote_approved_at, type_meta").eq("id", job!.id).single();
+      if (fresh) setJob(j => j ? {...j, quote_approved: fresh.quote_approved, quote_approved_at: fresh.quote_approved_at, type_meta: {...(j as any).type_meta, ...fresh.type_meta}} as any : j);
+      if (t === "proofs" || t === "overview") {
+        const { data: freshPay } = await supabase.from("payment_records").select("*").eq("job_id", job!.id).order("created_at");
+        if (freshPay) setPayments(freshPay);
+      }
+    }
+    setTab(t);
+    window.history.replaceState(null, "", `?tab=${t}`);
+  }
+
   async function saveItem(id: string, updates: Partial<Item>) {
     setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it));
     const { cost_per_unit, sell_per_unit, status, artwork_status, name, notes } = updates;
@@ -504,23 +530,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {/* Progress checklist — horizontal tabs (X axis) */}
       {job.phase !== "complete" && job.phase !== "cancelled" && (
-        <ProjectProgress job={job} items={items} payments={payments} proofStatus={proofStatus} activeTab={tab} onTabClick={async (t) => {
-          if (tab === "buysheet" && t !== "buysheet" && saveBuySheetRef.current) { try { await saveBuySheetRef.current(); } catch(e) {} }
-          if ((tab === "costing" || tab === "quote") && t !== "costing" && t !== "quote") {
-            if (saveCostingRef.current) { try { await saveCostingRef.current(); } catch(e) { if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return; } }
-          }
-          if (["quote","overview","proofs"].includes(t)) {
-            await flushJobSave();
-            const { data: fresh } = await supabase.from("jobs").select("quote_approved, quote_approved_at, type_meta").eq("id", job.id).single();
-            if (fresh) setJob(j => j ? {...j, quote_approved: fresh.quote_approved, quote_approved_at: fresh.quote_approved_at, type_meta: {...(j as any).type_meta, ...fresh.type_meta}} as any : j);
-            if (t === "proofs" || t === "overview") {
-              const { data: freshPay } = await supabase.from("payment_records").select("*").eq("job_id", job.id).order("created_at");
-              if (freshPay) setPayments(freshPay);
-            }
-          }
-          setTab(t);
-          window.history.replaceState(null, "", `?tab=${t}`);
-        }} />
+        <ProjectProgress job={job} items={items} payments={payments} proofStatus={proofStatus} activeTab={tab} onTabClick={switchTab} />
       )}
 
       {/* ── Sidebar + Content Layout (Y axis: items | content) ── */}
@@ -868,7 +878,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
-                  <button onClick={()=>setTab("proofs")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
+                  <button onClick={()=>switchTab("proofs")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
                 </div>
                 <div style={{marginBottom:8}}>
                   <label style={{fontSize:10,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
@@ -1015,7 +1025,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </div>
               <div style={{display:"flex",gap:6,fontSize:11}}>
                 <span style={{color:T.muted}}>Next:</span>
-                <button onClick={()=>setTab("proofs")} style={{color:T.accent,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline",padding:0}}>Send Proofs & Invoice</button>
+                <button onClick={()=>switchTab("proofs")} style={{color:T.accent,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline",padding:0}}>Send Proofs & Invoice</button>
               </div>
             </div>
           ) : (
@@ -1057,7 +1067,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </>
       )}
       {tab==="blanks"&&(
-        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={setTab} />
+        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={switchTab} />
       )}
       {tab==="po"&&(
         <POTab
