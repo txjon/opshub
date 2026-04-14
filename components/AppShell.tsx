@@ -80,7 +80,8 @@ export function AppShell({
   }, [pathname]);
 
   const navItems = DEPT_NAV[activeDept] || [];
-  const crossLink = DEPT_CROSSLINKS[activeDept];
+  const rawCrossLink = DEPT_CROSSLINKS[activeDept];
+  const crossLink = rawCrossLink && hasDept(rawCrossLink.dept) ? rawCrossLink : null;
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", background: "#f4f4f6" }}>
