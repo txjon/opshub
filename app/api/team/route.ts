@@ -15,20 +15,31 @@ export async function POST(req: NextRequest) {
     const { email, fullName, role } = await req.json();
     if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 });
 
+    const validRoles = ["ops", "warehouse", "viewer"];
+    const assignedRole = validRoles.includes(role) ? role : "viewer";
+
+    // Derive departments from role
+    const ROLE_DEPARTMENTS: Record<string, string[]> = {
+      ops: ["labs", "distro", "contacts"],
+      warehouse: ["distro"],
+      viewer: ["labs", "distro", "contacts"],
+    };
+
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     // Invite user via Supabase auth
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://app.housepartydistro.com");
     const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${siteUrl}/auth/callback`,
     });
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 });
 
-    // Create/update profile
+    // Create/update profile with role + derived departments
     await admin.from("profiles").upsert({
       id: inviteData.user.id,
       full_name: fullName || null,
-      role: role || "viewer",
+      role: assignedRole,
+      departments: ROLE_DEPARTMENTS[assignedRole] || [],
     });
 
     return NextResponse.json({ success: true });
@@ -50,8 +61,18 @@ export async function PATCH(req: NextRequest) {
     const { profileId, role, fullName } = await req.json();
     if (!profileId) return NextResponse.json({ error: "Missing profileId" }, { status: 400 });
 
+    const ROLE_DEPARTMENTS: Record<string, string[]> = {
+      owner: ["owner", "labs", "distro", "contacts", "settings"],
+      ops: ["labs", "distro", "contacts"],
+      warehouse: ["distro"],
+      viewer: ["labs", "distro", "contacts"],
+    };
+
     const updates: any = {};
-    if (role) updates.role = role;
+    if (role) {
+      updates.role = role;
+      updates.departments = ROLE_DEPARTMENTS[role] || [];
+    }
     if (fullName !== undefined) updates.full_name = fullName;
 
     await supabase.from("profiles").update(updates).eq("id", profileId);

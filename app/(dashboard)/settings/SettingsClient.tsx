@@ -15,7 +15,7 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
   const [inviting, setInviting] = useState(false);
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState("viewer");
+  const [role, setRole] = useState("ops");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [editingRole, setEditingRole] = useState<string | null>(null);
@@ -100,9 +100,9 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
               onChange={e => setRole(e.target.value)}
               className="mt-1 px-3 py-2 text-sm rounded-lg border border-border bg-secondary/50 text-foreground outline-none"
             >
-              <option value="viewer">Viewer</option>
-              <option value="staff">Staff</option>
-              <option value="manager">Manager</option>
+              <option value="ops">Ops — full Labs workflow + Contacts</option>
+              <option value="warehouse">Warehouse — Distro only</option>
+              <option value="viewer">Viewer — read-only everywhere</option>
             </select>
           </div>
           {error && <p className="text-sm text-red-400">{error}</p>}
@@ -151,9 +151,9 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
                       autoFocus
                       className="px-2 py-1 text-sm rounded border border-border bg-secondary/50 text-foreground outline-none"
                     >
+                      <option value="ops">Ops</option>
+                      <option value="warehouse">Warehouse</option>
                       <option value="viewer">Viewer</option>
-                      <option value="staff">Staff</option>
-                      <option value="manager">Manager</option>
                     </select>
                   ) : (
                     <button

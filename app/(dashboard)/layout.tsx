@@ -14,10 +14,19 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .eq("id", user.id)
     .single();
 
-  const role = profile?.role ?? "readonly";
+  const role = profile?.role ?? "viewer";
   const isOwner = role === "owner";
-  const departments: string[] = profile?.departments || [];
-  if (isOwner && !departments.includes("owner")) departments.unshift("owner");
+  // Departments derived from role — no separate DB column needed
+  const ROLE_DEPARTMENTS: Record<string, string[]> = {
+    owner: ["owner", "labs", "distro", "contacts", "settings"],
+    ops: ["labs", "distro", "contacts"],
+    warehouse: ["distro"],
+    viewer: ["labs", "distro", "contacts"],
+    // Legacy roles — map gracefully
+    manager: ["owner", "labs", "distro", "contacts", "settings"],
+    staff: ["labs", "distro", "contacts"],
+  };
+  const departments: string[] = ROLE_DEPARTMENTS[role] || [];
   const extraAccess: string[] = profile?.extra_access || [];
 
   return (
