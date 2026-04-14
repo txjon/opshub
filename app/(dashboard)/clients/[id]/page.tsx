@@ -47,11 +47,16 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     setLoading(false);
   }
 
+  const pendingClientUpdates = useRef<Partial<Client>>({});
   function updateClient(updates: Partial<Client>) {
     setClient(c => c ? {...c, ...updates} : c);
+    pendingClientUpdates.current = {...pendingClientUpdates.current, ...updates};
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
-      await supabase.from("clients").update(updates).eq("id", params.id);
+      const merged = pendingClientUpdates.current;
+      pendingClientUpdates.current = {};
+      try { await supabase.from("clients").update(merged).eq("id", params.id); }
+      catch (e) { console.error("Client save failed:", e); }
     }, 1500);
   }
 

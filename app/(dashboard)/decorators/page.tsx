@@ -407,6 +407,7 @@ export default function DecoratorsPage() {
   const [search, setSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string|null>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingUpdates = useRef<Record<string, Partial<Decorator>>>({});
 
   useEffect(() => { load(); }, []);
 
@@ -417,11 +418,16 @@ export default function DecoratorsPage() {
 
   function updateDecorator(id: string, updates: Partial<Decorator>) {
     setDecorators(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
-    // Debounce save
+    // Accumulate + debounce save (prevents race when changing multiple fields quickly)
+    pendingUpdates.current[id] = { ...(pendingUpdates.current[id] || {}), ...updates };
     if (saveTimers.current[id]) clearTimeout(saveTimers.current[id]);
     setSaving(p => ({...p, [id]: true}));
     saveTimers.current[id] = setTimeout(async () => {
-      await supabase.from("decorators").update(updates).eq("id", id);
+      const merged = pendingUpdates.current[id];
+      delete pendingUpdates.current[id];
+      try {
+        await supabase.from("decorators").update(merged).eq("id", id);
+      } catch (e) { console.error("Decorator save failed:", e); }
       setSaving(p => ({...p, [id]: false}));
     }, 800);
   }
