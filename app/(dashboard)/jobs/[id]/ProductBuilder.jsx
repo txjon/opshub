@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
@@ -251,9 +252,6 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [showAddType, setShowAddType] = useState(null);
   const [assignBlankTo, setAssignBlankTo] = useState(null);
   const [favorites, setFavorites] = useState([]);
-  const [dragActive, setDragActive] = useState(false);
-  const dragIdxRef = useRef(null);
-  const dragOverRef = useRef(null);
   const [fileSummary, setFileSummary] = useState({}); // { itemId: { printReady: bool, fileCount: number, hasProof: bool } }
   const [psdProcessing, setPsdProcessing] = useState(null);
   const [distRow, setDistRow] = useState(null);
@@ -317,12 +315,11 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   };
 
   // Drag reorder — saves sort_order to DB immediately (not debounced)
-  const handleDrop = async (idx) => {
-    const fromIdx = dragIdxRef.current;
-    if (fromIdx === null || fromIdx === idx) return;
+  const onDragEnd = async (result) => {
+    if (!result.destination || result.source.index === result.destination.index) return;
     const newItems = [...(workingItems || [])];
-    const [moved] = newItems.splice(fromIdx, 1);
-    newItems.splice(idx, 0, moved);
+    const [moved] = newItems.splice(result.source.index, 1);
+    newItems.splice(result.destination.index, 0, moved);
     updateLocal(newItems);
     setSavedSnapshot(prev => {
       const parsed = JSON.parse(prev);
@@ -746,68 +743,34 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       )}
 
       {/* ══ Item list ══ */}
+      <DragDropContext onDragEnd={onDragEnd}>
+        <Droppable droppableId="product-builder-items">
+          {(droppableProvided) => (
+            <div ref={droppableProvided.innerRef} {...droppableProvided.droppableProps}>
       {safeItems.map((item, idx) => {
         // If sidebar has a selected item, only render that one
         if (selectedItemId && item.id !== selectedItemId) return null;
         const isExpanded = selectedItemId ? true : expandedId === item.id;
         const hasBlank = !!item.blank_vendor;
-        const fileCount = 0; // Will be populated by ItemArtSection internally
 
         return (
-          <div key={item.id} id={`item-${item.id}`}
-            data-idx={idx}
-            draggable={!isExpanded && !costingLocked}
-            onDragStart={e => {
-              dragIdxRef.current = idx;
-              setDragActive(true);
-              e.dataTransfer.effectAllowed = "move";
-              e.dataTransfer.setData("text/plain", "");
-              requestAnimationFrame(() => { e.currentTarget.style.opacity = "0.3"; });
-            }}
-            onDragOver={e => {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-              if (dragIdxRef.current === null || dragIdxRef.current === idx) return;
-              // Show drop indicator via DOM (no React re-render)
-              const el = e.currentTarget;
-              if (dragOverRef.current && dragOverRef.current !== el) {
-                dragOverRef.current.style.borderTop = "";
-                dragOverRef.current.style.borderBottom = "";
-              }
-              dragOverRef.current = el;
-              const above = dragIdxRef.current > idx;
-              el.style.borderTop = above ? `3px solid ${T.accent}` : "";
-              el.style.borderBottom = above ? "" : `3px solid ${T.accent}`;
-            }}
-            onDragLeave={e => {
-              if (!e.currentTarget.contains(e.relatedTarget)) {
-                e.currentTarget.style.borderTop = "";
-                e.currentTarget.style.borderBottom = "";
-              }
-            }}
-            onDrop={e => { e.preventDefault(); }}
-            onDragEnd={e => {
-              e.currentTarget.style.opacity = "1";
-              // Execute the move using last known hover target (more reliable than onDrop)
-              const fromIdx = dragIdxRef.current;
-              const toEl = dragOverRef.current;
-              if (toEl && fromIdx !== null) {
-                toEl.style.borderTop = "";
-                toEl.style.borderBottom = "";
-                const toIdx = parseInt(toEl.dataset.idx);
-                if (!isNaN(toIdx) && fromIdx !== toIdx) handleDrop(toIdx);
-              }
-              dragIdxRef.current = null;
-              dragOverRef.current = null;
-              setDragActive(false);
-            }}
+          <Draggable key={item.id} draggableId={String(item.id)} index={idx} isDragDisabled={isExpanded || costingLocked}>
+            {(provided, snapshot) => (
+          <div
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            id={`item-${item.id}`}
             style={{
+              ...provided.draggableProps.style,
               background: T.card, border: `1px solid ${isExpanded ? T.accent + "44" : T.border}`,
               borderRadius: isExpanded ? 12 : 10, overflow: "hidden",
+              opacity: snapshot.isDragging ? 0.6 : 1,
+              marginBottom: 6,
             }}
           >
             {/* ── Header (always visible) ── */}
             <div
+              {...(!isExpanded ? provided.dragHandleProps : {})}
               onClick={() => setExpandedId(isExpanded ? null : item.id)}
               style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 10, cursor: isExpanded ? "pointer" : "grab", borderBottom: isExpanded ? `1px solid ${T.border}44` : "none" }}
             >
@@ -848,8 +811,15 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               />
             )}
           </div>
+            )}
+          </Draggable>
         );
       })}
+      {droppableProvided.placeholder}
+            </div>
+          )}
+        </Droppable>
+      </DragDropContext>
 
       {/* Empty state */}
       {isEmpty && !psdProcessing && (

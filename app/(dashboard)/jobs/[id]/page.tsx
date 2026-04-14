@@ -552,29 +552,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const isSelected = selectedItemId === item.id;
             return (
               <div key={item.id}
-                draggable
-                onDragStart={e => { e.dataTransfer.setData("text/plain", String(i)); (e.currentTarget as HTMLElement).style.opacity = "0.4"; }}
-                onDragEnd={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
-                onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.borderTop = `2px solid ${T.accent}`; }}
-                onDragLeave={e => { (e.currentTarget as HTMLElement).style.borderTop = "none"; }}
-                onDrop={e => {
-                  e.preventDefault();
-                  (e.currentTarget as HTMLElement).style.borderTop = "none";
-                  const fromIdx = parseInt(e.dataTransfer.getData("text/plain"));
-                  if (isNaN(fromIdx) || fromIdx === i) return;
-                  const reordered = [...items];
-                  const [moved] = reordered.splice(fromIdx, 1);
-                  reordered.splice(i, 0, moved);
-                  setItems(reordered.map((it: any, idx: number) => ({ ...it, sort_order: idx })));
-                  // Persist sort order
-                  const sb = (window as any).__supabase;
-                  if (!sb) { import("@/lib/supabase/client").then(mod => { const s = mod.createClient(); (window as any).__supabase = s; reordered.forEach((it: any, idx: number) => s.from("items").update({ sort_order: idx }).eq("id", it.id).then(() => {})); }); }
-                  else { reordered.forEach((it: any, idx: number) => sb.from("items").update({ sort_order: idx }).eq("id", it.id).then(() => {})); }
-                }}
                 onClick={() => { setSelectedItemId(item.id); }}
                 style={{padding:"8px 12px 8px 16px",fontSize:12,display:"flex",alignItems:"center",gap:8,borderBottom:`1px solid ${T.border}`,cursor:"pointer",
                   background:isSelected?T.bg:"transparent",borderLeft:isSelected?`3px solid ${T.accent}`:"3px solid transparent",transition:"background 0.1s"}}>
-                <span style={{color:T.faint,fontSize:10,cursor:"grab",userSelect:"none",flexShrink:0}}>⠿</span>
                 <span style={{width:18,height:18,borderRadius:4,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>
                   {String.fromCharCode(65+i)}
                 </span>
