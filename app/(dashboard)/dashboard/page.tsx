@@ -182,13 +182,16 @@ export default async function DashboardPage() {
             href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
         }
       } else if (!invoiceSentAt) {
+        const proofsNeeded = !allProofsApproved;
         if (isNet) {
           const termLabel = terms === "net_15" ? "net 15" : "net 30";
           alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
-            action: `Send proofs & invoice · ${termLabel}`, href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
+            action: proofsNeeded ? `Send proofs & invoice · ${termLabel}` : `Send invoice · ${termLabel}`,
+            href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
         } else if (j.phase === "pending") {
           alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
-            action: "Send proofs & invoice · payment required", href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
+            action: proofsNeeded ? "Send proofs & invoice · payment required" : "Send invoice · payment required",
+            href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
         }
       }
     }
