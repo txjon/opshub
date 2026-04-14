@@ -37,6 +37,8 @@ export function lookupTagPrice(printers: Record<string, any>, pk: string, qty: n
 
 export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[], printers: Record<string, any>) {
   const qty = p.totalQty || 0; if (qty === 0) return null;
+  const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
+  const isNonGarment = NON_GARMENT.includes(p.garment_type);
 
   // Blank cost buffer: LA Apparel 10%, all others 5%
   const vendor = (p.blank_vendor || p.blankVendor || "");
@@ -50,6 +52,37 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
     }
     return (p.blankCostPerUnit || 0) * qty * blankBuffer;
   })();
+
+  // Non-garment items: only blank costs + custom costs (no print/finishing/setup)
+  if (isNonGarment) {
+    const customTotal = (p.customCosts || []).reduce((a: number, c: any) => {
+      const v = parseFloat(c.perUnit || c.amount) || 0;
+      const isFlat = c.flat === true || c.flat === "true";
+      return a + (isFlat ? v : v * qty);
+    }, 0);
+    const poTotal = customTotal;
+    const SHIP_RATES: Record<string, number> = { bandana:0.25,banner:1.5,beanie:0.3,crewneck:1.5,flag:0.4,hat:0.6,hoodie:1.5,jacket:1.5,koozie:0.1,lighter:0.15,longsleeve:0.8,pants:0.8,patch:0.25,pin:0.25,poster:0.1,shorts:0.5,socks:0.5,sticker:0.1,tee:0.65,tote:0.75,towel:0.75,water_bottle:0.75 };
+    const shipRate = SHIP_RATES[p.garment_type || ""] ?? 0;
+    const shipping = inclShip && shipRate > 0 ? qty * shipRate : 0;
+    const totalCost = blankCost + poTotal + shipping;
+    const marginPct = (parseFloat((margin || "30%").replace("%", "")) / 100) || 0.30;
+    const ccRate = inclCC ? 0.03 : 0;
+    const divisor = 1 - marginPct - ccRate;
+    const autoGrossRev = divisor > 0 ? (totalCost / divisor) : 0;
+    const grossRevFinal = p.sellOverride ? p.sellOverride * qty : autoGrossRev;
+    const sellPerUnitFinal = qty > 0 ? grossRevFinal / qty : 0;
+    const ccFees = grossRevFinal * ccRate;
+    const totalCostWithCC = totalCost + ccFees;
+    const netProfit = grossRevFinal - totalCostWithCC;
+    return {
+      qty, blankCost, printTotal: 0, finTotal: 0, specTotal: 0, setupTotal: 0,
+      poTotal, shipping, ccFees, grossRev: grossRevFinal, totalCost: totalCostWithCC,
+      netProfit, sellPerUnit: sellPerUnitFinal,
+      margin_pct: grossRevFinal > 0 ? netProfit / grossRevFinal : 0,
+      profitPerPiece: qty > 0 ? netProfit / qty : 0,
+      customTotal, perUnitPORate: 0,
+    };
+  }
 
   // Print total + shared screen tracking
   let printTotal = 0;
