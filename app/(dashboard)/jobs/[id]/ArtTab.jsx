@@ -264,8 +264,8 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     // Close modal immediately, upload in background
     const pdfBlob = pdfDoc.output("blob");
     const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
-    onClose(true);
-    // Background upload
+    onClose();
+    // Background upload — onSaved refreshes file list when upload completes
     (async () => {
       try {
         const driveFile = await uploadToDrive({
@@ -289,12 +289,12 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     if (previewUrl) {
       if (!window.confirm("Save proof to Drive before closing?")) {
         URL.revokeObjectURL(previewUrl);
-        onClose(false);
+        onClose();
         return;
       }
       saveToDrive();
     } else {
-      onClose(false);
+      onClose();
     }
   }
 
@@ -615,8 +615,8 @@ export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId
               {/* Generate Proof button */}
               {mockupFile && (
                 <button onClick={() => setShowProofModal(true)}
-                  style={{ marginTop: 8, padding: "6px 14px", borderRadius: 6, border: "none", background: T.amber, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
-                  Generate Proof
+                  style={{ marginTop: 8, padding: "6px 14px", borderRadius: 6, border: "none", background: hasProof ? T.surface : T.amber, color: hasProof ? T.muted : "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font, border: hasProof ? `1px solid ${T.border}` : "none" }}>
+                  {hasProof ? "Regenerate Proof" : "Generate Proof"}
                 </button>
               )}
             </div>
@@ -634,8 +634,9 @@ export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId
           mockupFile={files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"))}
           files={files}
           costingData={costingData}
-          onClose={(saved) => { setShowProofModal(false); if (saved) loadFiles(); }}
+          onClose={() => setShowProofModal(false)}
           onUpdateItem={onUpdateItem}
+          onSaved={() => loadFiles()}
         />
       )}
 

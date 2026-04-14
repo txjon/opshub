@@ -253,6 +253,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   }, []);
 
   // Load file summary for collapsed pills
+  const [fileSummaryKey, setFileSummaryKey] = useState(0);
+  const refreshFileSummary = useCallback(() => setFileSummaryKey(k => k + 1), []);
   useEffect(() => {
     const ids = (items || []).map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
     if (ids.length === 0) return;
@@ -267,7 +269,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       }
       setFileSummary(summary);
     });
-  }, [items]);
+  }, [items, fileSummaryKey]);
 
   const isFav = (supplier, styleCode) => favorites.some(f => f.supplier === supplier && f.style_code === styleCode);
   const toggleFav = async (supplier, styleCode, styleName, sourceCategory) => {
@@ -781,6 +783,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 handleDist={handleDist} removeItem={removeItem} setAssignBlankTo={setAssignBlankTo}
                 setShowAddModal={setShowAddModal} onItemsChanged={onItemsChanged}
                 onUpdateItem={(id, updates) => { updateLocal(workingItems.map(it => it.id === id ? {...it, ...updates} : it)); onUpdateItem(id, updates); }}
+                onFilesChanged={refreshFileSummary}
                 ic={ic} costingLocked={costingLocked}
               />
             )}
@@ -801,7 +804,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 // ═══════════════════════════════════════════════════════════════
 // Expanded item body — manages its own file state per item
 // ═══════════════════════════════════════════════════════════════
-function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, ic, costingLocked }) {
+function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, onFilesChanged, ic, costingLocked }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -848,6 +851,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
     }
     setUploading(false); setUploadProgress(null);
     loadFiles();
+    if (onFilesChanged) onFilesChanged();
     logJobActivity(project.id, `${allFiles.length} file${allFiles.length > 1 ? "s" : ""} uploaded for ${item.name}`);
   }
 
@@ -855,6 +859,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
     if (!window.confirm(`Delete "${file.file_name}"?`)) return;
     await fetch("/api/files", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: file.id, driveFileId: file.drive_file_id }) });
     loadFiles();
+    if (onFilesChanged) onFilesChanged();
   }
 
   return (
