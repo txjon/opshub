@@ -3,7 +3,7 @@ import { useState } from "react";
 import { T, font, mono } from "@/lib/theme";
 
 const LOCATION_PRESETS = ["Front","Back","Left Sleeve","Right Sleeve","Left Chest","Right Chest","Neck","Hood","Pocket"];
-const SHARE_GROUPS = ["A","B","C","D"];
+const SHARE_GROUPS = ["A","B","C","D","E","F","G","H","I","J"];
 
 export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice }) {
   const pr = PRINTERS[p.printVendor] || {};
@@ -198,13 +198,23 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                     <button onClick={()=>updateLoc(loc,{shared:true,shareGroup:""})}
                       style={{fontSize:9,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:4,padding:"2px 6px",cursor:"pointer",fontFamily:font}}
                       onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>Share</button>
+                  ) : shareGroup ? (
+                    <>
+                      <select value={shareGroup} onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
+                        style={{padding:"2px 4px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${T.accent}`,borderRadius:4,cursor:"pointer",background:T.accent,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center",width:28}}>
+                        {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
+                      </select>
+                      <button onClick={()=>updateLoc(loc,{shared:false,shareGroup:""})}
+                        style={{fontSize:10,color:T.faint,background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}
+                        onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                    </>
                   ) : (
                     <>
-                      {SHARE_GROUPS.map(g=>{
-                        const sel=shareGroup===g;
-                        return <button key={g} onClick={()=>updateLoc(loc,{shareGroup:g})}
-                          style={{padding:"2px 6px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${sel?T.accent:T.border}`,borderRadius:4,cursor:"pointer",background:sel?T.accent:"transparent",color:sel?"#fff":T.faint}}>{g}</button>;
-                      })}
+                      <select value="" onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
+                        style={{padding:"2px 4px",fontSize:10,fontFamily:font,border:`1px solid ${T.border}`,borderRadius:4,cursor:"pointer",background:"transparent",color:T.muted,outline:"none"}}>
+                        <option value="" disabled>Group</option>
+                        {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
+                      </select>
                       <button onClick={()=>updateLoc(loc,{shared:false,shareGroup:""})}
                         style={{fontSize:10,color:T.faint,background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}
                         onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
@@ -244,8 +254,18 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                   style={{fontSize:9,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:4,padding:"2px 6px",cursor:"pointer",fontFamily:font}}>Share</button>
               ) : (
                 <>
-                  <input value={p.tagShareGroup||""} onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value})}
-                    style={{width:40,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,fontFamily:mono,outline:"none",padding:"2px"}} />
+                  {p.tagShareGroup ? (
+                    <select value={p.tagShareGroup} onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value})}
+                      style={{padding:"2px 4px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${T.accent}`,borderRadius:4,cursor:"pointer",background:T.accent,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center",width:28}}>
+                      {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
+                    </select>
+                  ) : (
+                    <select value="" onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value})}
+                      style={{padding:"2px 4px",fontSize:10,fontFamily:font,border:`1px solid ${T.border}`,borderRadius:4,cursor:"pointer",background:"transparent",color:T.muted,outline:"none"}}>
+                      <option value="" disabled>Group</option>
+                      {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
+                    </select>
+                  )}
                   <button onClick={()=>updateProd(i,{...p,tagShared:false,tagShareGroup:""})}
                     style={{fontSize:10,color:T.faint,background:"none",border:"none",cursor:"pointer"}}
                     onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
