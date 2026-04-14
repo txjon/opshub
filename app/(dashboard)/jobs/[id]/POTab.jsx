@@ -372,13 +372,48 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
       {vendors.length > 0 && (
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <span style={{fontSize:10,color:T.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em"}}>PO Status:</span>
-          {vendors.map(v=>(
-            <span key={v} style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:99,
-              background:poSentVendors.includes(v)?T.greenDim:T.surface,
-              color:poSentVendors.includes(v)?T.green:T.faint}}>
-              {v} {poSentVendors.includes(v)?"✓ Sent":"— Not sent"}
-            </span>
-          ))}
+          {vendors.map(v=>{
+            const sent = poSentVendors.includes(v);
+            return (
+            <button key={v} onClick={async()=>{
+              const supabase = createClient();
+              if (sent) {
+                // Un-mark as sent
+                const updated = poSentVendors.filter(x=>x!==v);
+                const meta = {...(project.type_meta||{}), po_sent_vendors: updated};
+                await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
+                if(onUpdateJob) onUpdateJob({type_meta:meta});
+                logJobActivity(project.id, `PO for ${v} unmarked as sent`);
+              } else {
+                // Mark as sent + advance items to in_production
+                const updated = [...new Set([...poSentVendors, v])];
+                const meta = {...(project.type_meta||{}), po_sent_vendors: updated};
+                await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
+                if(onUpdateJob) onUpdateJob({type_meta:meta});
+                const vendorItems = items.filter(it=>{
+                  const cp = costingData?.costProds?.find(cp=>cp.id===it.id);
+                  return cp?.printVendor===v;
+                });
+                for (const it of vendorItems) {
+                  if (it.pipeline_stage === "blanks_ordered" || !it.pipeline_stage) {
+                    await supabase.from("items").update({ pipeline_stage: "in_production", pipeline_timestamps: { ...(it.pipeline_timestamps || {}), in_production: new Date().toISOString() } }).eq("id", it.id);
+                  }
+                  const costProd = costingData?.costProds?.find(cp => cp.id === it.id);
+                  if (costProd?.printVendor) {
+                    const { data: da } = await supabase.from("decorator_assignments").select("id").eq("item_id", it.id).limit(1).single();
+                    if (da) await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", da.id);
+                  }
+                }
+                logJobActivity(project.id, `PO for ${v} manually marked as sent (${vendorItems.length} items)`);
+                if(onRecalcPhase) setTimeout(onRecalcPhase, 300);
+              }
+            }}
+              style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:99,cursor:"pointer",border:"none",
+                background:sent?T.greenDim:T.surface,
+                color:sent?T.green:T.faint}}>
+              {v} {sent?"✓ Sent":"— Not sent"}
+            </button>
+          );})}
           {allVendorsPoSent && <span style={{fontSize:10,color:T.green,fontWeight:600}}>All POs sent</span>}
         </div>
       )}
