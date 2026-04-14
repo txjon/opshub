@@ -1087,7 +1087,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     if (typeof onRegisterSave === "function") {
       onRegisterSave(async () => { await onSaveRef.current?.(); });
     }
-  }, [costProds, costMargin, inclShip, inclCC, orderInfo]);
+  }, []);
 
   const onSave = async () => {
     setSavedCostProds(JSON.parse(JSON.stringify(costProds)));

@@ -101,13 +101,21 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const clientDropdownRef = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const [saveOk, setSaveOk] = useState(false);
   const [portalCopied, setPortalCopied] = useState(false);
   const saveErrorTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const saveOkTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
   const handleSaveStatus = useCallback((s: string) => {
     if (s === "error") {
       setSaveError(true);
+      setSaveOk(false);
       if (saveErrorTimer.current) clearTimeout(saveErrorTimer.current);
       saveErrorTimer.current = setTimeout(() => setSaveError(false), 5000);
+    } else if (s === "saved") {
+      setSaveError(false);
+      setSaveOk(true);
+      if (saveOkTimer.current) clearTimeout(saveOkTimer.current);
+      saveOkTimer.current = setTimeout(() => setSaveOk(false), 1500);
     } else {
       setSaveError(false);
     }
@@ -396,11 +404,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     <div style={{fontFamily:"var(--font-sans)",color:T.text,maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
       {/* Back */}
       <button onClick={async ()=>{
-        if (tab==="costing" && saveCostingRef.current) {
-          try { await saveCostingRef.current(); } catch(e) {
-            if (!window.confirm("Costing data could not be auto-saved. Leave anyway?")) return;
-          }
-        }
+        try { await Promise.all([flushJobSave(), saveBuySheetRef.current?.(), saveCostingRef.current?.()]); } catch(e) {}
         router.push("/jobs");
       }} style={{background:"none",border:"none",color:T.faint,fontSize:11,cursor:"pointer",marginBottom:8,padding:0,fontFamily:font}}>
         ← All projects
@@ -1082,7 +1086,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>{/* end tab content */}
       </div>{/* end flex layout */}
 
-      {/* Error-only save indicator */}
+      {/* Save indicator */}
       {saveError && (
         <div style={{
           position:"fixed", bottom:20, right:20, zIndex:100,
@@ -1091,6 +1095,17 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           color:T.red, fontSize:12, fontWeight:600, fontFamily:font,
         }}>
           Save failed — check your connection
+        </div>
+      )}
+      {saveOk && !saveError && (
+        <div style={{
+          position:"fixed", bottom:20, right:20, zIndex:100,
+          padding:"6px 14px", borderRadius:8,
+          background:T.greenDim, border:`1px solid ${T.green}`,
+          color:T.green, fontSize:11, fontWeight:600, fontFamily:font,
+          opacity:0.9, transition:"opacity 0.3s",
+        }}>
+          Saved
         </div>
       )}
 

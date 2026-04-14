@@ -48,7 +48,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     if (typeof onRegisterSave === "function") {
       onRegisterSave(async () => { await onSaveRef.current?.(); });
     }
-  }, [currentSnapshot]);
+  }, []);
 
   const isDirtyRef = useRef(false);
   isDirtyRef.current = isDirty;

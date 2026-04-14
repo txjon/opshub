@@ -1170,7 +1170,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
     if (typeof onRegisterSave === "function") {
       onRegisterSave(async () => { await onSaveRef.current?.(); });
     }
-  }, [currentSnapshot]);
+  }, []);
 
   // Save on unmount if dirty
   const isDirtyRef = useRef(false);
