@@ -16,7 +16,7 @@ type Alert = {
   jobNumber: string;
   shipDate: string | null;
   href: string;
-  column: "sales" | "production";
+  column: "sales" | "production" | "billing";
   contacts?: { name: string; email: string; role?: string }[];
   vendors?: string[];
 };
@@ -26,7 +26,7 @@ const daysUntil = (iso: string) => Math.ceil((new Date(iso).getTime() - Date.now
 export function CommandCenter({ alerts, stats }: {
   alerts: Alert[];
   stats: {
-    active: number; items: number; units: number; prints: number; sales: number; production: number; shippingThisWeek: number;
+    active: number; items: number; units: number; prints: number; sales: number; production: number; billing: number; shippingThisWeek: number;
     needsBlanks: number; needsPO: number; needsProofs: number;
     atDecorator: number; shipped: number; stalled: number; awaitingClient: number;
     decoratorCounts: Record<string, number>;
@@ -56,6 +56,7 @@ export function CommandCenter({ alerts, stats }: {
 
   const salesAlerts = alerts.filter(a => a.column === "sales");
   const prodAlerts = alerts.filter(a => a.column === "production");
+  const billingAlerts = alerts.filter(a => a.column === "billing");
 
   function handleAction(alert: Alert) {
     // Invoice modal
@@ -262,11 +263,16 @@ export function CommandCenter({ alerts, stats }: {
         </div>
       )}
 
-      {/* Two-column layout */}
+      {/* Three-column layout */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
         {renderColumn("Sales", salesAlerts, T.purple)}
         {renderColumn("Production", prodAlerts, T.accent)}
       </div>
+      {billingAlerts.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          {renderColumn("Billing", billingAlerts, T.amber)}
+        </div>
+      )}
 
       {/* ── Invoice Number Modal ── */}
       {invoiceModal && (

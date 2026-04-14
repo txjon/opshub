@@ -142,46 +142,55 @@ export default async function DashboardPage() {
       }
     }
 
+    // ═══════════ BILLING ALERTS ═══════════
+
     // 4. Create invoice — timing depends on payment terms
     const isNet = terms === "net_15" || terms === "net_30";
     if (quoteApproved && !invoiceNum) {
       if (isNet) {
-        // Net terms: invoice at shipment on actual shipped quantities
         const hasShippedItems = items.some((it: any) => it.pipeline_stage === "shipped" || it.ship_tracking);
         const isShippingPhase = j.phase === "shipping" || j.phase === "fulfillment" || j.phase === "receiving";
         if (hasShippedItems || isShippingPhase) {
           alerts.push({ ...base, priority: 1, type: "create_invoice", color: T.amber,
             action: "Create invoice · order shipped, invoice on actual quantities",
-            href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+            href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
         }
       } else {
-        // Prepaid/deposit: invoice immediately after quote approval
         alerts.push({ ...base, priority: 1, type: "create_invoice", color: T.amber,
-          action: "Create invoice", href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+          action: "Create invoice", href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
       }
     }
 
-    // 5. Send invoice / follow up — clears after send, escalates after 2 days
+    // 5. Send invoice / follow up
     if (quoteApproved && invoiceNum && payments.length === 0) {
       const invoiceSentAt = typeMeta.invoice_sent_at ? new Date(typeMeta.invoice_sent_at) : null;
       const daysSinceInvoiceSent = invoiceSentAt ? Math.ceil((now.getTime() - invoiceSentAt.getTime()) / 86400000) : 0;
       if (invoiceSentAt && daysSinceInvoiceSent >= 2) {
-        // Sent 2+ days ago, no payment — follow up
-        alerts.push({ ...base, priority: 1, type: "follow_up_payment", color: T.amber,
-          action: `Follow up — invoice sent ${daysSinceInvoiceSent}d ago, no payment`,
-          href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+        // Net terms: only follow up when due date is ≤1 day away
+        if (isNet) {
+          const earliestDue = payments.filter((p: any) => p.due_date).map((p: any) => new Date(p.due_date).getTime()).sort()[0];
+          const daysToDue = earliestDue ? Math.ceil((earliestDue - now.getTime()) / 86400000) : null;
+          if (daysToDue !== null && daysToDue <= 1) {
+            alerts.push({ ...base, priority: 1, type: "follow_up_payment", color: T.amber,
+              action: `Payment due ${daysToDue <= 0 ? "today" : "tomorrow"} — follow up`,
+              href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
+          }
+        } else {
+          // Prepaid/deposit: follow up after 2 days
+          alerts.push({ ...base, priority: 1, type: "follow_up_payment", color: T.amber,
+            action: `Follow up — invoice sent ${daysSinceInvoiceSent}d ago, no payment`,
+            href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
+        }
       } else if (!invoiceSentAt) {
-        // Not sent yet — navigate to merged Proofs & Invoice tab
         if (isNet) {
           const termLabel = terms === "net_15" ? "net 15" : "net 30";
           alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
-            action: `Send proofs & invoice · ${termLabel}`, href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+            action: `Send proofs & invoice · ${termLabel}`, href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
         } else if (j.phase === "pending") {
           alerts.push({ ...base, priority: 1, type: "send_invoice", color: T.amber,
-            action: "Send proofs & invoice · payment required", href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+            action: "Send proofs & invoice · payment required", href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
         }
       }
-      // If sent < 2 days ago: no alert — give client time
     }
 
     // 5b. Overdue payments — past due date, not paid
@@ -190,7 +199,7 @@ export default async function DashboardPage() {
         const days = Math.ceil((now.getTime() - new Date(p.due_date).getTime()) / 86400000);
         alerts.push({ ...base, priority: 1, type: "overdue_payment", color: T.red,
           action: `Payment ${days}d overdue${p.amount ? ` · $${Number(p.amount).toLocaleString()}` : ""}`,
-          href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+          href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
       }
     }
 
@@ -410,6 +419,7 @@ export default async function DashboardPage() {
     prints: totalPrints,
     sales: alerts.filter(a => a.column === "sales").length,
     production: alerts.filter(a => a.column === "production").length,
+    billing: alerts.filter(a => a.column === "billing").length,
     shippingThisWeek: activeJobs.filter(j => {
       if (!j.target_ship_date) return false;
       const d = Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000);
