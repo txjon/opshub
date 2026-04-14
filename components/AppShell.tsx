@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut, FlaskConical, Truck, Users, Cog } from "lucide-react";
@@ -69,11 +69,11 @@ export function AppShell({
   const [activeDept, setActiveDept] = useState<Department>(detectDept(pathname));
   const [showSideQuests, setShowSideQuests] = useState(false);
 
-  // Update dept when pathname changes (e.g., cross-link click)
-  const currentDept = detectDept(pathname);
-  if (currentDept !== activeDept) {
-    setActiveDept(currentDept);
-  }
+  // Sync dept when pathname changes (after navigation completes, not during render)
+  useEffect(() => {
+    const deptFromPath = detectDept(pathname);
+    setActiveDept(deptFromPath);
+  }, [pathname]);
 
   const navItems = DEPT_NAV[activeDept] || [];
   const crossLink = DEPT_CROSSLINKS[activeDept];
