@@ -330,7 +330,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       return JSON.stringify(parsed);
     });
     setDragIdx(null); setDragOverIdx(null);
-    // Persist sort_order to DB immediately
+    // Update parent items immediately so sidebar + other consumers see new order
+    if (onSaved) onSaved(newItems);
+    // Persist sort_order to DB
     const supabase = createClient();
     for (let i = 0; i < newItems.length; i++) {
       const id = newItems[i].id;
@@ -338,8 +340,6 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         await supabase.from("items").update({ sort_order: i }).eq("id", id);
       }
     }
-    // Reload parent items so order persists across tab switches
-    if (onItemsChanged) onItemsChanged();
   };
 
   // Distribute
