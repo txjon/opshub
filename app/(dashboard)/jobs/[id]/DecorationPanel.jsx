@@ -201,8 +201,9 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                       onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>Share</button>
                   ) : shareGroup ? (
                     <>
-                      <select value={shareGroup} onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
-                        style={{padding:"2px 4px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${T.accent}`,borderRadius:4,cursor:"pointer",background:T.accent,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center",width:28}}>
+                      <select value={SHARE_GROUPS.includes(shareGroup) ? shareGroup : ""} onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
+                        style={{padding:"2px 4px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${SHARE_GROUPS.includes(shareGroup)?T.accent:T.red}`,borderRadius:4,cursor:"pointer",background:SHARE_GROUPS.includes(shareGroup)?T.accent:T.red,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center",width:28}}>
+                        {!SHARE_GROUPS.includes(shareGroup) && <option value="" disabled>?</option>}
                         {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
                       </select>
                       <button onClick={()=>updateLoc(loc,{shared:false,shareGroup:""})}
@@ -256,8 +257,9 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
               ) : (
                 <>
                   {p.tagShareGroup ? (
-                    <select value={p.tagShareGroup} onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value})}
-                      style={{padding:"2px 4px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${T.amber}`,borderRadius:4,cursor:"pointer",background:T.amber,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center",width:34}}>
+                    <select value={TAG_SHARE_GROUPS.includes(p.tagShareGroup) ? p.tagShareGroup : ""} onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value})}
+                      style={{padding:"2px 4px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${TAG_SHARE_GROUPS.includes(p.tagShareGroup)?T.amber:T.red}`,borderRadius:4,cursor:"pointer",background:TAG_SHARE_GROUPS.includes(p.tagShareGroup)?T.amber:T.red,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center",width:34}}>
+                      {!TAG_SHARE_GROUPS.includes(p.tagShareGroup) && <option value="" disabled>?</option>}
                       {TAG_SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
                     </select>
                   ) : (
