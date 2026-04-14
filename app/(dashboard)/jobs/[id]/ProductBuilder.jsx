@@ -278,7 +278,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       await supabase.from("favorites").delete().eq("supplier", supplier).eq("style_code", styleCode);
       setFavorites(prev => prev.filter(f => !(f.supplier === supplier && f.style_code === styleCode)));
     } else {
-      const { data } = await supabase.from("favorites").insert({ supplier, style_code: styleCode, style_name: styleName, category: "Other" }).select().single();
+      const { data } = await supabase.from("favorites").insert({ supplier, style_code: styleCode, style_name: styleName, category: sourceCategory || "Other" }).select().single();
       if (data) setFavorites(prev => [...prev, data].sort((a, b) => a.style_name.localeCompare(b.style_name)));
     }
   };

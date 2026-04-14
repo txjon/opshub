@@ -752,14 +752,18 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
       if (variant) blankCosts[sz] = pricing[variant.sku] || variant.price || 0;
     });
     const itemFullName = itemName.trim() || `${selFav.style_name} - ${selColor}`;
+    const supplierPrefix = { ascolour: "AS Colour", laapparel: "LA Apparel", cotton_collective: "Cotton Collective" };
+    const vendorStr = supplierPrefix[selFav.supplier]
+      ? `${supplierPrefix[selFav.supplier]} ${selFav.style_code}`
+      : selFav.style_name || selFav.style_code || "";
     onAdd({
       id: Date.now() + Math.random(),
       name: itemFullName,
-      blank_vendor: selFav.style_name || selFav.style_code || "",
+      blank_vendor: vendorStr,
       blank_sku: selColor,
       style: selFav.style_name,
       color: selColor,
-      garment_type: detectGarmentType(selFav.source_category, itemFullName + " " + (selFav.style_name || "")),
+      garment_type: detectGarmentType(selFav.category || "", itemFullName + " " + (selFav.style_name || "") + " " + selColor),
       sizes: allSizes, qtys, curve: DEFAULT_CURVE, totalQty: 0, blankCosts,
     });
     setItemName(""); setSelColor(null); setSelSizes({});
