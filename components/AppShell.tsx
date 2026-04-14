@@ -2,12 +2,16 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, FlaskConical, Truck, Users, Cog } from "lucide-react";
+import { LogOut, FlaskConical, Truck, Users, Cog, ChartColumn } from "lucide-react";
 import { GlobalSearch } from "@/components/GlobalSearch";
 
-type Department = "labs" | "distro" | "contacts" | "settings";
+type Department = "owner" | "labs" | "distro" | "contacts" | "settings";
 
 const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
+  owner: [
+    { href: "/insights", label: "Insights" },
+    { href: "/reports", label: "Reports" },
+  ],
   labs: [
     { href: "/dashboard", label: "Dashboard" },
     { href: "/jobs", label: "Projects" },
@@ -25,7 +29,6 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   ],
   settings: [
     { href: "/settings", label: "Settings" },
-    { href: "/reports", label: "Reports" },
   ],
 };
 
@@ -33,11 +36,11 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
 const SIDE_QUESTS = [
   { href: "/toolkit", label: "Toolkit" },
   { href: "/staging", label: "Staging" },
-  { href: "/insights", label: "Insights" },
   { href: "/ecomm", label: "E-Comm" },
 ];
 
 const DEPT_ICONS: Record<Department, { Icon: any; label: string }> = {
+  owner: { Icon: ChartColumn, label: "Owner" },
   labs: { Icon: FlaskConical, label: "Labs" },
   distro: { Icon: Truck, label: "Distro" },
   contacts: { Icon: Users, label: "Contacts" },
@@ -51,9 +54,10 @@ const DEPT_CROSSLINKS: Partial<Record<Department, { href: string; label: string;
 };
 
 function detectDept(pathname: string): Department {
+  if (["/insights", "/reports"].some(p => pathname.startsWith(p))) return "owner";
   if (["/distro", "/receiving", "/shipping", "/fulfillment", "/ecomm"].some(p => pathname.startsWith(p))) return "distro";
   if (["/clients", "/decorators"].some(p => pathname.startsWith(p))) return "contacts";
-  if (["/settings", "/reports"].some(p => pathname.startsWith(p))) return "settings";
+  if (["/settings"].some(p => pathname.startsWith(p))) return "settings";
   return "labs";
 }
 

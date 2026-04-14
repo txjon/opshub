@@ -17,6 +17,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const role = profile?.role ?? "readonly";
   const isOwner = role === "owner";
   const departments: string[] = profile?.departments || [];
+  if (isOwner && !departments.includes("owner")) departments.unshift("owner");
   const extraAccess: string[] = profile?.extra_access || [];
 
   return (
