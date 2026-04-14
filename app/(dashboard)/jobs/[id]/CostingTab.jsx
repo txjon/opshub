@@ -1077,7 +1077,6 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     const t = setTimeout(async () => {
       await onSaveRef.current?.();
       setSaveStatus("saved"); if(onSaveStatus) onSaveStatus("saved");
-      if(onSaveStatus) onSaveStatus("saved");
     }, 800);
     return () => clearTimeout(t);
   }, [costProds, costMargin, inclShip, inclCC, orderInfo]);
@@ -1089,7 +1088,10 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     }
   }, []);
 
+  const costingSaveInFlight = React.useRef(false);
   const onSave = async () => {
+    if (costingSaveInFlight.current) return;
+    costingSaveInFlight.current = true;
     setSavedCostProds(JSON.parse(JSON.stringify(costProds)));
     setSavedOrderInfo(JSON.parse(JSON.stringify(orderInfo)));
     if (project?.id) {
@@ -1157,7 +1159,8 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           }
         }
       } catch(e) { console.error("Failed to save costing data", e); setSaveStatus("error"); if(onSaveStatus) onSaveStatus("error"); }
-    }
+      finally { costingSaveInFlight.current = false; }
+    } else { costingSaveInFlight.current = false; }
   };
   onSaveRef.current = onSave;
   if (!pricingReady) return <div style={{padding:"2rem",color:T.muted,fontSize:13}}>Loading pricing...</div>;

@@ -58,8 +58,11 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     return () => { window.removeEventListener("beforeunload", handler); if (onSaveRef.current) onSaveRef.current(); };
   }, []);
 
-  // Save function — diffs against DB
+  // Save function — diffs against DB (guarded against concurrent execution)
+  const saveInFlight = useRef(false);
   const doSave = async () => {
+    if (saveInFlight.current) return; // Skip if already saving
+    saveInFlight.current = true;
     // Flush any pending qty inputs before saving (user may not have blurred)
     const pending = localQtysRef.current;
     let current = workingItems;
@@ -141,6 +144,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     } catch (e) {
       console.error("Product builder save failed", e);
       if (onSaveStatus) onSaveStatus("error");
+    } finally {
+      saveInFlight.current = false;
     }
   };
   onSaveRef.current = doSave;

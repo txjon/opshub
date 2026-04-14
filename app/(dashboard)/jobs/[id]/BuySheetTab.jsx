@@ -1186,7 +1186,10 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   }, []);
 
   // ── Save function: diffs against DB, writes changes, updates parent ────────
+  const saveInFlight = useRef(false);
   const doSave = async () => {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
     // Flush any pending qty inputs before saving (user may not have blurred)
     const pending = localQtysRef.current;
     let current = workingItems;
@@ -1286,6 +1289,8 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
     } catch (e) {
       console.error("Buy sheet save failed", e);
       if (onSaveStatus) onSaveStatus("error");
+    } finally {
+      saveInFlight.current = false;
     }
   };
   onSaveRef.current = doSave;
