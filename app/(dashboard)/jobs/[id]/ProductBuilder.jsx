@@ -251,8 +251,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [showAddType, setShowAddType] = useState(null);
   const [assignBlankTo, setAssignBlankTo] = useState(null);
   const [favorites, setFavorites] = useState([]);
-  const [dragIdx, setDragIdx] = useState(null);
-  const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [dragActive, setDragActive] = useState(false);
+  const dragIdxRef = useRef(null);
+  const dragOverRef = useRef(null);
   const [fileSummary, setFileSummary] = useState({}); // { itemId: { printReady: bool, fileCount: number, hasProof: bool } }
   const [psdProcessing, setPsdProcessing] = useState(null);
   const [distRow, setDistRow] = useState(null);
@@ -317,19 +318,18 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 
   // Drag reorder — saves sort_order to DB immediately (not debounced)
   const handleDrop = async (idx) => {
-    if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setDragOverIdx(null); return; }
+    const fromIdx = dragIdxRef.current;
+    if (fromIdx === null || fromIdx === idx) return;
     const newItems = [...(workingItems || [])];
-    const [moved] = newItems.splice(dragIdx, 1);
+    const [moved] = newItems.splice(fromIdx, 1);
     newItems.splice(idx, 0, moved);
     updateLocal(newItems);
     setSavedSnapshot(prev => {
       const parsed = JSON.parse(prev);
-      // Reorder savedSnapshot to match so dirty detection doesn't re-trigger for sort alone
       const idOrder = newItems.map(it => it.id);
       parsed.sort((a, b) => idOrder.indexOf(a.id) - idOrder.indexOf(b.id));
       return JSON.stringify(parsed);
     });
-    setDragIdx(null); setDragOverIdx(null);
     // Update parent items immediately so sidebar + other consumers see new order
     if (onSaved) onSaved(newItems);
     // Persist sort_order to DB
@@ -754,24 +754,56 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         const fileCount = 0; // Will be populated by ItemArtSection internally
 
         return (
-          <div key={item.id} id={`item-${item.id}`} style={{ position: "relative" }}>
-            {/* Drop indicator line — shows above this item when dragging over it */}
-            {dragIdx !== null && dragIdx !== idx && dragOverIdx === idx && dragIdx > idx && (
-              <div style={{ height: 3, background: T.accent, borderRadius: 2, marginBottom: 2 }} />
-            )}
-            <div
-              draggable={!isExpanded && !costingLocked}
-              onDragStart={e => { setDragIdx(idx); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", ""); }}
-              onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragIdx !== null && dragIdx !== idx) setDragOverIdx(idx); }}
-              onDrop={e => { e.preventDefault(); handleDrop(idx); }}
-              onDragEnd={() => { setDragIdx(null); setDragOverIdx(null); }}
-              style={{
-                background: T.card, border: `1px solid ${isExpanded ? T.accent + "44" : T.border}`,
-                borderRadius: isExpanded ? 12 : 10, overflow: "hidden",
-                opacity: dragIdx === idx ? 0.3 : 1, transition: "opacity 0.15s",
-                transform: dragIdx === idx ? "scale(0.98)" : "none",
-              }}
-            >
+          <div key={item.id} id={`item-${item.id}`}
+            data-idx={idx}
+            draggable={!isExpanded && !costingLocked}
+            onDragStart={e => {
+              dragIdxRef.current = idx;
+              setDragActive(true);
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("text/plain", "");
+              requestAnimationFrame(() => { e.currentTarget.style.opacity = "0.3"; });
+            }}
+            onDragOver={e => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              if (dragIdxRef.current === null || dragIdxRef.current === idx) return;
+              // Show drop indicator via DOM (no React re-render)
+              const el = e.currentTarget;
+              if (dragOverRef.current && dragOverRef.current !== el) {
+                dragOverRef.current.style.borderTop = "";
+                dragOverRef.current.style.borderBottom = "";
+              }
+              dragOverRef.current = el;
+              const above = dragIdxRef.current > idx;
+              el.style.borderTop = above ? `3px solid ${T.accent}` : "";
+              el.style.borderBottom = above ? "" : `3px solid ${T.accent}`;
+            }}
+            onDragLeave={e => {
+              if (!e.currentTarget.contains(e.relatedTarget)) {
+                e.currentTarget.style.borderTop = "";
+                e.currentTarget.style.borderBottom = "";
+              }
+            }}
+            onDrop={e => {
+              e.preventDefault();
+              e.currentTarget.style.borderTop = "";
+              e.currentTarget.style.borderBottom = "";
+              if (dragOverRef.current) { dragOverRef.current.style.borderTop = ""; dragOverRef.current.style.borderBottom = ""; }
+              handleDrop(idx);
+            }}
+            onDragEnd={e => {
+              e.currentTarget.style.opacity = "1";
+              if (dragOverRef.current) { dragOverRef.current.style.borderTop = ""; dragOverRef.current.style.borderBottom = ""; }
+              dragIdxRef.current = null;
+              dragOverRef.current = null;
+              setDragActive(false);
+            }}
+            style={{
+              background: T.card, border: `1px solid ${isExpanded ? T.accent + "44" : T.border}`,
+              borderRadius: isExpanded ? 12 : 10, overflow: "hidden",
+            }}
+          >
             {/* ── Header (always visible) ── */}
             <div
               onClick={() => setExpandedId(isExpanded ? null : item.id)}
@@ -812,11 +844,6 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 onFilesChanged={refreshFileSummary}
                 ic={ic} costingLocked={costingLocked}
               />
-            )}
-            </div>
-            {/* Drop indicator line — shows below this item when dragging over it */}
-            {dragIdx !== null && dragIdx !== idx && dragOverIdx === idx && dragIdx < idx && (
-              <div style={{ height: 3, background: T.accent, borderRadius: 2, marginTop: 2 }} />
             )}
           </div>
         );
