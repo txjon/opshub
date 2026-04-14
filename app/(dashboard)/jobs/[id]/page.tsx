@@ -221,10 +221,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     setLoading(false);
     initialLoadDone.current = true;
     // Auto-select first item for sidebar
-    if (!autoSelectedRef.current && itemsRes.data?.length) {
-      setSelectedItemId(itemsRes.data[0].id);
-      autoSelectedRef.current = true;
-    }
+    // Don't auto-select — show all items collapsed so drag reorder works
   }
 
   const jobSaveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -552,7 +549,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const isSelected = selectedItemId === item.id;
             return (
               <div key={item.id}
-                onClick={() => { setSelectedItemId(item.id); }}
+                onClick={() => { setSelectedItemId(prev => prev === item.id ? null : item.id); }}
                 style={{padding:"8px 12px 8px 16px",fontSize:12,display:"flex",alignItems:"center",gap:8,borderBottom:`1px solid ${T.border}`,cursor:"pointer",
                   background:isSelected?T.bg:"transparent",borderLeft:isSelected?`3px solid ${T.accent}`:"3px solid transparent",transition:"background 0.1s"}}>
                 <span style={{width:18,height:18,borderRadius:4,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>
