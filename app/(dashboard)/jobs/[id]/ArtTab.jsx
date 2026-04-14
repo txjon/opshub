@@ -212,49 +212,51 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     })();
   }, [mockupThumbUrl]);
 
-  // Auto-generate preview whenever inputs change
+  // Auto-generate preview whenever inputs change (debounced to avoid lag)
   useEffect(() => {
     if (!mockupDataUrl) return;
-    try {
-      const activeSizes = item.qtys ? Object.keys(item.qtys).filter(sz => item.qtys[sz] > 0) : null;
-      const hasActiveSizes = activeSizes && activeSizes.length > 0;
-      // Normalize size names for matching: XXL→2XL, XXXL→3XL, 2X→2XL, etc.
-      const normalizeSize = (s) => {
-        const u = (s || "").toUpperCase().trim();
-        if (u === "XXL" || u === "2X") return "2XL";
-        if (u === "XXXL" || u === "3X") return "3XL";
-        if (u === "XXXXL" || u === "4X") return "4XL";
-        if (u === "XXXXXL" || u === "5X") return "5XL";
-        return u;
-      };
-      const activeSizesNorm = hasActiveSizes ? activeSizes.map(normalizeSize) : null;
-      const printInfo = (psdPrintInfo || []).map(p => {
-        const isTag = (p.placement || "").toLowerCase() === "tag" || (p.placement || "").toLowerCase() === "tags";
-        const colors = (isTag && activeSizesNorm) ? (p.colors || []).filter(c => activeSizesNorm.includes(normalizeSize(c.name))) : (p.colors || []);
-        return { ...p, colors, callout: callouts[p.placement] || "" };
-      });
+    const timer = setTimeout(() => {
+      try {
+        const activeSizes = item.qtys ? Object.keys(item.qtys).filter(sz => item.qtys[sz] > 0) : null;
+        const hasActiveSizes = activeSizes && activeSizes.length > 0;
+        const normalizeSize = (s) => {
+          const u = (s || "").toUpperCase().trim();
+          if (u === "XXL" || u === "2X") return "2XL";
+          if (u === "XXXL" || u === "3X") return "3XL";
+          if (u === "XXXXL" || u === "4X") return "4XL";
+          if (u === "XXXXXL" || u === "5X") return "5XL";
+          return u;
+        };
+        const activeSizesNorm = hasActiveSizes ? activeSizes.map(normalizeSize) : null;
+        const printInfo = (psdPrintInfo || []).map(p => {
+          const isTag = (p.placement || "").toLowerCase() === "tag" || (p.placement || "").toLowerCase() === "tags";
+          const colors = (isTag && activeSizesNorm) ? (p.colors || []).filter(c => activeSizesNorm.includes(normalizeSize(c.name))) : (p.colors || []);
+          return { ...p, colors, callout: callouts[p.placement] || "" };
+        });
 
-      const doc = generateProofPdfClient({
-        mockupDataUrl,
-        printInfo,
-        clientName: clientName || "",
-        itemName: item.name || "",
-        blankVendor: item.blank_vendor || "",
-        blankStyle: item.blank_sku || "",
-        blankColor: item.color || "",
-        method: methods.join(", "),
-        instructions: selInstructions,
-        notes: notes.trim(),
-      });
+        const doc = generateProofPdfClient({
+          mockupDataUrl,
+          printInfo,
+          clientName: clientName || "",
+          itemName: item.name || "",
+          blankVendor: item.blank_vendor || "",
+          blankStyle: item.blank_sku || "",
+          blankColor: item.color || "",
+          method: methods.join(", "),
+          instructions: selInstructions,
+          notes: notes.trim(),
+        });
 
-      const pdfBlob = doc.output("blob");
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      const url = URL.createObjectURL(pdfBlob);
-      setPreviewUrl(url);
-      setPdfDoc(doc);
-    } catch (err) {
-      setError(err.message);
-    }
+        const pdfBlob = doc.output("blob");
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        const url = URL.createObjectURL(pdfBlob);
+        setPreviewUrl(url);
+        setPdfDoc(doc);
+      } catch (err) {
+        setError(err.message);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
   }, [mockupDataUrl, psdPrintInfo, methods, selInstructions, notes, callouts]);
 
   async function saveToDrive() {

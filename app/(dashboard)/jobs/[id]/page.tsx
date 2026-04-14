@@ -128,7 +128,25 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // Light reload — just items, doesn't reset tab or loading state
   async function reloadItems() {
     const { data } = await supabase.from("items").select("*, decorator_assignments(pipeline_stage, decoration_type, decorators(name)), buy_sheet_lines(size, qty_ordered, qty_shipped_from_vendor, qty_received_at_hpd)").eq("job_id", params.id).order("sort_order");
-    if (data) setItems(data as any);
+    if (data) {
+      const mapped = data.map((it: any) => {
+        const lines = it.buy_sheet_lines || [];
+        const sizes = sortSizes(lines.map((l: any) => l.size));
+        const qtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
+        const assignment = it.decorator_assignments?.[0];
+        return {
+          ...it,
+          sizes, qtys,
+          decorator: assignment?.decorators?.name || null,
+          decoration_type: assignment?.decoration_type || null,
+          pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || "blanks_ordered",
+          decorator_assignment_id: assignment?.id || null,
+          blankCosts: it.blank_costs || null,
+          pipeline_timestamps: it.pipeline_timestamps || {},
+        };
+      });
+      setItems(mapped);
+    }
   }
 
   async function loadData() {

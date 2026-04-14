@@ -315,6 +315,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         await supabase.from("items").update({ sort_order: i }).eq("id", id);
       }
     }
+    // Reload parent items so order persists across tab switches
+    if (onItemsChanged) onItemsChanged();
   };
 
   // Distribute
@@ -432,8 +434,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     }
 
     setPsdProcessing(null);
-    // New items were created in DB — clear localItems so fresh items prop takes over
-    // This is safe here because PSD drop is the start of the workflow (no unsaved edits to lose)
+    // Force-save any pending edits before reloading, so sizes/qtys aren't lost
+    if (isDirtyRef.current) await onSaveRef.current?.();
+    // Clear local state so fresh items prop takes over
     setLocalItems(null);
     setSavedSnapshot("");
     if (onItemsChanged) onItemsChanged();
