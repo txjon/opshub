@@ -235,6 +235,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   // ═══════════════════════════════════════════════════════════════
   // UI STATE
   // ═══════════════════════════════════════════════════════════════
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const [expandedId, setExpandedId] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBulkCreate, setShowBulkCreate] = useState(false);
@@ -743,18 +745,23 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       )}
 
       {/* ══ Item list ══ */}
-      <DragDropContext onDragEnd={onDragEnd}>
+      {mounted ? (
+      <DragDropContext onDragEnd={result => {
+        if (!result.destination || result.source.index === result.destination.index) return;
+        // Map filtered indices back to full array indices when sidebar is filtering
+        if (selectedItemId) return; // Can't reorder when viewing single item
+        onDragEnd(result);
+      }}>
         <Droppable droppableId="product-builder-items">
           {(droppableProvided) => (
             <div ref={droppableProvided.innerRef} {...droppableProvided.droppableProps}>
       {safeItems.map((item, idx) => {
-        // If sidebar has a selected item, only render that one
         if (selectedItemId && item.id !== selectedItemId) return null;
         const isExpanded = selectedItemId ? true : expandedId === item.id;
         const hasBlank = !!item.blank_vendor;
 
         return (
-          <Draggable key={item.id} draggableId={String(item.id)} index={idx} isDragDisabled={isExpanded || costingLocked}>
+          <Draggable key={String(item.id)} draggableId={String(item.id)} index={idx} isDragDisabled={isExpanded || costingLocked}>
             {(provided, snapshot) => (
           <div
             ref={provided.innerRef}
@@ -762,16 +769,17 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
             id={`item-${item.id}`}
             style={{
               ...provided.draggableProps.style,
-              background: T.card, border: `1px solid ${isExpanded ? T.accent + "44" : T.border}`,
+              background: snapshot.isDragging ? T.surface : T.card,
+              border: `1px solid ${snapshot.isDragging ? T.accent : isExpanded ? T.accent + "44" : T.border}`,
               borderRadius: isExpanded ? 12 : 10, overflow: "hidden",
-              opacity: snapshot.isDragging ? 0.6 : 1,
+              boxShadow: snapshot.isDragging ? "0 8px 24px rgba(0,0,0,0.15)" : "none",
               marginBottom: 6,
             }}
           >
             {/* ── Header (always visible) ── */}
             <div
               {...(!isExpanded ? provided.dragHandleProps : {})}
-              onClick={() => setExpandedId(isExpanded ? null : item.id)}
+              onClick={() => { if (!snapshot.isDragging) setExpandedId(isExpanded ? null : item.id); }}
               style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 10, cursor: isExpanded ? "pointer" : "grab", borderBottom: isExpanded ? `1px solid ${T.border}44` : "none" }}
             >
               <span style={{ width: 22, height: 22, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
@@ -820,6 +828,13 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           )}
         </Droppable>
       </DragDropContext>
+      ) : (
+        /* Pre-mount: render items without drag (avoids SSR hydration issues) */
+        <div>{safeItems.map((item, idx) => {
+          if (selectedItemId && item.id !== selectedItemId) return null;
+          return <div key={item.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 16px", marginBottom: 6, fontSize: 13, fontWeight: 600 }}>{item.name || "Untitled"}</div>;
+        })}</div>
+      )}
 
       {/* Empty state */}
       {isEmpty && !psdProcessing && (
