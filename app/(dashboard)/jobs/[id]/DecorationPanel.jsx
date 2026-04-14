@@ -4,6 +4,7 @@ import { T, font, mono } from "@/lib/theme";
 
 const LOCATION_PRESETS = ["Front","Back","Left Sleeve","Right Sleeve","Left Chest","Right Chest","Neck","Hood","Pocket"];
 const SHARE_GROUPS = ["A","B","C","D","E","F","G","H","I","J"];
+const TAG_SHARE_GROUPS = ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10"];
 
 export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice }) {
   const pr = PRINTERS[p.printVendor] || {};
@@ -256,14 +257,14 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                 <>
                   {p.tagShareGroup ? (
                     <select value={p.tagShareGroup} onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value})}
-                      style={{padding:"2px 4px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${T.accent}`,borderRadius:4,cursor:"pointer",background:T.accent,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center",width:28}}>
-                      {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
+                      style={{padding:"2px 4px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${T.amber}`,borderRadius:4,cursor:"pointer",background:T.amber,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center",width:34}}>
+                      {TAG_SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
                     </select>
                   ) : (
                     <select value="" onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value})}
                       style={{padding:"2px 4px",fontSize:10,fontFamily:font,border:`1px solid ${T.border}`,borderRadius:4,cursor:"pointer",background:"transparent",color:T.muted,outline:"none"}}>
                       <option value="" disabled>Group</option>
-                      {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
+                      {TAG_SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
                     </select>
                   )}
                   <button onClick={()=>updateProd(i,{...p,tagShared:false,tagShareGroup:""})}
