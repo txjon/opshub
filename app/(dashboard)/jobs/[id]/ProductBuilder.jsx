@@ -754,23 +754,28 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         const fileCount = 0; // Will be populated by ItemArtSection internally
 
         return (
-          <div key={item.id} id={`item-${item.id}`}
-            draggable={!isExpanded}
-            onDragStart={() => setDragIdx(idx)}
-            onDragOver={e => { e.preventDefault(); setDragOverIdx(idx); }}
-            onDragLeave={() => setDragOverIdx(null)}
-            onDrop={() => handleDrop(idx)}
-            onDragEnd={() => { setDragIdx(null); setDragOverIdx(null); }}
-            style={{
-              background: T.card, border: `1px solid ${isExpanded ? T.accent + "44" : dragOverIdx === idx ? T.accent : T.border}`,
-              borderRadius: isExpanded ? 12 : 10, overflow: "hidden",
-              opacity: dragIdx === idx ? 0.5 : 1, transition: "border-color 0.15s",
-            }}
-          >
+          <div key={item.id} id={`item-${item.id}`} style={{ position: "relative" }}>
+            {/* Drop indicator line — shows above this item when dragging over it */}
+            {dragIdx !== null && dragIdx !== idx && dragOverIdx === idx && dragIdx > idx && (
+              <div style={{ height: 3, background: T.accent, borderRadius: 2, marginBottom: 2 }} />
+            )}
+            <div
+              draggable={!isExpanded && !costingLocked}
+              onDragStart={e => { setDragIdx(idx); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", ""); }}
+              onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragIdx !== null && dragIdx !== idx) setDragOverIdx(idx); }}
+              onDrop={e => { e.preventDefault(); handleDrop(idx); }}
+              onDragEnd={() => { setDragIdx(null); setDragOverIdx(null); }}
+              style={{
+                background: T.card, border: `1px solid ${isExpanded ? T.accent + "44" : T.border}`,
+                borderRadius: isExpanded ? 12 : 10, overflow: "hidden",
+                opacity: dragIdx === idx ? 0.3 : 1, transition: "opacity 0.15s",
+                transform: dragIdx === idx ? "scale(0.98)" : "none",
+              }}
+            >
             {/* ── Header (always visible) ── */}
             <div
               onClick={() => setExpandedId(isExpanded ? null : item.id)}
-              style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", borderBottom: isExpanded ? `1px solid ${T.border}44` : "none" }}
+              style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 10, cursor: isExpanded ? "pointer" : "grab", borderBottom: isExpanded ? `1px solid ${T.border}44` : "none" }}
             >
               <span style={{ width: 22, height: 22, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
                 {String.fromCharCode(65 + idx)}
@@ -807,6 +812,11 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 onFilesChanged={refreshFileSummary}
                 ic={ic} costingLocked={costingLocked}
               />
+            )}
+            </div>
+            {/* Drop indicator line — shows below this item when dragging over it */}
+            {dragIdx !== null && dragIdx !== idx && dragOverIdx === idx && dragIdx < idx && (
+              <div style={{ height: 3, background: T.accent, borderRadius: 2, marginTop: 2 }} />
             )}
           </div>
         );
