@@ -1187,7 +1187,23 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
 
   // ── Save function: diffs against DB, writes changes, updates parent ────────
   const doSave = async () => {
-    const current = workingItems;
+    // Flush any pending qty inputs before saving (user may not have blurred)
+    const pending = localQtysRef.current;
+    let current = workingItems;
+    if (pending && Object.keys(pending).length > 0) {
+      current = (current || []).map(it => {
+        let newQtys = { ...(it.qtys || {}) };
+        let modified = false;
+        (it.sizes || []).forEach(sz => {
+          const key = it.id + "_" + sz;
+          if (pending[key] !== undefined) { newQtys[sz] = parseInt(pending[key]) || 0; modified = true; }
+        });
+        return modified ? { ...it, qtys: newQtys, totalQty: Object.values(newQtys).reduce((a, v) => a + v, 0) } : it;
+      });
+      localQtysRef.current = {};
+      setLocalQtys({});
+      setLocalItems(current);
+    }
     const saved = JSON.parse(savedSnapshot);
     const supabase = createClient();
 
