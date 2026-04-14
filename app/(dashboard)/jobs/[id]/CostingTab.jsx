@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
@@ -158,6 +159,18 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
     updateProd(i,{...p,blankCosts:{...(p.blankCosts||{}),[sz]:parsed}});
   };
   const toggleCollapse=(id)=>setCollapsed(p=>({...p,[id]:!p[id]}));
+
+  // Mockup thumbnails for visual reference
+  const [mockupMap, setMockupMap] = useState({});
+  React.useEffect(() => {
+    const ids = (costProds || []).map(p => p.id).filter(Boolean);
+    if (ids.length === 0) return;
+    createClient().from("item_files").select("item_id, drive_file_id").in("item_id", ids).eq("stage", "mockup").then(({ data }) => {
+      const m = {};
+      for (const f of (data || [])) m[f.item_id] = f.drive_file_id;
+      setMockupMap(m);
+    });
+  }, [costProds?.length]);
 
   // Note: buyItems sync is handled by CostingTabWrapper (updates both costProds + savedCostProds)
 
@@ -640,6 +653,14 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                   </tbody>
                 </table>
               </div>
+              {/* Mockup thumbnail — shows for selected item */}
+              {selectedItemId && mockupMap[selectedItemId] && (
+                <div style={{borderRadius:8,overflow:"hidden",border:`1px solid ${T.border}`}}>
+                  <img src={`/api/files/thumbnail?id=${mockupMap[selectedItemId]}`} alt=""
+                    style={{width:"100%",display:"block",objectFit:"contain"}}
+                    onError={e=>{e.currentTarget.style.display="none";}} />
+                </div>
+              )}
             </div>
             );
           })()}
