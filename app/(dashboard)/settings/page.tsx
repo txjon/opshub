@@ -9,7 +9,7 @@ export default async function SettingsPage() {
   if (!user) redirect("/login");
 
   const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-  if (profile?.role !== "manager") redirect("/dashboard");
+  if (!["manager", "owner"].includes(profile?.role)) redirect("/dashboard");
 
   // Use service role to access auth.users for emails
   const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
