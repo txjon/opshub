@@ -38,9 +38,9 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
   };
 
   const getTagSharedQty = () => {
-    if (!p.tagShared || !p.tagShareGroup) return p.totalQty;
+    if (!p.tagShareGroup) return p.totalQty;
     return costProds.reduce((sum, cp) => {
-      if (cp.tagPrint && cp.tagShared && cp.tagShareGroup?.trim().toLowerCase() === p.tagShareGroup.trim().toLowerCase()) return sum + (cp.totalQty||0);
+      if (cp.tagPrint && cp.tagShareGroup?.trim().toLowerCase() === p.tagShareGroup.trim().toLowerCase()) return sum + (cp.totalQty||0);
       return sum;
     }, 0);
   };
@@ -276,7 +276,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
               )}
             </div>
             <span style={{fontSize:10,color:T.muted,fontFamily:mono}}>
-              ${p.printVendor ? (lookupTagPrice(p.printVendor, p.tagShared && p.tagShareGroup ? getTagSharedQty() : (p.totalQty||0)) || 0).toFixed(2) : "—"}
+              ${p.printVendor ? (lookupTagPrice(p.printVendor, p.tagShareGroup ? getTagSharedQty() : (p.totalQty||0)) || 0).toFixed(2) : "—"}
             </span>
           </>
         )}

@@ -124,11 +124,11 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
 
   // Tag print
   if (p.tagPrint && p.printVendor) {
-    const tagGroup = (p.tagShared && p.tagShareGroup) ? p.tagShareGroup : "";
+    const tagGroup = p.tagShareGroup || "";
     let tagEffQty = qty;
     if (tagGroup && allProds) {
       tagEffQty = allProds.reduce((sum: number, cp: any) => {
-        if (cp.tagPrint && cp.tagShared && cp.tagShareGroup && cp.tagShareGroup.trim().toLowerCase() === tagGroup.trim().toLowerCase()) return sum + (cp.totalQty || 0);
+        if (cp.tagPrint && cp.tagShareGroup && cp.tagShareGroup.trim().toLowerCase() === tagGroup.trim().toLowerCase()) return sum + (cp.totalQty || 0);
         return sum;
       }, 0) || qty;
     }
