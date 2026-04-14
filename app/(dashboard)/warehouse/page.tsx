@@ -166,10 +166,19 @@ export default function WarehousePage() {
     const now = new Date().toISOString();
     await supabase.from("items").update({ received_at_hpd: true, received_at_hpd_at: now }).eq("id", item.id);
     logJobActivity(item.job_id, `${item.name} received at warehouse`);
-    setJobs(prev => prev.map(j => ({
-      ...j,
-      items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now } : it),
-    })));
+    setJobs(prev => {
+      const updated = prev.map(j => ({
+        ...j,
+        items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now } : it),
+      }));
+      // Auto-switch tab when all items in a job are received
+      const job = updated.find(j => j.items.some(it => it.id === item.id));
+      if (job && job.items.every(it => it.received_at_hpd)) {
+        const dest = job.shipping_route === "stage" ? "fulfillment" : "shipping";
+        setTimeout(() => setActiveTab(dest), 0);
+      }
+      return updated;
+    });
     setTimeout(() => recalcJobPhase(item.job_id), 300);
   }
 
