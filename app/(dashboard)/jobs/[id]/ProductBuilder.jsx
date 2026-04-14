@@ -785,16 +785,18 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 e.currentTarget.style.borderBottom = "";
               }
             }}
-            onDrop={e => {
-              e.preventDefault();
-              e.currentTarget.style.borderTop = "";
-              e.currentTarget.style.borderBottom = "";
-              if (dragOverRef.current) { dragOverRef.current.style.borderTop = ""; dragOverRef.current.style.borderBottom = ""; }
-              handleDrop(idx);
-            }}
+            onDrop={e => { e.preventDefault(); }}
             onDragEnd={e => {
               e.currentTarget.style.opacity = "1";
-              if (dragOverRef.current) { dragOverRef.current.style.borderTop = ""; dragOverRef.current.style.borderBottom = ""; }
+              // Execute the move using last known hover target (more reliable than onDrop)
+              const fromIdx = dragIdxRef.current;
+              const toEl = dragOverRef.current;
+              if (toEl && fromIdx !== null) {
+                toEl.style.borderTop = "";
+                toEl.style.borderBottom = "";
+                const toIdx = parseInt(toEl.dataset.idx);
+                if (!isNaN(toIdx) && fromIdx !== toIdx) handleDrop(toIdx);
+              }
               dragIdxRef.current = null;
               dragOverRef.current = null;
               setDragActive(false);
