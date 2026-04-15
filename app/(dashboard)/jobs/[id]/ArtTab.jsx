@@ -264,7 +264,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     // Close modal immediately, upload in background
     const pdfBlob = pdfDoc.output("blob");
     const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
-    onClose();
+    onClose(true);
     // Background upload — onSaved refreshes file list when upload completes
     (async () => {
       try {
@@ -289,12 +289,12 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     if (previewUrl) {
       if (!window.confirm("Save proof to Drive before closing?")) {
         URL.revokeObjectURL(previewUrl);
-        onClose();
+        onClose(false);
         return;
       }
       saveToDrive();
     } else {
-      onClose();
+      onClose(false);
     }
   }
 
