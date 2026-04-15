@@ -40,7 +40,8 @@ export function detectGarmentType(category, name) {
   if (n.includes("key chain") || n.includes("keychain")) return "key_chain";
   if (n.includes("water bottle") || n.includes("bottle")) return "water_bottle";
   if (n.includes("woven label")) return "woven_labels";
-  if (n.includes("tee") || n.includes("t-shirt") || n.includes("tank")) return "tee";
+  if (n.includes("tee") || n.includes("t-shirt") || n.includes("tank") || n.includes("sun shirt") || n.includes("performance")) return "tee";
+  if (n.includes("shirt")) return "longsleeve";
   return "custom";
 }
 
