@@ -4,12 +4,13 @@ Internal operations platform for House Party Distro, a custom apparel company in
 
 ## MANDATORY: Before Writing Any Code
 
-DO NOT write code until you have completed these steps. No exceptions.
+DO NOT write code until you have completed these steps. No exceptions. These are not suggestions. Skipping these steps has repeatedly caused regressions — working features broken by changes that didn't account for all callers/consumers.
 
 1. **Read every file you're about to change.** Not grep. Read.
-2. **Find every place the affected data is read.** Grep the entire codebase for the field name. List them.
+2. **Find every caller.** Before changing ANY function signature, callback, prop, or data field: grep the entire codebase for every place it's called, passed, or consumed. List them explicitly. If a function like `onClose(true)` passes a boolean, find every handler that receives it before removing or changing that boolean.
 3. **State your plan in plain English before coding.** What changes, what reads it, what needs to update. Get confirmation if the scope is bigger than a UI tweak.
 4. **If you're unsure about something, ask.** Don't guess and ship.
+5. **After making a change, verify you didn't break callers.** Grep again for the function/prop/field you changed. Confirm every consumer still works with the new signature.
 
 ## What "done" means
 
