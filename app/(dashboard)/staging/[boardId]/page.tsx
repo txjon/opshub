@@ -392,12 +392,12 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                           if (moodExpanded !== item.id && !messages[item.id]) loadMessages(item.id);
                         }}
                         style={{
-                          background: T.card,
-                          border: `1px solid ${isDragging ? T.accent : T.border}`,
+                          background: "#fff",
+                          border: `1px solid ${isDragging ? T.accent : "#d0d3da"}`,
                           borderRadius: 10,
                           overflow: "hidden",
                           cursor: "grab",
-                          boxShadow: isDragging ? "0 8px 24px rgba(0,0,0,0.15)" : "none",
+                          boxShadow: isDragging ? "0 8px 24px rgba(0,0,0,0.15)" : "0 1px 3px rgba(0,0,0,0.06)",
                         }}>
                         {/* Image area — 5:4 landscape, no crop */}
                         <div style={{
