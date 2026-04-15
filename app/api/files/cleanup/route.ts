@@ -4,7 +4,7 @@ export const maxDuration = 30;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { renameItemFolder, archiveItemFolder, archiveProjectFolder } from "@/lib/drive-cleanup";
+import { renameItemFolder, deleteItemFolder, deleteProjectFolder } from "@/lib/drive-cleanup";
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,41 +24,38 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success, action: "rename-item" });
     }
 
-    // ── Archive item folder + soft delete ──
+    // ── Delete item folder + DB records ──
     if (action === "archive-item") {
       if (!clientName || !projectTitle || !itemName || !itemId) {
         return NextResponse.json({ error: "Missing fields" }, { status: 400 });
       }
-      // Archive Drive folder
-      const driveSuccess = await archiveItemFolder(clientName, projectTitle, itemName);
+      // Delete Drive folder (goes to Drive trash — 30 day recovery)
+      const driveSuccess = await deleteItemFolder(clientName, projectTitle, itemName);
 
-      // Soft delete: mark item as deleted (keep record)
-      await admin.from("items").update({ status: "deleted", pipeline_stage: "deleted" }).eq("id", itemId);
+      // Delete item files from DB
+      await admin.from("item_files").delete().eq("item_id", itemId);
 
-      // Mark all item_files as deleted
-      await admin.from("item_files").update({ stage: "archived" }).eq("item_id", itemId);
-
-      return NextResponse.json({ success: true, driveArchived: driveSuccess, action: "archive-item" });
+      return NextResponse.json({ success: true, driveDeleted: driveSuccess, action: "archive-item" });
     }
 
-    // ── Archive project folder + soft delete ──
+    // ── Delete project folder + mark cancelled ──
     if (action === "archive-project") {
       if (!clientName || !projectTitle || !jobId) {
         return NextResponse.json({ error: "Missing fields" }, { status: 400 });
       }
-      // Archive Drive folder
-      const driveSuccess = await archiveProjectFolder(clientName, projectTitle);
+      // Delete Drive folder (goes to Drive trash — 30 day recovery)
+      const driveSuccess = await deleteProjectFolder(clientName, projectTitle);
 
-      // Soft delete: mark job as cancelled
+      // Mark job as cancelled
       await admin.from("jobs").update({ phase: "cancelled" }).eq("id", jobId);
 
       // Log activity
       await admin.from("job_activity").insert({
         job_id: jobId, user_id: user.id, type: "auto",
-        message: "Project archived — files moved to Drive _Archive folder",
+        message: "Project deleted — files removed from Drive",
       });
 
-      return NextResponse.json({ success: true, driveArchived: driveSuccess, action: "archive-project" });
+      return NextResponse.json({ success: true, driveDeleted: driveSuccess, action: "archive-project" });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

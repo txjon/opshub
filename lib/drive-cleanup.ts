@@ -69,24 +69,12 @@ export async function renameFolder(folderId: string, newName: string): Promise<v
 }
 
 /**
- * Move a folder to _Archive inside its grandparent (client folder).
- * Structure: Root / Client / _Archive / {folder}
- * The folder keeps its name for reference.
+ * Permanently delete a folder and all its contents from Drive.
+ * Drive trash retains files for 30 days if recovery is needed.
  */
-export async function archiveFolder(folderId: string, clientFolderId: string): Promise<void> {
+export async function deleteFolderPermanently(folderId: string): Promise<void> {
   const drive = getDrive();
-  const archiveId = await findOrCreateFolder("_Archive", clientFolderId);
-
-  // Get current parents to remove
-  const file = await drive.files.get({ fileId: folderId, fields: "parents" });
-  const currentParents = (file.data.parents || []).join(",");
-
-  // Move to archive
-  await drive.files.update({
-    fileId: folderId,
-    addParents: archiveId,
-    removeParents: currentParents,
-  });
+  await drive.files.update({ fileId: folderId, requestBody: { trashed: true } });
 }
 
 /**
@@ -136,10 +124,10 @@ export async function renameItemFolder(
 }
 
 /**
- * Archive an item's Drive folder.
- * Moves: Root / clientName / projectTitle / itemName → Root / clientName / _Archive / projectTitle - itemName
+ * Delete an item's Drive folder permanently.
+ * Trashes: Root / clientName / projectTitle / itemName
  */
-export async function archiveItemFolder(
+export async function deleteItemFolder(
   clientName: string,
   projectTitle: string,
   itemName: string
@@ -150,23 +138,20 @@ export async function archiveItemFolder(
   if (!projectFolderId) return false;
   const itemFolderId = await findFolder(itemName, projectFolderId);
   if (!itemFolderId) return false;
-
-  // Rename to "ProjectTitle - ItemName" before archiving for context
-  await renameFolder(itemFolderId, `${projectTitle} - ${itemName}`);
-  await archiveFolder(itemFolderId, clientFolderId);
+  await deleteFolderPermanently(itemFolderId);
   return true;
 }
 
 /**
- * Archive an entire project's Drive folder.
- * Moves: Root / clientName / projectTitle → Root / clientName / _Archive / projectTitle
+ * Delete an entire project's Drive folder permanently.
+ * Trashes: Root / clientName / projectTitle
  */
-export async function archiveProjectFolder(
+export async function deleteProjectFolder(
   clientName: string,
   projectTitle: string
 ): Promise<boolean> {
   const result = await findProjectFolder(clientName, projectTitle);
   if (!result) return false;
-  await archiveFolder(result.projectFolderId, result.clientFolderId);
+  await deleteFolderPermanently(result.projectFolderId);
   return true;
 }

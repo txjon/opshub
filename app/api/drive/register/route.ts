@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { deleteFile } from "@/lib/google-drive";
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,6 +12,15 @@ export async function POST(req: NextRequest) {
 
     if (!fileId || !itemId || !stage) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    // Overwrite: delete existing files of the same stage for this item (proof, mockup)
+    if (stage === "proof" || stage === "mockup") {
+      const { data: existing } = await supabase.from("item_files").select("id, drive_file_id").eq("item_id", itemId).eq("stage", stage);
+      for (const old of (existing || [])) {
+        if (old.drive_file_id) { try { await deleteFile(old.drive_file_id); } catch {} }
+        await supabase.from("item_files").delete().eq("id", old.id);
+      }
     }
 
     const { data, error } = await supabase.from("item_files").insert({
