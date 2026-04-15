@@ -351,10 +351,10 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
       {/* ── Mood Board (Pending tab) ── */}
       {activeTab === "items" && mounted && (
         <DragDropContext onDragEnd={handleMoodDragEnd}>
-          <Droppable droppableId="mood-board" direction="horizontal">
+          <Droppable droppableId="mood-board">
             {(droppableProvided) => (
               <div ref={droppableProvided.innerRef} {...droppableProvided.droppableProps}
-                style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12 }}>
+                style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                 {sortedItems.map((item, idx) => {
                   const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
                   const imgUrl = item.images?.[0]?.url;
@@ -373,6 +373,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                           }}
                           style={{
                             ...provided.draggableProps.style,
+                            width: isMobile ? "calc(50% - 6px)" : "calc(25% - 9px)",
                             background: T.card,
                             border: `1px solid ${snapshot.isDragging ? T.accent : T.border}`,
                             borderRadius: 10,
@@ -432,6 +433,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                 <div
                   onClick={addItem}
                   style={{
+                    width: isMobile ? "calc(50% - 6px)" : "calc(25% - 9px)",
                     background: "transparent",
                     border: `1px dashed ${T.border}`,
                     borderRadius: 10,
