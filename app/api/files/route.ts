@@ -77,7 +77,38 @@ export async function GET(req: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({ files: data || [] });
+    const files = data || [];
+    if (files.length === 0) return NextResponse.json({ files: [] });
+
+    // Verify files still exist in Drive — clean up orphans
+    const driveIds = files.filter(f => f.drive_file_id).map(f => f.drive_file_id);
+    if (driveIds.length > 0) {
+      try {
+        const { getDriveToken } = await import("@/lib/drive-token");
+        const token = await getDriveToken();
+        const checks = await Promise.all(driveIds.map(async (id) => {
+          try {
+            const res = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?fields=id,trashed`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) return { id, exists: false };
+            const data = await res.json();
+            return { id, exists: !data.trashed };
+          } catch { return { id, exists: false }; }
+        }));
+        const gone = new Set(checks.filter(c => !c.exists).map(c => c.id));
+        if (gone.size > 0) {
+          // Clean up orphaned DB records
+          const orphanIds = files.filter(f => gone.has(f.drive_file_id)).map(f => f.id);
+          if (orphanIds.length > 0) {
+            await supabase.from("item_files").delete().in("id", orphanIds);
+          }
+          return NextResponse.json({ files: files.filter(f => !gone.has(f.drive_file_id)) });
+        }
+      } catch { /* Drive check failed — return files as-is */ }
+    }
+
+    return NextResponse.json({ files });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed to load files" }, { status: 500 });
   }
