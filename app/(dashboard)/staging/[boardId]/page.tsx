@@ -403,7 +403,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                         <div style={{
                           width: "100%",
                           aspectRatio: "5 / 4",
-                          background: T.surface,
+                          background: "#fff",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
