@@ -422,14 +422,15 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
                           {msgCount > 0 && (
                             <span style={{ position: "absolute", bottom: 8, right: 8, fontSize: 11, background: T.accent, color: "#fff", borderRadius: 6, padding: "2px 8px", fontWeight: 700, boxShadow: "0 2px 6px rgba(0,0,0,0.3)" }}>{msgCount} msg</span>
                           )}
-                          <span style={{ position: "absolute", top: 6, left: 6, padding: "1px 6px", borderRadius: 99, fontSize: 8, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
                         </div>
-                        {/* Name + qty */}
+                        {/* Name + status dot + qty */}
                         <div style={{ padding: "8px 10px" }}>
                           <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "Untitled"}</div>
-                          <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                            {item.qty ? `${item.qty} qty` : ""}
-                            {item.retail ? ` · ${fmtD(item.qty * parseFloat(item.retail))}` : ""}
+                          <div style={{ fontSize: 10, color: T.muted, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: "50%", background: sc.text, flexShrink: 0 }} />
+                            <span style={{ color: sc.text, fontWeight: 600 }}>{item.status || "Pending"}</span>
+                            {item.qty ? <span>· {item.qty} qty</span> : null}
+                            {item.retail ? <span>· {fmtD(item.qty * parseFloat(item.retail))}</span> : null}
                           </div>
                         </div>
                       </div>
