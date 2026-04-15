@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -46,9 +47,8 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
   const [moodExpanded, setMoodExpanded] = useState<string | null>(null);
   const [messages, setMessages] = useState<Record<string, any[]>>({});
   const [msgInput, setMsgInput] = useState<Record<string, string>>({});
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-  const [didDrag, setDidDrag] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const latestValues = useRef<Record<string, any>>({});
 
@@ -155,13 +155,12 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
     }
   }
 
-  function handleMoodDrop(fromIdx: number, toIdx: number) {
-    if (fromIdx === toIdx) return;
+  function handleMoodDragEnd(result: any) {
+    if (!result.destination || result.source.index === result.destination.index) return;
     const pending = items.filter(it => it.status !== "In Production" && it.status !== "LANDED");
     const reordered = [...pending];
-    const [moved] = reordered.splice(fromIdx, 1);
-    reordered.splice(toIdx, 0, moved);
-    // Update sort_order for all reordered items
+    const [moved] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, moved);
     const updates = reordered.map((it, i) => ({ ...it, sort_order: i }));
     setItems(prev => {
       const nonPending = prev.filter(it => it.status === "In Production" || it.status === "LANDED");
@@ -350,104 +349,110 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
       </div>
 
       {/* ── Mood Board (Pending tab) ── */}
-      {activeTab === "items" && <>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)",
-          gap: 12,
-        }}>
-          {sortedItems.map((item, idx) => {
-            const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
-            const imgUrl = item.images?.[0]?.url;
-            const msgCount = messages[item.id]?.length || 0;
+      {activeTab === "items" && mounted && (
+        <DragDropContext onDragEnd={handleMoodDragEnd}>
+          <Droppable droppableId="mood-board" direction="horizontal">
+            {(droppableProvided) => (
+              <div ref={droppableProvided.innerRef} {...droppableProvided.droppableProps}
+                style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12 }}>
+                {sortedItems.map((item, idx) => {
+                  const sc = STATUS_COLORS[item.status] || STATUS_COLORS.Pending;
+                  const imgUrl = item.images?.[0]?.url;
+                  const msgCount = messages[item.id]?.length || 0;
 
-            return (
-              <div key={item.id}
-                onClick={() => {
-                  setMoodExpanded(moodExpanded === item.id ? null : item.id);
-                  if (moodExpanded !== item.id && !messages[item.id]) loadMessages(item.id);
-                }}
-                onDragOver={e => { e.preventDefault(); setDragOverIdx(idx); }}
-                style={{
-                  background: T.card,
-                  border: `1px solid ${dragOverIdx === idx ? T.accent : T.border}`,
-                  borderRadius: 10,
-                  overflow: "hidden",
-                  cursor: "pointer",
-                  opacity: dragIdx === idx ? 0.4 : 1,
-                  transition: "border-color 0.15s, opacity 0.15s",
-                }}>
-                {/* Drag handle (desktop only) */}
-                {!isMobile && (
-                  <div
-                    draggable
-                    onDragStart={e => { setDragIdx(idx); e.stopPropagation(); }}
-                    onDragEnd={() => { if (dragIdx !== null && dragOverIdx !== null) handleMoodDrop(dragIdx, dragOverIdx); setDragIdx(null); setDragOverIdx(null); }}
-                    onClick={e => e.stopPropagation()}
-                    style={{ padding: "3px 0", textAlign: "center", cursor: "grab", background: T.surface, fontSize: 9, color: T.faint, letterSpacing: 3, userSelect: "none" }}>
-                    ⋮⋮⋮
-                  </div>
-                )}
-                {/* Image area */}
-                <div style={{
-                  width: "100%",
-                  aspectRatio: "1",
-                  background: T.surface,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  position: "relative",
-                  overflow: "hidden",
-                }}>
-                  {imgUrl ? (
-                    <img src={imgUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                  ) : (
-                    <div style={{ textAlign: "center", color: T.faint, fontSize: 11 }}>No image</div>
-                  )}
-                  {item.images?.length > 1 && (
-                    <span style={{ position: "absolute", top: 6, right: 6, fontSize: 9, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: 4, padding: "1px 5px" }}>+{item.images.length - 1}</span>
-                  )}
-                  {msgCount > 0 && (
-                    <span style={{ position: "absolute", bottom: 8, right: 8, fontSize: 11, background: T.accent, color: "#fff", borderRadius: 6, padding: "2px 8px", fontWeight: 700, boxShadow: "0 2px 6px rgba(0,0,0,0.3)" }}>{msgCount} msg</span>
-                  )}
-                  <span style={{ position: "absolute", top: 6, left: 6, padding: "1px 6px", borderRadius: 99, fontSize: 8, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
-                </div>
-                {/* Name + qty */}
-                <div style={{ padding: "8px 10px" }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "Untitled"}</div>
-                  <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                    {item.qty ? `${item.qty} qty` : ""}
-                    {item.retail ? ` · ${fmtD(item.qty * parseFloat(item.retail))}` : ""}
-                  </div>
+                  return (
+                    <Draggable key={item.id} draggableId={item.id} index={idx}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          onClick={() => {
+                            if (snapshot.isDragging) return;
+                            setMoodExpanded(moodExpanded === item.id ? null : item.id);
+                            if (moodExpanded !== item.id && !messages[item.id]) loadMessages(item.id);
+                          }}
+                          style={{
+                            ...provided.draggableProps.style,
+                            background: T.card,
+                            border: `1px solid ${snapshot.isDragging ? T.accent : T.border}`,
+                            borderRadius: 10,
+                            overflow: "hidden",
+                            cursor: "pointer",
+                            boxShadow: snapshot.isDragging ? "0 8px 24px rgba(0,0,0,0.15)" : "none",
+                          }}>
+                          {/* Drag handle */}
+                          {!isMobile && (
+                            <div {...provided.dragHandleProps}
+                              onClick={e => e.stopPropagation()}
+                              style={{ padding: "3px 0", textAlign: "center", cursor: "grab", background: T.surface, fontSize: 9, color: T.faint, letterSpacing: 3, userSelect: "none" }}>
+                              ⋮⋮⋮
+                            </div>
+                          )}
+                          {/* Image area — 5:4 landscape, no crop */}
+                          <div style={{
+                            width: "100%",
+                            aspectRatio: "5 / 4",
+                            background: T.surface,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            position: "relative",
+                            overflow: "hidden",
+                          }}>
+                            {imgUrl ? (
+                              <img src={imgUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                            ) : (
+                              <div style={{ textAlign: "center", color: T.faint, fontSize: 11 }}>No image</div>
+                            )}
+                            {item.images?.length > 1 && (
+                              <span style={{ position: "absolute", top: 6, right: 6, fontSize: 9, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: 4, padding: "1px 5px" }}>+{item.images.length - 1}</span>
+                            )}
+                            {msgCount > 0 && (
+                              <span style={{ position: "absolute", bottom: 8, right: 8, fontSize: 11, background: T.accent, color: "#fff", borderRadius: 6, padding: "2px 8px", fontWeight: 700, boxShadow: "0 2px 6px rgba(0,0,0,0.3)" }}>{msgCount} msg</span>
+                            )}
+                            <span style={{ position: "absolute", top: 6, left: 6, padding: "1px 6px", borderRadius: 99, fontSize: 8, fontWeight: 600, background: sc.bg, color: sc.text }}>{item.status || "Pending"}</span>
+                          </div>
+                          {/* Name + qty */}
+                          <div style={{ padding: "8px 10px" }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.item_name || "Untitled"}</div>
+                            <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
+                              {item.qty ? `${item.qty} qty` : ""}
+                              {item.retail ? ` · ${fmtD(item.qty * parseFloat(item.retail))}` : ""}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </Draggable>
+                  );
+                })}
+                {droppableProvided.placeholder}
+
+                {/* Add tile */}
+                <div
+                  onClick={addItem}
+                  style={{
+                    background: "transparent",
+                    border: `1px dashed ${T.border}`,
+                    borderRadius: 10,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    minHeight: isMobile ? 150 : 200,
+                    color: T.faint,
+                    fontSize: 13,
+                    fontFamily: font,
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.color = T.accent)}
+                  onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>
+                  + Add Item
                 </div>
               </div>
-            );
-          })}
-
-              {/* Add tile */}
-              <div
-                onClick={addItem}
-                style={{
-                  background: "transparent",
-                  border: `1px dashed ${T.border}`,
-                  borderRadius: 10,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  minHeight: isMobile ? 150 : 200,
-                  color: T.faint,
-                  fontSize: 13,
-                  fontFamily: font,
-                }}
-                onMouseEnter={e => (e.currentTarget.style.color = T.accent)}
-                onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>
-                + Add Item
-              </div>
-            </div>
-
-      </>}
+            )}
+          </Droppable>
+        </DragDropContext>
+      )}
 
       {/* ── Mood Board Modal ── */}
       {moodExpanded && (() => {
