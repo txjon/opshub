@@ -195,19 +195,29 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   const toggleMethod = (m) => setMethods(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m]);
   const toggleInstruction = (i) => setSelInstructions(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]);
 
-  // Load mockup image once on mount
+  // Load mockup image once on mount — convert to JPEG for reliable PDF rendering
   useEffect(() => {
     if (!mockupThumbUrl) return;
     (async () => {
       try {
         const res = await fetch(mockupThumbUrl);
         const blob = await res.blob();
-        const dataUrl = await new Promise(resolve => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.readAsDataURL(blob);
-        });
-        setMockupDataUrl(dataUrl);
+        const bmpUrl = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const ctx = canvas.getContext("2d");
+          // White background (fills alpha channel areas)
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          URL.revokeObjectURL(bmpUrl);
+          setMockupDataUrl(canvas.toDataURL("image/jpeg", 0.92));
+        };
+        img.onerror = () => URL.revokeObjectURL(bmpUrl);
+        img.src = bmpUrl;
       } catch {}
     })();
   }, [mockupThumbUrl]);
