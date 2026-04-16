@@ -41,6 +41,26 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// PATCH — update annotation on a file
+export async function PATCH(req: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { id, client_annotation, hpd_annotation, notes } = await req.json();
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    const updates: any = {};
+    if (client_annotation !== undefined) updates.client_annotation = client_annotation;
+    if (hpd_annotation !== undefined) updates.hpd_annotation = hpd_annotation;
+    if (notes !== undefined) updates.notes = notes;
+    const { error } = await supabase.from("art_brief_files").update(updates).eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
+  }
+}
+
 // DELETE — remove a file (Drive + DB)
 export async function DELETE(req: NextRequest) {
   try {

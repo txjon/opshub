@@ -254,64 +254,196 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
 
   const context = brief.clients?.name || brief.jobs?.title || "Unlinked brief";
 
+  const [intakeData, setIntakeData] = useState<{ purpose: string | null; audience: string | null; mood_words: string[]; no_gos: string | null; submitted: string | null }>({
+    purpose: (brief as any).purpose || null,
+    audience: (brief as any).audience || null,
+    mood_words: (brief as any).mood_words || [],
+    no_gos: (brief as any).no_gos || null,
+    submitted: (brief as any).client_intake_submitted_at || null,
+  });
+  const [references, setReferences] = useState<any[]>([]);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/art-briefs?id=${brief.id}`).then(r => r.json()).then(data => {
+      if (data.brief) {
+        setIntakeData({
+          purpose: data.brief.purpose || null,
+          audience: data.brief.audience || null,
+          mood_words: data.brief.mood_words || [],
+          no_gos: data.brief.no_gos || null,
+          submitted: data.brief.client_intake_submitted_at || null,
+        });
+      }
+      setReferences((data.files || []).filter((f: any) => f.kind === "reference"));
+    });
+  }, [brief.id]);
+
+  async function copyIntakeLink() {
+    const res = await fetch("/api/art-briefs/intake-link", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brief_id: brief.id }),
+    });
+    const data = await res.json();
+    if (data.token) {
+      const url = `${window.location.origin}/art-intake/${data.token}`;
+      await navigator.clipboard.writeText(url);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    }
+  }
+
+  async function saveHpdAnnotation(fileId: string, annotation: string) {
+    await fetch("/api/art-briefs/files", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: fileId, hpd_annotation: annotation }),
+    }).catch(() => {});
+  }
+
+  const purposeLabel: Record<string, string> = {
+    tour: "Tour merch", event: "Event / one-off", brand_staple: "Brand staple",
+    drop: "Drop / capsule", corporate: "Corporate / promo", retail: "Retail",
+    other: "Other",
+  };
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", justifyContent: "center", alignItems: "flex-start", paddingTop: 40 }}
       onClick={e => { if (e.target === e.currentTarget) onClose(changed); }}>
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, width: "90vw", maxWidth: 800, maxHeight: "90vh", overflow: "auto", fontFamily: font }}>
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, width: "90vw", maxWidth: 900, maxHeight: "90vh", overflow: "auto", fontFamily: font }}>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{form.title || "Untitled Brief"}</div>
             <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{context}{brief.items?.name ? ` · ${brief.items.name}` : ""}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={copyIntakeLink}
+              style={{ padding: "5px 12px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+              {linkCopied ? "✓ Copied" : "Copy Client Link"}
+            </button>
             {savedIndicator && <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>Saved</span>}
             {saving && <span style={{ fontSize: 10, color: T.muted }}>Saving...</span>}
             <button onClick={handleDelete} style={{ background: "none", border: `1px solid ${T.border}`, color: T.red, fontSize: 10, padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: font }}>Delete</button>
             <button onClick={() => onClose(changed)} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 18, padding: "0 4px" }}>×</button>
           </div>
         </div>
-        <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
-          <div>
-            <label style={label}>Title</label>
-            <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} onBlur={() => handleBlur("title")} style={ic} />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-            <div>
-              <label style={label}>State</label>
-              <select value={form.state} onChange={e => { const v = e.target.value; setForm(p => ({ ...p, state: v })); save({ state: v }); }} style={{ ...ic, cursor: "pointer" }}>
-                {Object.entries(STATE_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-              </select>
+
+        <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* CLIENT INTAKE SECTION */}
+          <div style={{ padding: 14, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Client Intake</div>
+              {intakeData.submitted ? (
+                <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 10px", borderRadius: 99, background: T.greenDim, color: T.green }}>
+                  Submitted {new Date(intakeData.submitted).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                </span>
+              ) : (
+                <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 10px", borderRadius: 99, background: T.amberDim, color: T.amber }}>
+                  Awaiting client
+                </span>
+              )}
             </div>
-            <div>
-              <label style={label}>Deadline</label>
-              <input type="date" value={form.deadline || ""} onChange={e => setForm(p => ({ ...p, deadline: e.target.value }))} onBlur={() => handleBlur("deadline")} style={ic} />
-            </div>
-            <div>
-              <label style={label}>Assigned Designer</label>
-              <input value={form.assigned_to} onChange={e => setForm(p => ({ ...p, assigned_to: e.target.value }))} onBlur={() => handleBlur("assigned_to")} style={ic} placeholder="Name or email" />
+            {!intakeData.submitted ? (
+              <div style={{ fontSize: 12, color: T.faint, fontStyle: "italic" }}>
+                Click "Copy Client Link" above and send it to the client. They'll fill out a quick intake that appears here.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 14px", fontSize: 12 }}>
+                  <span style={{ color: T.muted, fontWeight: 600 }}>Purpose:</span>
+                  <span style={{ color: T.text }}>{intakeData.purpose ? purposeLabel[intakeData.purpose] || intakeData.purpose : "—"}</span>
+                  <span style={{ color: T.muted, fontWeight: 600 }}>Audience:</span>
+                  <span style={{ color: T.text }}>{intakeData.audience || "—"}</span>
+                  <span style={{ color: T.muted, fontWeight: 600 }}>Mood:</span>
+                  <span style={{ color: T.text }}>
+                    {intakeData.mood_words.length > 0 ? intakeData.mood_words.map((w, i) => (
+                      <span key={i} style={{ display: "inline-block", background: T.card, border: `1px solid ${T.border}`, borderRadius: 99, padding: "2px 10px", fontSize: 11, marginRight: 4 }}>{w}</span>
+                    )) : "—"}
+                  </span>
+                  {intakeData.no_gos && <>
+                    <span style={{ color: T.red, fontWeight: 600 }}>Avoid:</span>
+                    <span style={{ color: T.text }}>{intakeData.no_gos}</span>
+                  </>}
+                </div>
+
+                {/* Reference gallery */}
+                {references.length > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>References</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
+                      {references.map(r => (
+                        <div key={r.id} style={{ background: T.card, borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                          <a href={r.drive_link} target="_blank" rel="noopener noreferrer">
+                            <div style={{ width: "100%", aspectRatio: "5/4", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: `1px solid ${T.border}` }}>
+                              <img src={r.drive_link?.replace("/view", "/preview") || ""} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} onError={e => (e.target as HTMLImageElement).style.display = "none"} />
+                            </div>
+                          </a>
+                          <div style={{ padding: 8 }}>
+                            {r.client_annotation && <div style={{ fontSize: 10, color: T.muted, fontStyle: "italic", marginBottom: 4 }}>"{r.client_annotation}"</div>}
+                            <input
+                              defaultValue={r.hpd_annotation || ""}
+                              onBlur={e => saveHpdAnnotation(r.id, e.target.value)}
+                              placeholder="HPD note to designer..."
+                              style={{ width: "100%", fontSize: 10, padding: "4px 6px", border: `1px solid ${T.amber}44`, borderRadius: 4, background: T.amberDim + "33", color: T.amber, fontFamily: font, outline: "none", boxSizing: "border-box" }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* HPD TRANSLATION SECTION */}
+          <div style={{ padding: 14, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>HPD Brief → Designer</div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label style={label}>Title</label>
+                <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} onBlur={() => handleBlur("title")} style={ic} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                <div>
+                  <label style={label}>State</label>
+                  <select value={form.state} onChange={e => { const v = e.target.value; setForm(p => ({ ...p, state: v })); save({ state: v }); }} style={{ ...ic, cursor: "pointer" }}>
+                    {Object.entries(STATE_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={label}>Deadline</label>
+                  <input type="date" value={form.deadline || ""} onChange={e => setForm(p => ({ ...p, deadline: e.target.value }))} onBlur={() => handleBlur("deadline")} style={ic} />
+                </div>
+                <div>
+                  <label style={label}>Designer</label>
+                  <input value={form.assigned_to} onChange={e => setForm(p => ({ ...p, assigned_to: e.target.value }))} onBlur={() => handleBlur("assigned_to")} style={ic} placeholder="Name" />
+                </div>
+              </div>
+              <div>
+                <label style={label}>Concept (for designer)</label>
+                <textarea rows={3} value={form.concept} onChange={e => setForm(p => ({ ...p, concept: e.target.value }))} onBlur={() => handleBlur("concept")} style={{ ...ic, resize: "vertical", lineHeight: 1.4 }} placeholder="Translate client's intake into a clear creative direction..." />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <label style={label}>Placement</label>
+                  <input value={form.placement} onChange={e => setForm(p => ({ ...p, placement: e.target.value }))} onBlur={() => handleBlur("placement")} style={ic} placeholder="e.g. Full back, 12×14" />
+                </div>
+                <div>
+                  <label style={label}>Colors</label>
+                  <input value={form.colors} onChange={e => setForm(p => ({ ...p, colors: e.target.value }))} onBlur={() => handleBlur("colors")} style={ic} placeholder="e.g. 2c screen — white, red" />
+                </div>
+              </div>
+              <div>
+                <label style={{ ...label, color: T.amber }}>Internal Notes (HPD only, designer doesn't see)</label>
+                <textarea rows={2} value={form.internal_notes} onChange={e => setForm(p => ({ ...p, internal_notes: e.target.value }))} onBlur={() => handleBlur("internal_notes")} style={{ ...ic, resize: "vertical", lineHeight: 1.4, borderColor: T.amber + "44" }} placeholder="Scratch pad, private..." />
+              </div>
             </div>
           </div>
-          <div>
-            <label style={label}>Concept / Brief</label>
-            <textarea rows={4} value={form.concept} onChange={e => setForm(p => ({ ...p, concept: e.target.value }))} onBlur={() => handleBlur("concept")} style={{ ...ic, resize: "vertical", lineHeight: 1.4 }} />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div>
-              <label style={label}>Placement</label>
-              <input value={form.placement} onChange={e => setForm(p => ({ ...p, placement: e.target.value }))} onBlur={() => handleBlur("placement")} style={ic} placeholder="e.g. Full back, 12x14" />
-            </div>
-            <div>
-              <label style={label}>Colors</label>
-              <input value={form.colors} onChange={e => setForm(p => ({ ...p, colors: e.target.value }))} onBlur={() => handleBlur("colors")} style={ic} placeholder="e.g. 2 colors - white, red" />
-            </div>
-          </div>
-          <div>
-            <label style={{ ...label, color: T.amber }}>Internal Notes (HPD only)</label>
-            <textarea rows={2} value={form.internal_notes} onChange={e => setForm(p => ({ ...p, internal_notes: e.target.value }))} onBlur={() => handleBlur("internal_notes")} style={{ ...ic, resize: "vertical", lineHeight: 1.4, borderColor: T.amber + "44" }} placeholder="Not visible to designer..." />
-          </div>
-          <div style={{ marginTop: 8, padding: 12, background: T.surface, borderRadius: 6, border: `1px dashed ${T.border}` }}>
+
+          <div style={{ padding: 10, background: T.surface, borderRadius: 6, border: `1px dashed ${T.border}` }}>
             <div style={{ fontSize: 11, color: T.muted, textAlign: "center" }}>
-              File uploads, designer chat, and version history — Phase 2
+              Designer portal, WIP uploads, and thread — coming in Phase 2
             </div>
           </div>
         </div>
