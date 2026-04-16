@@ -957,7 +957,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             items={items}
             contacts={contacts}
             proofStatus={proofStatus}
-            onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))}
+            onUpdateItem={(id: string, updates: any) => {
+              setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it));
+              // Keep proofStatus in sync when artwork_status changes (manual approval)
+              if ("artwork_status" in updates) {
+                setProofStatus(prev => {
+                  const next = { ...prev };
+                  const existing = next[id] || { allApproved: false };
+                  next[id] = { ...existing, allApproved: updates.artwork_status === "approved" || existing.allApproved };
+                  return next;
+                });
+              }
+            }}
             onRecalcPhase={recalcPhase}
           />
           <PaymentTab
