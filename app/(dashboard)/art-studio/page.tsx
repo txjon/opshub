@@ -263,6 +263,12 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   });
   const [references, setReferences] = useState<any[]>([]);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [designers, setDesigners] = useState<any[]>([]);
+  const [showSendModal, setShowSendModal] = useState(false);
+  const [sendResult, setSendResult] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [assignedDesignerId, setAssignedDesignerId] = useState<string | null>((brief as any).assigned_designer_id || null);
+  const [sentAt, setSentAt] = useState<string | null>((brief as any).sent_to_designer_at || null);
 
   useEffect(() => {
     fetch(`/api/art-briefs?id=${brief.id}`).then(r => r.json()).then(data => {
@@ -274,10 +280,33 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
           no_gos: data.brief.no_gos || null,
           submitted: data.brief.client_intake_submitted_at || null,
         });
+        setAssignedDesignerId(data.brief.assigned_designer_id || null);
+        setSentAt(data.brief.sent_to_designer_at || null);
       }
       setReferences((data.files || []).filter((f: any) => f.kind === "reference"));
     });
+    fetch("/api/designers").then(r => r.json()).then(d => setDesigners((d.designers || []).filter((x: any) => x.active)));
   }, [brief.id]);
+
+  async function sendToDesigner(designerId: string) {
+    setSending(true);
+    const res = await fetch("/api/art-briefs/send-to-designer", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brief_id: brief.id, designer_id: designerId }),
+    });
+    const data = await res.json();
+    setSending(false);
+    setShowSendModal(false);
+    if (data.success) {
+      setAssignedDesignerId(designerId);
+      setSentAt(new Date().toISOString());
+      setSendResult(data.emailed ? "Sent + email delivered" : "Sent (no email — set up email on designer)");
+      setChanged(true);
+      setTimeout(() => setSendResult(null), 3000);
+    } else {
+      setSendResult(`Error: ${data.error}`);
+    }
+  }
 
   async function copyIntakeLink() {
     const res = await fetch("/api/art-briefs/intake-link", {
@@ -317,10 +346,15 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={copyIntakeLink}
-              style={{ padding: "5px 12px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+              style={{ padding: "5px 12px", background: "transparent", color: T.accent, border: `1px solid ${T.accent}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
               {linkCopied ? "✓ Copied" : "Copy Client Link"}
             </button>
-            {savedIndicator && <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>Saved</span>}
+            <button onClick={() => setShowSendModal(true)}
+              style={{ padding: "5px 12px", background: sentAt ? T.greenDim : T.accent, color: sentAt ? T.green : "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+              {sentAt ? "✓ Sent to Designer" : "Send to Designer"}
+            </button>
+            {sendResult && <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>{sendResult}</span>}
+            {savedIndicator && !sendResult && <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>Saved</span>}
             {saving && <span style={{ fontSize: 10, color: T.muted }}>Saving...</span>}
             <button onClick={handleDelete} style={{ background: "none", border: `1px solid ${T.border}`, color: T.red, fontSize: 10, padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: font }}>Delete</button>
             <button onClick={() => onClose(changed)} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 18, padding: "0 4px" }}>×</button>
@@ -441,13 +475,42 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
             </div>
           </div>
 
-          <div style={{ padding: 10, background: T.surface, borderRadius: 6, border: `1px dashed ${T.border}` }}>
-            <div style={{ fontSize: 11, color: T.muted, textAlign: "center" }}>
-              Designer portal, WIP uploads, and thread — coming in Phase 2
+          {sentAt && (
+            <div style={{ padding: 10, background: T.greenDim, borderRadius: 6, border: `1px solid ${T.green}44`, fontSize: 11, color: T.green, textAlign: "center" }}>
+              Sent to designer on {new Date(sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.
+              Their uploads, status changes, and messages appear here as they work.
             </div>
-          </div>
+          )}
         </div>
       </div>
+
+      {/* Send to Designer modal */}
+      {showSendModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={e => { if (e.target === e.currentTarget) setShowSendModal(false); }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: 440, maxWidth: "90vw" }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: 0, marginBottom: 6 }}>Send Brief to Designer</h3>
+            <p style={{ fontSize: 12, color: T.muted, margin: 0, marginBottom: 16 }}>Designer will see this brief in their dashboard. If they have an email set, they'll get a notification.</p>
+            {designers.length === 0 ? (
+              <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: T.faint, background: T.surface, borderRadius: 8 }}>
+                No active designers.<br/>
+                <a href="/settings/designers" style={{ color: T.accent, textDecoration: "none" }}>Add one in Settings →</a>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {designers.map(d => (
+                  <button key={d.id} onClick={() => sendToDesigner(d.id)} disabled={sending}
+                    style={{ padding: "10px 14px", textAlign: "left", background: assignedDesignerId === d.id ? T.accentDim : T.surface, border: `1px solid ${assignedDesignerId === d.id ? T.accent : T.border}`, borderRadius: 8, cursor: "pointer", fontFamily: font, opacity: sending ? 0.5 : 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{d.name}</div>
+                    <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{d.email || "No email"}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setShowSendModal(false)} style={{ marginTop: 14, width: "100%", padding: "8px", background: "transparent", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 6, fontSize: 12, cursor: "pointer", fontFamily: font }}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

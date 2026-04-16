@@ -29,7 +29,8 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
     { href: "/decorators", label: "Decorators" },
   ],
   settings: [
-    { href: "/settings", label: "Settings" },
+    { href: "/settings", label: "Team" },
+    { href: "/settings/designers", label: "Designers" },
   ],
 };
 
