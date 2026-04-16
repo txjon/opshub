@@ -48,13 +48,13 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const { item_id, job_id, title, concept, placement, colors, references, deadline, internal_notes, state, assigned_to } = body;
+    const { item_id, job_id, title, concept, placement, colors, reference_urls, deadline, internal_notes, state, assigned_to } = body;
 
     if (!item_id || !job_id) return NextResponse.json({ error: "item_id and job_id required" }, { status: 400 });
 
     const { data, error } = await supabase.from("art_briefs").insert({
       item_id, job_id, title, concept, placement, colors,
-      references: references || [],
+      reference_urls: reference_urls || [],
       deadline, internal_notes, assigned_to,
       state: state || "draft",
       created_by: user.id,

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS art_briefs (
   concept text,
   placement text,
   colors text,
-  references jsonb DEFAULT '[]',
+  reference_urls jsonb DEFAULT '[]',
   deadline date,
   internal_notes text,
   state text DEFAULT 'draft' CHECK (state IN ('draft','sent','in_progress','wip_review','client_review','revisions','final_approved','delivered')),
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS art_client_requests (
   brief_id uuid REFERENCES art_briefs(id) ON DELETE SET NULL,
   concept text,
   directions text,
-  references jsonb DEFAULT '[]',
+  reference_urls jsonb DEFAULT '[]',
   state text DEFAULT 'new' CHECK (state IN ('new','reviewed','translated','rejected')),
   submitted_by_contact text,
   created_at timestamptz DEFAULT now()
