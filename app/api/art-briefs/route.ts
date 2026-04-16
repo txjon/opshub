@@ -12,11 +12,13 @@ export async function GET(req: NextRequest) {
 
     const itemId = req.nextUrl.searchParams.get("itemId");
     const jobId = req.nextUrl.searchParams.get("jobId");
+    const clientId = req.nextUrl.searchParams.get("clientId");
     const id = req.nextUrl.searchParams.get("id");
+    const all = req.nextUrl.searchParams.get("all");
 
     if (id) {
       const [briefRes, filesRes, msgsRes] = await Promise.all([
-        supabase.from("art_briefs").select("*").eq("id", id).single(),
+        supabase.from("art_briefs").select("*, items(name), jobs(title, job_number), clients(name)").eq("id", id).single(),
         supabase.from("art_brief_files").select("*").eq("brief_id", id).order("created_at"),
         supabase.from("art_brief_messages").select("*").eq("brief_id", id).order("created_at"),
       ]);
@@ -28,9 +30,10 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    let query = supabase.from("art_briefs").select("*").order("created_at", { ascending: false });
+    let query = supabase.from("art_briefs").select("*, items(name), jobs(title, job_number), clients(name)").order("created_at", { ascending: false });
     if (itemId) query = query.eq("item_id", itemId);
     if (jobId) query = query.eq("job_id", jobId);
+    if (clientId) query = query.eq("client_id", clientId);
 
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -48,12 +51,13 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const { item_id, job_id, title, concept, placement, colors, reference_urls, deadline, internal_notes, state, assigned_to } = body;
-
-    if (!item_id || !job_id) return NextResponse.json({ error: "item_id and job_id required" }, { status: 400 });
+    const { item_id, job_id, client_id, title, concept, placement, colors, reference_urls, deadline, internal_notes, state, assigned_to } = body;
 
     const { data, error } = await supabase.from("art_briefs").insert({
-      item_id, job_id, title, concept, placement, colors,
+      item_id: item_id || null,
+      job_id: job_id || null,
+      client_id: client_id || null,
+      title, concept, placement, colors,
       reference_urls: reference_urls || [],
       deadline, internal_notes, assigned_to,
       state: state || "draft",
