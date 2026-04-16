@@ -7,6 +7,7 @@ import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
+import { ArtBriefPanel } from "./ArtBriefPanel";
 
 // Recursively collect files from drag-and-drop (handles folders)
 export async function collectFiles(dataTransferItems) {
@@ -410,6 +411,7 @@ export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId
   const [uploadProgress, setUploadProgress] = useState(null);
   const [dropover, setDropover] = useState(false);
   const [showProofModal, setShowProofModal] = useState(false);
+  const [showBriefPanel, setShowBriefPanel] = useState(false);
   const [expanded, setExpanded] = useState(() => {
     try { const v = localStorage.getItem(`art-exp-${item.id}`); return v !== null ? v === "1" : true; } catch { return true; }
   });
@@ -622,13 +624,19 @@ export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId
                 </div>
               )}
 
-              {/* Generate Proof button */}
-              {mockupFile && (
-                <button onClick={() => setShowProofModal(true)}
-                  style={{ marginTop: 8, padding: "6px 14px", borderRadius: 6, border: "none", background: hasProof ? T.surface : T.amber, color: hasProof ? T.muted : "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font, border: hasProof ? `1px solid ${T.border}` : "none" }}>
-                  {hasProof ? "Regenerate Proof" : "Generate Proof"}
+              {/* Action buttons */}
+              <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+                {mockupFile && (
+                  <button onClick={() => setShowProofModal(true)}
+                    style={{ padding: "6px 14px", borderRadius: 6, background: hasProof ? T.surface : T.amber, color: hasProof ? T.muted : "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font, border: hasProof ? `1px solid ${T.border}` : "none" }}>
+                    {hasProof ? "Regenerate Proof" : "Generate Proof"}
+                  </button>
+                )}
+                <button onClick={() => setShowBriefPanel(true)}
+                  style={{ padding: "6px 14px", borderRadius: 6, background: "transparent", color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font, border: `1px solid ${T.accent}44` }}>
+                  Art Brief
                 </button>
-              )}
+              </div>
             </div>
           </div>
         </div>
@@ -647,6 +655,15 @@ export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId
           onClose={() => setShowProofModal(false)}
           onUpdateItem={onUpdateItem}
           onSaved={() => loadFiles()}
+        />
+      )}
+
+      {/* Art Brief panel */}
+      {showBriefPanel && (
+        <ArtBriefPanel
+          itemId={item.id}
+          jobId={jobId || item.job_id}
+          onClose={() => setShowBriefPanel(false)}
         />
       )}
 
