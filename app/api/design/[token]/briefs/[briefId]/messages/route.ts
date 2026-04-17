@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { notifyTeamServer } from "@/lib/notify-server";
 
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -9,7 +10,7 @@ async function verifyAccess(token: string, briefId: string) {
   const db = admin();
   const { data: designer } = await db.from("designers").select("id, name, active").eq("portal_token", token).single();
   if (!designer || !designer.active) return null;
-  const { data: brief } = await db.from("art_briefs").select("id, assigned_designer_id").eq("id", briefId).single();
+  const { data: brief } = await db.from("art_briefs").select("id, title, assigned_designer_id").eq("id", briefId).single();
   if (!brief || brief.assigned_designer_id !== designer.id) return null;
   return { db, designer, brief };
 }
@@ -30,5 +31,14 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   }).select("*").single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const preview = message.trim().length > 60 ? message.trim().slice(0, 60) + "…" : message.trim();
+  await notifyTeamServer(
+    `${ctx.designer.name || "Designer"} on "${(ctx.brief as any).title || "brief"}": ${preview}`,
+    "mention",
+    ctx.brief.id,
+    "art_brief"
+  );
+
   return NextResponse.json({ message: data });
 }

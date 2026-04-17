@@ -61,6 +61,8 @@ export function NotificationBell({ userId }: { userId: string }) {
     markRead(n.id);
     if (n.reference_type === "job" && n.reference_id) {
       router.push(`/jobs/${n.reference_id}`);
+    } else if (n.reference_type === "art_brief" && n.reference_id) {
+      router.push(`/art-studio?brief=${n.reference_id}`);
     }
     setOpen(false);
   }

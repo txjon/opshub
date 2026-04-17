@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { notifyTeamServer, logJobActivityServer } from "@/lib/notify-server";
 
 // Public endpoints — no auth required, token-based security
 function admin() {
@@ -35,8 +36,10 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const db = admin();
     const { purpose, audience, mood_words, no_gos } = await req.json();
 
-    const { data: brief } = await db.from("art_briefs").select("id").eq("client_intake_token", params.token).single();
+    const { data: brief } = await db.from("art_briefs").select("id, title, job_id, client_intake_submitted_at, clients(name)").eq("client_intake_token", params.token).single();
     if (!brief) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+
+    const firstSubmission = !brief.client_intake_submitted_at;
 
     const { error } = await db.from("art_briefs").update({
       purpose: purpose || null,
@@ -49,6 +52,14 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     }).eq("id", brief.id);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    const clientName = (brief as any).clients?.name;
+    const msg = firstSubmission
+      ? `Client intake submitted for "${brief.title || "brief"}"${clientName ? ` (${clientName})` : ""} — ready for HPD translation`
+      : `Client updated intake for "${brief.title || "brief"}"${clientName ? ` (${clientName})` : ""}`;
+    await notifyTeamServer(msg, firstSubmission ? "alert" : "production", brief.id, "art_brief");
+    if (brief.job_id) await logJobActivityServer(brief.job_id, msg);
+
     return NextResponse.json({ success: true });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });

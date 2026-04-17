@@ -37,7 +37,29 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ briefs: data || [] });
+
+    // Attach message counts (total + designer-sent) per brief so the list can show chat indicators
+    const briefs = data || [];
+    if (briefs.length > 0) {
+      const ids = briefs.map((b: any) => b.id);
+      const { data: msgs } = await supabase
+        .from("art_brief_messages")
+        .select("brief_id, sender_role")
+        .in("brief_id", ids);
+      const counts: Record<string, { total: number; designer: number }> = {};
+      (msgs || []).forEach((m: any) => {
+        const c = counts[m.brief_id] ||= { total: 0, designer: 0 };
+        c.total++;
+        if (m.sender_role === "designer") c.designer++;
+      });
+      briefs.forEach((b: any) => {
+        const c = counts[b.id] || { total: 0, designer: 0 };
+        b.message_count = c.total;
+        b.designer_message_count = c.designer;
+      });
+    }
+
+    return NextResponse.json({ briefs });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
   }

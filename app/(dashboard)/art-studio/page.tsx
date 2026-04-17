@@ -1,7 +1,9 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import { ArtBriefMessages } from "@/components/ArtBriefMessages";
 
 const STATE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   draft: { label: "Draft", color: T.muted, bg: T.surface },
@@ -32,12 +34,16 @@ type Brief = {
   items?: { name: string } | null;
   jobs?: { title: string; job_number: string } | null;
   clients?: { name: string } | null;
+  message_count?: number;
+  designer_message_count?: number;
 };
 
 type Client = { id: string; name: string };
 
 export default function ArtStudioPage() {
   const supabase = createClient();
+  const router = useRouter();
+  const params = useSearchParams();
   const [briefs, setBriefs] = useState<Brief[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,6 +54,14 @@ export default function ArtStudioPage() {
   const [selectedBrief, setSelectedBrief] = useState<Brief | null>(null);
 
   useEffect(() => { loadBriefs(); loadClients(); }, []);
+
+  // Deep-link: open brief from ?brief=id (set by notification bell)
+  useEffect(() => {
+    const briefId = params?.get("brief");
+    if (!briefId || briefs.length === 0) return;
+    const match = briefs.find(b => b.id === briefId);
+    if (match && (!selectedBrief || selectedBrief.id !== briefId)) setSelectedBrief(match);
+  }, [params, briefs]);
 
   async function loadBriefs() {
     setLoading(true);
@@ -140,13 +154,22 @@ export default function ArtStudioPage() {
           {filtered.map(b => {
             const st = STATE_LABELS[b.state] || STATE_LABELS.draft;
             const context = b.clients?.name || b.jobs?.title || "Unlinked";
+            const dCount = b.designer_message_count || 0;
             return (
               <div key={b.id} onClick={() => setSelectedBrief(b)}
                 style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 16, transition: "border-color 0.1s" }}
                 onMouseEnter={e => (e.currentTarget.style.borderColor = T.accent)}
                 onMouseLeave={e => (e.currentTarget.style.borderColor = T.border)}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{b.title || "Untitled Brief"}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 8 }}>
+                    {b.title || "Untitled Brief"}
+                    {dCount > 0 && (
+                      <span title={`${dCount} message${dCount === 1 ? "" : "s"} from designer`}
+                        style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: T.accentDim, color: T.accent, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        💬 {dCount}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                     {context}{b.items?.name ? ` · ${b.items.name}` : ""}
                     {b.deadline && ` · Due ${new Date(b.deadline).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
@@ -204,6 +227,7 @@ export default function ArtStudioPage() {
       {selectedBrief && (
         <BriefDetailModal brief={selectedBrief} onClose={(updated) => {
           setSelectedBrief(null);
+          if (params?.get("brief")) router.replace("/art-studio");
           if (updated) loadBriefs();
         }} />
       )}
@@ -262,6 +286,9 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     submitted: (brief as any).client_intake_submitted_at || null,
   });
   const [references, setReferences] = useState<any[]>([]);
+  const [wips, setWips] = useState<any[]>([]);
+  const [finals, setFinals] = useState<any[]>([]);
+  const [promoting, setPromoting] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [designers, setDesigners] = useState<any[]>([]);
   const [showSendModal, setShowSendModal] = useState(false);
@@ -283,10 +310,31 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
         setAssignedDesignerId(data.brief.assigned_designer_id || null);
         setSentAt(data.brief.sent_to_designer_at || null);
       }
-      setReferences((data.files || []).filter((f: any) => f.kind === "reference"));
+      const files = data.files || [];
+      setReferences(files.filter((f: any) => f.kind === "reference"));
+      setWips(files.filter((f: any) => f.kind === "wip").sort((a: any, b: any) => b.version - a.version));
+      setFinals(files.filter((f: any) => f.kind === "final").sort((a: any, b: any) => b.version - a.version));
     });
     fetch("/api/designers").then(r => r.json()).then(d => setDesigners((d.designers || []).filter((x: any) => x.active)));
   }, [brief.id]);
+
+  async function promoteFinalToPrintReady(fileId: string) {
+    setPromoting(fileId);
+    const res = await fetch("/api/art-briefs/promote-final", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brief_file_id: fileId, brief_id: brief.id }),
+    });
+    const data = await res.json();
+    setPromoting(null);
+    if (data.success) {
+      setSendResult(data.item_id ? "Promoted to print-ready on item ✓" : "Promoted (no item linked)");
+      setChanged(true);
+      setTimeout(() => setSendResult(null), 2500);
+    } else {
+      setSendResult(`Error: ${data.error}`);
+      setTimeout(() => setSendResult(null), 3000);
+    }
+  }
 
   async function sendToDesigner(designerId: string) {
     setSending(true);
@@ -322,6 +370,25 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     }
   }
 
+  const [sendingIntake, setSendingIntake] = useState(false);
+  const [intakeEmailResult, setIntakeEmailResult] = useState<string | null>(null);
+  async function emailIntakeToClient() {
+    setSendingIntake(true);
+    const res = await fetch("/api/art-briefs/send-intake", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brief_id: brief.id }),
+    });
+    const data = await res.json();
+    setSendingIntake(false);
+    if (data.success) {
+      setIntakeEmailResult(`Emailed to ${data.recipients.join(", ")}`);
+      setChanged(true);
+    } else {
+      setIntakeEmailResult(`Error: ${data.error}`);
+    }
+    setTimeout(() => setIntakeEmailResult(null), 3500);
+  }
+
   async function saveHpdAnnotation(fileId: string, annotation: string) {
     await fetch("/api/art-briefs/files", {
       method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -346,9 +413,14 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={copyIntakeLink}
-              style={{ padding: "5px 12px", background: "transparent", color: T.accent, border: `1px solid ${T.accent}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
-              {linkCopied ? "✓ Copied" : "Copy Client Link"}
+              style={{ padding: "5px 10px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+              {linkCopied ? "✓ Copied" : "Copy Link"}
             </button>
+            <button onClick={emailIntakeToClient} disabled={sendingIntake}
+              style={{ padding: "5px 12px", background: "transparent", color: T.accent, border: `1px solid ${T.accent}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: sendingIntake ? 0.5 : 1 }}>
+              {sendingIntake ? "Sending..." : "Email to Client"}
+            </button>
+            {intakeEmailResult && <span style={{ fontSize: 10, color: intakeEmailResult.startsWith("Error") ? T.red : T.green, fontWeight: 600 }}>{intakeEmailResult}</span>}
             <button onClick={() => setShowSendModal(true)}
               style={{ padding: "5px 12px", background: sentAt ? T.greenDim : T.accent, color: sentAt ? T.green : "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
               {sentAt ? "✓ Sent to Designer" : "Send to Designer"}
@@ -478,9 +550,58 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
           {sentAt && (
             <div style={{ padding: 10, background: T.greenDim, borderRadius: 6, border: `1px solid ${T.green}44`, fontSize: 11, color: T.green, textAlign: "center" }}>
               Sent to designer on {new Date(sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.
-              Their uploads, status changes, and messages appear here as they work.
+              Their uploads, status changes, and messages appear below.
             </div>
           )}
+
+          {/* DESIGNER WORK FILES */}
+          {(wips.length > 0 || finals.length > 0) && (
+            <div style={{ padding: 14, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Designer Work</div>
+              {finals.length > 0 && (
+                <div style={{ marginBottom: wips.length > 0 ? 14 : 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.green, marginBottom: 8 }}>Final · {finals.length}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {finals.map(f => (
+                      <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.greenDim, border: `1px solid ${T.green}33`, borderRadius: 6, fontSize: 12 }}>
+                        <span style={{ padding: "2px 8px", background: T.green, color: "#fff", borderRadius: 4, fontWeight: 700, fontSize: 10 }}>FINAL V{f.version}</span>
+                        <a href={f.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: font }}>{f.file_name}</a>
+                        <span style={{ fontSize: 10, color: T.muted }}>{new Date(f.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                        {brief.item_id && (
+                          <button
+                            onClick={() => promoteFinalToPrintReady(f.id)}
+                            disabled={promoting === f.id}
+                            style={{ padding: "4px 10px", background: T.accent, color: "#fff", border: "none", borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: promoting === f.id ? 0.5 : 1 }}
+                          >
+                            {promoting === f.id ? "..." : "→ Print-Ready"}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {wips.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.blue, marginBottom: 8 }}>WIPs · {wips.length}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {wips.map(w => (
+                      <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", background: T.surface, borderRadius: 6, fontSize: 12 }}>
+                        <span style={{ padding: "2px 8px", background: T.blueDim, color: T.blue, borderRadius: 4, fontWeight: 700, fontSize: 10 }}>V{w.version}</span>
+                        <a href={w.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: font }}>{w.file_name}</a>
+                        <span style={{ fontSize: 10, color: T.muted }}>{new Date(w.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* MESSAGES */}
+          <div style={{ padding: 14, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+            <ArtBriefMessages briefId={brief.id} onSent={() => setChanged(true)} />
+          </div>
         </div>
       </div>
 

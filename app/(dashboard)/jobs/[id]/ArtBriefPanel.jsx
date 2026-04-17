@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
+import { ArtBriefMessages } from "@/components/ArtBriefMessages";
 
 const STATE_LABELS = {
   draft: { label: "Draft", color: T.muted, bg: T.surface },
@@ -78,13 +79,21 @@ export function ArtBriefPanel({ itemId, jobId, onClose }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {briefs.map(b => {
                 const st = STATE_LABELS[b.state] || STATE_LABELS.draft;
+                const dCount = b.designer_message_count || 0;
                 return (
                   <div key={b.id} onClick={() => setEditingBrief(b)}
                     style={{ padding: "10px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
                     onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.title || "Untitled Brief"}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text, display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.title || "Untitled Brief"}</span>
+                        {dCount > 0 && (
+                          <span title={`${dCount} from designer`} style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: T.accentDim, color: T.accent }}>
+                            💬 {dCount}
+                          </span>
+                        )}
+                      </div>
                       <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
                         {b.deadline ? `Due ${new Date(b.deadline).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "No deadline"}
                         {b.version_count > 0 && ` · v${b.version_count}`}
@@ -118,6 +127,26 @@ function BriefEditor({ brief, onBack, onUpdated }) {
   const [saving, setSaving] = useState(false);
   const [savedIndicator, setSavedIndicator] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [wips, setWips] = useState([]);
+  const [finals, setFinals] = useState([]);
+  const [promoting, setPromoting] = useState(null);
+
+  useEffect(() => {
+    fetch(`/api/art-briefs?id=${brief.id}`).then(r => r.json()).then(data => {
+      const files = data.files || [];
+      setWips(files.filter(f => f.kind === "wip").sort((a, b) => b.version - a.version));
+      setFinals(files.filter(f => f.kind === "final").sort((a, b) => b.version - a.version));
+    });
+  }, [brief.id]);
+
+  async function promoteFinal(fileId) {
+    setPromoting(fileId);
+    await fetch("/api/art-briefs/promote-final", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brief_file_id: fileId, brief_id: brief.id }),
+    });
+    setPromoting(null);
+  }
 
   async function save(updates) {
     setSaving(true);
@@ -214,11 +243,42 @@ function BriefEditor({ brief, onBack, onUpdated }) {
           <textarea rows={2} value={form.internal_notes} onChange={e => setForm(p => ({ ...p, internal_notes: e.target.value }))} onBlur={() => handleBlur("internal_notes")} style={{ ...ic, resize: "vertical", lineHeight: 1.4, borderColor: T.amber + "44" }} placeholder="Notes only HPD team sees..." />
         </div>
 
-        {/* Files + Messages — placeholder for Phase 2/3 */}
-        <div style={{ marginTop: 8, padding: 12, background: T.surface, borderRadius: 6, border: `1px dashed ${T.border}` }}>
-          <div style={{ fontSize: 11, color: T.muted, textAlign: "center", fontFamily: font }}>
-            File uploads, designer chat, and version history — coming in Phase 2
+        {/* Designer work files */}
+        {(wips.length > 0 || finals.length > 0) && (
+          <div style={{ padding: 12, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, marginTop: 4 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Designer Work</div>
+            {finals.length > 0 && (
+              <div style={{ marginBottom: wips.length ? 10 : 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.green, marginBottom: 6 }}>Final · {finals.length}</div>
+                {finals.map(f => (
+                  <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.greenDim, borderRadius: 6, fontSize: 11, marginBottom: 4 }}>
+                    <span style={{ padding: "2px 6px", background: T.green, color: "#fff", borderRadius: 4, fontWeight: 700, fontSize: 9 }}>V{f.version}</span>
+                    <a href={f.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: font }}>{f.file_name}</a>
+                    <button onClick={() => promoteFinal(f.id)} disabled={promoting === f.id}
+                      style={{ padding: "3px 8px", background: T.accent, color: "#fff", border: "none", borderRadius: 4, fontSize: 9, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: promoting === f.id ? 0.5 : 1 }}>
+                      {promoting === f.id ? "..." : "→ Print-Ready"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {wips.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.blue, marginBottom: 6 }}>WIPs · {wips.length}</div>
+                {wips.map(w => (
+                  <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 10px", background: T.surface, borderRadius: 6, fontSize: 11, marginBottom: 3 }}>
+                    <span style={{ padding: "2px 6px", background: T.blueDim, color: T.blue, borderRadius: 4, fontWeight: 700, fontSize: 9 }}>V{w.version}</span>
+                    <a href={w.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: font }}>{w.file_name}</a>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+        )}
+
+        {/* Messages */}
+        <div style={{ padding: 12, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, marginTop: 4 }}>
+          <ArtBriefMessages briefId={brief.id} compact />
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getDriveToken, getReceivingFolderId } from "@/lib/drive-token";
+import { notifyTeamServer, logJobActivityServer } from "@/lib/notify-server";
 
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -10,7 +11,7 @@ async function verifyAccess(token: string, briefId: string) {
   const db = admin();
   const { data: designer } = await db.from("designers").select("id, active, name").eq("portal_token", token).single();
   if (!designer || !designer.active) return null;
-  const { data: brief } = await db.from("art_briefs").select("id, title, assigned_designer_id, state").eq("id", briefId).single();
+  const { data: brief } = await db.from("art_briefs").select("id, title, assigned_designer_id, state, item_id, job_id").eq("id", briefId).single();
   if (!brief || brief.assigned_designer_id !== designer.id) return null;
   return { db, designer, brief };
 }
@@ -85,7 +86,38 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     updated_at: now,
   }).eq("id", ctx.brief.id);
 
-  return NextResponse.json({ file: data, state: newState });
+  // Auto-promote final → item's print_ready (closes the handoff loop)
+  let promoted = false;
+  if (kind === "final" && ctx.brief.item_id && driveFile.id && driveFile.webViewLink) {
+    const { data: existing } = await ctx.db.from("item_files")
+      .select("id")
+      .eq("item_id", ctx.brief.item_id)
+      .eq("drive_file_id", driveFile.id)
+      .maybeSingle();
+    if (!existing) {
+      await ctx.db.from("item_files").insert({
+        item_id: ctx.brief.item_id,
+        file_name: file.name,
+        stage: "print_ready",
+        drive_file_id: driveFile.id,
+        drive_link: driveFile.webViewLink,
+        mime_type: file.type,
+        file_size: file.size,
+        uploaded_by: null,
+      });
+      await ctx.db.from("items").update({ drive_link: driveFile.webViewLink }).eq("id", ctx.brief.item_id);
+      promoted = true;
+    }
+  }
+
+  const activityMsg = kind === "final"
+    ? `Designer uploaded FINAL for "${ctx.brief.title || "brief"}"${promoted ? " — auto-synced to print-ready" : ""}`
+    : `Designer uploaded WIP v${version} for "${ctx.brief.title || "brief"}"`;
+
+  await notifyTeamServer(activityMsg, kind === "final" ? "approval" : "production", ctx.brief.id, "art_brief");
+  if (ctx.brief.job_id) await logJobActivityServer(ctx.brief.job_id, activityMsg);
+
+  return NextResponse.json({ file: data, state: newState, promoted });
 }
 
 // DELETE — designer removes their own upload
