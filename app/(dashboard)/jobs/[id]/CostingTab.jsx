@@ -267,7 +267,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                         </div>
                         <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>
-                        <div style={{display:"flex",alignItems:"center",gap:8}} onClick={e=>e.stopPropagation()}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}} onClick={e=>e.stopPropagation()}>
                           <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
                             {p._sellOverride?(
                               <>
@@ -291,6 +291,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                               <div style={{background:T.surface,border:"1px solid "+T.amber,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box"}}>
                                 <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
                                 <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus
+                                  disabled={!!project?.type_meta?.costing_locked}
                                   onFocus={e=>e.target.select()}
                                   onChange={e=>updateProd(i,{...p,_sellOverrideVal:e.target.value})}
                                   style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.amber,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
@@ -408,7 +409,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                       </div>
                       <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>
-                      <div style={{display:"flex",alignItems:"center",gap:8}} onClick={e=>e.stopPropagation()}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}} onClick={e=>e.stopPropagation()}>
                         <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
                           {p._sellOverride?(
                             <>

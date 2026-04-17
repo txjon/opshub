@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
       if (profiles?.length) {
         await admin.from("notifications").insert(
           profiles.map((p: any) => ({
-            user_id: p.id, type: "full_payment",
+            user_id: p.id, type: "payment",
             message: `Payment received — $${amount.toLocaleString()} · ${(job.clients as any)?.name || ""} · ${job.title}`,
             reference_id: job.id, reference_type: "job",
           }))

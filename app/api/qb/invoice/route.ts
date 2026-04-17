@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getOrCreateCustomer, createInvoice, updateInvoice, type QBLineItem } from "@/lib/quickbooks";
+// Note: logs to job_activity after push so dashboard actions are traceable
 // Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
 
 // Garment type → QB Product/Service name mapping
@@ -25,10 +26,12 @@ export async function POST(req: NextRequest) {
   try {
     // Auth check — logged-in user OR internal service call
     const internalKey = req.headers.get("x-internal-key");
+    let userId: string | null = null;
     if (internalKey !== process.env.SUPABASE_SERVICE_ROLE_KEY) {
       const supabase = await createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      userId = user.id;
     }
 
     const { jobId } = await req.json();
@@ -140,6 +143,12 @@ export async function POST(req: NextRequest) {
         });
       } catch {} // Non-fatal
 
+      // Log activity
+      await admin.from("job_activity").insert({
+        job_id: jobId, user_id: userId, type: "auto",
+        message: `Invoice updated in QuickBooks — #${job.type_meta?.qb_invoice_number || "pending"} · $${updated.totalWithTax?.toFixed(2) || "?"}`,
+      });
+
       return NextResponse.json({
         success: true,
         updated: true,
@@ -168,6 +177,12 @@ export async function POST(req: NextRequest) {
         qb_invoice_created_at: new Date().toISOString(),
       },
     }).eq("id", jobId);
+
+    // Log activity
+    await admin.from("job_activity").insert({
+      job_id: jobId, user_id: userId, type: "auto",
+      message: `Invoice pushed to QuickBooks — #${result.invoiceNumber} · $${result.totalWithTax?.toFixed(2) || "?"}`,
+    });
 
     return NextResponse.json({
       success: true,

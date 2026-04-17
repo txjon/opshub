@@ -186,15 +186,16 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     // Notify team
     const { data: profiles } = await supabase.from("profiles").select("id");
     if (profiles?.length) {
-      await supabase.from("notifications").insert(
+      const { error: notifyErr } = await supabase.from("notifications").insert(
         profiles.map((p: any) => ({
           user_id: p.id,
-          type: "full_payment",
+          type: "payment",
           message: `Payment received — $${amount.toLocaleString()} · ${(job.clients as any)?.name || ""} · ${job.title}`,
           reference_id: job.id,
           reference_type: "job",
         }))
       );
+      if (notifyErr) console.error("[QB Webhook2] Notify insert FAILED:", notifyErr.message, notifyErr.details);
     }
 
     // Auto-email client with PAID-stamped invoice PDF
@@ -202,17 +203,27 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(process.env.RESEND_API_KEY);
-        // Get client email
-        const { data: contacts } = await supabase.from("job_contacts").select("contacts(email, name)").eq("job_id", job.id);
-        const clientEmail = contacts?.map((c: any) => c.contacts?.email).filter(Boolean)[0];
-        if (!clientEmail) return;
+        // Get client email (prefer billing, then primary, then any)
+        const { data: contacts } = await supabase.from("job_contacts").select("role_on_job, contacts(email, name)").eq("job_id", job.id);
+        const billing = contacts?.find((c: any) => c.role_on_job === "billing")?.contacts;
+        const primary = contacts?.find((c: any) => c.role_on_job === "primary")?.contacts;
+        const anyContact = contacts?.map((c: any) => c.contacts).find((c: any) => c?.email);
+        const clientEmail = billing?.email || primary?.email || anyContact?.email;
+        if (!clientEmail) {
+          console.error("[QB Webhook2] No client email found for job:", job.id);
+          return;
+        }
 
         // Fetch PAID-stamped invoice PDF
         const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
         const pdfRes = await fetch(`${baseUrl}/api/pdf/invoice/${job.id}?paid=true&paidDate=${encodeURIComponent(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))}`, {
           headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY! },
         });
-        if (!pdfRes.ok) return;
+        if (!pdfRes.ok) {
+          const errText = await pdfRes.text().catch(() => "");
+          console.error("[QB Webhook2] PAID invoice PDF fetch failed:", pdfRes.status, errText.slice(0, 200));
+          return;
+        }
         const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
 
         // Get portal URL
@@ -221,15 +232,20 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
         const portalButton = portalUrl ? `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#f3f3f5;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px;border:1px solid #dcdce0">View in Portal</a></p>` : "";
         const invoiceNum = (job.type_meta as any)?.qb_invoice_number || jobFull?.job_number || "";
 
-        await resend.emails.send({
+        const { error: sendErr } = await resend.emails.send({
           from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",
           to: clientEmail,
           subject: `Payment Received — ${(job.clients as any)?.name || ""} · ${job.title}`,
           html: `<p>Hi,</p><p>We've received your payment of <strong>$${amount.toLocaleString()}</strong>. Your paid invoice is attached for your records.</p>${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`,
           attachments: [{ filename: `HPD-Invoice-${invoiceNum}-PAID.pdf`, content: pdfBuffer.toString("base64") }],
         });
+        if (sendErr) {
+          console.error("[QB Webhook2] Resend error:", sendErr);
+        } else {
+          console.log(`[QB Webhook2] PAID email sent to ${clientEmail} for ${job.title}`);
+        }
       } catch (emailErr) {
-        console.error("[QB Webhook2] Payment email error:", emailErr);
+        console.error("[QB Webhook2] Payment email exception:", emailErr);
       }
     })();
 

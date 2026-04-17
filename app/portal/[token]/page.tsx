@@ -99,6 +99,27 @@ export default function PortalPage({ params }: { params: { token: string } }) {
     }
   }, [activeToken]);
 
+  // Catch external state changes (QB payments, team actions) — refresh on tab focus + every 60s while visible
+  useEffect(() => {
+    let lastRefresh = Date.now();
+    const refresh = () => {
+      lastRefresh = Date.now();
+      setProjectCache(prev => { const n = { ...prev }; delete n[activeToken]; return n; });
+      loadPortal(activeToken, true);
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastRefresh > 30000) refresh();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, 60000);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      clearInterval(interval);
+    };
+  }, [activeToken]);
+
   async function loadPortal(token?: string, skipCache = false) {
     const t = token || activeToken;
     if (!skipCache && projectCache[t]) { setData(projectCache[t]); return; }

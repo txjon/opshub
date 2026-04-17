@@ -254,7 +254,7 @@ export async function createInvoice(
     memo?: string;
     email?: string;
   } = {}
-): Promise<{ invoiceId: string; invoiceNumber: string; paymentLink: string }> {
+): Promise<{ invoiceId: string; invoiceNumber: string; paymentLink: string; taxAmount: number; totalWithTax: number }> {
   // Look up QB item IDs for each product/service name
   const itemCache: Record<string, string> = {};
   for (const li of lineItems) {

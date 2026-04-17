@@ -186,15 +186,16 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     // Notify team
     const { data: profiles } = await supabase.from("profiles").select("id");
     if (profiles?.length) {
-      await supabase.from("notifications").insert(
+      const { error: notifyErr } = await supabase.from("notifications").insert(
         profiles.map((p: any) => ({
           user_id: p.id,
-          type: "full_payment",
+          type: "payment",
           message: `Payment received — $${amount.toLocaleString()} · ${(job.clients as any)?.name || ""} · ${job.title}`,
           reference_id: job.id,
           reference_type: "job",
         }))
       );
+      if (notifyErr) console.error("[QB Webhook1] Notify insert FAILED:", notifyErr.message, notifyErr.details);
     }
 
     // Auto-email client confirmation

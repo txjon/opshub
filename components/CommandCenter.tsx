@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 
@@ -32,6 +33,7 @@ export function CommandCenter({ alerts, stats }: {
     decoratorCounts: Record<string, number>;
   };
 }) {
+  const router = useRouter();
   const [emailModal, setEmailModal] = useState<{ type: string; jobId: string; contacts: any[]; subject: string; vendor?: string } | null>(null);
   const [invoiceModal, setInvoiceModal] = useState<{ jobId: string; jobTitle: string; clientName: string; currentNumber: string | null } | null>(null);
   const [invoiceInput, setInvoiceInput] = useState("");
@@ -41,18 +43,22 @@ export function CommandCenter({ alerts, stats }: {
 
   useEffect(() => { if (window.innerWidth < 768) setIsMobile(true); }, []);
 
-  // Auto-refresh when tab becomes visible (catches state changes from other tabs/portals)
+  // Auto-refresh: poll every 45s while visible + on visibility change (catches portal/webhook state changes)
   useEffect(() => {
     let lastRefresh = Date.now();
+    const doRefresh = () => { lastRefresh = Date.now(); router.refresh(); };
     const handleVisibility = () => {
-      if (document.visibilityState === "visible" && Date.now() - lastRefresh > 30000) {
-        lastRefresh = Date.now();
-        window.location.reload();
-      }
+      if (document.visibilityState === "visible" && Date.now() - lastRefresh > 30000) doRefresh();
     };
     document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") doRefresh();
+    }, 45000);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      clearInterval(interval);
+    };
+  }, [router]);
 
   const salesAlerts = alerts.filter(a => a.column === "sales");
   const prodAlerts = alerts.filter(a => a.column === "production");
@@ -97,7 +103,7 @@ export function CommandCenter({ alerts, stats }: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId: invoiceModal.jobId, invoiceNumber: invoiceInput.trim() }),
       });
-      if (res.ok) { setInvoiceModal(null); window.location.reload(); }
+      if (res.ok) { setInvoiceModal(null); router.refresh(); }
     } catch {}
     setInvoiceSaving(false);
   }
@@ -112,7 +118,7 @@ export function CommandCenter({ alerts, stats }: {
         body: JSON.stringify({ jobId: invoiceModal.jobId }),
       });
       const data = await res.json();
-      if (data.invoiceNumber) { setInvoiceModal(null); window.location.reload(); }
+      if (data.invoiceNumber) { setInvoiceModal(null); router.refresh(); }
     } catch {}
     setInvoiceSaving(false);
   }
@@ -318,7 +324,7 @@ export function CommandCenter({ alerts, stats }: {
               defaultEmail={emailModal.contacts.find((c: any) => c.role === "primary" || c.role === "billing")?.email || emailModal.contacts[0]?.email || ""}
               defaultSubject={emailModal.subject} vendor={emailModal.vendor}
               onClose={() => setEmailModal(null)}
-              onSent={() => { setEmailModal(null); window.location.reload(); }} />
+              onSent={() => { setEmailModal(null); router.refresh(); }} />
           </div>
         </div>
       )}

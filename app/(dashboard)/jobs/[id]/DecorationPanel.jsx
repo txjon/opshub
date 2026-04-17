@@ -468,7 +468,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
         const activeCosts = (p.customCosts||[]).filter(c=>c.desc);
         const customSummary = activeCosts.length>0 ? activeCosts.map(c=>c.desc).join(", ") : "None";
         return (
-        <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+        <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden",minWidth:0}}>
           <button onClick={()=>updateProd(i,{...p,_customOpen:!p._customOpen})}
             style={{width:"100%",padding:"6px 10px",background:T.surface,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",fontFamily:font}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -480,9 +480,9 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
           {p._customOpen && (
             <div style={{padding:"8px 10px",display:"flex",flexDirection:"column",gap:4}}>
               {(p.customCosts||[]).map((cc,ci)=>(
-                <div key={ci} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,minWidth:0}}>
+                <div key={ci} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,minWidth:0,flexWrap:"wrap"}}>
                   <input value={cc.desc||""} onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
-                    style={{flex:1,minWidth:0,background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,padding:"3px 6px",outline:"none",fontFamily:font}}/>
+                    style={{flex:"1 1 140px",minWidth:80,background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,padding:"3px 6px",outline:"none",fontFamily:font}}/>
                   <div style={{display:"flex",gap:2,flexShrink:0}}>
                     {[{label:"/ unit",flat:false},{label:"flat",flat:true}].map(opt=>{
                       const sel=cc.flat===opt.flat;
