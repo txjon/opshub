@@ -15,6 +15,7 @@ import {
   BoardFilterControls,
   ActiveFilterBar,
 } from "@/components/ArtBoard";
+import { ProjectPicker } from "@/components/ProjectPicker";
 
 const STATE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   draft: { label: "Draft", color: T.muted, bg: T.surface },
@@ -157,7 +158,7 @@ export default function ArtStudioPage() {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const [newBrief, setNewBrief] = useState({ title: "", client_id: "", concept: "", deadline: "" });
+  const [newBrief, setNewBrief] = useState({ title: "", client_id: "", job_id: "", concept: "", deadline: "" });
   const [creating, setCreating] = useState(false);
   const [selectedBrief, setSelectedBrief] = useState<Brief | null>(null);
   const [filters, setFiltersState] = useState<BoardFilters>({
@@ -200,6 +201,7 @@ export default function ArtStudioPage() {
       body: JSON.stringify({
         title: newBrief.title.trim(),
         client_id: newBrief.client_id || null,
+        job_id: newBrief.job_id || null,
         concept: newBrief.concept.trim() || null,
         deadline: newBrief.deadline || null,
         state: "draft",
@@ -209,7 +211,7 @@ export default function ArtStudioPage() {
     setCreating(false);
     if (data.brief) {
       setShowNew(false);
-      setNewBrief({ title: "", client_id: "", concept: "", deadline: "" });
+      setNewBrief({ title: "", client_id: "", job_id: "", concept: "", deadline: "" });
       setBriefs(p => [data.brief, ...p]);
       setSelectedBrief(data.brief);
     }
@@ -405,11 +407,20 @@ export default function ArtStudioPage() {
               </div>
               <div>
                 <label style={label}>Client (optional)</label>
-                <select value={newBrief.client_id} onChange={e => setNewBrief(p => ({ ...p, client_id: e.target.value }))} style={{ ...ic, width: "100%", cursor: "pointer" }}>
+                <select value={newBrief.client_id} onChange={e => setNewBrief(p => ({ ...p, client_id: e.target.value, job_id: "" }))} style={{ ...ic, width: "100%", cursor: "pointer" }}>
                   <option value="">— unlinked —</option>
                   {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
+              {newBrief.client_id && (
+                <ProjectPicker
+                  clientId={newBrief.client_id}
+                  value={newBrief.job_id}
+                  onChange={(id) => setNewBrief(p => ({ ...p, job_id: id }))}
+                  label="Project (optional)"
+                  helperText="File this brief under a project / campaign."
+                />
+              )}
               <div>
                 <label style={label}>Concept (optional)</label>
                 <textarea rows={3} value={newBrief.concept} onChange={e => setNewBrief(p => ({ ...p, concept: e.target.value }))} style={{ ...ic, width: "100%", resize: "vertical" }} placeholder="Brief description of what you need..." />
@@ -611,6 +622,49 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     }).catch(() => {});
   }
 
+  const refInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingRefs, setUploadingRefs] = useState(0);
+  const [refUploadError, setRefUploadError] = useState<string | null>(null);
+
+  async function uploadReferences(files: File[]) {
+    if (!files.length) return;
+    setUploadingRefs(files.length);
+    setRefUploadError(null);
+    let doneCount = 0;
+    const newFiles: any[] = [];
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append("brief_id", brief.id);
+      fd.append("file", file);
+      fd.append("kind", "reference");
+      try {
+        const res = await fetch("/api/art-briefs/upload-reference", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+          setRefUploadError(data.error || "Upload failed");
+        } else if (data.file) {
+          newFiles.push(data.file);
+        }
+      } catch (e: any) {
+        setRefUploadError(e.message || "Upload failed");
+      }
+      doneCount++;
+      setUploadingRefs(files.length - doneCount);
+    }
+    if (newFiles.length) {
+      setReferences(p => [...p, ...newFiles]);
+      setChanged(true);
+    }
+    setUploadingRefs(0);
+  }
+
+  async function deleteReference(fileId: string) {
+    if (!confirm("Remove this reference?")) return;
+    await fetch(`/api/art-briefs/files?id=${fileId}`, { method: "DELETE" });
+    setReferences(p => p.filter(r => r.id !== fileId));
+    setChanged(true);
+  }
+
   const purposeLabel: Record<string, string> = {
     tour: "Tour merch", event: "Event / one-off", brand_staple: "Brand staple",
     drop: "Drop / capsule", corporate: "Corporate / promo", retail: "Retail",
@@ -663,57 +717,125 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
                 </span>
               )}
             </div>
-            {!intakeData.submitted ? (
-              <div style={{ fontSize: 12, color: T.faint, fontStyle: "italic" }}>
-                Click "Copy Client Link" above and send it to the client. They'll fill out a quick intake that appears here.
+            {/* Intake answers (client-submitted) */}
+            {intakeData.submitted ? (
+              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 14px", fontSize: 12, marginBottom: 14 }}>
+                <span style={{ color: T.muted, fontWeight: 600 }}>Purpose:</span>
+                <span style={{ color: T.text }}>{intakeData.purpose ? purposeLabel[intakeData.purpose] || intakeData.purpose : "—"}</span>
+                <span style={{ color: T.muted, fontWeight: 600 }}>Audience:</span>
+                <span style={{ color: T.text }}>{intakeData.audience || "—"}</span>
+                <span style={{ color: T.muted, fontWeight: 600 }}>Mood:</span>
+                <span style={{ color: T.text }}>
+                  {intakeData.mood_words.length > 0 ? intakeData.mood_words.map((w, i) => (
+                    <span key={i} style={{ display: "inline-block", background: T.card, border: `1px solid ${T.border}`, borderRadius: 99, padding: "2px 10px", fontSize: 11, marginRight: 4 }}>{w}</span>
+                  )) : "—"}
+                </span>
+                {intakeData.no_gos && <>
+                  <span style={{ color: T.red, fontWeight: 600 }}>Avoid:</span>
+                  <span style={{ color: T.text }}>{intakeData.no_gos}</span>
+                </>}
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 14px", fontSize: 12 }}>
-                  <span style={{ color: T.muted, fontWeight: 600 }}>Purpose:</span>
-                  <span style={{ color: T.text }}>{intakeData.purpose ? purposeLabel[intakeData.purpose] || intakeData.purpose : "—"}</span>
-                  <span style={{ color: T.muted, fontWeight: 600 }}>Audience:</span>
-                  <span style={{ color: T.text }}>{intakeData.audience || "—"}</span>
-                  <span style={{ color: T.muted, fontWeight: 600 }}>Mood:</span>
-                  <span style={{ color: T.text }}>
-                    {intakeData.mood_words.length > 0 ? intakeData.mood_words.map((w, i) => (
-                      <span key={i} style={{ display: "inline-block", background: T.card, border: `1px solid ${T.border}`, borderRadius: 99, padding: "2px 10px", fontSize: 11, marginRight: 4 }}>{w}</span>
-                    )) : "—"}
-                  </span>
-                  {intakeData.no_gos && <>
-                    <span style={{ color: T.red, fontWeight: 600 }}>Avoid:</span>
-                    <span style={{ color: T.text }}>{intakeData.no_gos}</span>
-                  </>}
-                </div>
-
-                {/* Reference gallery */}
-                {references.length > 0 && (
-                  <div style={{ marginTop: 4 }}>
-                    <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>References</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
-                      {references.map(r => (
-                        <div key={r.id} style={{ background: T.card, borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                          <a href={r.drive_link} target="_blank" rel="noopener noreferrer">
-                            <div style={{ width: "100%", aspectRatio: "5/4", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: `1px solid ${T.border}` }}>
-                              <img src={r.drive_link?.replace("/view", "/preview") || ""} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} onError={e => (e.target as HTMLImageElement).style.display = "none"} />
-                            </div>
-                          </a>
-                          <div style={{ padding: 8 }}>
-                            {r.client_annotation && <div style={{ fontSize: 10, color: T.muted, fontStyle: "italic", marginBottom: 4 }}>"{r.client_annotation}"</div>}
-                            <input
-                              defaultValue={r.hpd_annotation || ""}
-                              onBlur={e => saveHpdAnnotation(r.id, e.target.value)}
-                              placeholder="HPD note to designer..."
-                              style={{ width: "100%", fontSize: 10, padding: "4px 6px", border: `1px solid ${T.amber}44`, borderRadius: 4, background: T.amberDim + "33", color: T.amber, fontFamily: font, outline: "none", boxSizing: "border-box" }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+              <div style={{ fontSize: 12, color: T.faint, fontStyle: "italic", marginBottom: 14 }}>
+                Client hasn't submitted intake. Use <strong>Copy Link</strong> or <strong>Email to Client</strong> above to send it — their answers show here when they fill it out.
               </div>
             )}
+
+            {/* References (always visible, HPD can add more) */}
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  References {references.length > 0 && <span style={{ fontWeight: 400, color: T.faint }}>· {references.length}</span>}
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  {uploadingRefs > 0 && (
+                    <span style={{ fontSize: 10, color: T.blue, fontWeight: 600 }}>Uploading… {uploadingRefs} left</span>
+                  )}
+                  {refUploadError && (
+                    <span style={{ fontSize: 10, color: T.red, fontWeight: 600 }}>{refUploadError}</span>
+                  )}
+                  <button
+                    onClick={() => refInputRef.current?.click()}
+                    disabled={uploadingRefs > 0}
+                    style={{ padding: "4px 10px", background: T.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.5 : 1 }}
+                  >
+                    + Add references
+                  </button>
+                  <input
+                    ref={refInputRef}
+                    type="file"
+                    multiple
+                    style={{ display: "none" }}
+                    onChange={e => {
+                      const files = Array.from(e.target.files || []);
+                      uploadReferences(files);
+                      if (refInputRef.current) refInputRef.current.value = "";
+                    }}
+                  />
+                </div>
+              </div>
+
+              {references.length === 0 ? (
+                <div
+                  onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.borderColor = T.accent; }}
+                  onDragLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = T.border; }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    (e.currentTarget as HTMLElement).style.borderColor = T.border;
+                    uploadReferences(Array.from(e.dataTransfer.files || []));
+                  }}
+                  onClick={() => refInputRef.current?.click()}
+                  style={{
+                    padding: 20, border: `2px dashed ${T.border}`, borderRadius: 8,
+                    textAlign: "center", fontSize: 11, color: T.faint, cursor: "pointer",
+                    background: T.card,
+                  }}
+                >
+                  No references yet — drop files here or click <strong>+ Add references</strong>
+                </div>
+              ) : (
+                <div
+                  onDragOver={e => { e.preventDefault(); }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    uploadReferences(Array.from(e.dataTransfer.files || []));
+                  }}
+                  style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}
+                >
+                  {references.map(r => (
+                    <div key={r.id} style={{ background: T.card, borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden", position: "relative" }}>
+                      <button
+                        onClick={() => deleteReference(r.id)}
+                        style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.55)", color: "#fff", border: "none", borderRadius: 4, width: 20, height: 20, cursor: "pointer", fontSize: 12, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1 }}
+                        title="Remove"
+                      >
+                        ×
+                      </button>
+                      <a href={r.drive_link} target="_blank" rel="noopener noreferrer">
+                        <div style={{ width: "100%", aspectRatio: "5/4", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: `1px solid ${T.border}` }}>
+                          <img
+                            src={r.drive_file_id ? `https://drive.google.com/thumbnail?id=${r.drive_file_id}&sz=w400` : (r.drive_link?.replace("/view", "/preview") || "")}
+                            referrerPolicy="no-referrer"
+                            alt=""
+                            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                            onError={e => (e.target as HTMLImageElement).style.display = "none"}
+                          />
+                        </div>
+                      </a>
+                      <div style={{ padding: 8 }}>
+                        {r.client_annotation && <div style={{ fontSize: 10, color: T.muted, fontStyle: "italic", marginBottom: 4 }}>"{r.client_annotation}"</div>}
+                        <input
+                          defaultValue={r.hpd_annotation || ""}
+                          onBlur={e => saveHpdAnnotation(r.id, e.target.value)}
+                          placeholder="HPD note to designer..."
+                          style={{ width: "100%", fontSize: 10, padding: "4px 6px", border: `1px solid ${T.amber}44`, borderRadius: 4, background: T.amberDim + "33", color: T.amber, fontFamily: font, outline: "none", boxSizing: "border-box" }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* HPD TRANSLATION SECTION */}
@@ -871,6 +993,7 @@ function QuickAddModal({
   onAnyCreated: () => void;
 }) {
   const [clientId, setClientId] = useState<string>("");
+  const [jobId, setJobId] = useState<string>("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [running, setRunning] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -908,6 +1031,7 @@ function QuickAddModal({
         const fd = new FormData();
         fd.append("file", item.file);
         fd.append("client_id", clientId);
+        if (jobId) fd.append("job_id", jobId);
         const res = await fetch("/api/art-briefs/quick-add", { method: "POST", body: fd });
         const data = await res.json();
         if (!res.ok) {
@@ -962,7 +1086,7 @@ function QuickAddModal({
             </label>
             <select
               value={clientId}
-              onChange={e => setClientId(e.target.value)}
+              onChange={e => { setClientId(e.target.value); setJobId(""); }}
               disabled={running}
               autoFocus
               style={{
@@ -984,6 +1108,15 @@ function QuickAddModal({
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
+
+          {/* Project picker */}
+          <ProjectPicker
+            clientId={clientId}
+            value={jobId}
+            onChange={setJobId}
+            disabled={running}
+            helperText="Optional. Group these briefs under a project (existing or brand new)."
+          />
 
           {/* Drop zone */}
           <div
@@ -1056,6 +1189,7 @@ function QuickAddModal({
           {selectedClient && (
             <span style={{ fontSize: 11, color: T.muted }}>
               → Creating briefs under <strong style={{ color: T.text }}>{selectedClient.name}</strong>
+              {jobId && " · filed to the selected project"}
             </span>
           )}
           <div style={{ flex: 1 }} />
