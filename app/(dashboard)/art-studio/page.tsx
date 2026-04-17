@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
@@ -49,6 +49,7 @@ export default function ArtStudioPage() {
   const [loading, setLoading] = useState(true);
   const [stateFilter, setStateFilter] = useState<string>("all");
   const [showNew, setShowNew] = useState(false);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [newBrief, setNewBrief] = useState({ title: "", client_id: "", concept: "", deadline: "" });
   const [creating, setCreating] = useState(false);
   const [selectedBrief, setSelectedBrief] = useState<Brief | null>(null);
@@ -121,6 +122,10 @@ export default function ArtStudioPage() {
             style={{ padding: "7px 14px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: "none", fontFamily: font }}>
             Preview (fake data)
           </a>
+          <button onClick={() => setShowQuickAdd(true)}
+            style={{ background: "transparent", color: T.accent, border: `1px solid ${T.accent}`, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
+            ⚡ Quick Add
+          </button>
           <button onClick={() => setShowNew(true)}
             style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
             + New Brief
@@ -227,6 +232,15 @@ export default function ArtStudioPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Quick Add modal */}
+      {showQuickAdd && (
+        <QuickAddModal
+          clients={clients}
+          onClose={() => setShowQuickAdd(false)}
+          onAnyCreated={() => loadBriefs()}
+        />
       )}
 
       {/* Brief detail modal — reuse ArtBriefPanel via direct import */}
@@ -640,4 +654,314 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
       )}
     </div>
   );
+}
+
+// ─── Quick Add Modal ──────────────────────────────────────────────────────
+type QueueItem = {
+  id: string;
+  file: File;
+  status: "pending" | "uploading" | "done" | "error";
+  error?: string;
+  briefId?: string;
+  title?: string;
+};
+
+function QuickAddModal({
+  clients,
+  onClose,
+  onAnyCreated,
+}: {
+  clients: Client[];
+  onClose: () => void;
+  onAnyCreated: () => void;
+}) {
+  const [clientId, setClientId] = useState<string>("");
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [running, setRunning] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function titleFromFile(name: string) {
+    const noExt = name.replace(/\.[^.]+$/, "");
+    return noExt.replace(/[._-]+/g, " ").trim() || name;
+  }
+
+  function addFiles(files: File[]) {
+    if (!files.length) return;
+    setQueue(prev => [
+      ...prev,
+      ...files.map(f => ({
+        id: crypto.randomUUID(),
+        file: f,
+        status: "pending" as const,
+        title: titleFromFile(f.name),
+      })),
+    ]);
+  }
+
+  async function uploadQueue() {
+    if (!clientId) return;
+    if (running) return;
+    setRunning(true);
+
+    // Sequential upload so one failure doesn't take everything down and
+    // rate-limiting to Drive stays calm
+    const pending = queue.filter(q => q.status === "pending" || q.status === "error");
+    for (const item of pending) {
+      setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "uploading", error: undefined } : q));
+      try {
+        const fd = new FormData();
+        fd.append("file", item.file);
+        fd.append("client_id", clientId);
+        const res = await fetch("/api/art-briefs/quick-add", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+          setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "error", error: data.error || "Upload failed" } : q));
+        } else {
+          setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "done", briefId: data.brief?.id } : q));
+          onAnyCreated();
+        }
+      } catch (e: any) {
+        setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "error", error: e.message || "Upload failed" } : q));
+      }
+    }
+
+    setRunning(false);
+  }
+
+  function removeItem(id: string) {
+    setQueue(prev => prev.filter(q => q.id !== id));
+  }
+
+  const pendingCount = queue.filter(q => q.status === "pending").length;
+  const doneCount = queue.filter(q => q.status === "done").length;
+  const errorCount = queue.filter(q => q.status === "error").length;
+  const uploadingCount = queue.filter(q => q.status === "uploading").length;
+  const hasQueue = queue.length > 0;
+  const canStart = !!clientId && (pendingCount > 0 || errorCount > 0) && !running;
+  const selectedClient = clients.find(c => c.id === clientId);
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, width: 640, maxWidth: "92vw", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+        {/* Header */}
+        <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>⚡ Quick Add</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+              Pick a client, drop references. Each file becomes a draft brief you can fill in later.
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 20, padding: "0 4px" }}>×</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: 20, flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Client picker */}
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>
+              Client <span style={{ color: T.red }}>*</span>
+            </label>
+            <select
+              value={clientId}
+              onChange={e => setClientId(e.target.value)}
+              disabled={running}
+              autoFocus
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                fontSize: 14,
+                borderRadius: 8,
+                border: `1px solid ${clientId ? T.accent : T.border}`,
+                background: T.surface,
+                color: T.text,
+                outline: "none",
+                fontFamily: font,
+                cursor: running ? "not-allowed" : "pointer",
+                fontWeight: clientId ? 600 : 400,
+                opacity: running ? 0.6 : 1,
+              }}
+            >
+              <option value="">Select a client…</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+
+          {/* Drop zone */}
+          <div
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={e => {
+              e.preventDefault();
+              setDragOver(false);
+              const files = Array.from(e.dataTransfer.files || []);
+              addFiles(files);
+            }}
+            onClick={() => !running && fileInputRef.current?.click()}
+            style={{
+              padding: 28,
+              border: `2px dashed ${dragOver ? T.accent : T.border}`,
+              background: dragOver ? T.accentDim : T.surface,
+              borderRadius: 10,
+              textAlign: "center",
+              cursor: running ? "not-allowed" : "pointer",
+              transition: "background 0.1s, border-color 0.1s",
+              opacity: running ? 0.6 : 1,
+            }}
+          >
+            <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 4 }}>
+              Drop references here
+            </div>
+            <div style={{ fontSize: 11, color: T.muted }}>
+              or click to pick files · multi-select ok · images, PDFs, anything
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              style={{ display: "none" }}
+              onChange={e => {
+                const files = Array.from(e.target.files || []);
+                addFiles(files);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }}
+            />
+          </div>
+
+          {/* Queue */}
+          {hasQueue && (
+            <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, overflow: "hidden" }}>
+              <div style={{ padding: "8px 12px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, fontSize: 11, fontWeight: 600, color: T.muted }}>
+                <span>{queue.length} file{queue.length === 1 ? "" : "s"}</span>
+                {doneCount > 0 && <span style={{ color: T.green }}>· ✓ {doneCount} done</span>}
+                {uploadingCount > 0 && <span style={{ color: T.blue }}>· ↑ {uploadingCount} uploading</span>}
+                {pendingCount > 0 && <span>· {pendingCount} pending</span>}
+                {errorCount > 0 && <span style={{ color: T.red }}>· ✕ {errorCount} failed</span>}
+              </div>
+              <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                {queue.map(item => (
+                  <QueueRow key={item.id} item={item} onRemove={() => removeItem(item.id)} running={running} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!hasQueue && !clientId && (
+            <div style={{ fontSize: 11, color: T.faint, textAlign: "center", fontStyle: "italic" }}>
+              Pick a client first, then drop files.
+            </div>
+          )}
+        </div>
+
+        {/* Footer actions */}
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, background: T.surface }}>
+          {selectedClient && (
+            <span style={{ fontSize: 11, color: T.muted }}>
+              → Creating briefs under <strong style={{ color: T.text }}>{selectedClient.name}</strong>
+            </span>
+          )}
+          <div style={{ flex: 1 }} />
+          <button
+            onClick={onClose}
+            disabled={running}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 6,
+              border: `1px solid ${T.border}`,
+              background: "transparent",
+              color: T.muted,
+              fontSize: 12,
+              fontFamily: font,
+              cursor: running ? "not-allowed" : "pointer",
+              opacity: running ? 0.5 : 1,
+            }}
+          >
+            {doneCount > 0 ? "Close" : "Cancel"}
+          </button>
+          <button
+            onClick={uploadQueue}
+            disabled={!canStart}
+            style={{
+              padding: "8px 20px",
+              borderRadius: 6,
+              border: "none",
+              background: T.accent,
+              color: "#fff",
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: font,
+              cursor: canStart ? "pointer" : "not-allowed",
+              opacity: canStart ? 1 : 0.4,
+            }}
+          >
+            {running ? `Uploading… ${doneCount}/${queue.length}` : errorCount > 0 ? `Retry failed (${errorCount})` : `Create ${pendingCount} brief${pendingCount === 1 ? "" : "s"}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QueueRow({ item, onRemove, running }: { item: QueueItem; onRemove: () => void; running: boolean }) {
+  const isImage = item.file.type.startsWith("image/");
+  const [preview, setPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isImage) return;
+    const url = URL.createObjectURL(item.file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [item.file, isImage]);
+
+  const statusColor = {
+    pending: T.muted,
+    uploading: T.blue,
+    done: T.green,
+    error: T.red,
+  }[item.status];
+
+  const statusLabel = {
+    pending: "Pending",
+    uploading: "Uploading…",
+    done: "✓ Brief created",
+    error: "✕ " + (item.error || "Failed"),
+  }[item.status];
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: `1px solid ${T.border}`, fontSize: 12 }}>
+      <div style={{ width: 36, height: 36, background: T.card, borderRadius: 4, flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${T.border}` }}>
+        {preview ? (
+          <img src={preview} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "cover" }} />
+        ) : (
+          <span style={{ fontSize: 9, color: T.faint }}>{item.file.name.split(".").pop()?.toUpperCase() || "?"}</span>
+        )}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {item.title}
+        </div>
+        <div style={{ fontSize: 10, color: statusColor, marginTop: 2 }}>
+          {statusLabel} · {formatBytes(item.file.size)}
+        </div>
+      </div>
+      {item.status !== "uploading" && item.status !== "done" && (
+        <button
+          onClick={onRemove}
+          disabled={running}
+          style={{ background: "none", border: "none", color: T.muted, cursor: running ? "not-allowed" : "pointer", padding: "0 6px", fontSize: 16, opacity: running ? 0.4 : 1 }}
+        >
+          ×
+        </button>
+      )}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
