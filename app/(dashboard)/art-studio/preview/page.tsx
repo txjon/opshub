@@ -93,6 +93,9 @@ export default function ArtStudioPreview() {
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Card | null>(null);
+  const [view, setView] = useState<"by_stage" | "by_client">("by_stage");
+  const [clientFilter, setClientFilter] = useState<string>(""); // "" = all
+  const [search, setSearch] = useState<string>("");
 
   useEffect(() => {
     (async () => {
@@ -151,21 +154,63 @@ export default function ArtStudioPreview() {
     })();
   }, []);
 
-  // Group by stage
+  // Unique client list for the filter dropdown
+  const allClients = useMemo(() => {
+    const set = new Set<string>();
+    cards.forEach(c => set.add(c.clientName));
+    return [...set].sort();
+  }, [cards]);
+
+  // Filter cards by selected client and search
+  const filteredCards = useMemo(() => {
+    let out = cards;
+    if (clientFilter) out = out.filter(c => c.clientName === clientFilter);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      out = out.filter(c =>
+        c.itemName.toLowerCase().includes(q) ||
+        c.clientName.toLowerCase().includes(q) ||
+        c.jobTitle.toLowerCase().includes(q)
+      );
+    }
+    return out;
+  }, [cards, clientFilter, search]);
+
+  // Group filtered by stage (kanban view)
   const byStage = useMemo(() => {
     const g: Record<string, Card[]> = {};
     STAGES.forEach(s => (g[s.key] = []));
-    for (const c of cards) (g[c.stage.key] ||= []).push(c);
+    for (const c of filteredCards) (g[c.stage.key] ||= []).push(c);
     return g;
-  }, [cards]);
+  }, [filteredCards]);
+
+  // Group filtered by client (swim-lane view)
+  const byClient = useMemo(() => {
+    const g = new Map<string, Card[]>();
+    for (const c of filteredCards) {
+      if (!g.has(c.clientName)) g.set(c.clientName, []);
+      g.get(c.clientName)!.push(c);
+    }
+    // Sort each client's cards by stage order
+    const stageOrder = new Map(STAGES.map((s, i) => [s.key, i]));
+    const rows: { client: string; cards: Card[] }[] = [];
+    for (const [client, list] of g) {
+      list.sort((a, b) => (stageOrder.get(a.stage.key) ?? 99) - (stageOrder.get(b.stage.key) ?? 99));
+      rows.push({ client, cards: list });
+    }
+    // Sort clients by count desc, then alpha
+    rows.sort((a, b) => b.cards.length - a.cards.length || a.client.localeCompare(b.client));
+    return rows;
+  }, [filteredCards]);
 
   const stats = useMemo(() => ({
-    total: cards.length,
+    total: filteredCards.length,
     awaiting_client: (byStage.awaiting_intake?.length || 0) + (byStage.client_review?.length || 0),
     with_designer: (byStage.sent_to_designer?.length || 0) + (byStage.revisions?.length || 0),
     needs_hpd: (byStage.intake_submitted?.length || 0) + (byStage.wip_review?.length || 0) + (byStage.final_approved?.length || 0),
     delivered: byStage.delivered?.length || 0,
-  }), [cards, byStage]);
+    clientCount: allClients.length,
+  }), [filteredCards, byStage, allClients]);
 
   return (
     <div style={{ fontFamily: font, color: T.text, paddingBottom: 60 }}>
@@ -190,12 +235,100 @@ export default function ArtStudioPreview() {
       </div>
 
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Art Studio</h1>
-          <p style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>{stats.total} briefs across every workflow stage</p>
+          <p style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
+            {stats.total} {clientFilter ? `briefs for ${clientFilter}` : "briefs"} · {stats.clientCount} {stats.clientCount === 1 ? "client" : "clients"} active
+          </p>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {/* Search */}
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search items, clients…"
+            style={{
+              padding: "7px 10px",
+              fontSize: 12,
+              borderRadius: 6,
+              border: `1px solid ${T.border}`,
+              background: T.card,
+              color: T.text,
+              outline: "none",
+              fontFamily: font,
+              width: 200,
+            }}
+          />
+
+          {/* Client filter */}
+          <select
+            value={clientFilter}
+            onChange={e => setClientFilter(e.target.value)}
+            style={{
+              padding: "7px 10px",
+              fontSize: 12,
+              borderRadius: 6,
+              border: `1px solid ${clientFilter ? T.accent : T.border}`,
+              background: clientFilter ? T.accentDim : T.card,
+              color: T.text,
+              outline: "none",
+              fontFamily: font,
+              cursor: "pointer",
+              minWidth: 180,
+              fontWeight: clientFilter ? 600 : 400,
+            }}
+          >
+            <option value="">All clients ({allClients.length})</option>
+            {allClients.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+
+          {/* View toggle */}
+          <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, overflow: "hidden" }}>
+            <button
+              onClick={() => setView("by_stage")}
+              style={{
+                padding: "7px 14px", fontSize: 12, fontWeight: 600, fontFamily: font,
+                background: view === "by_stage" ? T.accent : "transparent",
+                color: view === "by_stage" ? "#fff" : T.muted,
+                border: "none", cursor: "pointer",
+              }}
+            >
+              By Stage
+            </button>
+            <button
+              onClick={() => setView("by_client")}
+              style={{
+                padding: "7px 14px", fontSize: 12, fontWeight: 600, fontFamily: font,
+                background: view === "by_client" ? T.accent : "transparent",
+                color: view === "by_client" ? "#fff" : T.muted,
+                border: "none", cursor: "pointer",
+              }}
+            >
+              By Client
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Active filter bar */}
+      {(clientFilter || search) && (
+        <div style={{ marginBottom: 14, padding: "8px 12px", background: T.accentDim, border: `1px solid ${T.accent}33`, borderRadius: 6, display: "flex", alignItems: "center", gap: 10, fontSize: 11 }}>
+          <span style={{ color: T.muted, fontWeight: 600 }}>Filtering:</span>
+          {clientFilter && <span style={{ padding: "2px 10px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 99, fontWeight: 600 }}>{clientFilter}</span>}
+          {search && <span style={{ padding: "2px 10px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 99 }}>"{search}"</span>}
+          <span style={{ color: T.muted }}>· {stats.total} results</span>
+          <button
+            onClick={() => { setClientFilter(""); setSearch(""); }}
+            style={{ marginLeft: "auto", padding: "3px 10px", background: "transparent", color: T.accent, border: `1px solid ${T.accent}`, borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
 
       {/* Stats row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 20 }}>
@@ -214,8 +347,14 @@ export default function ArtStudioPreview() {
         </div>
       )}
 
-      {/* Kanban board */}
-      {!loading && cards.length > 0 && (
+      {!loading && cards.length > 0 && filteredCards.length === 0 && (
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 30, textAlign: "center", fontSize: 12, color: T.faint }}>
+          No items match the current filter. <button onClick={() => { setClientFilter(""); setSearch(""); }} style={{ color: T.accent, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontSize: 12, fontFamily: font }}>Clear filter</button>
+        </div>
+      )}
+
+      {/* Kanban (By Stage) */}
+      {!loading && view === "by_stage" && filteredCards.length > 0 && (
         <div
           style={{
             display: "grid",
@@ -265,7 +404,12 @@ export default function ArtStudioPreview() {
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {list.map(card => (
-                    <BriefCard key={card.itemId} card={card} onClick={() => setSelected(card)} />
+                    <BriefCard
+                      key={card.itemId}
+                      card={card}
+                      onClick={() => setSelected(card)}
+                      onClientClick={(name) => setClientFilter(name)}
+                    />
                   ))}
                   {list.length === 0 && (
                     <div style={{ fontSize: 10, color: T.faint, fontStyle: "italic", padding: 10, textAlign: "center" }}>
@@ -279,7 +423,184 @@ export default function ArtStudioPreview() {
         </div>
       )}
 
+      {/* Client swim lanes (By Client) */}
+      {!loading && view === "by_client" && filteredCards.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {byClient.map(row => (
+            <ClientLane
+              key={row.client}
+              client={row.client}
+              cards={row.cards}
+              onFilter={() => setClientFilter(row.client)}
+              onSelectCard={c => setSelected(c)}
+              isFiltered={clientFilter === row.client}
+            />
+          ))}
+        </div>
+      )}
+
       {selected && <BriefPreviewModal card={selected} onClose={() => setSelected(null)} />}
+    </div>
+  );
+}
+
+function ClientLane({
+  client,
+  cards,
+  onFilter,
+  onSelectCard,
+  isFiltered,
+}: {
+  client: string;
+  cards: Card[];
+  onFilter: () => void;
+  onSelectCard: (c: Card) => void;
+  isFiltered: boolean;
+}) {
+  // Stage distribution summary
+  const counts: Record<string, number> = {};
+  cards.forEach(c => (counts[c.stage.key] = (counts[c.stage.key] || 0) + 1));
+
+  const stalest = cards.reduce((max, c) => (c.meta.urgency === "stale" ? max + 1 : max), 0);
+  const actions = cards.reduce((max, c) => (c.meta.urgency === "action" ? max + 1 : max), 0);
+
+  return (
+    <div
+      style={{
+        background: T.card,
+        border: `1px solid ${T.border}`,
+        borderRadius: 10,
+        overflow: "hidden",
+      }}
+    >
+      {/* Client header row */}
+      <div
+        style={{
+          padding: "12px 16px",
+          borderBottom: `1px solid ${T.border}`,
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          background: T.surface,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{client}</div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 2, display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <span><strong>{cards.length}</strong> {cards.length === 1 ? "item" : "items"}</span>
+            {actions > 0 && <span style={{ color: T.accent }}><strong>{actions}</strong> need HPD action</span>}
+            {stalest > 0 && <span style={{ color: T.amber }}><strong>{stalest}</strong> stale</span>}
+          </div>
+        </div>
+
+        {/* Stage mini-strip */}
+        <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
+          {STAGES.map(s => {
+            const n = counts[s.key] || 0;
+            return (
+              <div
+                key={s.key}
+                title={`${s.label}: ${n}`}
+                style={{
+                  minWidth: 22,
+                  height: 22,
+                  borderRadius: 4,
+                  background: n > 0 ? s.bg : T.surface,
+                  border: `1px solid ${n > 0 ? s.accent + "55" : T.border}`,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: n > 0 ? s.accent : T.faint,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "0 6px",
+                }}
+              >
+                {n > 0 ? n : "·"}
+              </div>
+            );
+          })}
+        </div>
+
+        {!isFiltered && (
+          <button
+            onClick={onFilter}
+            style={{ padding: "5px 12px", fontSize: 10, fontWeight: 600, color: T.accent, background: "transparent", border: `1px solid ${T.accent}`, borderRadius: 6, cursor: "pointer", fontFamily: font }}
+          >
+            Focus →
+          </button>
+        )}
+      </div>
+
+      {/* Items strip */}
+      <div
+        style={{
+          padding: 12,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+          gap: 10,
+        }}
+      >
+        {cards.map(card => (
+          <CompactCard key={card.itemId} card={card} onClick={() => onSelectCard(card)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CompactCard({ card, onClick }: { card: Card; onClick: () => void }) {
+  const thumb = thumbUrl(card.thumbFileId, 200);
+  const s = card.stage;
+  const stale = card.meta.urgency === "stale";
+  const action = card.meta.urgency === "action";
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: T.card,
+        border: `1px solid ${stale ? T.amber + "77" : action ? s.accent + "77" : T.border}`,
+        borderRadius: 8,
+        overflow: "hidden",
+        cursor: "pointer",
+        display: "flex",
+        gap: 10,
+        padding: 8,
+        transition: "transform 0.08s, border-color 0.08s",
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)";
+        (e.currentTarget as HTMLElement).style.borderColor = s.accent;
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLElement).style.transform = "none";
+        (e.currentTarget as HTMLElement).style.borderColor = stale ? T.amber + "77" : action ? s.accent + "77" : T.border;
+      }}
+    >
+      <div
+        style={{
+          width: 56,
+          height: 56,
+          background: "#f4f4f7",
+          borderRadius: 6,
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        {thumb ? (
+          <img src={thumb} alt="" referrerPolicy="no-referrer" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} onError={e => ((e.target as HTMLImageElement).style.display = "none")} />
+        ) : (
+          <span style={{ fontSize: 9, color: T.faint }}>—</span>
+        )}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{card.itemName}</div>
+        <div style={{ fontSize: 9, fontWeight: 700, color: s.accent, textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 3 }}>{s.label}</div>
+        <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{card.meta.lines[0]}</div>
+      </div>
     </div>
   );
 }
@@ -301,7 +622,7 @@ function StatCard({ label, value, tone, note }: { label: string; value: number; 
   );
 }
 
-function BriefCard({ card, onClick }: { card: Card; onClick: () => void }) {
+function BriefCard({ card, onClick, onClientClick }: { card: Card; onClick: () => void; onClientClick?: (clientName: string) => void }) {
   const thumb = thumbUrl(card.thumbFileId, 320);
   const stale = card.meta.urgency === "stale";
   const action = card.meta.urgency === "action";
@@ -354,7 +675,16 @@ function BriefCard({ card, onClick }: { card: Card; onClick: () => void }) {
       <div style={{ padding: "10px 12px" }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3 }}>{card.itemName}</div>
         <div style={{ fontSize: 10, color: T.muted, marginTop: 2, lineHeight: 1.3 }}>
-          {card.clientName} · {card.jobTitle}
+          {onClientClick ? (
+            <span
+              onClick={e => { e.stopPropagation(); onClientClick(card.clientName); }}
+              style={{ cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textDecorationColor: T.muted }}
+              title={`Filter to ${card.clientName}`}
+            >
+              {card.clientName}
+            </span>
+          ) : card.clientName}
+          {" · "}{card.jobTitle}
         </div>
 
         <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 2 }}>
