@@ -1,9 +1,20 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { ArtBriefMessages } from "@/components/ArtBriefMessages";
+import {
+  STAGES,
+  STAGE_BY_KEY,
+  type Card,
+  type BoardFilters,
+  type AvailableProject,
+  KanbanBoard,
+  ClientLanesBoard,
+  BoardFilterControls,
+  ActiveFilterBar,
+} from "@/components/ArtBoard";
 
 const STATE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   draft: { label: "Draft", color: T.muted, bg: T.surface },
@@ -15,8 +26,6 @@ const STATE_LABELS: Record<string, { label: string; color: string; bg: string }>
   final_approved: { label: "Final Approved", color: T.green, bg: T.greenDim },
   delivered: { label: "Delivered", color: T.green, bg: T.greenDim },
 };
-
-const STATE_ORDER = ["draft", "sent", "in_progress", "wip_review", "client_review", "revisions", "final_approved", "delivered"];
 
 type Brief = {
   id: string;
@@ -31,12 +40,111 @@ type Brief = {
   item_id: string | null;
   job_id: string | null;
   client_id: string | null;
+  client_intake_token?: string | null;
+  client_intake_submitted_at?: string | null;
   items?: { name: string } | null;
-  jobs?: { title: string; job_number: string } | null;
+  jobs?: { title: string; job_number: string; job_type: string | null } | null;
   clients?: { name: string } | null;
   message_count?: number;
   designer_message_count?: number;
+  thumb_file_id?: string | null;
+  thumb_link?: string | null;
 };
+
+// Map brief.state (+ intake sub-state) to one of the 9 ArtBoard stages.
+function stageForBrief(b: Brief) {
+  const s = b.state;
+  if (s === "draft") {
+    if (b.client_intake_submitted_at) return STAGE_BY_KEY.intake_submitted;
+    if (b.client_intake_token) return STAGE_BY_KEY.awaiting_intake;
+    return STAGE_BY_KEY.draft;
+  }
+  if (s === "sent" || s === "in_progress") return STAGE_BY_KEY.sent_to_designer;
+  if (s === "wip_review") return STAGE_BY_KEY.wip_review;
+  if (s === "client_review") return STAGE_BY_KEY.client_review;
+  if (s === "revisions") return STAGE_BY_KEY.revisions;
+  if (s === "final_approved") return STAGE_BY_KEY.final_approved;
+  if (s === "delivered") return STAGE_BY_KEY.delivered;
+  return STAGE_BY_KEY.draft;
+}
+
+function daysSince(iso?: string | null) {
+  if (!iso) return 0;
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+}
+
+// Real brief → board Card. Meta is derived from actual fields.
+function briefToCard(b: Brief): Card {
+  const stage = stageForBrief(b);
+  const dCount = b.designer_message_count || 0;
+  const daysUpdated = daysSince(b.updated_at || b.created_at);
+  const lines: string[] = [];
+  let urgency: Card["meta"]["urgency"] = "normal";
+  let cta: string | undefined;
+
+  if (stage.key === "draft") {
+    lines.push("No intake sent yet");
+    if (daysUpdated > 3) urgency = "stale";
+    cta = "Open brief";
+  } else if (stage.key === "awaiting_intake") {
+    lines.push(`Intake sent ${daysUpdated}d ago`);
+    lines.push("Waiting on client");
+    if (daysUpdated > 3) urgency = "stale";
+    cta = "Send reminder";
+  } else if (stage.key === "intake_submitted") {
+    lines.push(`Submitted ${daysSince(b.client_intake_submitted_at)}d ago`);
+    lines.push("Ready to translate");
+    urgency = "action";
+    cta = "Translate";
+  } else if (stage.key === "sent_to_designer") {
+    lines.push(`Sent ${daysUpdated}d ago`);
+    if (dCount) lines.push(`${dCount} msg from designer`);
+    else lines.push("No updates yet");
+    if (daysUpdated > 4) urgency = "stale";
+  } else if (stage.key === "wip_review") {
+    lines.push(`WIP uploaded ${daysUpdated}d ago${b.version_count ? ` · v${b.version_count}` : ""}`);
+    if (dCount) lines.push(`${dCount} msg from designer`);
+    urgency = "action";
+    cta = "Review & send to client";
+  } else if (stage.key === "client_review") {
+    lines.push(`With client ${daysUpdated}d`);
+    if (daysUpdated > 3) urgency = "stale";
+    cta = "Nudge client";
+  } else if (stage.key === "revisions") {
+    lines.push(`Revisions requested ${daysUpdated}d ago`);
+    if (dCount) lines.push(`${dCount} msg from designer`);
+    urgency = "action";
+    cta = "View feedback";
+  } else if (stage.key === "final_approved") {
+    lines.push(`Final uploaded${b.version_count ? ` v${b.version_count}` : ""}`);
+    lines.push("Ready for handoff");
+    urgency = "action";
+    cta = "→ Print-Ready";
+  } else if (stage.key === "delivered") {
+    lines.push(`Delivered ${daysUpdated}d ago`);
+    urgency = "done";
+  }
+
+  if (b.deadline) {
+    const d = new Date(b.deadline);
+    lines.push(`Due ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`);
+  }
+
+  return {
+    id: b.id,
+    title: b.title || "Untitled Brief",
+    clientName: b.clients?.name || "Unlinked",
+    jobTitle: b.jobs?.title || (b.items?.name ? b.items.name : "Unlinked"),
+    jobNumber: b.jobs?.job_number || null,
+    jobType: b.jobs?.job_type || null,
+    jobId: b.job_id,
+    thumbFileId: b.thumb_file_id || null,
+    thumbLink: b.thumb_link || null,
+    stage,
+    meta: { lines, urgency, cta },
+    hash: 0,
+  };
+}
 
 type Client = { id: string; name: string };
 
@@ -47,12 +155,18 @@ export default function ArtStudioPage() {
   const [briefs, setBriefs] = useState<Brief[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stateFilter, setStateFilter] = useState<string>("all");
   const [showNew, setShowNew] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [newBrief, setNewBrief] = useState({ title: "", client_id: "", concept: "", deadline: "" });
   const [creating, setCreating] = useState(false);
   const [selectedBrief, setSelectedBrief] = useState<Brief | null>(null);
+  const [filters, setFiltersState] = useState<BoardFilters>({
+    search: "",
+    clientFilter: "",
+    projectFilter: "",
+    view: "by_stage",
+  });
+  const setFilters = (patch: Partial<BoardFilters>) => setFiltersState(p => ({ ...p, ...patch }));
 
   useEffect(() => { loadBriefs(); loadClients(); }, []);
 
@@ -101,21 +215,80 @@ export default function ArtStudioPage() {
     }
   }
 
-  const filtered = stateFilter === "all" ? briefs : briefs.filter(b => b.state === stateFilter);
+  // Map briefs → board cards once, then apply filters against cards
+  const allCards = useMemo(() => briefs.map(briefToCard), [briefs]);
 
-  // Count by state for filter chips
-  const stateCounts: Record<string, number> = {};
-  briefs.forEach(b => { stateCounts[b.state] = (stateCounts[b.state] || 0) + 1; });
+  const allClients = useMemo(() => {
+    const set = new Set<string>();
+    allCards.forEach(c => set.add(c.clientName));
+    return [...set].sort();
+  }, [allCards]);
+
+  const availableProjects = useMemo<AvailableProject[]>(() => {
+    const map = new Map<string, AvailableProject>();
+    allCards.forEach(c => {
+      if (!c.jobId) return;
+      if (filters.clientFilter && c.clientName !== filters.clientFilter) return;
+      const cur = map.get(c.jobId);
+      if (cur) cur.count++;
+      else map.set(c.jobId, { jobId: c.jobId, title: c.jobTitle, jobNumber: c.jobNumber, clientName: c.clientName, count: 1 });
+    });
+    return [...map.values()].sort((a, b) =>
+      a.clientName.localeCompare(b.clientName) || a.title.localeCompare(b.title)
+    );
+  }, [allCards, filters.clientFilter]);
+
+  useEffect(() => {
+    if (!filters.projectFilter) return;
+    const ok = availableProjects.some(p => p.jobId === filters.projectFilter);
+    if (!ok) setFilters({ projectFilter: "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableProjects]);
+
+  const filteredCards = useMemo(() => {
+    let out = allCards;
+    if (filters.clientFilter) out = out.filter(c => c.clientName === filters.clientFilter);
+    if (filters.projectFilter) out = out.filter(c => c.jobId === filters.projectFilter);
+    if (filters.search.trim()) {
+      const q = filters.search.trim().toLowerCase();
+      out = out.filter(c =>
+        c.title.toLowerCase().includes(q) ||
+        c.clientName.toLowerCase().includes(q) ||
+        c.jobTitle.toLowerCase().includes(q) ||
+        (c.jobNumber || "").toLowerCase().includes(q)
+      );
+    }
+    return out;
+  }, [allCards, filters]);
+
+  // Filtered briefs for list view (keeps the original row rendering that staff know)
+  const filteredBriefs = useMemo(() => {
+    const ids = new Set(filteredCards.map(c => c.id));
+    return briefs.filter(b => ids.has(b.id));
+  }, [filteredCards, briefs]);
+
+  function openBriefFromCard(card: Card) {
+    const b = briefs.find(x => x.id === card.id);
+    if (b) setSelectedBrief(b);
+  }
+
+  const projectCount = useMemo(() => {
+    const s = new Set<string>();
+    allCards.forEach(c => c.jobId && s.add(c.jobId));
+    return s.size;
+  }, [allCards]);
 
   const ic = { padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, boxSizing: "border-box" as const };
   const label = { fontSize: 10, fontWeight: 600 as const, color: T.muted, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 4, display: "block" };
 
   return (
     <div style={{ fontFamily: font, color: T.text }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Art Studio</h1>
-          <p style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>Design team briefs and creative workflow</p>
+          <p style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
+            {filteredCards.length} {filters.clientFilter ? `briefs for ${filters.clientFilter}` : "briefs"} · {allClients.length} {allClients.length === 1 ? "client" : "clients"} · {projectCount} {projectCount === 1 ? "project" : "projects"} active
+          </p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <a href="/art-studio/preview"
@@ -133,37 +306,59 @@ export default function ArtStudioPage() {
         </div>
       </div>
 
-      {/* State filter chips */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-        <button onClick={() => setStateFilter("all")}
-          style={{ padding: "5px 12px", borderRadius: 99, border: `1px solid ${stateFilter === "all" ? T.accent : T.border}`, background: stateFilter === "all" ? T.accentDim : "transparent", color: stateFilter === "all" ? T.accent : T.muted, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
-          All ({briefs.length})
-        </button>
-        {STATE_ORDER.map(s => {
-          const c = stateCounts[s] || 0;
-          if (c === 0) return null;
-          const st = STATE_LABELS[s];
-          const active = stateFilter === s;
-          return (
-            <button key={s} onClick={() => setStateFilter(s)}
-              style={{ padding: "5px 12px", borderRadius: 99, border: `1px solid ${active ? st.color : T.border}`, background: active ? st.bg : "transparent", color: active ? st.color : T.muted, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
-              {st.label} ({c})
-            </button>
-          );
-        })}
+      {/* Filter controls */}
+      <div style={{ marginBottom: 14 }}>
+        <BoardFilterControls
+          filters={filters}
+          setFilters={setFilters}
+          allClients={allClients}
+          availableProjects={availableProjects}
+          showListView
+        />
       </div>
 
-      {/* Brief list */}
+      <ActiveFilterBar
+        filters={filters}
+        setFilters={setFilters}
+        availableProjects={availableProjects}
+        resultCount={filteredCards.length}
+      />
+
+      {/* Board */}
       {loading ? (
         <div style={{ fontSize: 13, color: T.muted }}>Loading...</div>
-      ) : filtered.length === 0 ? (
+      ) : briefs.length === 0 ? (
         <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 40, textAlign: "center", fontSize: 13, color: T.faint }}>
-          {briefs.length === 0 ? "No briefs yet. Click + New Brief to get started." : "No briefs in this state."}
+          No briefs yet. Click <strong>+ New Brief</strong> or <strong>⚡ Quick Add</strong> to get started.
         </div>
+      ) : filteredCards.length === 0 ? (
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 30, textAlign: "center", fontSize: 12, color: T.faint }}>
+          No briefs match the current filter.
+          <button onClick={() => setFilters({ clientFilter: "", projectFilter: "", search: "" })}
+            style={{ color: T.accent, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontSize: 12, fontFamily: font, marginLeft: 6 }}>
+            Clear filter
+          </button>
+        </div>
+      ) : filters.view === "by_stage" ? (
+        <KanbanBoard
+          cards={filteredCards}
+          onSelectCard={openBriefFromCard}
+          onClientFilter={(name) => setFilters({ clientFilter: name, projectFilter: "" })}
+          onProjectFilter={(jobId, clientName) => setFilters({ clientFilter: clientName, projectFilter: jobId })}
+        />
+      ) : filters.view === "by_client" ? (
+        <ClientLanesBoard
+          cards={filteredCards}
+          onSelectCard={openBriefFromCard}
+          onFilterClient={(name) => setFilters({ clientFilter: name, projectFilter: "" })}
+          onFilterProject={(jobId, clientName) => setFilters({ clientFilter: clientName, projectFilter: jobId })}
+          clientFilter={filters.clientFilter}
+          projectFilter={filters.projectFilter}
+        />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {filtered.map(b => {
-            const st = STATE_LABELS[b.state] || STATE_LABELS.draft;
+          {filteredBriefs.map(b => {
+            const stage = stageForBrief(b);
             const context = b.clients?.name || b.jobs?.title || "Unlinked";
             const dCount = b.designer_message_count || 0;
             return (
@@ -188,8 +383,8 @@ export default function ArtStudioPage() {
                     {b.assigned_to && ` · ${b.assigned_to}`}
                   </div>
                 </div>
-                <span style={{ fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: st.bg, color: st.color }}>
-                  {st.label}
+                <span style={{ fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: stage.bg, color: stage.accent }}>
+                  {stage.label}
                 </span>
               </div>
             );

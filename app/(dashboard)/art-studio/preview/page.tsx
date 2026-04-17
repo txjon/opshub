@@ -3,59 +3,55 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import {
+  STAGES,
+  type Card,
+  type StageDef,
+  type BoardFilters,
+  type AvailableProject,
+  thumbUrl,
+  hashStr,
+  groupByStage,
+  groupByClient,
+  KanbanBoard,
+  ClientLanesBoard,
+  BoardFilterControls,
+  ActiveFilterBar,
+} from "@/components/ArtBoard";
 
-// Synthetic workflow stages for preview. Real briefs use art_briefs.state — this
-// just distributes real items across every possible state to visualize density.
-const STAGES = [
-  { key: "awaiting_intake", label: "Awaiting Client", sub: "Intake link sent — waiting on client to fill it out", color: T.faint, bg: T.surface, accent: "#b0b5c4" },
-  { key: "intake_submitted", label: "Intake Submitted", sub: "Client filled it out — HPD translating to designer brief", color: T.amber, bg: T.amberDim, accent: T.amber },
-  { key: "sent_to_designer", label: "With Designer", sub: "Brief handed off — waiting on WIP", color: T.blue, bg: T.blueDim, accent: T.blue },
-  { key: "wip_review", label: "WIP Review", sub: "Designer uploaded work — HPD reviewing before sending to client", color: T.blue, bg: T.blueDim, accent: T.blue },
-  { key: "client_review", label: "Client Review", sub: "Sent to client — awaiting approval or revision notes", color: T.purple, bg: T.purpleDim, accent: T.purple },
-  { key: "revisions", label: "Revisions", sub: "Client asked for changes — back to designer", color: T.red, bg: T.redDim, accent: T.red },
-  { key: "final_approved", label: "Final Approved", sub: "Designer uploaded final — ready to sync to print", color: T.green, bg: T.greenDim, accent: T.green },
-  { key: "delivered", label: "Delivered", sub: "Final synced to item's print-ready stage — closed loop", color: T.green, bg: T.greenDim, accent: T.green },
-];
-
-// Deterministic stage assignment based on hash of item id, so refreshing
-// keeps the same distribution.
+// Deterministic stage assignment based on hash so refreshing is stable.
 function hashIndex(id: string, mod: number) {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
   return Math.abs(h) % mod;
 }
 
-// Thumbnail URL for a Drive file.
-function thumbUrl(fileId: string | null | undefined, w = 400) {
-  if (!fileId) return null;
-  return `https://drive.google.com/thumbnail?id=${fileId}&sz=w${w}`;
-}
-
-// Synthetic activity per stage — tells Jon what info appears on each card.
+// Synthetic meta per stage for preview cards.
 function stageMeta(stage: string, hash: number) {
   const daysInStage = (hash % 6) + 1;
   const version = 1 + (hash % 3);
   const designerMsgs = hash % 4;
-  const deadlineDays = 3 + (hash % 10);
   switch (stage) {
+    case "draft":
+      return { lines: [`Drafting ${daysInStage}d ago`, "No intake link yet"], cta: "Send to client", urgency: "normal" as const };
     case "awaiting_intake":
-      return { lines: [`Intake sent ${daysInStage}d ago`, "Client hasn't opened link"], cta: "Send reminder", urgency: daysInStage > 3 ? "stale" : "normal" };
+      return { lines: [`Intake sent ${daysInStage}d ago`, "Client hasn't opened link"], cta: "Send reminder", urgency: daysInStage > 3 ? ("stale" as const) : ("normal" as const) };
     case "intake_submitted":
-      return { lines: [`Client submitted ${daysInStage}d ago`, "Translating to designer brief"], cta: "Open brief", urgency: daysInStage > 2 ? "stale" : "normal" };
+      return { lines: [`Client submitted ${daysInStage}d ago`, "Translating to designer brief"], cta: "Open brief", urgency: daysInStage > 2 ? ("stale" as const) : ("normal" as const) };
     case "sent_to_designer":
-      return { lines: [`Sent ${daysInStage}d ago`, designerMsgs ? `${designerMsgs} msg from designer` : "No updates yet"], cta: "View brief", urgency: daysInStage > 4 ? "stale" : "normal" };
+      return { lines: [`Sent ${daysInStage}d ago`, designerMsgs ? `${designerMsgs} msg from designer` : "No updates yet"], cta: "View brief", urgency: daysInStage > 4 ? ("stale" as const) : ("normal" as const) };
     case "wip_review":
-      return { lines: [`WIP v${version} uploaded ${daysInStage}d ago`, designerMsgs ? `${designerMsgs} msgs from designer` : "No messages"], cta: "Send to client", urgency: "action" };
+      return { lines: [`WIP v${version} uploaded ${daysInStage}d ago`, designerMsgs ? `${designerMsgs} msgs from designer` : "No messages"], cta: "Send to client", urgency: "action" as const };
     case "client_review":
-      return { lines: [`Sent to client ${daysInStage}d ago`, "Awaiting response"], cta: "Nudge client", urgency: daysInStage > 3 ? "stale" : "normal" };
+      return { lines: [`Sent to client ${daysInStage}d ago`, "Awaiting response"], cta: "Nudge client", urgency: daysInStage > 3 ? ("stale" as const) : ("normal" as const) };
     case "revisions":
-      return { lines: [`Revisions requested ${daysInStage}d ago`, designerMsgs ? `${designerMsgs} msgs from designer` : "Designer notified"], cta: "View feedback", urgency: "action" };
+      return { lines: [`Revisions requested ${daysInStage}d ago`, designerMsgs ? `${designerMsgs} msgs from designer` : "Designer notified"], cta: "View feedback", urgency: "action" as const };
     case "final_approved":
-      return { lines: [`Final v${version} uploaded ${daysInStage}d ago`, "Ready for handoff"], cta: "→ Print-Ready", urgency: "action" };
+      return { lines: [`Final v${version} uploaded ${daysInStage}d ago`, "Ready for handoff"], cta: "→ Print-Ready", urgency: "action" as const };
     case "delivered":
-      return { lines: [`Delivered ${daysInStage}d ago`, "Auto-synced to item"], cta: "View brief", urgency: "done" };
+      return { lines: [`Delivered ${daysInStage}d ago`, "Auto-synced to item"], cta: "View brief", urgency: "done" as const };
   }
-  return { lines: [], cta: "", urgency: "normal" };
+  return { lines: [], cta: "", urgency: "normal" as const };
 }
 
 type Item = {
@@ -75,34 +71,21 @@ type FileRow = {
   drive_link: string | null;
 };
 
-type Card = {
-  itemId: string;
-  itemName: string;
-  clientName: string;
-  jobTitle: string;
-  jobNumber: string | null;
-  jobType: string | null;
-  jobId: string | null;
-  thumbFileId: string | null;
-  thumbLink: string | null;
-  stage: typeof STAGES[number];
-  meta: ReturnType<typeof stageMeta>;
-  hash: number;
-};
-
 export default function ArtStudioPreview() {
   const supabase = createClient();
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Card | null>(null);
-  const [view, setView] = useState<"by_stage" | "by_client">("by_stage");
-  const [clientFilter, setClientFilter] = useState<string>(""); // "" = all
-  const [projectFilter, setProjectFilter] = useState<string>(""); // "" = all, stores jobId
-  const [search, setSearch] = useState<string>("");
+  const [filters, setFiltersState] = useState<BoardFilters>({
+    search: "",
+    clientFilter: "",
+    projectFilter: "",
+    view: "by_stage",
+  });
+  const setFilters = (patch: Partial<BoardFilters>) => setFiltersState(p => ({ ...p, ...patch }));
 
   useEffect(() => {
     (async () => {
-      // Grab a bunch of items with good imagery
       const [itemsRes, filesRes] = await Promise.all([
         supabase
           .from("items")
@@ -120,7 +103,6 @@ export default function ArtStudioPreview() {
       const items = (itemsRes.data as Item[] | null) || [];
       const files = (filesRes.data as FileRow[] | null) || [];
 
-      // Best-image-per-item: mockup > proof > print_ready > client_art
       const rank: Record<string, number> = { mockup: 4, proof: 3, print_ready: 2, client_art: 1 };
       const byItem = new Map<string, FileRow>();
       for (const f of files) {
@@ -129,15 +111,14 @@ export default function ArtStudioPreview() {
         if (!cur || (rank[f.stage] || 0) > (rank[cur.stage] || 0)) byItem.set(f.item_id, f);
       }
 
-      // Filter to items that have imagery, then synthesize stages
       const withImages = items.filter(i => byItem.has(i.id)).slice(0, 24);
       const list: Card[] = withImages.map(i => {
         const file = byItem.get(i.id)!;
         const hash = Math.abs(hashStr(i.id));
         const stage = STAGES[hash % STAGES.length];
         return {
-          itemId: i.id,
-          itemName: i.name || "Untitled item",
+          id: i.id,
+          title: i.name || "Untitled item",
           clientName: i.jobs?.clients?.name || "Unknown client",
           jobTitle: i.jobs?.title || "Untitled project",
           jobNumber: i.jobs?.job_number || null,
@@ -151,27 +132,23 @@ export default function ArtStudioPreview() {
         };
       });
 
-      // Ensure every stage gets at least one card if possible (redistribute if some stages are empty)
       rebalance(list);
-
       setCards(list);
       setLoading(false);
     })();
   }, []);
 
-  // Unique client list for the filter dropdown
   const allClients = useMemo(() => {
     const set = new Set<string>();
     cards.forEach(c => set.add(c.clientName));
     return [...set].sort();
   }, [cards]);
 
-  // Projects available for the selected client (or all if no client picked)
-  const availableProjects = useMemo(() => {
-    const map = new Map<string, { jobId: string; title: string; jobNumber: string | null; clientName: string; count: number }>();
+  const availableProjects = useMemo<AvailableProject[]>(() => {
+    const map = new Map<string, AvailableProject>();
     cards.forEach(c => {
       if (!c.jobId) return;
-      if (clientFilter && c.clientName !== clientFilter) return;
+      if (filters.clientFilter && c.clientName !== filters.clientFilter) return;
       const cur = map.get(c.jobId);
       if (cur) cur.count++;
       else map.set(c.jobId, { jobId: c.jobId, title: c.jobTitle, jobNumber: c.jobNumber, clientName: c.clientName, count: 1 });
@@ -179,98 +156,49 @@ export default function ArtStudioPreview() {
     return [...map.values()].sort((a, b) =>
       a.clientName.localeCompare(b.clientName) || a.title.localeCompare(b.title)
     );
-  }, [cards, clientFilter]);
+  }, [cards, filters.clientFilter]);
 
-  // If the current projectFilter doesn't match the client filter, clear it
   useEffect(() => {
-    if (!projectFilter) return;
-    const stillValid = availableProjects.some(p => p.jobId === projectFilter);
-    if (!stillValid) setProjectFilter("");
-  }, [availableProjects, projectFilter]);
+    if (!filters.projectFilter) return;
+    const stillValid = availableProjects.some(p => p.jobId === filters.projectFilter);
+    if (!stillValid) setFilters({ projectFilter: "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableProjects]);
 
-  // Filter cards by client, project, and search
   const filteredCards = useMemo(() => {
     let out = cards;
-    if (clientFilter) out = out.filter(c => c.clientName === clientFilter);
-    if (projectFilter) out = out.filter(c => c.jobId === projectFilter);
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
+    if (filters.clientFilter) out = out.filter(c => c.clientName === filters.clientFilter);
+    if (filters.projectFilter) out = out.filter(c => c.jobId === filters.projectFilter);
+    if (filters.search.trim()) {
+      const q = filters.search.trim().toLowerCase();
       out = out.filter(c =>
-        c.itemName.toLowerCase().includes(q) ||
+        c.title.toLowerCase().includes(q) ||
         c.clientName.toLowerCase().includes(q) ||
         c.jobTitle.toLowerCase().includes(q) ||
         (c.jobNumber || "").toLowerCase().includes(q)
       );
     }
     return out;
-  }, [cards, clientFilter, projectFilter, search]);
+  }, [cards, filters]);
 
-  // Group filtered by stage (kanban view)
-  const byStage = useMemo(() => {
-    const g: Record<string, Card[]> = {};
-    STAGES.forEach(s => (g[s.key] = []));
-    for (const c of filteredCards) (g[c.stage.key] ||= []).push(c);
-    return g;
-  }, [filteredCards]);
+  const byStage = useMemo(() => groupByStage(filteredCards), [filteredCards]);
 
-  // Group filtered: client → project → items
-  const byClient = useMemo(() => {
-    const stageOrder = new Map(STAGES.map((s, i) => [s.key, i]));
-    type ProjectGroup = { jobId: string | null; title: string; jobNumber: string | null; jobType: string | null; cards: Card[] };
-    type ClientRow = { client: string; cards: Card[]; projects: ProjectGroup[] };
-
-    const clientMap = new Map<string, ClientRow>();
-    for (const c of filteredCards) {
-      let row = clientMap.get(c.clientName);
-      if (!row) {
-        row = { client: c.clientName, cards: [], projects: [] };
-        clientMap.set(c.clientName, row);
-      }
-      row.cards.push(c);
-
-      const pKey = c.jobId || `orphan:${c.clientName}`;
-      let proj = row.projects.find(p => (p.jobId || `orphan:${c.clientName}`) === pKey);
-      if (!proj) {
-        proj = { jobId: c.jobId, title: c.jobTitle, jobNumber: c.jobNumber, jobType: c.jobType, cards: [] };
-        row.projects.push(proj);
-      }
-      proj.cards.push(c);
-    }
-
-    // Sort items within project by stage order; sort projects by title
-    for (const row of clientMap.values()) {
-      row.cards.sort((a, b) => (stageOrder.get(a.stage.key) ?? 99) - (stageOrder.get(b.stage.key) ?? 99));
-      for (const p of row.projects) {
-        p.cards.sort((a, b) => (stageOrder.get(a.stage.key) ?? 99) - (stageOrder.get(b.stage.key) ?? 99));
-      }
-      row.projects.sort((a, b) => b.cards.length - a.cards.length || a.title.localeCompare(b.title));
-    }
-
-    // Sort clients: most items first, then alpha
-    return [...clientMap.values()].sort(
-      (a, b) => b.cards.length - a.cards.length || a.client.localeCompare(b.client)
-    );
-  }, [filteredCards]);
-
-  const totalProjects = useMemo(() => {
-    const set = new Set<string>();
-    cards.forEach(c => c.jobId && set.add(c.jobId));
-    return set.size;
-  }, [cards]);
-
-  const stats = useMemo(() => ({
-    total: filteredCards.length,
-    awaiting_client: (byStage.awaiting_intake?.length || 0) + (byStage.client_review?.length || 0),
-    with_designer: (byStage.sent_to_designer?.length || 0) + (byStage.revisions?.length || 0),
-    needs_hpd: (byStage.intake_submitted?.length || 0) + (byStage.wip_review?.length || 0) + (byStage.final_approved?.length || 0),
-    delivered: byStage.delivered?.length || 0,
-    clientCount: allClients.length,
-    projectCount: totalProjects,
-  }), [filteredCards, byStage, allClients, totalProjects]);
+  const stats = useMemo(() => {
+    const projectSet = new Set<string>();
+    cards.forEach(c => c.jobId && projectSet.add(c.jobId));
+    return {
+      total: filteredCards.length,
+      awaiting_client: (byStage.awaiting_intake?.length || 0) + (byStage.client_review?.length || 0),
+      with_designer: (byStage.sent_to_designer?.length || 0) + (byStage.revisions?.length || 0),
+      needs_hpd: (byStage.intake_submitted?.length || 0) + (byStage.wip_review?.length || 0) + (byStage.final_approved?.length || 0),
+      delivered: byStage.delivered?.length || 0,
+      clientCount: allClients.length,
+      projectCount: projectSet.size,
+    };
+  }, [filteredCards, byStage, allClients, cards]);
 
   return (
     <div style={{ fontFamily: font, color: T.text, paddingBottom: 60 }}>
-      {/* Preview banner */}
       <div
         style={{
           background: "linear-gradient(90deg, #fef3c7, #fee2e2)",
@@ -285,156 +213,34 @@ export default function ArtStudioPreview() {
         }}
       >
         <div style={{ fontSize: 12, color: "#7a4500" }}>
-          <strong>ART STUDIO PREVIEW</strong> — Real items and mockups from OpsHub, shown across every possible workflow stage. Nothing is actually in these states. Use this to see what the dashboard looks like at full density.
+          <strong>ART STUDIO PREVIEW</strong> — Real items and mockups from OpsHub, shown across every possible workflow stage. Nothing is actually in these states.
         </div>
         <Link href="/art-studio" style={{ fontSize: 11, fontWeight: 600, color: "#7a4500", textDecoration: "underline" }}>← Real Art Studio</Link>
       </div>
 
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Art Studio</h1>
           <p style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
-            {stats.total} {clientFilter ? `briefs for ${clientFilter}` : "briefs"} · {stats.clientCount} {stats.clientCount === 1 ? "client" : "clients"} · {stats.projectCount} {stats.projectCount === 1 ? "project" : "projects"} active
+            {stats.total} {filters.clientFilter ? `briefs for ${filters.clientFilter}` : "briefs"} · {stats.clientCount} {stats.clientCount === 1 ? "client" : "clients"} · {stats.projectCount} {stats.projectCount === 1 ? "project" : "projects"} active
           </p>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          {/* Search */}
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search items, clients…"
-            style={{
-              padding: "7px 10px",
-              fontSize: 12,
-              borderRadius: 6,
-              border: `1px solid ${T.border}`,
-              background: T.card,
-              color: T.text,
-              outline: "none",
-              fontFamily: font,
-              width: 200,
-            }}
-          />
-
-          {/* Client filter */}
-          <select
-            value={clientFilter}
-            onChange={e => { setClientFilter(e.target.value); setProjectFilter(""); }}
-            style={{
-              padding: "7px 10px",
-              fontSize: 12,
-              borderRadius: 6,
-              border: `1px solid ${clientFilter ? T.accent : T.border}`,
-              background: clientFilter ? T.accentDim : T.card,
-              color: T.text,
-              outline: "none",
-              fontFamily: font,
-              cursor: "pointer",
-              minWidth: 180,
-              fontWeight: clientFilter ? 600 : 400,
-            }}
-          >
-            <option value="">All clients ({allClients.length})</option>
-            {allClients.map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-
-          {/* Project filter — cascades off client */}
-          <select
-            value={projectFilter}
-            onChange={e => setProjectFilter(e.target.value)}
-            style={{
-              padding: "7px 10px",
-              fontSize: 12,
-              borderRadius: 6,
-              border: `1px solid ${projectFilter ? T.accent : T.border}`,
-              background: projectFilter ? T.accentDim : T.card,
-              color: T.text,
-              outline: "none",
-              fontFamily: font,
-              cursor: "pointer",
-              minWidth: 200,
-              fontWeight: projectFilter ? 600 : 400,
-            }}
-          >
-            <option value="">
-              {clientFilter ? `All projects (${availableProjects.length})` : `All projects (${availableProjects.length})`}
-            </option>
-            {availableProjects.map(p => (
-              <option key={p.jobId} value={p.jobId}>
-                {clientFilter ? "" : `${p.clientName} · `}{p.title}{p.jobNumber ? ` (${p.jobNumber})` : ""} · {p.count}
-              </option>
-            ))}
-          </select>
-
-          {/* View toggle */}
-          <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, overflow: "hidden" }}>
-            <button
-              onClick={() => setView("by_stage")}
-              style={{
-                padding: "7px 14px", fontSize: 12, fontWeight: 600, fontFamily: font,
-                background: view === "by_stage" ? T.accent : "transparent",
-                color: view === "by_stage" ? "#fff" : T.muted,
-                border: "none", cursor: "pointer",
-              }}
-            >
-              By Stage
-            </button>
-            <button
-              onClick={() => setView("by_client")}
-              style={{
-                padding: "7px 14px", fontSize: 12, fontWeight: 600, fontFamily: font,
-                background: view === "by_client" ? T.accent : "transparent",
-                color: view === "by_client" ? "#fff" : T.muted,
-                border: "none", cursor: "pointer",
-              }}
-            >
-              By Client
-            </button>
-          </div>
-        </div>
+        <BoardFilterControls
+          filters={filters}
+          setFilters={setFilters}
+          allClients={allClients}
+          availableProjects={availableProjects}
+        />
       </div>
 
-      {/* Active filter bar */}
-      {(clientFilter || projectFilter || search) && (
-        <div style={{ marginBottom: 14, padding: "8px 12px", background: T.accentDim, border: `1px solid ${T.accent}33`, borderRadius: 6, display: "flex", alignItems: "center", gap: 10, fontSize: 11, flexWrap: "wrap" }}>
-          <span style={{ color: T.muted, fontWeight: 600 }}>Filtering:</span>
-          {clientFilter && (
-            <span style={{ padding: "2px 8px 2px 10px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 99, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
-              {clientFilter}
-              <button onClick={() => { setClientFilter(""); setProjectFilter(""); }} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", padding: "0 2px", fontSize: 14, lineHeight: 1 }}>×</button>
-            </span>
-          )}
-          {projectFilter && (() => {
-            const p = availableProjects.find(x => x.jobId === projectFilter);
-            if (!p) return null;
-            return (
-              <span style={{ padding: "2px 8px 2px 10px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 99, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                {p.title}{p.jobNumber ? ` · ${p.jobNumber}` : ""}
-                <button onClick={() => setProjectFilter("")} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", padding: "0 2px", fontSize: 14, lineHeight: 1 }}>×</button>
-              </span>
-            );
-          })()}
-          {search && (
-            <span style={{ padding: "2px 8px 2px 10px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4 }}>
-              "{search}"
-              <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", padding: "0 2px", fontSize: 14, lineHeight: 1 }}>×</button>
-            </span>
-          )}
-          <span style={{ color: T.muted }}>· {stats.total} results</span>
-          <button
-            onClick={() => { setClientFilter(""); setProjectFilter(""); setSearch(""); }}
-            style={{ marginLeft: "auto", padding: "3px 10px", background: "transparent", color: T.accent, border: `1px solid ${T.accent}`, borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font }}
-          >
-            Clear all
-          </button>
-        </div>
-      )}
+      <ActiveFilterBar
+        filters={filters}
+        setFilters={setFilters}
+        availableProjects={availableProjects}
+        resultCount={stats.total}
+      />
 
-      {/* Stats row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 20 }}>
         <StatCard label="Active briefs" value={stats.total} tone="neutral" />
         <StatCard label="Awaiting client" value={stats.awaiting_client} tone="amber" note="intake or review" />
@@ -453,353 +259,34 @@ export default function ArtStudioPreview() {
 
       {!loading && cards.length > 0 && filteredCards.length === 0 && (
         <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 30, textAlign: "center", fontSize: 12, color: T.faint }}>
-          No items match the current filter. <button onClick={() => { setClientFilter(""); setSearch(""); }} style={{ color: T.accent, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontSize: 12, fontFamily: font }}>Clear filter</button>
+          No items match the current filter.
+          <button onClick={() => setFilters({ clientFilter: "", projectFilter: "", search: "" })} style={{ color: T.accent, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontSize: 12, fontFamily: font, marginLeft: 6 }}>
+            Clear filter
+          </button>
         </div>
       )}
 
-      {/* Kanban (By Stage) */}
-      {!loading && view === "by_stage" && filteredCards.length > 0 && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(8, minmax(260px, 1fr))",
-            gap: 12,
-            overflowX: "auto",
-            paddingBottom: 10,
-          }}
-        >
-          {STAGES.map(s => {
-            const list = byStage[s.key] || [];
-            return (
-              <div
-                key={s.key}
-                style={{
-                  background: T.surface,
-                  border: `1px solid ${T.border}`,
-                  borderRadius: 10,
-                  padding: 12,
-                  minHeight: 200,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: s.accent, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                      {s.label}
-                    </div>
-                    <div style={{ fontSize: 10, color: T.faint, marginTop: 2, lineHeight: 1.3 }}>{s.sub}</div>
-                  </div>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      padding: "2px 8px",
-                      borderRadius: 99,
-                      background: s.bg,
-                      color: s.accent,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {list.length}
-                  </span>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {list.map(card => (
-                    <BriefCard
-                      key={card.itemId}
-                      card={card}
-                      onClick={() => setSelected(card)}
-                      onClientClick={(name) => { setClientFilter(name); setProjectFilter(""); }}
-                      onProjectClick={(jobId, clientName) => { setClientFilter(clientName); setProjectFilter(jobId); }}
-                    />
-                  ))}
-                  {list.length === 0 && (
-                    <div style={{ fontSize: 10, color: T.faint, fontStyle: "italic", padding: 10, textAlign: "center" }}>
-                      No briefs in this stage
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {!loading && filters.view === "by_stage" && filteredCards.length > 0 && (
+        <KanbanBoard
+          cards={filteredCards}
+          onSelectCard={setSelected}
+          onClientFilter={(name) => setFilters({ clientFilter: name, projectFilter: "" })}
+          onProjectFilter={(jobId, clientName) => setFilters({ clientFilter: clientName, projectFilter: jobId })}
+        />
       )}
 
-      {/* Client swim lanes (By Client) */}
-      {!loading && view === "by_client" && filteredCards.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {byClient.map(row => (
-            <ClientLane
-              key={row.client}
-              client={row.client}
-              cards={row.cards}
-              projects={row.projects}
-              onFilterClient={() => { setClientFilter(row.client); setProjectFilter(""); }}
-              onFilterProject={(jobId, clientName) => { setClientFilter(clientName); setProjectFilter(jobId); }}
-              onSelectCard={c => setSelected(c)}
-              isFiltered={clientFilter === row.client}
-              isProjectFiltered={projectFilter}
-            />
-          ))}
-        </div>
+      {!loading && filters.view === "by_client" && filteredCards.length > 0 && (
+        <ClientLanesBoard
+          cards={filteredCards}
+          onSelectCard={setSelected}
+          onFilterClient={(name) => setFilters({ clientFilter: name, projectFilter: "" })}
+          onFilterProject={(jobId, clientName) => setFilters({ clientFilter: clientName, projectFilter: jobId })}
+          clientFilter={filters.clientFilter}
+          projectFilter={filters.projectFilter}
+        />
       )}
 
       {selected && <BriefPreviewModal card={selected} onClose={() => setSelected(null)} />}
-    </div>
-  );
-}
-
-type ProjectGroup = { jobId: string | null; title: string; jobNumber: string | null; jobType: string | null; cards: Card[] };
-
-function StageStrip({ counts }: { counts: Record<string, number> }) {
-  return (
-    <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
-      {STAGES.map(s => {
-        const n = counts[s.key] || 0;
-        return (
-          <div
-            key={s.key}
-            title={`${s.label}: ${n}`}
-            style={{
-              minWidth: 22,
-              height: 22,
-              borderRadius: 4,
-              background: n > 0 ? s.bg : T.surface,
-              border: `1px solid ${n > 0 ? s.accent + "55" : T.border}`,
-              fontSize: 10,
-              fontWeight: 700,
-              color: n > 0 ? s.accent : T.faint,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "0 6px",
-            }}
-          >
-            {n > 0 ? n : "·"}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function ClientLane({
-  client,
-  cards,
-  projects,
-  onFilterClient,
-  onFilterProject,
-  onSelectCard,
-  isFiltered,
-  isProjectFiltered,
-}: {
-  client: string;
-  cards: Card[];
-  projects: ProjectGroup[];
-  onFilterClient: () => void;
-  onFilterProject: (jobId: string, clientName: string) => void;
-  onSelectCard: (c: Card) => void;
-  isFiltered: boolean;
-  isProjectFiltered: string;
-}) {
-  const clientCounts: Record<string, number> = {};
-  cards.forEach(c => (clientCounts[c.stage.key] = (clientCounts[c.stage.key] || 0) + 1));
-  const stalest = cards.reduce((n, c) => (c.meta.urgency === "stale" ? n + 1 : n), 0);
-  const actions = cards.reduce((n, c) => (c.meta.urgency === "action" ? n + 1 : n), 0);
-
-  return (
-    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-      {/* Client header */}
-      <div
-        style={{
-          padding: "12px 16px",
-          borderBottom: `1px solid ${T.border}`,
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-          background: T.surface,
-        }}
-      >
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: T.text, letterSpacing: "-0.01em" }}>{client}</div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 2, display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <span><strong>{cards.length}</strong> {cards.length === 1 ? "item" : "items"}</span>
-            <span><strong>{projects.length}</strong> {projects.length === 1 ? "project" : "projects"}</span>
-            {actions > 0 && <span style={{ color: T.accent }}><strong>{actions}</strong> need HPD action</span>}
-            {stalest > 0 && <span style={{ color: T.amber }}><strong>{stalest}</strong> stale</span>}
-          </div>
-        </div>
-
-        <StageStrip counts={clientCounts} />
-
-        {!isFiltered && (
-          <button
-            onClick={onFilterClient}
-            style={{ padding: "5px 12px", fontSize: 10, fontWeight: 600, color: T.accent, background: "transparent", border: `1px solid ${T.accent}`, borderRadius: 6, cursor: "pointer", fontFamily: font }}
-          >
-            Focus client →
-          </button>
-        )}
-      </div>
-
-      {/* Project sub-sections */}
-      <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-        {projects.map((p, idx) => (
-          <ProjectSection
-            key={p.jobId || `orphan-${idx}`}
-            project={p}
-            clientName={client}
-            onFilterProject={onFilterProject}
-            onSelectCard={onSelectCard}
-            isFiltered={isProjectFiltered === p.jobId}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ProjectSection({
-  project,
-  clientName,
-  onFilterProject,
-  onSelectCard,
-  isFiltered,
-}: {
-  project: ProjectGroup;
-  clientName: string;
-  onFilterProject: (jobId: string, clientName: string) => void;
-  onSelectCard: (c: Card) => void;
-  isFiltered: boolean;
-}) {
-  const counts: Record<string, number> = {};
-  project.cards.forEach(c => (counts[c.stage.key] = (counts[c.stage.key] || 0) + 1));
-  const stalest = project.cards.reduce((n, c) => (c.meta.urgency === "stale" ? n + 1 : n), 0);
-  const actions = project.cards.reduce((n, c) => (c.meta.urgency === "action" ? n + 1 : n), 0);
-
-  return (
-    <div
-      style={{
-        background: T.surface,
-        border: `1px solid ${isFiltered ? T.accent : T.border}`,
-        borderRadius: 8,
-        overflow: "hidden",
-      }}
-    >
-      {/* Project header row */}
-      <div
-        style={{
-          padding: "8px 12px",
-          borderBottom: `1px solid ${T.border}`,
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          background: T.card,
-        }}
-      >
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{project.title}</span>
-            {project.jobNumber && (
-              <span style={{ fontSize: 10, color: T.muted, fontFamily: mono, letterSpacing: "-0.02em" }}>{project.jobNumber}</span>
-            )}
-            {project.jobType && (
-              <span style={{ fontSize: 9, fontWeight: 600, color: T.muted, padding: "1px 8px", borderRadius: 99, background: T.surface, border: `1px solid ${T.border}`, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                {project.jobType}
-              </span>
-            )}
-          </div>
-          <div style={{ fontSize: 10, color: T.muted, marginTop: 2, display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <span>{project.cards.length} {project.cards.length === 1 ? "item" : "items"}</span>
-            {actions > 0 && <span style={{ color: T.accent, fontWeight: 600 }}>{actions} action</span>}
-            {stalest > 0 && <span style={{ color: T.amber, fontWeight: 600 }}>{stalest} stale</span>}
-          </div>
-        </div>
-
-        <StageStrip counts={counts} />
-
-        {project.jobId && !isFiltered && (
-          <button
-            onClick={() => onFilterProject(project.jobId!, clientName)}
-            style={{ padding: "4px 10px", fontSize: 10, fontWeight: 600, color: T.muted, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", fontFamily: font }}
-          >
-            Focus project →
-          </button>
-        )}
-      </div>
-
-      {/* Items grid */}
-      <div
-        style={{
-          padding: 10,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
-          gap: 8,
-        }}
-      >
-        {project.cards.map(card => (
-          <CompactCard key={card.itemId} card={card} onClick={() => onSelectCard(card)} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function CompactCard({ card, onClick }: { card: Card; onClick: () => void }) {
-  const thumb = thumbUrl(card.thumbFileId, 200);
-  const s = card.stage;
-  const stale = card.meta.urgency === "stale";
-  const action = card.meta.urgency === "action";
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        background: T.card,
-        border: `1px solid ${stale ? T.amber + "77" : action ? s.accent + "77" : T.border}`,
-        borderRadius: 8,
-        overflow: "hidden",
-        cursor: "pointer",
-        display: "flex",
-        gap: 10,
-        padding: 8,
-        transition: "transform 0.08s, border-color 0.08s",
-      }}
-      onMouseEnter={e => {
-        (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)";
-        (e.currentTarget as HTMLElement).style.borderColor = s.accent;
-      }}
-      onMouseLeave={e => {
-        (e.currentTarget as HTMLElement).style.transform = "none";
-        (e.currentTarget as HTMLElement).style.borderColor = stale ? T.amber + "77" : action ? s.accent + "77" : T.border;
-      }}
-    >
-      <div
-        style={{
-          width: 56,
-          height: 56,
-          background: "#f4f4f7",
-          borderRadius: 6,
-          flexShrink: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-        }}
-      >
-        {thumb ? (
-          <img src={thumb} alt="" referrerPolicy="no-referrer" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} onError={e => ((e.target as HTMLImageElement).style.display = "none")} />
-        ) : (
-          <span style={{ fontSize: 9, color: T.faint }}>—</span>
-        )}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{card.itemName}</div>
-        <div style={{ fontSize: 9, fontWeight: 700, color: s.accent, textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 3 }}>{s.label}</div>
-        <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{card.meta.lines[0]}</div>
-      </div>
     </div>
   );
 }
@@ -817,125 +304,6 @@ function StatCard({ label, value, tone, note }: { label: string; value: number; 
       <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 800, color, marginTop: 4, fontFamily: mono }}>{value}</div>
       {note && <div style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>{note}</div>}
-    </div>
-  );
-}
-
-function BriefCard({
-  card, onClick, onClientClick, onProjectClick,
-}: {
-  card: Card;
-  onClick: () => void;
-  onClientClick?: (clientName: string) => void;
-  onProjectClick?: (jobId: string, clientName: string) => void;
-}) {
-  const thumb = thumbUrl(card.thumbFileId, 320);
-  const stale = card.meta.urgency === "stale";
-  const action = card.meta.urgency === "action";
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        background: T.card,
-        border: `1px solid ${stale ? T.amber + "77" : action ? card.stage.accent + "77" : T.border}`,
-        borderRadius: 10,
-        overflow: "hidden",
-        cursor: "pointer",
-        transition: "transform 0.08s, border-color 0.08s, box-shadow 0.08s",
-      }}
-      onMouseEnter={e => {
-        (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)";
-        (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)";
-      }}
-      onMouseLeave={e => {
-        (e.currentTarget as HTMLElement).style.transform = "none";
-        (e.currentTarget as HTMLElement).style.boxShadow = "none";
-      }}
-    >
-      {/* Thumbnail */}
-      <div
-        style={{
-          width: "100%",
-          aspectRatio: "4/3",
-          background: "#f4f4f7",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          borderBottom: `1px solid ${T.border}`,
-        }}
-      >
-        {thumb ? (
-          <img
-            src={thumb}
-            alt=""
-            referrerPolicy="no-referrer"
-            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-            onError={e => ((e.target as HTMLImageElement).style.display = "none")}
-          />
-        ) : (
-          <span style={{ fontSize: 10, color: T.faint }}>No preview</span>
-        )}
-      </div>
-
-      {/* Card body */}
-      <div style={{ padding: "10px 12px" }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3 }}>{card.itemName}</div>
-        <div style={{ fontSize: 10, color: T.muted, marginTop: 2, lineHeight: 1.3 }}>
-          {onClientClick ? (
-            <span
-              onClick={e => { e.stopPropagation(); onClientClick(card.clientName); }}
-              style={{ cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textDecorationColor: T.muted }}
-              title={`Filter to ${card.clientName}`}
-            >
-              {card.clientName}
-            </span>
-          ) : card.clientName}
-          {" · "}
-          {onProjectClick && card.jobId ? (
-            <span
-              onClick={e => { e.stopPropagation(); onProjectClick(card.jobId!, card.clientName); }}
-              style={{ cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textDecorationColor: T.muted }}
-              title={`Filter to project ${card.jobTitle}`}
-            >
-              {card.jobTitle}
-            </span>
-          ) : card.jobTitle}
-        </div>
-
-        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 2 }}>
-          {card.meta.lines.map((line, i) => (
-            <div
-              key={i}
-              style={{
-                fontSize: 10,
-                color: i === 0 ? (stale ? T.amber : T.text) : T.faint,
-                fontWeight: i === 0 ? 600 : 400,
-              }}
-            >
-              {line}
-            </div>
-          ))}
-        </div>
-
-        {card.meta.cta && (
-          <div
-            style={{
-              marginTop: 10,
-              padding: "4px 10px",
-              background: action ? card.stage.accent : "transparent",
-              color: action ? "#fff" : card.stage.accent,
-              border: action ? "none" : `1px solid ${card.stage.accent}55`,
-              borderRadius: 6,
-              fontSize: 10,
-              fontWeight: 700,
-              textAlign: "center",
-              display: "inline-block",
-            }}
-          >
-            {card.meta.cta}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -971,7 +339,6 @@ function BriefPreviewModal({ card, onClose }: { card: Card; onClose: () => void 
           fontFamily: font,
         }}
       >
-        {/* Header */}
         <div
           style={{
             padding: "14px 20px",
@@ -985,20 +352,14 @@ function BriefPreviewModal({ card, onClose }: { card: Card; onClose: () => void 
             <div style={{ fontSize: 10, fontWeight: 700, color: s.accent, textTransform: "uppercase", letterSpacing: "0.08em" }}>
               {s.label}
             </div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginTop: 2 }}>{card.itemName}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginTop: 2 }}>{card.title}</div>
             <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
               {card.clientName} · {card.jobTitle}
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 22, padding: "0 4px" }}
-          >
-            ×
-          </button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 22, padding: "0 4px" }}>×</button>
         </div>
 
-        {/* Body: two columns — image + brief content */}
         <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 0 }}>
           <div style={{ background: "#f4f4f7", borderRight: `1px solid ${T.border}`, padding: 14, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
             {fullThumb ? (
@@ -1017,10 +378,6 @@ function BriefPreviewModal({ card, onClose }: { card: Card; onClose: () => void 
   );
 }
 
-/**
- * Narrative block — shows what the real brief modal would display at this stage.
- * This is the "what does it look like?" answer per column.
- */
 function StageNarrative({ stage, card }: { stage: string; card: Card }) {
   const sectionLabel: React.CSSProperties = {
     fontSize: 10,
@@ -1040,23 +397,36 @@ function StageNarrative({ stage, card }: { stage: string; card: Card }) {
   const purposeLabels = ["Tour merch", "Brand staple", "Drop / capsule", "Event one-off", "Retail"];
   const purpose = purposeLabels[hash % purposeLabels.length];
 
+  if (stage === "draft") {
+    return (
+      <div style={panel}>
+        <div style={sectionLabel}>Draft brief</div>
+        <div style={{ ...mutedLine }}>
+          HPD is still setting this one up. No intake sent yet. Pick up where you left off, or send the client a link to fill in the details.
+        </div>
+        <div style={{ marginTop: 12, display: "flex", gap: 6 }}>
+          <button style={btn(T.accent, "#fff")}>Send intake link</button>
+          <button style={btn("transparent", T.muted, true)}>Skip — brief manually</button>
+        </div>
+      </div>
+    );
+  }
+
   if (stage === "awaiting_intake") {
     return (
-      <>
-        <div style={panel}>
-          <div style={sectionLabel}>Client Intake</div>
-          <div style={{ padding: "6px 12px", background: T.amberDim, borderRadius: 99, display: "inline-block", color: T.amber, fontSize: 11, fontWeight: 600 }}>
-            Awaiting client response
-          </div>
-          <div style={{ ...mutedLine, marginTop: 10 }}>
-            Intake link sent to the client. They'll fill out a 5-question form (purpose, audience, mood, references, no-gos) and their answers appear here.
-          </div>
-          <div style={{ marginTop: 14, display: "flex", gap: 6 }}>
-            <button style={btn(T.accent, "#fff")}>Send reminder email</button>
-            <button style={btn("transparent", T.accent, true)}>Copy intake link</button>
-          </div>
+      <div style={panel}>
+        <div style={sectionLabel}>Client Intake</div>
+        <div style={{ padding: "6px 12px", background: T.amberDim, borderRadius: 99, display: "inline-block", color: T.amber, fontSize: 11, fontWeight: 600 }}>
+          Awaiting client response
         </div>
-      </>
+        <div style={{ ...mutedLine, marginTop: 10 }}>
+          Intake link sent to the client. They'll fill out a 5-question form (purpose, audience, mood, references, no-gos) and their answers appear here.
+        </div>
+        <div style={{ marginTop: 14, display: "flex", gap: 6 }}>
+          <button style={btn(T.accent, "#fff")}>Send reminder email</button>
+          <button style={btn("transparent", T.accent, true)}>Copy intake link</button>
+        </div>
+      </div>
     );
   }
 
@@ -1082,14 +452,11 @@ function StageNarrative({ stage, card }: { stage: string; card: Card }) {
             <span style={{ color: T.red, fontWeight: 600 }}>Avoid:</span>
             <span style={{ color: T.text }}>nothing too corporate, no pastels</span>
           </div>
-          <div style={{ ...mutedLine, marginTop: 10, fontStyle: "italic" }}>
-            "Love the color palette on this one" — client note on a reference image
-          </div>
         </div>
         <div style={{ ...panel, borderColor: T.amber + "77" }}>
           <div style={{ ...sectionLabel, color: T.amber }}>HPD Brief → Designer (draft)</div>
           <div style={{ ...textLine, marginBottom: 8 }}>
-            <em>Translation in progress.</em> Turn client's intake into a designer-ready concept: clarify visual direction, confirm placement, lock colors.
+            <em>Translation in progress.</em> Turn client's intake into a designer-ready concept.
           </div>
           <button style={btn(T.accent, "#fff")}>Open editor & translate</button>
         </div>
@@ -1111,10 +478,6 @@ function StageNarrative({ stage, card }: { stage: string; card: Card }) {
           </div>
         </div>
         <div style={panel}>
-          <div style={sectionLabel}>Designer Work</div>
-          <div style={{ fontSize: 12, color: T.faint, fontStyle: "italic" }}>No uploads yet. Designer acknowledged the brief.</div>
-        </div>
-        <div style={panel}>
           <div style={sectionLabel}>Messages</div>
           <MessageBubble who="designer" text="Got it. Pulling references now — should have a first WIP by EOD tomorrow." when="1d ago" />
           <MessageBubble who="hpd" text="Sounds good. No rush on polish for V1 — just directionally right." when="1d ago" />
@@ -1130,7 +493,7 @@ function StageNarrative({ stage, card }: { stage: string; card: Card }) {
           <div style={{ ...sectionLabel, color: T.blue }}>Designer Work — WIP v2</div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.blueDim, borderRadius: 6, fontSize: 12 }}>
             <span style={{ padding: "2px 8px", background: T.blue, color: "#fff", borderRadius: 4, fontWeight: 700, fontSize: 10 }}>WIP V2</span>
-            <span style={{ flex: 1, color: T.text }}>{card.itemName.toLowerCase().replace(/\s+/g, "_")}_wip_v2.psd</span>
+            <span style={{ flex: 1, color: T.text }}>{card.title.toLowerCase().replace(/\s+/g, "_")}_wip_v2.psd</span>
             <span style={{ fontSize: 10, color: T.muted }}>3h ago</span>
           </div>
           <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
@@ -1138,39 +501,25 @@ function StageNarrative({ stage, card }: { stage: string; card: Card }) {
             <button style={btn("transparent", T.muted, true)}>Ask designer for changes</button>
           </div>
         </div>
-        <div style={panel}>
-          <div style={sectionLabel}>Messages</div>
-          <MessageBubble who="designer" text="V2 is up — tightened the letterforms and dropped the cream tone a notch. Let me know." when="3h ago" />
-          <MessageBubble who="designer" text="If we want a V3 with a cleaner woodblock texture I can do that too." when="3h ago" />
-        </div>
       </>
     );
   }
 
   if (stage === "client_review") {
     return (
-      <>
-        <div style={{ ...panel, borderColor: T.purple + "66" }}>
-          <div style={{ ...sectionLabel, color: T.purple }}>Client Review</div>
-          <div style={textLine}>
-            WIP v2 sent to client via approval portal. They'll approve, request revisions, or add notes.
-          </div>
-          <div style={{ marginTop: 10, padding: "8px 12px", background: T.purpleDim, borderRadius: 6, fontSize: 11, color: T.purple, fontWeight: 600 }}>
-            Link opened 2x · Sent 2 days ago · No response yet
-          </div>
-          <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
-            <button style={btn(T.accent, "#fff")}>Nudge client</button>
-            <button style={btn("transparent", T.muted, true)}>Call instead</button>
-          </div>
+      <div style={{ ...panel, borderColor: T.purple + "66" }}>
+        <div style={{ ...sectionLabel, color: T.purple }}>Client Review</div>
+        <div style={textLine}>
+          WIP v2 sent to client via approval portal. They'll approve, request revisions, or add notes.
         </div>
-        <div style={panel}>
-          <div style={sectionLabel}>Latest WIP</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.surface, borderRadius: 6, fontSize: 12 }}>
-            <span style={{ padding: "2px 8px", background: T.blue, color: "#fff", borderRadius: 4, fontWeight: 700, fontSize: 10 }}>V2</span>
-            <span style={{ flex: 1, color: T.text }}>{card.itemName.toLowerCase().replace(/\s+/g, "_")}_v2_proof.pdf</span>
-          </div>
+        <div style={{ marginTop: 10, padding: "8px 12px", background: T.purpleDim, borderRadius: 6, fontSize: 11, color: T.purple, fontWeight: 600 }}>
+          Link opened 2x · Sent 2 days ago · No response yet
         </div>
-      </>
+        <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
+          <button style={btn(T.accent, "#fff")}>Nudge client</button>
+          <button style={btn("transparent", T.muted, true)}>Call instead</button>
+        </div>
+      </div>
     );
   }
 
@@ -1196,44 +545,35 @@ function StageNarrative({ stage, card }: { stage: string; card: Card }) {
 
   if (stage === "final_approved") {
     return (
-      <>
-        <div style={{ ...panel, borderColor: T.green + "77", background: T.greenDim + "55" }}>
-          <div style={{ ...sectionLabel, color: T.green }}>Final Uploaded</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.green, color: "#fff", borderRadius: 6, fontSize: 12 }}>
-            <span style={{ padding: "2px 8px", background: "#fff", color: T.green, borderRadius: 4, fontWeight: 700, fontSize: 10 }}>FINAL V3</span>
-            <span style={{ flex: 1, fontWeight: 600 }}>{card.itemName.toLowerCase().replace(/\s+/g, "_")}_final_print.ai</span>
-            <span style={{ fontSize: 10, opacity: 0.8 }}>Just now</span>
-          </div>
-          <div style={{ ...mutedLine, marginTop: 10 }}>
-            Click to sync this final to the item's print-ready stage. The PO auto-picks up the file link, decorator gets it on their next PO.
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <button style={btn(T.green, "#fff")}>→ Deliver to print-ready</button>
-          </div>
+      <div style={{ ...panel, borderColor: T.green + "77", background: T.greenDim + "55" }}>
+        <div style={{ ...sectionLabel, color: T.green }}>Final Uploaded</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.green, color: "#fff", borderRadius: 6, fontSize: 12 }}>
+          <span style={{ padding: "2px 8px", background: "#fff", color: T.green, borderRadius: 4, fontWeight: 700, fontSize: 10 }}>FINAL V3</span>
+          <span style={{ flex: 1, fontWeight: 600 }}>{card.title.toLowerCase().replace(/\s+/g, "_")}_final_print.ai</span>
+          <span style={{ fontSize: 10, opacity: 0.8 }}>Just now</span>
         </div>
-      </>
+        <div style={{ ...mutedLine, marginTop: 10 }}>
+          Click to sync this final to the item's print-ready stage. The PO auto-picks up the file link.
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <button style={btn(T.green, "#fff")}>→ Deliver to print-ready</button>
+        </div>
+      </div>
     );
   }
 
-  // delivered
   return (
-    <>
-      <div style={{ ...panel, borderColor: T.green + "55" }}>
-        <div style={{ ...sectionLabel, color: T.green }}>Delivered & Synced</div>
-        <div style={textLine}>
-          Final auto-landed on the item's print-ready stage. <strong>items.drive_link</strong> updated. Decorator PO pulls this file link automatically.
-        </div>
-        <div style={{ marginTop: 10, fontSize: 11, color: T.muted, fontFamily: mono }}>
-          item_files.stage = "print_ready" ✓<br />
-          items.drive_link updated ✓<br />
-          brief.state = "delivered" ✓
-        </div>
+    <div style={{ ...panel, borderColor: T.green + "55" }}>
+      <div style={{ ...sectionLabel, color: T.green }}>Delivered & Synced</div>
+      <div style={textLine}>
+        Final auto-landed on the item's print-ready stage. <strong>items.drive_link</strong> updated. Decorator PO pulls this file link automatically.
       </div>
-      <div style={panel}>
-        <div style={sectionLabel}>Full thread</div>
-        <div style={mutedLine}>18 messages · 3 designer WIPs · 1 final · 2 client reviews · 1 revision cycle</div>
+      <div style={{ marginTop: 10, fontSize: 11, color: T.muted, fontFamily: mono }}>
+        item_files.stage = "print_ready" ✓<br />
+        items.drive_link updated ✓<br />
+        brief.state = "delivered" ✓
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1276,28 +616,22 @@ function btn(bg: string, color: string, outline?: boolean): React.CSSProperties 
   };
 }
 
-function hashStr(s: string) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return h;
-}
-
-// Redistribute cards so every stage has at least one if we have enough items
+// Redistribute synthetic cards so every stage gets at least one if we have enough items
 function rebalance(list: Card[]) {
   if (list.length < STAGES.length) return;
   const byKey: Record<string, Card[]> = {};
   STAGES.forEach(s => (byKey[s.key] = []));
   list.forEach(c => byKey[c.stage.key].push(c));
 
-  // Find stages with more than 2, redistribute excess into empty stages
   const empties = STAGES.filter(s => byKey[s.key].length === 0);
   for (const empty of empties) {
     const donor = STAGES.find(s => byKey[s.key].length >= 3);
     if (!donor) break;
     const moved = byKey[donor.key].pop();
     if (moved) {
-      moved.stage = empty;
-      moved.meta = stageMeta(empty.key, moved.hash);
+      const newStage: StageDef = empty;
+      (moved as any).stage = newStage;
+      (moved as any).meta = stageMeta(empty.key, moved.hash);
       byKey[empty.key].push(moved);
     }
   }

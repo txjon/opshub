@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    let query = supabase.from("art_briefs").select("*, items(name), jobs(title, job_number), clients(name)").order("created_at", { ascending: false });
+    let query = supabase.from("art_briefs").select("*, items(name), jobs(title, job_number, job_type), clients(name)").order("created_at", { ascending: false });
     if (itemId) query = query.eq("item_id", itemId);
     if (jobId) query = query.eq("job_id", jobId);
     if (clientId) query = query.eq("client_id", clientId);
@@ -38,24 +38,42 @@ export async function GET(req: NextRequest) {
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Attach message counts (total + designer-sent) per brief so the list can show chat indicators
+    // Attach message counts + best thumbnail per brief in one extra fetch
     const briefs = data || [];
     if (briefs.length > 0) {
       const ids = briefs.map((b: any) => b.id);
-      const { data: msgs } = await supabase
-        .from("art_brief_messages")
-        .select("brief_id, sender_role")
-        .in("brief_id", ids);
+      const [msgsRes, filesRes] = await Promise.all([
+        supabase.from("art_brief_messages").select("brief_id, sender_role").in("brief_id", ids),
+        supabase.from("art_brief_files").select("brief_id, drive_file_id, drive_link, kind, created_at").in("brief_id", ids).order("created_at", { ascending: false }),
+      ]);
+
+      // Message counts
       const counts: Record<string, { total: number; designer: number }> = {};
-      (msgs || []).forEach((m: any) => {
+      (msgsRes.data || []).forEach((m: any) => {
         const c = counts[m.brief_id] ||= { total: 0, designer: 0 };
         c.total++;
         if (m.sender_role === "designer") c.designer++;
       });
+
+      // Best thumbnail per brief: final > wip > reference > client_intake
+      const rank: Record<string, number> = { final: 4, wip: 3, reference: 2, client_intake: 1 };
+      const bestThumb: Record<string, { drive_file_id: string | null; drive_link: string | null }> = {};
+      (filesRes.data || []).forEach((f: any) => {
+        if (!f.drive_file_id) return;
+        const cur = bestThumb[f.brief_id];
+        if (!cur || (rank[f.kind] || 0) > (rank[(cur as any).kind] || 0)) {
+          bestThumb[f.brief_id] = { drive_file_id: f.drive_file_id, drive_link: f.drive_link };
+          (bestThumb[f.brief_id] as any).kind = f.kind;
+        }
+      });
+
       briefs.forEach((b: any) => {
         const c = counts[b.id] || { total: 0, designer: 0 };
         b.message_count = c.total;
         b.designer_message_count = c.designer;
+        const t = bestThumb[b.id];
+        b.thumb_file_id = t?.drive_file_id || null;
+        b.thumb_link = t?.drive_link || null;
       });
     }
 
