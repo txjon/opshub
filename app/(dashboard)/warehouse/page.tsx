@@ -219,9 +219,44 @@ export default function WarehousePage() {
     if (status === "shipped") {
       logJobActivity(jobId, "Fulfillment complete — order shipped to client");
       notifyTeam("Order shipped to client", "production", jobId, "job");
+
+      // For ship_through: send client email with packing slip + create invoice-ready notification
+      const { data: job } = await supabase.from("jobs").select("shipping_route, title, fulfillment_tracking, clients(name)").eq("id", jobId).single();
+      if ((job as any)?.shipping_route === "ship_through") {
+        fetch("/api/email/notify", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "order_shipped_hpd",
+            jobId,
+            trackingNumber: (job as any).fulfillment_tracking || null,
+          }),
+        }).catch(() => {});
+        logJobActivity(jobId, "Order shipped email sent to client");
+        await createInvoiceReadyNotification(jobId, (job as any).title || "", (job as any).clients?.name || "");
+        logJobActivity(jobId, "Ship-through complete — invoice ready to update with received qtys");
+      }
     }
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, fulfillment_status: status, ...(tracking !== undefined ? { fulfillment_tracking: tracking } : {}) } : j));
     setTimeout(() => recalcJobPhase(jobId), 300);
+  }
+
+  // Notify managers that the invoice can be updated with actual shipped/received qtys
+  async function createInvoiceReadyNotification(jobId: string, jobTitle: string, clientName: string) {
+    try {
+      const { data: profiles } = await supabase.from("profiles").select("id, role").in("role", ["owner", "manager", "staff"]);
+      if (!profiles?.length) return;
+      await (supabase as any).from("notifications").insert(
+        profiles.map((p: any) => ({
+          user_id: p.id,
+          type: "alert",
+          message: `Invoice ready to update — ${clientName || ""} · ${jobTitle} · review variance`,
+          reference_id: jobId,
+          reference_type: "job",
+        }))
+      );
+    } catch (e) {
+      console.error("[warehouse/updateFulfillment] createInvoiceReadyNotification failed:", e);
+    }
   }
 
   function debounceFulfillmentTracking(jobId: string, tracking: string) {

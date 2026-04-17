@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       userId = user.id;
     }
 
-    const { jobId } = await req.json();
+    const { jobId, useShippedQtys } = await req.json();
     if (!jobId) return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
 
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -74,29 +74,40 @@ export async function POST(req: NextRequest) {
     }
 
     // items.sell_per_unit is the source of truth — set by CostingTab, rounded to cent
+    // useShippedQtys: use actual shipped (drop_ship) or received (ship_through) qtys instead of ordered
+    const isDropShip = (job as any).shipping_route === "drop_ship";
     const lineItems: QBLineItem[] = [];
 
     for (const item of (items || [])) {
-      const lines = item.buy_sheet_lines || [];
-      const totalQty = lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
+      const lines = (item as any).buy_sheet_lines || [];
+      const qtySource: Record<string, number> = useShippedQtys
+        ? (isDropShip ? ((item as any).ship_qtys || {}) : ((item as any).received_qtys || {}))
+        : {};
+      const perSize: Record<string, number> = {};
+      for (const l of lines) {
+        perSize[l.size] = useShippedQtys
+          ? (qtySource[l.size] ?? 0)
+          : (l.qty_ordered || 0);
+      }
+      const totalQty = Object.values(perSize).reduce((a, q) => a + (q || 0), 0);
       if (totalQty === 0) continue;
 
-      const sellPerUnit = parseFloat(item.sell_per_unit) || 0;
-      const garmentType = item.garment_type || "custom";
+      const sellPerUnit = parseFloat((item as any).sell_per_unit) || 0;
+      const garmentType = (item as any).garment_type || "custom";
       const qbProductName = QB_PRODUCT_MAP[garmentType] || "Custom";
 
       // Build description like QB screenshot: name / vendor / color + sizes
-      const sizes = lines
-        .filter((l: any) => l.qty_ordered > 0)
-        .sort((a: any, b: any) => {
+      const sizes = Object.entries(perSize)
+        .filter(([, q]) => q > 0)
+        .sort((a, b) => {
           const order = ["XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL"];
-          return (order.indexOf(a.size) === -1 ? 99 : order.indexOf(a.size)) - (order.indexOf(b.size) === -1 ? 99 : order.indexOf(b.size));
+          return (order.indexOf(a[0]) === -1 ? 99 : order.indexOf(a[0])) - (order.indexOf(b[0]) === -1 ? 99 : order.indexOf(b[0]));
         })
-        .map((l: any) => `${l.size} ${l.qty_ordered}`);
+        .map(([size, q]) => `${size} ${q}`);
 
-      const descParts = [item.name];
-      if (item.blank_vendor) descParts.push(item.blank_vendor);
-      if (item.blank_sku) descParts.push(item.blank_sku);
+      const descParts = [(item as any).name];
+      if ((item as any).blank_vendor) descParts.push((item as any).blank_vendor);
+      if ((item as any).blank_sku) descParts.push((item as any).blank_sku);
       const description = descParts.join(" / ") + "\n" + sizes.join(" • ");
 
       lineItems.push({

@@ -30,7 +30,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const { data: items } = await supabase
       .from("items")
-      .select("*, buy_sheet_lines(size, qty_ordered)")
+      .select("*, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name))")
       .eq("job_id", jobId)
       .order("sort_order");
 
@@ -42,7 +42,16 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const route = job.shipping_route || "ship_through";
     const isDropShip = route === "drop_ship";
 
-    const itemRows = (items || []).filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking).map((item: any, i: number) => {
+    // Optional per-vendor filter — limits packing slip to items assigned to one decorator
+    const decoratorFilter = req.nextUrl.searchParams.get("decoratorId");
+    const vendorScopedItems = decoratorFilter
+      ? (items || []).filter((it: any) => (it.decorator_assignments || []).some((da: any) => da.decorator_id === decoratorFilter))
+      : (items || []);
+    const vendorName = decoratorFilter
+      ? (vendorScopedItems[0]?.decorator_assignments?.[0]?.decorators?.name || "")
+      : "";
+
+    const itemRows = vendorScopedItems.filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking).map((item: any, i: number) => {
       const lines = item.buy_sheet_lines || [];
       // Drop ship: use ship_qtys (what decorator shipped). Ship-through/stage: use received_qtys (what HPD confirmed).
       const qtySource = isDropShip ? (item.ship_qtys || {}) : (item.received_qtys || {});
@@ -80,7 +89,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       </tr>`;
     }).join("");
 
-    const totalUnits = (items || []).filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking)
+    const totalUnits = vendorScopedItems.filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking)
       .reduce((a: number, it: any) => {
         const lines = it.buy_sheet_lines || [];
         const qtySource = isDropShip ? (it.ship_qtys || {}) : (it.received_qtys || {});
@@ -118,6 +127,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         <div style="font-size:11px;color:#666;line-height:1.8;font-family:${fnt}">
           <div><span style="font-weight:600">Date:</span> ${today}</div>
           <div><span style="font-weight:600">Order:</span> ${invoiceNum}</div>
+          ${vendorName ? `<div><span style="font-weight:600">Shipment from:</span> ${vendorName}</div>` : ""}
         </div>
       </div>
     </div>

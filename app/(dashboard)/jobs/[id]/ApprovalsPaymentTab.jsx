@@ -4,16 +4,25 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
+import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewModal";
 
 export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatus, onUpdateItem, onReload, onRecalcPhase, onUpdateJob }) {
   const supabase = createClient();
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
   const [showCombinedEmail, setShowCombinedEmail] = useState(false);
+  const [showVarianceModal, setShowVarianceModal] = useState(false);
   const [pushingToQB, setPushingToQB] = useState(false);
   const [qbError, setQbError] = useState("");
 
   const qbInvoiceNumber = job.type_meta?.qb_invoice_number;
   const qbPaymentLink = job.type_meta?.qb_payment_link;
+
+  // Fully shipped detection — determines if variance review is available
+  const isDropShip = job.shipping_route === "drop_ship";
+  const isShipThrough = job.shipping_route === "ship_through";
+  const allItemsShipped = items.length > 0 && items.every(it => it.pipeline_stage === "shipped");
+  const isFullyShipped = (isDropShip && allItemsShipped) || (isShipThrough && job.fulfillment_status === "shipped");
+  const varianceAvailable = !!qbInvoiceNumber && isFullyShipped;
 
   async function pushToQB() {
     setPushingToQB(true);
@@ -76,6 +85,32 @@ export function ApprovalsPaymentTab({ job, items, contacts, payments, proofStatu
         </button>
       )}
       {qbError && <div style={{ background: T.redDim, border: `1px solid ${T.red}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.red }}>{qbError}</div>}
+
+      {/* ── Variance Review (shown when job fully shipped + QB invoice exists) ── */}
+      {varianceAvailable && (
+        <button onClick={() => setShowVarianceModal(true)}
+          style={{ width: "100%", padding: "12px", borderRadius: 10, border: `1px solid ${T.amber}66`, cursor: "pointer",
+            background: T.amberDim, color: T.amber, fontSize: 13, fontWeight: 700, fontFamily: font,
+            transition: "opacity 0.15s" }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+          Update QB Invoice with {isShipThrough ? "Received" : "Shipped"} Qtys — Review Variance
+        </button>
+      )}
+
+      {showVarianceModal && (
+        <InvoiceVarianceReviewModal
+          jobId={job.id}
+          shippingRoute={job.shipping_route}
+          jobTitle={job.title}
+          clientName={job.clients?.name || ""}
+          onClose={() => setShowVarianceModal(false)}
+          onApproved={() => {
+            logJobActivity(job.id, "QB invoice updated with actual qtys — revised invoice emailed to client");
+            if (onReload) onReload();
+          }}
+        />
+      )}
 
       {/* ── Send Actions ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

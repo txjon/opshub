@@ -79,20 +79,60 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
       }
       onUpdateItem(itemId, { pipeline_stage: "shipped", decorator_assignment_id: item.decorator_assignment_id });
 
-      // Auto-notify when ALL items shipped on drop-ship orders
-      if (project?.shipping_route === "drop_ship") {
-        const allShipped = items.every(it => it.id === itemId ? true : it.pipeline_stage === "shipped");
-        if (allShipped) {
+      // Per-vendor shipment email (drop_ship only): fires when all items for THIS decorator are shipped
+      if (project?.shipping_route === "drop_ship" && item.decorator) {
+        const vendorItems = items.filter(it => it.decorator === item.decorator);
+        const vendorAllShipped = vendorItems.every(it => it.id === itemId ? true : it.pipeline_stage === "shipped");
+        if (vendorAllShipped) {
+          let decoratorId = null;
+          if (item.decorator_assignment_id) {
+            const { data: assignment } = await supabase.from("decorator_assignments").select("decorator_id").eq("id", item.decorator_assignment_id).single();
+            decoratorId = assignment?.decorator_id;
+          }
           fetch("/api/email/notify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "order_shipped", jobId: project.id }),
+            body: JSON.stringify({
+              type: "order_shipped_vendor",
+              jobId: project.id,
+              decoratorId,
+              vendorName: item.decorator,
+              trackingNumber: f.ship_tracking || null,
+            }),
           }).catch(() => {});
-          logJobActivity(project.id, "All items shipped — order complete notification sent to client");
+          logJobActivity(project.id, `${item.decorator} shipment complete — per-vendor email sent to client`);
+        }
+      }
+
+      // Invoice-ready-to-update notification when ALL items on the job are shipped (drop_ship)
+      if (project?.shipping_route === "drop_ship") {
+        const allJobShipped = items.every(it => it.id === itemId ? true : it.pipeline_stage === "shipped");
+        if (allJobShipped) {
+          await createInvoiceReadyNotification(project.id, project.title, project?.clients?.name);
+          logJobActivity(project.id, "All items shipped — invoice ready to update with shipped qtys");
         }
       }
     }
     if (onRecalcPhase) onRecalcPhase();
+  }
+
+  // Notify managers that the invoice can be updated with actual shipped qtys
+  async function createInvoiceReadyNotification(jobId, jobTitle, clientName) {
+    try {
+      const { data: profiles } = await supabase.from("profiles").select("id, role").in("role", ["owner", "manager", "staff"]);
+      if (!profiles?.length) return;
+      await supabase.from("notifications").insert(
+        profiles.map(p => ({
+          user_id: p.id,
+          type: "alert",
+          message: `Invoice ready to update — ${clientName || ""} · ${jobTitle} · review variance`,
+          reference_id: jobId,
+          reference_type: "job",
+        }))
+      );
+    } catch (e) {
+      console.error("[ProductionTab] createInvoiceReadyNotification failed:", e);
+    }
   }
 
   function updateShipQty(itemId, size, qty) {
