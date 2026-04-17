@@ -116,10 +116,16 @@ export default function ArtStudioPage() {
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Art Studio</h1>
           <p style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>Design team briefs and creative workflow</p>
         </div>
-        <button onClick={() => setShowNew(true)}
-          style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
-          + New Brief
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <a href="/art-studio/preview"
+            style={{ padding: "7px 14px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: "none", fontFamily: font }}>
+            Preview (fake data)
+          </a>
+          <button onClick={() => setShowNew(true)}
+            style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
+            + New Brief
+          </button>
+        </div>
       </div>
 
       {/* State filter chips */}
