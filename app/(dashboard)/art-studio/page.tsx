@@ -513,8 +513,11 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
       body: JSON.stringify({ brief_id: brief.id }),
     });
     const data = await res.json();
-    if (data.token) {
-      const url = `${window.location.origin}/art-intake/${data.token}`;
+    // Prefer the client-wide portal URL; fall back to per-brief intake
+    const url = data.client_portal_token
+      ? `${window.location.origin}/portal/client/${data.client_portal_token}`
+      : (data.token ? `${window.location.origin}/art-intake/${data.token}` : null);
+    if (url) {
       await navigator.clipboard.writeText(url);
       setLinkCopied(true);
       setTimeout(() => setLinkCopied(false), 2000);
