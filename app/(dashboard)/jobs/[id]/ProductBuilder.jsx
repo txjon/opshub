@@ -916,7 +916,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
           <a href={mockupFile.drive_link} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0 }}>
             <DriveThumb
               driveFileId={mockupFile.drive_file_id}
-              style={{ width: 160, height: 160, objectFit: "cover", borderRadius: 10, border: `1px solid ${T.border}`, display: "block" }}
+              style={{ width: 160, height: 160, objectFit: "contain", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, display: "block" }}
               fallback={
                 <div style={{ width: 160, height: 160, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <span style={{ fontSize: 11, color: T.faint }}>No preview</span>
