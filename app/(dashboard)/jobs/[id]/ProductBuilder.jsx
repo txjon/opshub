@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { DriveThumb } from "@/components/DriveThumb";
 import { parsePsd } from "./ProcessingTab";
 import { ItemArtSection } from "./ArtTab";
 import {
@@ -866,7 +867,6 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
   }
 
   const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup") && /\.(png|jpg|jpeg)$/i.test(f.file_name));
-  const mockupThumb = mockupFile ? `/api/files/thumbnail?id=${mockupFile.drive_file_id}` : null;
   const nonMockupFiles = files.filter(f => f !== mockupFile);
 
   const STAGE_COLORS = { client_art: T.muted, vector: T.accent, mockup: T.amber, proof: T.purple, print_ready: T.green };
@@ -912,9 +912,17 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
       {/* Row 1: Thumbnail + Info */}
       <div style={{ display: "flex", gap: 24, marginBottom: 20 }}>
         {/* Thumbnail — bigger */}
-        {mockupThumb ? (
+        {mockupFile ? (
           <a href={mockupFile.drive_link} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0 }}>
-            <img src={mockupThumb} alt="" style={{ width: 160, height: 160, objectFit: "cover", borderRadius: 10, border: `1px solid ${T.border}` }} onError={e => { e.target.style.display = "none"; }} />
+            <DriveThumb
+              driveFileId={mockupFile.drive_file_id}
+              style={{ width: 160, height: 160, objectFit: "cover", borderRadius: 10, border: `1px solid ${T.border}`, display: "block" }}
+              fallback={
+                <div style={{ width: 160, height: 160, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ fontSize: 11, color: T.faint }}>No preview</span>
+                </div>
+              }
+            />
           </a>
         ) : (
           <div style={{ width: 160, height: 160, borderRadius: 10, border: `2px dashed ${T.border}`, background: T.surface, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
