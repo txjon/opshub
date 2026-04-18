@@ -117,13 +117,15 @@ export default async function DashboardPage() {
 
     // ═══════════ SALES ALERTS ═══════════
 
-    // 1. Overdue — downgrade to amber if in fulfillment/shipping (almost done)
+    // 1. Overdue — only for pre-fulfillment phases (handoff-to-warehouse = no longer Labs concern)
     if (j.target_ship_date && new Date(j.target_ship_date) < now) {
-      const days = Math.abs(Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000));
-      const isFinishing = j.phase === "fulfillment" || j.phase === "shipping";
-      alerts.push({ ...base, priority: isFinishing ? 1 : 0, type: "overdue", color: isFinishing ? T.amber : T.red,
-        action: isFinishing ? `${days} days past ship date — ${j.phase === "fulfillment" ? "in fulfillment" : "ready to ship"}` : `${days} days past ship date`,
-        href: `/jobs/${j.id}`, column: "sales" });
+      const postProduction = j.phase === "fulfillment" || j.phase === "shipping" || j.phase === "receiving";
+      if (!postProduction) {
+        const days = Math.abs(Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000));
+        alerts.push({ ...base, priority: 0, type: "overdue", color: T.red,
+          action: `${days} days past ship date`,
+          href: `/jobs/${j.id}`, column: "sales" });
+      }
     }
 
     // 2. Quote rejected — client submitted notes (NEW)
@@ -281,40 +283,8 @@ export default async function DashboardPage() {
       }
     }
 
-    // 11. Incoming to warehouse + late receiving (10+ days)
-    if ((j as any).shipping_route !== "drop_ship") {
-      const pendingReceive = items.filter((it: any) => it.pipeline_stage === "shipped" && !it.received_at_hpd);
-      if (pendingReceive.length > 0) {
-        const lateItems = pendingReceive.filter((it: any) => {
-          if (!it.pipeline_timestamps?.shipped) return false;
-          return Math.ceil((now.getTime() - new Date(it.pipeline_timestamps.shipped).getTime()) / 86400000) >= 10;
-        });
-        for (const it of lateItems) {
-          const daysSince = Math.ceil((now.getTime() - new Date(it.pipeline_timestamps.shipped).getTime()) / 86400000);
-          alerts.push({ ...base, priority: 1, type: "late_receiving", color: T.amber,
-            action: `${it.name} shipped ${daysSince}d ago — not received`, href: `/warehouse`, column: "production" });
-        }
-        const onTimeCount = pendingReceive.length - lateItems.length;
-        if (onTimeCount > 0) {
-          alerts.push({ ...base, priority: 1, type: "receiving", color: T.green,
-            action: `${onTimeCount} item${onTimeCount !== 1 ? "s" : ""} incoming to warehouse`, href: `/warehouse`, column: "production" });
-        }
-      }
-    }
-
-    // 12. Shipping phase — ship-through, all received, needs forwarding (NEW)
-    if (j.phase === "shipping") {
-      alerts.push({ ...base, priority: 1, type: "ship_to_client", color: T.amber,
-        action: "Forward to client — enter outbound tracking", href: `/warehouse`, column: "production" });
-    }
-
-    // 13. Fulfillment phase — stage route, all received, packing/shipping (NEW)
-    if (j.phase === "fulfillment") {
-      const fStatus = (j as any).fulfillment_status || "staged";
-      const label = fStatus === "staged" ? "Pack & ship — items received" : fStatus === "packing" ? "Packing in progress" : "Ready to ship";
-      alerts.push({ ...base, priority: 1, type: "fulfillment", color: T.amber,
-        action: `Fulfillment — ${label}`, href: `/warehouse`, column: "production" });
-    }
+    // Warehouse/fulfillment alerts (incoming, ship-through forwarding, pack & ship)
+    // live on the Distro dashboard, not here — Labs stops at handoff from decorator.
 
     // 14. Ships soon — use earliest vendor ship date, fall back to in-hands date
     {
