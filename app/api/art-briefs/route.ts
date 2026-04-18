@@ -55,25 +55,32 @@ export async function GET(req: NextRequest) {
         if (m.sender_role === "designer") c.designer++;
       });
 
-      // Best thumbnail per brief: final > wip > reference > client_intake
+      // Up to 4 thumbnails per brief for the image-first card mosaic.
+      // Priority: final > wip > reference > client_intake, newest first within kind.
       const rank: Record<string, number> = { final: 4, wip: 3, reference: 2, client_intake: 1 };
-      const bestThumb: Record<string, { drive_file_id: string | null; drive_link: string | null }> = {};
+      const perBrief: Record<string, Array<{ drive_file_id: string; drive_link: string | null; kind: string; created_at: string }>> = {};
       (filesRes.data || []).forEach((f: any) => {
         if (!f.drive_file_id) return;
-        const cur = bestThumb[f.brief_id];
-        if (!cur || (rank[f.kind] || 0) > (rank[(cur as any).kind] || 0)) {
-          bestThumb[f.brief_id] = { drive_file_id: f.drive_file_id, drive_link: f.drive_link };
-          (bestThumb[f.brief_id] as any).kind = f.kind;
-        }
+        (perBrief[f.brief_id] ||= []).push(f);
+      });
+      Object.keys(perBrief).forEach(bid => {
+        perBrief[bid].sort((a, b) => {
+          const r = (rank[b.kind] || 0) - (rank[a.kind] || 0);
+          if (r !== 0) return r;
+          return (b.created_at || "").localeCompare(a.created_at || "");
+        });
       });
 
       briefs.forEach((b: any) => {
         const c = counts[b.id] || { total: 0, designer: 0 };
         b.message_count = c.total;
         b.designer_message_count = c.designer;
-        const t = bestThumb[b.id];
-        b.thumb_file_id = t?.drive_file_id || null;
-        b.thumb_link = t?.drive_link || null;
+        const all = perBrief[b.id] || [];
+        b.thumbs = all.slice(0, 4).map(f => ({ drive_file_id: f.drive_file_id, drive_link: f.drive_link }));
+        b.thumb_total = all.length;
+        // Backward-compat single fields (kept so nothing else breaks)
+        b.thumb_file_id = b.thumbs[0]?.drive_file_id || null;
+        b.thumb_link = b.thumbs[0]?.drive_link || null;
       });
     }
 

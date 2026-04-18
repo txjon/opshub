@@ -116,6 +116,7 @@ export default function ArtStudioPreview() {
         const file = byItem.get(i.id)!;
         const hash = Math.abs(hashStr(i.id));
         const stage = STAGES[hash % STAGES.length];
+        const thumbs = [{ fileId: file.drive_file_id, link: file.drive_link }];
         return {
           id: i.id,
           title: i.name || "Untitled item",
@@ -124,6 +125,8 @@ export default function ArtStudioPreview() {
           jobNumber: i.jobs?.job_number || null,
           jobType: i.jobs?.job_type || null,
           jobId: i.jobs?.id || null,
+          thumbs,
+          thumbTotal: 1,
           thumbFileId: file.drive_file_id,
           thumbLink: file.drive_link,
           stage,

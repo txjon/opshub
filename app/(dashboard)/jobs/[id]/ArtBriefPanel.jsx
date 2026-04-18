@@ -122,7 +122,6 @@ function BriefEditor({ brief, onBack, onUpdated }) {
     deadline: brief.deadline || "",
     internal_notes: brief.internal_notes || "",
     state: brief.state || "draft",
-    assigned_to: brief.assigned_to || "",
   });
   const [saving, setSaving] = useState(false);
   const [savedIndicator, setSavedIndicator] = useState(false);
@@ -199,8 +198,8 @@ function BriefEditor({ brief, onBack, onUpdated }) {
           <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} onBlur={() => handleBlur("title")} style={ic} placeholder="e.g. Back print concept" />
         </div>
 
-        {/* State + Deadline + Assigned */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        {/* State + Deadline */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div>
             <label style={label}>State</label>
             <select value={form.state} onChange={e => { const v = e.target.value; setForm(p => ({ ...p, state: v })); save({ state: v }); }} style={{ ...ic, cursor: "pointer" }}>
@@ -212,10 +211,6 @@ function BriefEditor({ brief, onBack, onUpdated }) {
           <div>
             <label style={label}>Deadline</label>
             <input type="date" value={form.deadline || ""} onChange={e => setForm(p => ({ ...p, deadline: e.target.value }))} onBlur={() => handleBlur("deadline")} style={ic} />
-          </div>
-          <div>
-            <label style={label}>Assigned Designer</label>
-            <input value={form.assigned_to} onChange={e => setForm(p => ({ ...p, assigned_to: e.target.value }))} onBlur={() => handleBlur("assigned_to")} style={ic} placeholder="Designer name or email" />
           </div>
         </div>
 

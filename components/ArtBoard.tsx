@@ -34,6 +34,8 @@ export type CardMeta = {
   urgency?: CardUrgency;
 };
 
+export type Thumb = { fileId: string | null; link: string | null };
+
 export type Card = {
   id: string;
   title: string;
@@ -42,6 +44,10 @@ export type Card = {
   jobNumber: string | null;
   jobType: string | null;
   jobId: string | null;
+  // Up to 4 thumbnails shown in the card mosaic; thumbTotal is the real total count
+  thumbs: Thumb[];
+  thumbTotal: number;
+  // Backward-compat single fields (legacy preview page)
   thumbFileId: string | null;
   thumbLink: string | null;
   stage: StageDef;
@@ -149,7 +155,122 @@ export function StageStrip({ counts }: { counts: Record<string, number> }) {
   );
 }
 
-// ─── BRIEF CARD (large kanban card) ────────────────────────────────────────
+// ─── IMAGE MOSAIC (core visual) ───────────────────────────────────────────
+// Renders 1-4 thumbnails in a smart layout that always fills the space.
+// Overflow shown as a "+N" badge on the last cell.
+function ImageMosaic({
+  thumbs,
+  total,
+  aspect = "4/3",
+  size = 320,
+}: {
+  thumbs: Thumb[];
+  total: number;
+  aspect?: string;
+  size?: number;
+}) {
+  const count = Math.min(thumbs.length, 4);
+  const overflow = Math.max(0, total - 4);
+
+  if (count === 0) {
+    return (
+      <div style={{ width: "100%", aspectRatio: aspect, background: "#f4f4f7", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: 10, color: T.faint }}>No images</span>
+      </div>
+    );
+  }
+
+  // Layout per count
+  let gridTemplate = "1fr";
+  let rows = "1fr";
+  if (count === 2) { gridTemplate = "1fr 1fr"; rows = "1fr"; }
+  if (count === 3) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
+  if (count === 4) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        aspectRatio: aspect,
+        background: "#f4f4f7",
+        display: "grid",
+        gridTemplateColumns: gridTemplate,
+        gridTemplateRows: rows,
+        gap: 2,
+        overflow: "hidden",
+      }}
+    >
+      {thumbs.slice(0, count).map((t, i) => {
+        // For 3-image layout, first image spans 2 rows on the left column (editorial layout)
+        const spanLeft = count === 3 && i === 0;
+        const isLast = i === count - 1;
+        return (
+          <div
+            key={i}
+            style={{
+              position: "relative",
+              background: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              overflow: "hidden",
+              ...(spanLeft ? { gridRow: "1 / span 2" } : {}),
+            }}
+          >
+            {t.fileId ? (
+              <img
+                src={thumbUrl(t.fileId, size) || ""}
+                referrerPolicy="no-referrer"
+                alt=""
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                onError={e => ((e.target as HTMLImageElement).style.display = "none")}
+              />
+            ) : (
+              <span style={{ fontSize: 9, color: T.faint }}>—</span>
+            )}
+            {isLast && overflow > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "rgba(0,0,0,0.55)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                +{overflow}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Colored dot indicator for stage — small, unobtrusive, in corner of card.
+function StageDot({ stage, title }: { stage: StageDef; title?: string }) {
+  return (
+    <div
+      title={title || stage.label}
+      style={{
+        width: 10,
+        height: 10,
+        borderRadius: "50%",
+        background: stage.accent,
+        boxShadow: "0 0 0 2px rgba(255,255,255,0.9), 0 0 0 3px rgba(0,0,0,0.08)",
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
+// ─── BRIEF CARD (large kanban card — image-first) ──────────────────────────
 export function BriefCard({
   card,
   onClick,
@@ -161,9 +282,9 @@ export function BriefCard({
   onClientClick?: (clientName: string) => void;
   onProjectClick?: (jobId: string, clientName: string) => void;
 }) {
-  const thumb = thumbUrl(card.thumbFileId, 320);
   const stale = card.meta.urgency === "stale";
   const action = card.meta.urgency === "action";
+  const hasTitle = card.title && card.title.trim().length > 0 && card.title !== "Untitled Brief";
   return (
     <div
       onClick={onClick}
@@ -174,6 +295,7 @@ export function BriefCard({
         overflow: "hidden",
         cursor: "pointer",
         transition: "transform 0.08s, border-color 0.08s, box-shadow 0.08s",
+        position: "relative",
       }}
       onMouseEnter={e => {
         (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)";
@@ -184,98 +306,61 @@ export function BriefCard({
         (e.currentTarget as HTMLElement).style.boxShadow = "none";
       }}
     >
-      <div
-        style={{
-          width: "100%",
-          aspectRatio: "4/3",
-          background: "#f4f4f7",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          borderBottom: `1px solid ${T.border}`,
-        }}
-      >
-        {thumb ? (
-          <img
-            src={thumb}
-            alt=""
-            referrerPolicy="no-referrer"
-            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-            onError={e => ((e.target as HTMLImageElement).style.display = "none")}
-          />
-        ) : (
-          <span style={{ fontSize: 10, color: T.faint }}>No preview</span>
+      {/* Stage dot, top-right corner, overlaid on image */}
+      <div style={{ position: "absolute", top: 8, right: 8, zIndex: 2, display: "flex", alignItems: "center", gap: 6 }}>
+        {card.meta.urgency === "stale" && (
+          <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", background: T.amber, color: "#fff", borderRadius: 4, letterSpacing: "0.04em" }}>STALE</span>
         )}
+        {card.meta.urgency === "action" && (
+          <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", background: card.stage.accent, color: "#fff", borderRadius: 4, letterSpacing: "0.04em" }}>ACTION</span>
+        )}
+        <StageDot stage={card.stage} title={card.stage.label} />
       </div>
 
-      <div style={{ padding: "10px 12px" }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3 }}>{card.title}</div>
-        <div style={{ fontSize: 10, color: T.muted, marginTop: 2, lineHeight: 1.3 }}>
+      <ImageMosaic thumbs={card.thumbs || []} total={card.thumbTotal || 0} aspect="4/3" size={320} />
+
+      <div style={{ padding: "8px 10px" }}>
+        {hasTitle && (
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {card.title}
+          </div>
+        )}
+        <div style={{ fontSize: 10, color: T.muted, marginTop: hasTitle ? 1 : 0, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {onClientClick ? (
             <span
               onClick={e => { e.stopPropagation(); onClientClick(card.clientName); }}
-              style={{ cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textDecorationColor: T.muted }}
+              style={{ cursor: "pointer", fontWeight: 600, color: T.text }}
               title={`Filter to ${card.clientName}`}
             >
               {card.clientName}
             </span>
-          ) : card.clientName}
-          {" · "}
-          {onProjectClick && card.jobId ? (
-            <span
-              onClick={e => { e.stopPropagation(); onProjectClick(card.jobId!, card.clientName); }}
-              style={{ cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textDecorationColor: T.muted }}
-              title={`Filter to project ${card.jobTitle}`}
-            >
-              {card.jobTitle}
-            </span>
-          ) : card.jobTitle}
+          ) : (
+            <span style={{ fontWeight: 600, color: T.text }}>{card.clientName}</span>
+          )}
+          {card.jobTitle && card.jobTitle !== "Unlinked" && <>
+            {" · "}
+            {onProjectClick && card.jobId ? (
+              <span
+                onClick={e => { e.stopPropagation(); onProjectClick(card.jobId!, card.clientName); }}
+                style={{ cursor: "pointer" }}
+                title={`Filter to project ${card.jobTitle}`}
+              >
+                {card.jobTitle}
+              </span>
+            ) : card.jobTitle}
+          </>}
         </div>
-
-        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 2 }}>
-          {card.meta.lines.map((line, i) => (
-            <div
-              key={i}
-              style={{
-                fontSize: 10,
-                color: i === 0 ? (stale ? T.amber : T.text) : T.faint,
-                fontWeight: i === 0 ? 600 : 400,
-              }}
-            >
-              {line}
-            </div>
-          ))}
-        </div>
-
-        {card.meta.cta && (
-          <div
-            style={{
-              marginTop: 10,
-              padding: "4px 10px",
-              background: action ? card.stage.accent : "transparent",
-              color: action ? "#fff" : card.stage.accent,
-              border: action ? "none" : `1px solid ${card.stage.accent}55`,
-              borderRadius: 6,
-              fontSize: 10,
-              fontWeight: 700,
-              textAlign: "center",
-              display: "inline-block",
-            }}
-          >
-            {card.meta.cta}
-          </div>
-        )}
       </div>
     </div>
   );
 }
 
-// ─── COMPACT CARD (used inside client lanes) ───────────────────────────────
+// ─── COMPACT CARD (used inside client lanes — image-first) ─────────────────
 export function CompactCard({ card, onClick }: { card: Card; onClick: () => void }) {
-  const thumb = thumbUrl(card.thumbFileId, 200);
   const s = card.stage;
   const stale = card.meta.urgency === "stale";
   const action = card.meta.urgency === "action";
+  const hasTitle = card.title && card.title.trim().length > 0 && card.title !== "Untitled Brief";
   return (
     <div
       onClick={onClick}
@@ -285,10 +370,8 @@ export function CompactCard({ card, onClick }: { card: Card; onClick: () => void
         borderRadius: 8,
         overflow: "hidden",
         cursor: "pointer",
-        display: "flex",
-        gap: 10,
-        padding: 8,
         transition: "transform 0.08s, border-color 0.08s",
+        position: "relative",
       }}
       onMouseEnter={e => {
         (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)";
@@ -299,35 +382,19 @@ export function CompactCard({ card, onClick }: { card: Card; onClick: () => void
         (e.currentTarget as HTMLElement).style.borderColor = stale ? T.amber + "77" : action ? s.accent + "77" : T.border;
       }}
     >
-      <div
-        style={{
-          width: 56,
-          height: 56,
-          background: "#f4f4f7",
-          borderRadius: 6,
-          flexShrink: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-        }}
-      >
-        {thumb ? (
-          <img
-            src={thumb}
-            alt=""
-            referrerPolicy="no-referrer"
-            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-            onError={e => ((e.target as HTMLImageElement).style.display = "none")}
-          />
-        ) : (
-          <span style={{ fontSize: 9, color: T.faint }}>—</span>
-        )}
+      <div style={{ position: "absolute", top: 6, right: 6, zIndex: 2 }}>
+        <StageDot stage={s} title={s.label} />
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{card.title}</div>
-        <div style={{ fontSize: 9, fontWeight: 700, color: s.accent, textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 3 }}>{s.label}</div>
-        <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{card.meta.lines[0]}</div>
+      <ImageMosaic thumbs={card.thumbs || []} total={card.thumbTotal || 0} aspect="1/1" size={200} />
+      <div style={{ padding: "6px 8px" }}>
+        {hasTitle && (
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.text, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {card.title}
+          </div>
+        )}
+        <div style={{ fontSize: 9, color: T.muted, marginTop: hasTitle ? 1 : 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {card.clientName}
+        </div>
       </div>
     </div>
   );
