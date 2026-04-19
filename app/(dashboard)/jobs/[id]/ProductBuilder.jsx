@@ -930,9 +930,12 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
       <div style={{ display: "flex", gap: 24, marginBottom: 20 }}>
         {/* Thumbnail — bigger. Uses parent-preloaded id for instant render on expand. */}
         {thumbDriveId ? (
-          <a href={mockupFile?.drive_link || "#"} target={mockupFile?.drive_link ? "_blank" : undefined} rel="noopener noreferrer" style={{ flexShrink: 0 }}>
+          <div style={{ flexShrink: 0 }}>
             <DriveThumb
               driveFileId={thumbDriveId}
+              enlargeable
+              title={`${item.name} — mockup`}
+              driveLink={mockupFile?.drive_link || null}
               style={{ width: 160, height: 160, objectFit: "contain", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, display: "block" }}
               fallback={
                 <div style={{ width: 160, height: 160, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -940,7 +943,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                 </div>
               }
             />
-          </a>
+          </div>
         ) : (
           <div style={{ width: 160, height: 160, borderRadius: 10, border: `2px dashed ${T.border}`, background: T.surface, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span style={{ fontSize: 11, color: T.faint }}>No mockup</span>

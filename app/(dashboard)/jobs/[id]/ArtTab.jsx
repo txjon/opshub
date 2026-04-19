@@ -8,6 +8,7 @@ import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { ArtBriefPanel } from "./ArtBriefPanel";
+import { DriveThumb } from "@/components/DriveThumb";
 
 // Recursively collect files from drag-and-drop (handles folders)
 export async function collectFiles(dataTransferItems) {
@@ -551,7 +552,6 @@ export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId
 
       {expanded && (()=>{
         const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup") && (f.mime_type?.startsWith("image/") || /\.(png|jpg|jpeg)$/i.test(f.file_name)));
-        const mockupThumb = mockupFile ? `/api/files/thumbnail?id=${mockupFile.drive_file_id}` : null;
         const nonMockupFiles = files.filter(f => f !== mockupFile);
 
         return (
@@ -559,13 +559,15 @@ export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId
           <div style={{ display: "flex", gap: 14, alignItems: "stretch" }}>
             {/* Left: mockup thumbnail — height matches right column */}
             <div style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
-              {mockupThumb ? (
+              {mockupFile?.drive_file_id ? (
                 <div style={{ position: "relative", height: "100%" }}>
-                  <a href={mockupFile.drive_link} target="_blank" rel="noopener noreferrer" style={{ display: "block", height: "100%" }}>
-                    <img src={mockupThumb} alt="Mockup"
-                      style={{ height: "100%", maxHeight: 240, width: "auto", borderRadius: 8, border: `1px solid ${T.border}`, display: "block", objectFit: "contain" }}
-                      onError={e => { e.target.style.display = "none"; }} />
-                  </a>
+                  <DriveThumb
+                    driveFileId={mockupFile.drive_file_id}
+                    enlargeable
+                    title={`${item.name} — mockup`}
+                    driveLink={mockupFile.drive_link || null}
+                    style={{ height: 240, maxHeight: 240, width: "auto", borderRadius: 8, border: `1px solid ${T.border}`, display: "block", objectFit: "contain" }}
+                  />
                   <button onClick={e => { e.stopPropagation(); setConfirmDelete(mockupFile); }}
                     style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 4, background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                     onMouseEnter={e => (e.currentTarget.style.background = T.red)}

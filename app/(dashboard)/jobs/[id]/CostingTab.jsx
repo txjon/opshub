@@ -5,6 +5,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { DecorationPanel } from "./DecorationPanel";
+import { DriveThumb } from "@/components/DriveThumb";
 import { calcCostProduct as sharedCalcCostProduct, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, buildPrintersMap } from "@/lib/pricing";
 
 const BLANK_COSTS = {
@@ -161,13 +162,13 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
   const toggleCollapse=(id)=>setCollapsed(p=>({...p,[id]:!p[id]}));
 
   // Mockup thumbnails for visual reference
-  const [mockupMap, setMockupMap] = useState({});
+  const [mockupMap, setMockupMap] = useState({}); // { itemId: { driveFileId, driveLink } }
   React.useEffect(() => {
     const ids = (costProds || []).map(p => p.id).filter(Boolean);
     if (ids.length === 0) return;
-    createClient().from("item_files").select("item_id, drive_file_id").in("item_id", ids).eq("stage", "mockup").then(({ data }) => {
+    createClient().from("item_files").select("item_id, drive_file_id, drive_link").in("item_id", ids).eq("stage", "mockup").then(({ data }) => {
       const m = {};
-      for (const f of (data || [])) m[f.item_id] = f.drive_file_id;
+      for (const f of (data || [])) m[f.item_id] = { driveFileId: f.drive_file_id, driveLink: f.drive_link };
       setMockupMap(m);
     });
   }, [costProds?.length]);
@@ -655,13 +656,20 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 </table>
               </div>
               {/* Mockup thumbnail — shows for selected item */}
-              {selectedItemId && mockupMap[selectedItemId] && (
-                <div style={{borderRadius:8,overflow:"hidden",border:`1px solid ${T.border}`}}>
-                  <img src={`/api/files/thumbnail?id=${mockupMap[selectedItemId]}`} alt=""
-                    style={{width:"100%",display:"block",objectFit:"contain"}}
-                    onError={e=>{e.currentTarget.style.display="none";}} />
-                </div>
-              )}
+              {selectedItemId && mockupMap[selectedItemId]?.driveFileId && (()=>{
+                const selectedProd = costProds.find(p=>p.id===selectedItemId);
+                return (
+                  <div style={{borderRadius:8,overflow:"hidden",border:`1px solid ${T.border}`}}>
+                    <DriveThumb
+                      driveFileId={mockupMap[selectedItemId].driveFileId}
+                      enlargeable
+                      title={selectedProd?.name ? `${selectedProd.name} — mockup` : "Mockup"}
+                      driveLink={mockupMap[selectedItemId].driveLink || null}
+                      style={{width:"100%",display:"block",objectFit:"contain"}}
+                    />
+                  </div>
+                );
+              })()}
             </div>
             );
           })()}
