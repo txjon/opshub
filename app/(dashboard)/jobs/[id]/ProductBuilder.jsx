@@ -256,6 +256,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [assignBlankTo, setAssignBlankTo] = useState(null);
   const [favorites, setFavorites] = useState([]);
   const [fileSummary, setFileSummary] = useState({}); // { itemId: { printReady: bool, fileCount: number, hasProof: bool } }
+  const [mockupMap, setMockupMap] = useState({}); // { itemId: drive_file_id } — preloaded so thumbnail renders instantly on switch
   const [psdProcessing, setPsdProcessing] = useState(null);
   const [distRow, setDistRow] = useState(null);
   const [distTotal, setDistTotal] = useState("");
@@ -281,16 +282,28 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   useEffect(() => {
     const ids = (items || []).map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
     if (ids.length === 0) return;
-    createClient().from("item_files").select("item_id, stage").in("item_id", ids).then(({ data }) => {
+    createClient().from("item_files").select("item_id, stage, drive_file_id, file_name").in("item_id", ids).then(({ data }) => {
       const summary = {};
+      const mockups = {};
+      const filenameFallback = {};
       for (const f of (data || [])) {
         if (!summary[f.item_id]) summary[f.item_id] = { printReady: false, fileCount: 0, hasProof: false, hasMockup: false };
         summary[f.item_id].fileCount++;
         if (f.stage === "print_ready") summary[f.item_id].printReady = true;
         if (f.stage === "proof") summary[f.item_id].hasProof = true;
-        if (f.stage === "mockup") summary[f.item_id].hasMockup = true;
+        if (f.stage === "mockup") {
+          summary[f.item_id].hasMockup = true;
+          if (!mockups[f.item_id]) mockups[f.item_id] = f.drive_file_id;
+        } else if (!filenameFallback[f.item_id] && (f.file_name || "").toLowerCase().includes("mockup") && /\.(png|jpg|jpeg)$/i.test(f.file_name || "")) {
+          filenameFallback[f.item_id] = f.drive_file_id;
+        }
+      }
+      // Prefer stage=mockup, fall back to filename heuristic (matches ExpandedItemBody logic)
+      for (const itemId of Object.keys(filenameFallback)) {
+        if (!mockups[itemId]) mockups[itemId] = filenameFallback[itemId];
       }
       setFileSummary(summary);
+      setMockupMap(mockups);
     });
   }, [items, fileSummaryKey]);
 
@@ -816,6 +829,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 setShowAddModal={setShowAddModal} onItemsChanged={onItemsChanged}
                 onUpdateItem={(id, updates) => { updateLocal(workingItems.map(it => it.id === id ? {...it, ...updates} : it)); onUpdateItem(id, updates); }}
                 onFilesChanged={refreshFileSummary}
+                preloadedMockupId={mockupMap[item.id] || null}
                 ic={ic} costingLocked={costingLocked}
               />
             )}
@@ -850,7 +864,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 // ═══════════════════════════════════════════════════════════════
 // Expanded item body — manages its own file state per item
 // ═══════════════════════════════════════════════════════════════
-function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, onFilesChanged, ic, costingLocked }) {
+function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -868,6 +882,9 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
 
   const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup") && /\.(png|jpg|jpeg)$/i.test(f.file_name));
   const nonMockupFiles = files.filter(f => f !== mockupFile);
+  // Prefer parent-preloaded mockup id so the thumbnail renders instantly on expand
+  // before this component's own loadFiles() fetch resolves.
+  const thumbDriveId = preloadedMockupId || mockupFile?.drive_file_id || null;
 
   const STAGE_COLORS = { client_art: T.muted, vector: T.accent, mockup: T.amber, proof: T.purple, print_ready: T.green };
   const STAGE_LABELS = { client_art: "CLIENT ART", vector: "VECTOR", mockup: "MOCKUP", proof: "PROOF", print_ready: "PRINT-READY" };
@@ -911,11 +928,11 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
     <div style={{ padding: "24px", position: "relative" }}>
       {/* Row 1: Thumbnail + Info */}
       <div style={{ display: "flex", gap: 24, marginBottom: 20 }}>
-        {/* Thumbnail — bigger */}
-        {mockupFile ? (
-          <a href={mockupFile.drive_link} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0 }}>
+        {/* Thumbnail — bigger. Uses parent-preloaded id for instant render on expand. */}
+        {thumbDriveId ? (
+          <a href={mockupFile?.drive_link || "#"} target={mockupFile?.drive_link ? "_blank" : undefined} rel="noopener noreferrer" style={{ flexShrink: 0 }}>
             <DriveThumb
-              driveFileId={mockupFile.drive_file_id}
+              driveFileId={thumbDriveId}
               style={{ width: 160, height: 160, objectFit: "contain", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, display: "block" }}
               fallback={
                 <div style={{ width: 160, height: 160, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center" }}>
