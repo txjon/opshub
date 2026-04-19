@@ -47,6 +47,25 @@ export async function sendClientNotification(params: NotifyParams) {
       .single();
     if (!job) return;
 
+    // Dedup: skip if this once-per-job email type has already been sent for this job.
+    // Guards against React strict-mode / concurrent renders firing the notify endpoint twice.
+    const ONCE_PER_JOB_KEYWORDS: Partial<Record<NotifyParams["type"], string>> = {
+      production_complete: "production complete notification sent",
+      quote_approved: "quote approval confirmation sent",
+    };
+    const keyword = ONCE_PER_JOB_KEYWORDS[params.type];
+    if (keyword) {
+      const { data: prior } = await sb.from("job_activity")
+        .select("id")
+        .eq("job_id", job.id)
+        .ilike("message", `%${keyword}%`)
+        .limit(1);
+      if (prior?.length) {
+        console.log(`[Auto-email] Skipping duplicate ${params.type} for job ${job.id} — already sent`);
+        return;
+      }
+    }
+
     // Get client name
     let clientName = "Client";
     if (job.client_id) {

@@ -173,20 +173,23 @@ export function useWarehouse() {
     const now = new Date().toISOString();
     await supabase.from("items").update({ received_at_hpd: true, received_at_hpd_at: now }).eq("id", item.id);
     logJobActivity(item.job_id, `${item.name} received at warehouse`);
-    setJobs(prev => {
-      const updated = prev.map(j => ({
-        ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now } : it),
-      }));
-      // Check if all items in this job are now received → send production complete email
-      const job = updated.find(j => j.items.some(it => it.id === item.id));
-      if (job && job.items.every(it => it.received_at_hpd)) {
-        fetch("/api/email/notify", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId: item.job_id, type: "production_complete" }),
-        }).catch(() => {});
-      }
-      return updated;
-    });
+
+    // Check if this completes the job BEFORE updating state — so the side effect
+    // isn't inside the state updater (React may call updaters twice in dev/concurrent).
+    const currentJob = jobs.find(j => j.items.some(it => it.id === item.id));
+    const willAllBeReceived = !!currentJob && currentJob.items.every(it => it.id === item.id ? true : it.received_at_hpd);
+
+    setJobs(prev => prev.map(j => ({
+      ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now } : it),
+    })));
+
+    if (willAllBeReceived) {
+      fetch("/api/email/notify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: item.job_id, type: "production_complete" }),
+      }).catch(() => {});
+    }
+
     setTimeout(() => recalcJobPhase(item.job_id), 300);
   }
 
