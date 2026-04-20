@@ -19,6 +19,25 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [editingRole, setEditingRole] = useState<string | null>(null);
+  const [sendingPreviews, setSendingPreviews] = useState(false);
+  const [previewResult, setPreviewResult] = useState<string | null>(null);
+
+  async function sendPreviewEmails() {
+    setSendingPreviews(true);
+    setPreviewResult(null);
+    try {
+      const res = await fetch("/api/email/preview-all", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      const data = await res.json();
+      if (!res.ok) {
+        setPreviewResult(`Error: ${data.error || "Failed"}`);
+      } else {
+        setPreviewResult(`Sent ${data.totalSent || 0} of ${(data.sent || []).length} to ${data.to}. Check your inbox in a minute.`);
+      }
+    } catch (e: any) {
+      setPreviewResult(`Error: ${e.message}`);
+    }
+    setSendingPreviews(false);
+  }
 
   async function invite() {
     if (!email.trim()) return;
@@ -65,6 +84,30 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
         >
           + Invite member
         </button>
+      </div>
+
+      {/* Email preview — send all 13 active templates to my inbox */}
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-sm font-semibold">Email preview</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Sends a rendered sample of every active email template to your inbox. 13 emails, no DB writes, clearly labeled [PREVIEW].
+            </div>
+          </div>
+          <button
+            onClick={sendPreviewEmails}
+            disabled={sendingPreviews}
+            className="px-4 py-2 text-sm font-semibold rounded-lg bg-secondary hover:bg-secondary/80 border border-border whitespace-nowrap disabled:opacity-50"
+          >
+            {sendingPreviews ? "Sending..." : "Send me every email"}
+          </button>
+        </div>
+        {previewResult && (
+          <div className={`mt-3 text-xs ${previewResult.startsWith("Error") ? "text-red-500" : "text-green-500"}`}>
+            {previewResult}
+          </div>
+        )}
       </div>
 
       {inviting && (
