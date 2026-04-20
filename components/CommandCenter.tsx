@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -49,6 +49,14 @@ export function CommandCenter({ alerts, stats }: {
 }) {
   const router = useRouter();
   const [openKpi, setOpenKpi] = useState<string | null>(null);
+  const kpiCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleKpiClose = () => {
+    if (kpiCloseTimer.current) clearTimeout(kpiCloseTimer.current);
+    kpiCloseTimer.current = setTimeout(() => setOpenKpi(null), 180);
+  };
+  const cancelKpiClose = () => {
+    if (kpiCloseTimer.current) { clearTimeout(kpiCloseTimer.current); kpiCloseTimer.current = null; }
+  };
   const [emailModal, setEmailModal] = useState<{ type: string; jobId: string; contacts: any[]; subject: string; vendor?: string } | null>(null);
   const [invoiceModal, setInvoiceModal] = useState<{ jobId: string; jobTitle: string; clientName: string; currentNumber: string | null } | null>(null);
   const [invoiceInput, setInvoiceInput] = useState("");
@@ -273,8 +281,8 @@ export function CommandCenter({ alerts, stats }: {
           return (
             <div
               key={s.label}
-              onMouseEnter={() => { if (!isMobile && hasList) setOpenKpi(s.id); }}
-              onMouseLeave={() => { if (!isMobile) setOpenKpi(null); }}
+              onMouseEnter={() => { if (!isMobile && hasList) { cancelKpiClose(); setOpenKpi(s.id); } }}
+              onMouseLeave={() => { if (!isMobile) scheduleKpiClose(); }}
               onClick={() => { if (isMobile && hasList) setOpenKpi(isOpen ? null : s.id); }}
               style={{
                 flex: 1, minWidth: 90, background: T.card,
@@ -293,8 +301,10 @@ export function CommandCenter({ alerts, stats }: {
                   items={s.list!}
                   label={s.label}
                   accent={s.color}
-                  onNavigate={(href) => { setOpenKpi(null); router.push(href); }}
-                  onClose={() => setOpenKpi(null)}
+                  onNavigate={(href) => { cancelKpiClose(); setOpenKpi(null); router.push(href); }}
+                  onClose={() => { cancelKpiClose(); setOpenKpi(null); }}
+                  onEnter={cancelKpiClose}
+                  onLeave={scheduleKpiClose}
                   isMobile={isMobile}
                 />
               )}
@@ -410,6 +420,8 @@ function KpiPopup({
   accent,
   onNavigate,
   onClose,
+  onEnter,
+  onLeave,
   isMobile,
 }: {
   items: KpiListItem[];
@@ -417,6 +429,8 @@ function KpiPopup({
   accent: string;
   onNavigate: (href: string) => void;
   onClose: () => void;
+  onEnter?: () => void;
+  onLeave?: () => void;
   isMobile: boolean;
 }) {
   const mobileStyle: React.CSSProperties = {
@@ -429,13 +443,20 @@ function KpiPopup({
     display: "flex", flexDirection: "column",
     boxShadow: "0 -8px 24px rgba(0,0,0,0.2)",
   };
+  // Desktop: no vertical gap between card and popup so cursor can cross
+  // into the popup without triggering the card's mouseleave mid-move.
   const desktopStyle: React.CSSProperties = {
-    position: "absolute", top: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)",
+    position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)",
+    marginTop: 0, paddingTop: 6, // invisible bridge that still receives hover
     minWidth: 280, maxWidth: 360, maxHeight: 320,
-    background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
-    boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
     zIndex: 100, display: "flex", flexDirection: "column",
     textAlign: "left",
+  };
+  const desktopInner: React.CSSProperties = {
+    background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+    display: "flex", flexDirection: "column",
+    flex: 1, minHeight: 0, overflow: "hidden",
   };
 
   const body = (
@@ -497,8 +518,15 @@ function KpiPopup({
   }
 
   return (
-    <div style={desktopStyle} onClick={(e) => e.stopPropagation()}>
-      {body}
+    <div
+      style={desktopStyle}
+      onClick={(e) => e.stopPropagation()}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+    >
+      <div style={desktopInner}>
+        {body}
+      </div>
     </div>
   );
 }
