@@ -112,18 +112,32 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
           </div>
         )}
         {previewDiagnostics && (
-          <div className="mt-3 rounded border border-border bg-secondary/30 p-3 text-xs space-y-1">
-            <div className="font-semibold mb-2">PDF attachment status:</div>
-            {Object.entries(previewDiagnostics).map(([key, val]: any) => (
-              <div key={key} className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">{key}</span>
-                {val.ok ? (
-                  <span className="text-green-500">✓ {(val.size / 1024).toFixed(0)} KB</span>
-                ) : (
-                  <span className="text-red-500" title={val.error || ""}>✕ {val.status || "failed"} — {val.error?.slice(0, 60) || "unknown"}</span>
-                )}
-              </div>
-            ))}
+          <div className="mt-3 rounded border border-border bg-secondary/30 p-3 text-xs space-y-2">
+            <div className="font-semibold">PDF attachment status:</div>
+            {Object.entries(previewDiagnostics).map(([key, val]: any) => {
+              // Try to unwrap JSON error (route returns { error, detail })
+              let displayErr = val.error || "";
+              try {
+                const parsed = JSON.parse(displayErr);
+                if (parsed.detail) displayErr = parsed.detail;
+                else if (parsed.error) displayErr = parsed.error;
+              } catch {}
+              return (
+                <div key={key} className="flex flex-col gap-1 border-l-2 pl-2" style={{ borderColor: val.ok ? "#22c55e" : "#ef4444" }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-muted-foreground">{key}</span>
+                    {val.ok ? (
+                      <span className="text-green-500">✓ {(val.size / 1024).toFixed(0)} KB</span>
+                    ) : (
+                      <span className="text-red-500">✕ HTTP {val.status || "—"}</span>
+                    )}
+                  </div>
+                  {!val.ok && displayErr && (
+                    <pre className="text-red-500/80 whitespace-pre-wrap break-all font-mono text-[10px] leading-4 bg-red-500/5 p-2 rounded max-h-32 overflow-auto">{displayErr}</pre>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
