@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
+import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 
 const STAGE_ORDER = ["client_art", "vector", "mockup", "proof", "print_ready"];
 const STAGE_LABELS = {
@@ -33,6 +34,7 @@ export function DocumentsTab({ job, items }) {
   const supabase = createClient();
   const [filesByItem, setFilesByItem] = useState({});
   const [loading, setLoading] = useState(true);
+  const [preview, setPreview] = useState(null); // { src, title, downloadHref }
 
   useEffect(() => {
     const ids = (items || []).map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
@@ -71,6 +73,7 @@ export function DocumentsTab({ job, items }) {
             downloadHref={`/api/pdf/quote/${job.id}?download=1`}
             available={hasAnyItems}
             unavailableNote={!hasAnyItems ? "Add items first" : null}
+            onPreview={setPreview}
           />
           <DocRow
             label={qbInvoiceNumber ? `Invoice #${qbInvoiceNumber}` : "Invoice"}
@@ -78,12 +81,14 @@ export function DocumentsTab({ job, items }) {
             downloadHref={`/api/pdf/invoice/${job.id}?download=1`}
             available={hasAnyItems}
             unavailableNote={!hasAnyItems ? "Add items first" : null}
+            onPreview={setPreview}
           />
           <DocRow
             label="Invoice + Proofs"
             previewHref={`/api/pdf/invoice-proofs/${job.id}`}
             downloadHref={`/api/pdf/invoice-proofs/${job.id}?download=1`}
             available={hasAnyItems}
+            onPreview={setPreview}
           />
           <DocRow
             label="Packing Slip"
@@ -91,9 +96,10 @@ export function DocumentsTab({ job, items }) {
             downloadHref={`/api/pdf/packing-slip/${job.id}?download=1`}
             available={hasAnyShipTracking}
             unavailableNote={!hasAnyShipTracking ? "Available after items ship" : null}
+            onPreview={setPreview}
           />
           {vendors.length === 0 && (
-            <DocRow label="Purchase Order" available={false} unavailableNote="No vendor assigned in Costing yet" />
+            <DocRow label="Purchase Order" available={false} unavailableNote="No vendor assigned in Costing yet" onPreview={setPreview} />
           )}
           {vendors.map(v => (
             <DocRow
@@ -102,6 +108,7 @@ export function DocumentsTab({ job, items }) {
               previewHref={`/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`}
               downloadHref={`/api/pdf/po/${job.id}?download=1&vendor=${encodeURIComponent(v)}`}
               available={hasAnyItems}
+              onPreview={setPreview}
             />
           ))}
         </div>
@@ -125,6 +132,14 @@ export function DocumentsTab({ job, items }) {
         )}
       </section>
 
+      {preview && (
+        <PdfPreviewModal
+          src={preview.src}
+          title={preview.title}
+          downloadHref={preview.downloadHref}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   );
 }
@@ -137,7 +152,7 @@ function SectionHeader({ label }) {
   );
 }
 
-function DocRow({ label, previewHref, downloadHref, available, unavailableNote }) {
+function DocRow({ label, previewHref, downloadHref, available, unavailableNote, onPreview }) {
   return (
     <div style={{
       display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
@@ -149,7 +164,7 @@ function DocRow({ label, previewHref, downloadHref, available, unavailableNote }
       </div>
       {available && previewHref && (
         <button
-          onClick={() => window.open(previewHref, "_blank")}
+          onClick={() => onPreview({ src: previewHref, title: label, downloadHref: downloadHref || null })}
           style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}
           onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
           onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}
