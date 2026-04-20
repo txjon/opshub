@@ -178,6 +178,12 @@ export async function GET(
       const isAllComplete = orderItems.every((i: any) => i.pipelineStage === "shipped" || i.pipelineStage === "complete");
       const totalUnits = orderItems.reduce((a: number, i: any) => a + i.totalQty, 0);
 
+      // PO sent date — prefer type_meta.po_sent_dates, fall back to assignments, then null
+      const poSentDate = typeMeta.po_sent_dates?.[decorator.name]
+        || typeMeta.po_sent_dates?.[decorator.short_code]
+        || (assignments || []).find((a: any) => itemIds.includes(a.item_id) && a.sent_to_decorator_date)?.sent_to_decorator_date
+        || null;
+
       const order = {
         jobId: job.id,
         jobNumber: typeMeta.qb_invoice_number || job.job_number,
@@ -187,6 +193,7 @@ export async function GET(
         shipDate: job.target_ship_date,
         shippingRoute: job.shipping_route,
         poSent,
+        poSentDate,
         shipTo: poShipTo,
         shipMethod: poShipMethod,
         shippingAccount: typeMeta.shipping_account || ((poShipMethod || "").toLowerCase().includes("ups") ? "W28Y51" : ""),
@@ -317,6 +324,10 @@ export async function GET(
 
       const totalUnits = orderItems.reduce((a: number, i: any) => a + i.totalQty, 0);
 
+      const poSentDate = typeMeta.po_sent_dates?.[decorator.name]
+        || typeMeta.po_sent_dates?.[decorator.short_code]
+        || null;
+
       completedOrders.push({
         jobId: job.id,
         jobNumber: job.job_number || "",
@@ -326,6 +337,7 @@ export async function GET(
         shipDate: job.target_ship_date,
         shippingRoute: job.shipping_route,
         poSent,
+        poSentDate,
         shipTo: poShipTo,
         shipMethod: poShipMethod,
         shippingAccount: typeMeta.shipping_account || "",

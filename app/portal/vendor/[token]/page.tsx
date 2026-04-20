@@ -29,7 +29,7 @@ type DecoLine = { label: string; qty: number; rate: number; total: number };
 type Order = {
   jobId: string; jobNumber: string; jobTitle: string; clientName: string;
   phase: string; shipDate: string | null; shippingRoute: string;
-  poSent: boolean; shipTo: any; shipMethod: string | null;
+  poSent: boolean; poSentDate: string | null; shipTo: any; shipMethod: string | null;
   shippingAccount: string; grandTotal: number; totalUnits: number;
   items: OrderItem[];
 };
@@ -327,7 +327,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                     border: `1px solid ${C.border}`, marginBottom: 16,
                   }}>
                     {([
-                      ["Date", new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })],
+                      ["Date", order.poSentDate ? fmtDateLong(order.poSentDate) : "—"],
                       ["Ship Date", order.shipDate ? fmtDateLong(order.shipDate) : "TBD"],
                       ["Vendor ID", decorator.shortCode || decorator.name],
                       ["Ship Method", order.shipMethod || "—"],
