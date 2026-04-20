@@ -93,7 +93,6 @@ export async function GET(
         .in("stage", ["mockup", "proof"])
         .order("created_at", { ascending: false });
       proofFiles = files || [];
-      console.log("[portal]", { jobId: job.id, itemIds, proofFilesCount: proofFiles.length, stages: proofFiles.map(f => ({ id: f.id, item: f.item_id, stage: f.stage, approval: f.approval, name: f.file_name })), fileErr });
     }
 
     // Payment records
@@ -173,7 +172,11 @@ export async function GET(
       const costProds = costingData.costProds;
 
       for (const cp of costProds) {
-        const item = (items || []).find((i: any) => i.id === cp.id);
+        // Match costing_data cp to an items row — first by id, then by name
+        // (items get recreated via ProductBuilder → new UUIDs, but costing_data
+        // still references the old ones).
+        let item = (items || []).find((i: any) => i.id === cp.id);
+        if (!item && cp.name) item = (items || []).find((i: any) => i.name === cp.name);
 
         // Qty source: post-variance we use ship/received per-size with fallback
         // to quoted qtys; pre-variance we use quoted qtys (costing_data).
@@ -200,8 +203,14 @@ export async function GET(
         );
         if (totalQty <= 0) continue;
 
-        // items.sell_per_unit is the source of truth
-        const sellPerUnit = parseFloat(item?.sell_per_unit) || 0;
+        // items.sell_per_unit is the source of truth. Fallback chain when the
+        // item row is missing or the value is 0 (legacy/ghost data):
+        // costing_data cp.sellOverride → qb_total/totalQty (proportional).
+        let sellPerUnit = parseFloat(item?.sell_per_unit) || 0;
+        if (sellPerUnit === 0 && cp.sellOverride) sellPerUnit = parseFloat(cp.sellOverride) || 0;
+        if (sellPerUnit === 0 && costingSummary?.grossRev && costingSummary?.totalUnits) {
+          sellPerUnit = Math.round((costingSummary.grossRev / costingSummary.totalUnits) * 100) / 100;
+        }
         const grossRev = Math.round(sellPerUnit * totalQty * 100) / 100;
 
         quoteItems.push({
