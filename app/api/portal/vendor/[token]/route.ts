@@ -184,13 +184,19 @@ export async function GET(
         || (assignments || []).find((a: any) => itemIds.includes(a.item_id) && a.sent_to_decorator_date)?.sent_to_decorator_date
         || null;
 
+      // Ship date — match PO PDF: prefer per-vendor date from type_meta.po_ship_dates,
+      // fall back to the job-level target_ship_date.
+      const vendorShipDate = typeMeta.po_ship_dates?.[decorator.name]
+        || typeMeta.po_ship_dates?.[decorator.short_code]
+        || job.target_ship_date;
+
       const order = {
         jobId: job.id,
         jobNumber: typeMeta.qb_invoice_number || job.job_number,
         jobTitle: job.title,
         clientName: clientMap[job.client_id] || "Client",
         phase: job.phase,
-        shipDate: job.target_ship_date,
+        shipDate: vendorShipDate,
         shippingRoute: job.shipping_route,
         poSent,
         poSentDate,
@@ -327,6 +333,9 @@ export async function GET(
       const poSentDate = typeMeta.po_sent_dates?.[decorator.name]
         || typeMeta.po_sent_dates?.[decorator.short_code]
         || null;
+      const vendorShipDate = typeMeta.po_ship_dates?.[decorator.name]
+        || typeMeta.po_ship_dates?.[decorator.short_code]
+        || job.target_ship_date;
 
       completedOrders.push({
         jobId: job.id,
@@ -334,7 +343,7 @@ export async function GET(
         jobTitle: job.title || "",
         clientName: clientMap[job.client_id] || "",
         phase: job.phase,
-        shipDate: job.target_ship_date,
+        shipDate: vendorShipDate,
         shippingRoute: job.shipping_route,
         poSent,
         poSentDate,
