@@ -609,6 +609,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
         {/* ── Content area ── */}
         <div style={{flex:1,minWidth:0,overflowY:"auto",padding:"0 20px 40px"}}>
+      {/* Mobile editing-notice banner */}
+      {isMobile && ["builder","costing","quote","blanks","po","proofs"].includes(tab) && (
+        <div style={{background:T.amberDim,color:T.amber,border:`1px solid ${T.amber}44`,borderRadius:8,padding:"8px 12px",fontSize:11,fontWeight:600,marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+          <span>Use a laptop to edit — this tab is designed for a larger screen.</span>
+        </div>
+      )}
       {/* OVERVIEW */}
                   {tab==="overview"&&(
         <div style={{fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
