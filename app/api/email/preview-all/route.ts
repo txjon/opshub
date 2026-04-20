@@ -48,11 +48,16 @@ function payBtn(url: string | null) {
 
 type PdfResult = { buffer: Buffer | null; status: number; error: string | null; size: number };
 
-async function fetchPdfSafe(url: string): Promise<PdfResult> {
+async function fetchPdfSafe(url: string, retried = false): Promise<PdfResult> {
   try {
     const res = await fetch(url, { headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY! } });
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
+      // 429 from Browserless — wait and retry once
+      if (res.status === 500 && errBody.includes("429") && !retried) {
+        await new Promise(r => setTimeout(r, 2500));
+        return fetchPdfSafe(url, true);
+      }
       return { buffer: null, status: res.status, error: errBody.slice(0, 600) || `HTTP ${res.status}`, size: 0 };
     }
     const buf = Buffer.from(await res.arrayBuffer());
@@ -130,13 +135,16 @@ export async function POST(req: NextRequest) {
     const designerPortalExample = `${BASE_URL()}/design/preview`;
     const artIntakePortalExample = `${BASE_URL()}/portal/client/preview`;
 
-    // Pre-fetch PDFs we'll attach — track status so we can surface failures
-    const [quotePdf, invoicePdf, poPdf, packingSlipPdf] = await Promise.all([
-      fetchPdfSafe(`${BASE_URL()}/api/pdf/quote/${jobId}`),
-      fetchPdfSafe(`${BASE_URL()}/api/pdf/invoice/${jobId}?download=1`),
-      fetchPdfSafe(`${BASE_URL()}/api/pdf/po/${jobId}?download=1`),
-      fetchPdfSafe(`${BASE_URL()}/api/pdf/packing-slip/${jobId}`),
-    ]);
+    // Pre-fetch PDFs serially — Browserless rate-limits concurrent sessions
+    // on lower-tier plans (HTTP 429 when we burst 4 in parallel).
+    // Production sends fire one PDF at a time so this only affects preview.
+    const quotePdf = await fetchPdfSafe(`${BASE_URL()}/api/pdf/quote/${jobId}`);
+    await new Promise(r => setTimeout(r, 400));
+    const invoicePdf = await fetchPdfSafe(`${BASE_URL()}/api/pdf/invoice/${jobId}?download=1`);
+    await new Promise(r => setTimeout(r, 400));
+    const poPdf = await fetchPdfSafe(`${BASE_URL()}/api/pdf/po/${jobId}?download=1`);
+    await new Promise(r => setTimeout(r, 400));
+    const packingSlipPdf = await fetchPdfSafe(`${BASE_URL()}/api/pdf/packing-slip/${jobId}`);
 
     const pdfDiagnostics = {
       quote: { ok: !!quotePdf.buffer, size: quotePdf.size, status: quotePdf.status, error: quotePdf.error },
