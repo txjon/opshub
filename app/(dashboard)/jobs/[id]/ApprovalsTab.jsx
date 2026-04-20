@@ -16,10 +16,9 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
   const clientName = job?.clients?.name || "";
   const projectTitle = job?.title || "";
 
-  const fileApprovedCount = items.filter(it => proofStatus[it.id]?.allApproved).length;
-  const internalOnlyCount = items.filter(it => !proofStatus[it.id]?.allApproved && it.artwork_status === "approved").length;
-  const approvedCount = fileApprovedCount + internalOnlyCount;
-  const allApproved = items.length > 0 && approvedCount === items.length;
+  // proofStatus.allApproved is OR'd with manualApproved in page.tsx (for
+  // lifecycle gates). Here we need honest per-item file-level approval, so we
+  // recompute from itemFiles loaded below rather than trust proofStatus.
 
   // Load files for all items to find mockups for proof generation
   useEffect(() => {
@@ -90,6 +89,19 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
     reloadFiles();
   }
 
+  // Honest file-level approval — proof files exist and all are approved.
+  // Distinct from manualApproved (artwork_status override).
+  const fileApprovedByItem = {};
+  for (const it of items) {
+    const files = itemFiles[it.id] || [];
+    const proofs = files.filter(f => f.stage === "proof");
+    fileApprovedByItem[it.id] = proofs.length > 0 && proofs.every(f => f.approval === "approved");
+  }
+  const fileApprovedCount = items.filter(it => fileApprovedByItem[it.id]).length;
+  const internalOnlyCount = items.filter(it => !fileApprovedByItem[it.id] && it.artwork_status === "approved").length;
+  const approvedCount = fileApprovedCount + internalOnlyCount;
+  const allApproved = items.length > 0 && approvedCount === items.length;
+
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 12 }}>
 
@@ -103,12 +115,12 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {items.map((item, i) => {
-            const fileApproved = proofStatus[item.id]?.allApproved;
-            const manualApproved = item.artwork_status === "approved";
-            const isApproved = fileApproved || manualApproved;
             const files = itemFiles[item.id] || [];
             const proofFiles = files.filter(f => f.stage === "proof");
             const hasProof = proofFiles.length > 0;
+            const fileApproved = fileApprovedByItem[item.id];
+            const manualApproved = item.artwork_status === "approved";
+            const isApproved = fileApproved || manualApproved;
             const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
             const revisionRequested = proofFiles.some(f => f.approval === "revision_requested");
             const pendingClient = hasProof && !fileApproved && !revisionRequested;
