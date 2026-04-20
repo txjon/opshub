@@ -25,6 +25,14 @@ const DEMO_FOOTER =
   `No data was written, no client was notified, no state changed. ` +
   `For review only.</em></p>`;
 
+function missingAttachmentNote(expected: string, error: string | null) {
+  return `<div style="margin:20px 0;padding:12px 14px;background:#fef9ee;border:1px solid #f5dfa8;border-radius:6px;font-size:11px;color:#b45309">` +
+    `<strong>⚠ Expected attachment missing:</strong> ${expected}<br/>` +
+    `<span style="font-size:10px;opacity:0.8">` +
+    `Sample job couldn't render this PDF${error ? `: ${error}` : "."} In real sends this attachment would appear.` +
+    `</span></div>`;
+}
+
 function portalBtn(url: string | null, label = "View in Portal") {
   if (!url) return "";
   return `<a href="${url}" style="display:inline-block;padding:10px 24px;background:#f3f3f5;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px;border:1px solid #dcdce0">${label}</a>`;
@@ -38,13 +46,19 @@ function payBtn(url: string | null) {
   return `<a href="${url}" style="display:inline-block;padding:12px 28px;background:#34c97a;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">Pay Online</a>`;
 }
 
-async function fetchPdfSafe(url: string): Promise<Buffer | null> {
+type PdfResult = { buffer: Buffer | null; status: number; error: string | null; size: number };
+
+async function fetchPdfSafe(url: string): Promise<PdfResult> {
   try {
     const res = await fetch(url, { headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY! } });
-    if (!res.ok) return null;
-    return Buffer.from(await res.arrayBuffer());
-  } catch {
-    return null;
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      return { buffer: null, status: res.status, error: errBody.slice(0, 300) || `HTTP ${res.status}`, size: 0 };
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    return { buffer: buf, status: 200, error: null, size: buf.length };
+  } catch (e: any) {
+    return { buffer: null, status: 0, error: e?.message || "fetch threw", size: 0 };
   }
 }
 
@@ -60,14 +74,39 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    // Pick a sample job — prefer one with a QB invoice, fall back to newest
-    let { data: sample } = await admin
-      .from("jobs")
-      .select("id, title, job_number, type_meta, portal_token, shipping_route, clients(name)")
-      .not("type_meta->qb_invoice_number", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // Pick the richest sample job — prefers one with QB invoice, shipped items,
+    // and attached proofs so ALL attachments render. Falls back progressively.
+    // Allow caller override via { jobId } in the body.
+    let sample: any = null;
+    if (body.jobId) {
+      const r = await admin
+        .from("jobs")
+        .select("id, title, job_number, type_meta, portal_token, shipping_route, clients(name)")
+        .eq("id", body.jobId)
+        .maybeSingle();
+      sample = r.data;
+    }
+
+    if (!sample) {
+      // Try: job with QB invoice + at least one shipped item
+      const { data: candidates } = await admin
+        .from("jobs")
+        .select("id, title, job_number, type_meta, portal_token, shipping_route, clients(name), items(id, pipeline_stage, sell_per_unit)")
+        .not("type_meta->qb_invoice_number", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      const withShipped = (candidates || []).find((j: any) =>
+        (j.items || []).some((it: any) => it.pipeline_stage === "shipped")
+      );
+      const withPriced = (candidates || []).find((j: any) =>
+        (j.items || []).some((it: any) => parseFloat(it.sell_per_unit) > 0)
+      );
+      sample = withShipped || withPriced || (candidates?.[0] as any) || null;
+
+      // Strip the items join for the rest of the code
+      if (sample) delete sample.items;
+    }
 
     if (!sample) {
       const r = await admin
@@ -91,7 +130,7 @@ export async function POST(req: NextRequest) {
     const designerPortalExample = `${BASE_URL()}/design/preview`;
     const artIntakePortalExample = `${BASE_URL()}/portal/client/preview`;
 
-    // Pre-fetch PDFs we'll attach (ok if they fail — body still renders)
+    // Pre-fetch PDFs we'll attach — track status so we can surface failures
     const [quotePdf, invoicePdf, invProofsPdf, poPdf, packingSlipPdf] = await Promise.all([
       fetchPdfSafe(`${BASE_URL()}/api/pdf/quote/${jobId}`),
       fetchPdfSafe(`${BASE_URL()}/api/pdf/invoice/${jobId}?download=1`),
@@ -99,6 +138,14 @@ export async function POST(req: NextRequest) {
       fetchPdfSafe(`${BASE_URL()}/api/pdf/po/${jobId}?download=1`),
       fetchPdfSafe(`${BASE_URL()}/api/pdf/packing-slip/${jobId}`),
     ]);
+
+    const pdfDiagnostics = {
+      quote: { ok: !!quotePdf.buffer, size: quotePdf.size, status: quotePdf.status, error: quotePdf.error },
+      invoice: { ok: !!invoicePdf.buffer, size: invoicePdf.size, status: invoicePdf.status, error: invoicePdf.error },
+      invoice_proofs: { ok: !!invProofsPdf.buffer, size: invProofsPdf.size, status: invProofsPdf.status, error: invProofsPdf.error },
+      po: { ok: !!poPdf.buffer, size: poPdf.size, status: poPdf.status, error: poPdf.error },
+      packing_slip: { ok: !!packingSlipPdf.buffer, size: packingSlipPdf.size, status: packingSlipPdf.status, error: packingSlipPdf.error },
+    };
 
     const { Resend } = await import("resend");
     const resend = new Resend(process.env.RESEND_API_KEY);
@@ -123,8 +170,10 @@ export async function POST(req: NextRequest) {
           `<p>Hi ${clientName},</p>` +
           `<p>Your quote ${jobNum} is attached for review. When you're ready to move forward, you can approve it directly in your portal, or request changes if anything needs a second pass.</p>` +
           `<p style="margin:20px 0;display:flex;gap:10px">${approveBtn(portalUrl)} ${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party,<br/>House Party Distro</p>` + DEMO_FOOTER,
-        attachments: quotePdf ? [{ filename: `HPD-Quote-${jobNum}.pdf`, content: quotePdf.toString("base64") }] : [],
+          `<p>Welcome to the party,<br/>House Party Distro</p>` +
+          (quotePdf.buffer ? "" : missingAttachmentNote(`HPD-Quote-${jobNum}.pdf`, quotePdf.error)) +
+          DEMO_FOOTER,
+        attachments: quotePdf.buffer ? [{ filename: `HPD-Quote-${jobNum}.pdf`, content: quotePdf.buffer.toString("base64") }] : [],
       },
       // 2. Invoice
       {
@@ -135,8 +184,10 @@ export async function POST(req: NextRequest) {
           `<p>Hi ${clientName},</p>` +
           `<p>Your invoice #${invoiceNum} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.</p>` +
           `<p style="margin:20px 0;display:flex;gap:10px">${payBtn(qbPaymentLink || "https://example.com/pay")} ${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party,<br/>House Party Distro</p>` + DEMO_FOOTER,
-        attachments: invoicePdf ? [{ filename: `HPD-Invoice-${invoiceNum}.pdf`, content: invoicePdf.toString("base64") }] : [],
+          `<p>Welcome to the party,<br/>House Party Distro</p>` +
+          (invoicePdf.buffer ? "" : missingAttachmentNote(`HPD-Invoice-${invoiceNum}.pdf`, invoicePdf.error)) +
+          DEMO_FOOTER,
+        attachments: invoicePdf.buffer ? [{ filename: `HPD-Invoice-${invoiceNum}.pdf`, content: invoicePdf.buffer.toString("base64") }] : [],
       },
       // 3. Invoice + Proofs
       {
@@ -147,8 +198,10 @@ export async function POST(req: NextRequest) {
           `<p>Hi ${clientName},</p>` +
           `<p>Your invoice #${invoiceNum} and proofs are ready and waiting in your portal. Approve your proofs and complete payment or request any changes there. We'll get production rolling as soon as proofs are approved and payment is received.</p>` +
           `<p style="margin:20px 0;display:flex;gap:10px">${payBtn(qbPaymentLink || "https://example.com/pay")} ${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party,<br/>House Party Distro</p>` + DEMO_FOOTER,
-        attachments: invProofsPdf ? [{ filename: `HPD-Invoice-Proofs-${invoiceNum}.pdf`, content: invProofsPdf.toString("base64") }] : [],
+          `<p>Welcome to the party,<br/>House Party Distro</p>` +
+          (invProofsPdf.buffer ? "" : missingAttachmentNote(`HPD-Invoice-Proofs-${invoiceNum}.pdf`, invProofsPdf.error)) +
+          DEMO_FOOTER,
+        attachments: invProofsPdf.buffer ? [{ filename: `HPD-Invoice-Proofs-${invoiceNum}.pdf`, content: invProofsPdf.buffer.toString("base64") }] : [],
       },
       // 4. Proof ready
       {
@@ -171,8 +224,10 @@ export async function POST(req: NextRequest) {
           `<p>Part of your order for Invoice ${invoiceNum} · ${projectTitle} has shipped, packing slip attached.</p>` +
           trackingLine +
           `<p style="margin:16px 0">${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party!<br/>House Party Distro</p>` + DEMO_FOOTER,
-        attachments: packingSlipPdf ? [{ filename: `HPD-PackingSlip-${invoiceNum}-SampleVendor.pdf`, content: packingSlipPdf.toString("base64") }] : [],
+          `<p>Welcome to the party!<br/>House Party Distro</p>` +
+          (packingSlipPdf.buffer ? "" : missingAttachmentNote(`HPD-PackingSlip-${invoiceNum}-SampleVendor.pdf`, packingSlipPdf.error)) +
+          DEMO_FOOTER,
+        attachments: packingSlipPdf.buffer ? [{ filename: `HPD-PackingSlip-${invoiceNum}-SampleVendor.pdf`, content: packingSlipPdf.buffer.toString("base64") }] : [],
       },
       // 6. Ship-through shipment
       {
@@ -184,8 +239,10 @@ export async function POST(req: NextRequest) {
           `<p>Your order for ${projectTitle} has shipped from House Party Distro. The packing slip is attached.</p>` +
           trackingLine +
           `<p style="margin:16px 0">${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party!<br/>House Party Distro</p>` + DEMO_FOOTER,
-        attachments: packingSlipPdf ? [{ filename: `HPD-PackingSlip-${invoiceNum}.pdf`, content: packingSlipPdf.toString("base64") }] : [],
+          `<p>Welcome to the party!<br/>House Party Distro</p>` +
+          (packingSlipPdf.buffer ? "" : missingAttachmentNote(`HPD-PackingSlip-${invoiceNum}.pdf`, packingSlipPdf.error)) +
+          DEMO_FOOTER,
+        attachments: packingSlipPdf.buffer ? [{ filename: `HPD-PackingSlip-${invoiceNum}.pdf`, content: packingSlipPdf.buffer.toString("base64") }] : [],
       },
       // 7. Stage shipment (same copy as 6, fired from Fulfillment)
       {
@@ -197,8 +254,10 @@ export async function POST(req: NextRequest) {
           `<p>Your order for ${projectTitle} has shipped from House Party Distro. The packing slip is attached.</p>` +
           trackingLine +
           `<p style="margin:16px 0">${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party!<br/>House Party Distro</p>` + DEMO_FOOTER,
-        attachments: packingSlipPdf ? [{ filename: `HPD-PackingSlip-${invoiceNum}.pdf`, content: packingSlipPdf.toString("base64") }] : [],
+          `<p>Welcome to the party!<br/>House Party Distro</p>` +
+          (packingSlipPdf.buffer ? "" : missingAttachmentNote(`HPD-PackingSlip-${invoiceNum}.pdf`, packingSlipPdf.error)) +
+          DEMO_FOOTER,
+        attachments: packingSlipPdf.buffer ? [{ filename: `HPD-PackingSlip-${invoiceNum}.pdf`, content: packingSlipPdf.buffer.toString("base64") }] : [],
       },
       // 8. Revised invoice
       {
@@ -209,8 +268,10 @@ export async function POST(req: NextRequest) {
           `<p>Hi ${clientName},</p>` +
           `<p>Your invoice ${invoiceNum} has been updated with final shipped quantities. The revised copy is attached and waiting in your portal.</p>` +
           `<p style="margin:20px 0;display:flex;gap:10px">${payBtn(qbPaymentLink || "https://example.com/pay")} ${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party,<br/>House Party Distro</p>` + DEMO_FOOTER,
-        attachments: invoicePdf ? [{ filename: `HPD-Invoice-${invoiceNum}-Revised.pdf`, content: invoicePdf.toString("base64") }] : [],
+          `<p>Welcome to the party,<br/>House Party Distro</p>` +
+          (invoicePdf.buffer ? "" : missingAttachmentNote(`HPD-Invoice-${invoiceNum}-Revised.pdf`, invoicePdf.error)) +
+          DEMO_FOOTER,
+        attachments: invoicePdf.buffer ? [{ filename: `HPD-Invoice-${invoiceNum}-Revised.pdf`, content: invoicePdf.buffer.toString("base64") }] : [],
       },
       // 9. Payment received
       {
@@ -233,8 +294,10 @@ export async function POST(req: NextRequest) {
           `<p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p>` +
           `<p style="margin:16px 0"><a href="${BASE_URL()}/portal/vendor/preview" style="display:inline-block;padding:10px 24px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px">View in Vendor Portal</a></p>` +
           `<p>You can confirm receipt, update production status, and enter tracking directly from the portal.</p>` +
-          `<p>Thanks,<br/>House Party Distro</p>` + DEMO_FOOTER,
-        attachments: poPdf ? [{ filename: `HPD-PO-${invoiceNum}.pdf`, content: poPdf.toString("base64") }] : [],
+          `<p>Thanks,<br/>House Party Distro</p>` +
+          (poPdf.buffer ? "" : missingAttachmentNote(`HPD-PO-${invoiceNum}.pdf`, poPdf.error)) +
+          DEMO_FOOTER,
+        attachments: poPdf.buffer ? [{ filename: `HPD-PO-${invoiceNum}.pdf`, content: poPdf.buffer.toString("base64") }] : [],
       },
       // 11. Art intake (client-facing)
       {
@@ -310,6 +373,7 @@ export async function POST(req: NextRequest) {
       sent: results,
       totalSent: results.filter(r => r.ok).length,
       totalFailed: results.filter(r => !r.ok).length,
+      pdfDiagnostics,
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });

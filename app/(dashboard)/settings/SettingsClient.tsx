@@ -21,17 +21,20 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
   const [editingRole, setEditingRole] = useState<string | null>(null);
   const [sendingPreviews, setSendingPreviews] = useState(false);
   const [previewResult, setPreviewResult] = useState<string | null>(null);
+  const [previewDiagnostics, setPreviewDiagnostics] = useState<any>(null);
 
   async function sendPreviewEmails() {
     setSendingPreviews(true);
     setPreviewResult(null);
+    setPreviewDiagnostics(null);
     try {
       const res = await fetch("/api/email/preview-all", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
       const data = await res.json();
       if (!res.ok) {
         setPreviewResult(`Error: ${data.error || "Failed"}`);
       } else {
-        setPreviewResult(`Sent ${data.totalSent || 0} of ${(data.sent || []).length} to ${data.to}. Check your inbox in a minute.`);
+        setPreviewResult(`Sent ${data.totalSent || 0} of ${(data.sent || []).length} to ${data.to}. Sample job: ${data.sampleJob?.jobNumber || "—"} (${data.sampleJob?.clientName || ""}).`);
+        setPreviewDiagnostics(data.pdfDiagnostics);
       }
     } catch (e: any) {
       setPreviewResult(`Error: ${e.message}`);
@@ -106,6 +109,21 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
         {previewResult && (
           <div className={`mt-3 text-xs ${previewResult.startsWith("Error") ? "text-red-500" : "text-green-500"}`}>
             {previewResult}
+          </div>
+        )}
+        {previewDiagnostics && (
+          <div className="mt-3 rounded border border-border bg-secondary/30 p-3 text-xs space-y-1">
+            <div className="font-semibold mb-2">PDF attachment status:</div>
+            {Object.entries(previewDiagnostics).map(([key, val]: any) => (
+              <div key={key} className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">{key}</span>
+                {val.ok ? (
+                  <span className="text-green-500">✓ {(val.size / 1024).toFixed(0)} KB</span>
+                ) : (
+                  <span className="text-red-500" title={val.error || ""}>✕ {val.status || "failed"} — {val.error?.slice(0, 60) || "unknown"}</span>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
