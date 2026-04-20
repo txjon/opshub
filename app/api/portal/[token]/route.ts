@@ -84,7 +84,7 @@ export async function GET(
     // Proof/mockup files (only stages clients should see)
     let proofFiles: any[] = [];
     if (itemIds.length > 0) {
-      const { data: files } = await sb
+      const { data: files, error: fileErr } = await sb
         .from("item_files")
         .select(
           "id, item_id, file_name, stage, approval, approved_at, drive_file_id, drive_link, created_at"
@@ -93,6 +93,7 @@ export async function GET(
         .in("stage", ["mockup", "proof"])
         .order("created_at", { ascending: false });
       proofFiles = files || [];
+      console.log("[portal]", { jobId: job.id, itemIds, proofFilesCount: proofFiles.length, stages: proofFiles.map(f => ({ id: f.id, item: f.item_id, stage: f.stage, approval: f.approval, name: f.file_name })), fileErr });
     }
 
     // Payment records
