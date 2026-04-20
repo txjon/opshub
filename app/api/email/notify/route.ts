@@ -183,7 +183,7 @@ export async function POST(req: NextRequest) {
       const html = renderBrandedEmail({
         heading: "Production complete",
         greeting: `Hi ${clientName || "there"},`,
-        bodyHtml: `Production for <strong>${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment. We'll send shipping confirmation as soon as your order heads out.`,
+        bodyHtml: `Production for <strong>${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment.`,
         cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
         closing: "Welcome to the party,\nHouse Party Distro",
       });

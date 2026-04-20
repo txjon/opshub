@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
           renderBrandedEmail({
             heading: "Production complete",
             greeting: `Hi ${clientName},`,
-            bodyHtml: `Production for <strong>${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment. We'll send shipping confirmation as soon as your order heads out.`,
+            bodyHtml: `Production for <strong>${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment.`,
             cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
           }) + DEMO_FOOTER,
       },
