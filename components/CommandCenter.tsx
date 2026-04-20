@@ -154,11 +154,16 @@ export function CommandCenter({ alerts, stats }: {
               onMouseLeave={e => (e.currentTarget.style.background = T.card)}>
 
               {/* Line 1: Client — Project */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", marginBottom: 3, gap: 8 }}>
+                <span style={{
+                  fontSize: 13, fontWeight: 700, color: T.text, flex: 1, minWidth: 0,
+                  ...(isMobile
+                    ? { wordBreak: "break-word" as const, lineHeight: 1.3 }
+                    : { overflow: "hidden", textOverflow: "ellipsis" as const, whiteSpace: "nowrap" as const }),
+                }}>
                   {alert.clientName} — {alert.jobTitle}
                 </span>
-                <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, marginLeft: 8 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                   <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>{displayNum}</span>
                   {shipDays !== null && (
                     <span style={{ fontSize: 10, fontWeight: 600, color: shipColor, fontFamily: mono }}>
