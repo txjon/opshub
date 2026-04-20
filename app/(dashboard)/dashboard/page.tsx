@@ -272,16 +272,8 @@ export default async function DashboardPage() {
         href: `/jobs/${j.id}?tab=po`, column: "production", vendors: unsentVendors });
     }
 
-    // 10. Stalled (7+ days) — items that should have advanced by now
-    for (const it of items) {
-      if (it.pipeline_stage === "in_production" && it.pipeline_timestamps?.in_production) {
-        const days = Math.ceil((now.getTime() - new Date(it.pipeline_timestamps.in_production).getTime()) / 86400000);
-        if (days >= 7) {
-          alerts.push({ ...base, priority: 1, type: "stalled", color: T.amber,
-            action: `Stalled at decorator · ${days}d — ${it.name}`, href: `/jobs/${j.id}?tab=production`, column: "production" });
-        }
-      }
-    }
+    // "Stalled at decorator" alerts removed per Jon — only "Ships in Xd" alerts
+    // (alert #14 below) fire for the Production column now.
 
     // Warehouse/fulfillment alerts (incoming, ship-through forwarding, pack & ship)
     // live on the Distro dashboard, not here — Labs stops at handoff from decorator.
