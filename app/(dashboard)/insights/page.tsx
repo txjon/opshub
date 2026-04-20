@@ -3,12 +3,14 @@ import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 import { T, font, mono } from "@/lib/theme";
+import { useIsMobile } from "@/lib/useIsMobile";
 const fmtD = (n: number) => "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 const fmtPct = (n: number) => (n * 100).toFixed(1) + "%";
 const daysBetween = (a: string, b: string) => Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
 
 export default function InsightsPage() {
   const supabase = createClient();
+  const isMobile = useIsMobile();
   const [jobs, setJobs] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
@@ -297,10 +299,10 @@ export default function InsightsPage() {
         <KPI label="Avg Turnaround" value={`${metrics.avgCycleTime}d`} sub={metrics.bottleneck ? `Bottleneck: ${phaseLabels[metrics.bottleneck[0]] || metrics.bottleneck[0]} (${metrics.bottleneck[1]}d)` : undefined} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
         {/* ── Cash Flow & AR Aging ── */}
         <Section title="Cash Flow">
-          <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
             {[
               { label: "Current", amount: metrics.arBuckets.current, color: T.green },
               { label: "1–30 days", amount: metrics.arBuckets.d30, color: T.amber },
@@ -330,14 +332,14 @@ export default function InsightsPage() {
 
         {/* ── Production Health ── */}
         <Section title="Production Health">
-          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
             {Object.entries(metrics.phaseCounts).sort((a, b) => {
               const order = ["intake", "pending", "ready", "production", "receiving", "fulfillment", "on_hold"];
               return order.indexOf(a[0]) - order.indexOf(b[0]);
             }).map(([phase, count]) => (
               <div key={phase} style={{
                 padding: "6px 12px", borderRadius: 8, background: T.surface,
-                textAlign: "center", flex: 1,
+                textAlign: "center", flex: "1 1 70px", minWidth: 60,
               }}>
                 <div style={{ fontSize: 16, fontWeight: 700, fontFamily: mono, color: T.text }}>{count as number}</div>
                 <div style={{ fontSize: 9, color: T.faint }}>{phaseLabels[phase] || phase}</div>
