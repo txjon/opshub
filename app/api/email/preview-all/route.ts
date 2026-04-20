@@ -53,7 +53,7 @@ async function fetchPdfSafe(url: string): Promise<PdfResult> {
     const res = await fetch(url, { headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY! } });
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      return { buffer: null, status: res.status, error: errBody.slice(0, 300) || `HTTP ${res.status}`, size: 0 };
+      return { buffer: null, status: res.status, error: errBody.slice(0, 600) || `HTTP ${res.status}`, size: 0 };
     }
     const buf = Buffer.from(await res.arrayBuffer());
     return { buffer: buf, status: 200, error: null, size: buf.length };
@@ -131,10 +131,9 @@ export async function POST(req: NextRequest) {
     const artIntakePortalExample = `${BASE_URL()}/portal/client/preview`;
 
     // Pre-fetch PDFs we'll attach — track status so we can surface failures
-    const [quotePdf, invoicePdf, invProofsPdf, poPdf, packingSlipPdf] = await Promise.all([
+    const [quotePdf, invoicePdf, poPdf, packingSlipPdf] = await Promise.all([
       fetchPdfSafe(`${BASE_URL()}/api/pdf/quote/${jobId}`),
       fetchPdfSafe(`${BASE_URL()}/api/pdf/invoice/${jobId}?download=1`),
-      fetchPdfSafe(`${BASE_URL()}/api/pdf/invoice-proofs/${jobId}?download=1`),
       fetchPdfSafe(`${BASE_URL()}/api/pdf/po/${jobId}?download=1`),
       fetchPdfSafe(`${BASE_URL()}/api/pdf/packing-slip/${jobId}`),
     ]);
@@ -142,7 +141,6 @@ export async function POST(req: NextRequest) {
     const pdfDiagnostics = {
       quote: { ok: !!quotePdf.buffer, size: quotePdf.size, status: quotePdf.status, error: quotePdf.error },
       invoice: { ok: !!invoicePdf.buffer, size: invoicePdf.size, status: invoicePdf.status, error: invoicePdf.error },
-      invoice_proofs: { ok: !!invProofsPdf.buffer, size: invProofsPdf.size, status: invProofsPdf.status, error: invProofsPdf.error },
       po: { ok: !!poPdf.buffer, size: poPdf.size, status: poPdf.status, error: poPdf.error },
       packing_slip: { ok: !!packingSlipPdf.buffer, size: packingSlipPdf.size, status: packingSlipPdf.status, error: packingSlipPdf.error },
     };
@@ -189,21 +187,7 @@ export async function POST(req: NextRequest) {
           DEMO_FOOTER,
         attachments: invoicePdf.buffer ? [{ filename: `HPD-Invoice-${invoiceNum}.pdf`, content: invoicePdf.buffer.toString("base64") }] : [],
       },
-      // 3. Invoice + Proofs
-      {
-        key: "invoice_proofs",
-        from: FROM_ADDR(),
-        subject: `[PREVIEW] Invoice ${invoiceNum} & Proofs — House Party Distro`,
-        html:
-          `<p>Hi ${clientName},</p>` +
-          `<p>Your invoice #${invoiceNum} and proofs are ready and waiting in your portal. Approve your proofs and complete payment or request any changes there. We'll get production rolling as soon as proofs are approved and payment is received.</p>` +
-          `<p style="margin:20px 0;display:flex;gap:10px">${payBtn(qbPaymentLink || "https://example.com/pay")} ${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party,<br/>House Party Distro</p>` +
-          (invProofsPdf.buffer ? "" : missingAttachmentNote(`HPD-Invoice-Proofs-${invoiceNum}.pdf`, invProofsPdf.error)) +
-          DEMO_FOOTER,
-        attachments: invProofsPdf.buffer ? [{ filename: `HPD-Invoice-Proofs-${invoiceNum}.pdf`, content: invProofsPdf.buffer.toString("base64") }] : [],
-      },
-      // 4. Proof ready
+      // 3. Proof ready
       {
         key: "proof_ready",
         from: FROM_ADDR(),

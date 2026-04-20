@@ -84,13 +84,6 @@ export function DocumentsTab({ job, items }) {
             onPreview={setPreview}
           />
           <DocRow
-            label="Invoice + Proofs"
-            previewHref={`/api/pdf/invoice-proofs/${job.id}`}
-            downloadHref={`/api/pdf/invoice-proofs/${job.id}?download=1`}
-            available={hasAnyItems}
-            onPreview={setPreview}
-          />
-          <DocRow
             label="Packing Slip"
             previewHref={`/api/pdf/packing-slip/${job.id}`}
             downloadHref={`/api/pdf/packing-slip/${job.id}?download=1`}

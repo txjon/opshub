@@ -287,7 +287,7 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     const slug = (job.title || jobId).replace(/\s+/g, "-");
     const qNum = orderInfo.invoiceNum || job.job_number || jobId.slice(0, 8);
     const filename = `HPD-Quote-${qNum}-${slug}.pdf`;
-    const isDownload = req.nextUrl.searchParams.get("download");
+    const isDownload = _req.nextUrl.searchParams.get("download");
 
     return new NextResponse(pdfBuffer, {
       status: 200,

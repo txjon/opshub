@@ -56,11 +56,6 @@ export async function POST(req: NextRequest) {
       fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
       defaultSubject = subject || `Invoice ${qbInvNum || ""} — House Party Distro`.trim();
       filename = `invoice-${qbInvNum || jobId.slice(0, 8)}.pdf`;
-    } else if (type === "invoice_proofs") {
-      pdfUrl = `${baseUrl}/api/pdf/invoice-proofs/${jobId}?download=1`;
-      fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-      defaultSubject = subject || `Invoice ${qbInvNum || ""} & Proofs — House Party Distro`.trim();
-      filename = `invoice-proofs-${qbInvNum || jobId.slice(0, 8)}.pdf`;
     } else {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }
@@ -78,7 +73,7 @@ export async function POST(req: NextRequest) {
 
     // Get QB payment link if available (for invoice emails)
     let qbPaymentLink = "";
-    if ((type === "invoice" || type === "invoice_proofs") && jobId) {
+    if (type === "invoice" && jobId) {
       const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
       const { data: jobData } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
       qbPaymentLink = jobData?.type_meta?.qb_payment_link || "";
@@ -127,8 +122,6 @@ export async function POST(req: NextRequest) {
         ? `<p>Hi ${clientGreeting},</p><p>Your quote ${jobNum || ""} is attached for review. When you're ready to move forward, you can approve it directly in your portal, or request changes if anything needs a second pass.</p><p style="margin:20px 0;display:flex;gap:10px">${approveButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
         : type === "invoice"
         ? `<p>Hi ${clientGreeting},</p><p>Your invoice ${qbInvNum ? `#${qbInvNum}` : ""} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.</p><p style="margin:20px 0;display:flex;gap:10px">${payButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
-        : type === "invoice_proofs"
-        ? `<p>Hi ${clientGreeting},</p><p>Your invoice ${qbInvNum ? `#${qbInvNum}` : ""} and proofs are ready and waiting in your portal. Approve your proofs and complete payment or request any changes there. We'll get production rolling as soon as proofs are approved and payment is received.</p><p style="margin:20px 0;display:flex;gap:10px">${payButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
         : `<p>Hi,</p><p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p>${vendorPortalButton}<p>You can confirm receipt, update production status, and enter tracking directly from the portal.</p><p>Thanks,<br/>House Party Distro</p>`,
       attachments: [
         {
@@ -165,13 +158,13 @@ export async function POST(req: NextRequest) {
           ? `Purchase order attached (${filename})\n\nPlease find the attached purchase order. Let us know if you have any questions or need clarification on any items.`
           : type === "quote"
           ? `Quote attached (${filename})\n\nHere's your quote — take a look and let us know if you have any questions or want to make changes.`
-          : type === "invoice" || type === "invoice_proofs"
+          : type === "invoice"
           ? `Invoice attached (${filename})\n\nAttached is your invoice. Let us know if you have any questions.`
           : `${type} attached (${filename})`,
         resend_message_id: data?.id || null,
       });
       // Save sent timestamps for dashboard follow-up tracking
-      if (type === "quote" || type === "invoice" || type === "invoice_proofs") {
+      if (type === "quote" || type === "invoice") {
         const tsKey = type === "quote" ? "quote_sent_at" : "invoice_sent_at";
         const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
         const updateData: any = { type_meta: { ...(jd?.type_meta || {}), [tsKey]: new Date().toISOString() } };
@@ -182,7 +175,6 @@ export async function POST(req: NextRequest) {
       const activityMsg =
         type === "quote" ? `Quote sent to client (${recipientEmail})`
         : type === "invoice" ? `Invoice sent to client (${recipientEmail})`
-        : type === "invoice_proofs" ? `Invoice + proofs sent to client (${recipientEmail})`
         : type === "po" ? `PO sent to ${vendor || "decorator"} (${recipientEmail})`
         : `Email sent (${type})`;
       await adminClient.from("job_activity").insert({
