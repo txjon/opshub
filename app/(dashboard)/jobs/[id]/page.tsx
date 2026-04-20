@@ -432,14 +432,33 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
           {/* Right: ship date + actions */}
           <div style={{display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-            {daysLeft!==null&&(
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:16,fontWeight:700,color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.text}}>
-                  {daysLeft<0?Math.abs(daysLeft)+"d overdue":daysLeft===0?"Ships today":daysLeft+"d to ship"}
+            {(() => {
+              const isComplete = job.phase === "complete";
+              const isCancelled = job.phase === "cancelled";
+              if (isComplete || isCancelled) {
+                const ts = (job as any).phase_timestamps?.[isComplete ? "complete" : "cancelled"];
+                const dateStr = ts
+                  ? new Date(ts).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})
+                  : null;
+                return (
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:16,fontWeight:700,color:isCancelled?T.red:T.green}}>
+                      {isComplete?"Completed":"Cancelled"}
+                    </div>
+                    {dateStr && <div style={{fontSize:10,color:T.muted}}>{dateStr}</div>}
+                  </div>
+                );
+              }
+              if (daysLeft === null) return null;
+              return (
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:16,fontWeight:700,color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.text}}>
+                    {daysLeft<0?Math.abs(daysLeft)+"d overdue":daysLeft===0?"Ships today":daysLeft+"d to ship"}
+                  </div>
+                  <div style={{fontSize:10,color:T.muted}}>{new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>
                 </div>
-                <div style={{fontSize:10,color:T.muted}}>{new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>
-              </div>
-            )}
+              );
+            })()}
             {(job as any).portal_token && (
               <button onClick={()=>{
                 const base=window.location.origin;
