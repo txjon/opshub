@@ -51,8 +51,10 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
   const atDecorator = items.some(it => it.pipeline_stage === "in_production");
   const allShipped = items.length > 0 && items.every(it => it.pipeline_stage === "shipped");
 
-  const steps: Step[] = [
-    { id: "overview", label: "Overview", done: true, active: false },
+  const isArchived = job.phase === "complete" || job.phase === "cancelled";
+
+  // Working-flow steps — hidden on complete/cancelled so the header stays clean
+  const workingSteps: Step[] = [
     { id: "builder", label: "Product Builder", done: hasItems && builderComplete, active: !hasItems || !builderComplete, inProgress: hasItems && !builderComplete, detail: hasItems ? `${items.length}` : undefined },
     { id: "costing", label: "Costing", done: costingLocked, active: hasItems && !costingLocked, inProgress: hasCosting && !costingLocked },
     { id: "quote", label: "Quote", done: quoteApproved, active: costingLocked && !quoteApproved },
@@ -61,8 +63,20 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
     { id: "po", label: "PO", done: allPosSent, active: allBlanksOrdered && !allPosSent },
   ];
 
+  const steps: Step[] = isArchived
+    ? [
+        { id: "overview", label: "Overview", done: true, active: false },
+        { id: "documents", label: "Documents", done: true, active: false },
+      ]
+    : [
+        { id: "overview", label: "Overview", done: true, active: false },
+        ...workingSteps,
+        { id: "documents", label: "Documents", done: true, active: false },
+      ];
+
   const completedCount = steps.filter(s => s.done).length;
-  const pct = Math.round(((completedCount - 1) / (steps.length - 1)) * 100); // -1 to exclude Overview which is always done
+  const denom = Math.max(1, steps.length - 2); // exclude Overview + Documents from progress calc
+  const pct = isArchived ? 100 : Math.round(((completedCount - 2) / denom) * 100);
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>

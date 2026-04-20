@@ -7,6 +7,7 @@ import { POTab } from "./POTab.jsx";
 import { BlanksTab } from "./BlanksTab";
 import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
+import { DocumentsTab } from "./DocumentsTab";
 import { ProductBuilder } from "./ProductBuilder";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -449,10 +450,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 {portalCopied?"Copied!":"Portal Link"}
               </button>
             )}
-            <button onClick={()=>window.open(`/api/pdf/packing-slip/${job.id}`,"_blank")}
-              style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:10,fontWeight:600,color:T.muted}}>
-              Packing Slip
-            </button>
             <button onClick={async()=>{
               if(!window.confirm(`Duplicate "${job.title}" with all items and costing?`)) return;
               const {data:newJob}=await supabase.from("jobs").insert({
@@ -530,9 +527,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       </div>
 
       {/* Progress checklist — horizontal tabs (X axis) */}
-      {job.phase !== "complete" && job.phase !== "cancelled" && (
-        <ProjectProgress job={job} items={items} payments={payments} proofStatus={proofStatus} activeTab={tab} onTabClick={switchTab} />
-      )}
+      <ProjectProgress job={job} items={items} payments={payments} proofStatus={proofStatus} activeTab={tab} onTabClick={switchTab} />
 
       {/* ── Sidebar + Content Layout (Y axis: items | content) ── */}
       <div style={{display:"flex",gap:0,minHeight:"calc(100vh - 240px)"}}>
@@ -973,6 +968,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           />
           <PaymentTab
             job={job}
+            items={items}
             contacts={contacts}
             payments={payments}
             onReload={loadData}
@@ -1069,6 +1065,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onRecalcPhase={recalcPhase}
           onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
         />
+      )}
+      {tab==="documents"&&(
+        <DocumentsTab job={job} items={items} />
       )}
 
         </div>{/* end tab content */}

@@ -4,14 +4,22 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
+import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewModal";
 
-export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, onUpdateJob }) {
+export function PaymentTab({ job, items = [], contacts, payments, onReload, onRecalcPhase, onUpdateJob }) {
   const supabase = createClient();
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
   const [showInvoiceProofsEmail, setShowInvoiceProofsEmail] = useState(false);
   const [pushingToQB, setPushingToQB] = useState(false);
   const [qbError, setQbError] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+  const [showVarianceModal, setShowVarianceModal] = useState(false);
+
+  // Variance review becomes available once invoice exists AND job is fully shipped
+  const isDropShip = job.shipping_route === "drop_ship";
+  const isShipThrough = job.shipping_route === "ship_through";
+  const allItemsShipped = items.length > 0 && items.every(it => it.pipeline_stage === "shipped");
+  const isFullyShipped = (isDropShip && allItemsShipped) || (isShipThrough && job.fulfillment_status === "shipped");
   const [addingPayment, setAddingPayment] = useState(false);
   const [pmType, setPmType] = useState("deposit");
   const [pmAmount, setPmAmount] = useState("");
@@ -113,10 +121,6 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
           <div style={{ padding: "12px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 700 }}>Invoice Preview</div>
             <div style={{ display: "flex", gap: 8 }}>
-              <a href={`/api/pdf/invoice/${job.id}?download=1`} target="_blank" rel="noopener noreferrer"
-                style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, textDecoration: "none", cursor: "pointer" }}>
-                Download PDF
-              </a>
               <button onClick={() => setShowPreview(false)}
                 style={{ padding: "8px 20px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
                 Close
@@ -155,6 +159,32 @@ export function PaymentTab({ job, contacts, payments, onReload, onRecalcPhase, o
         </div>
       )}
       {qbError && <div style={{ background: T.redDim, border: `1px solid ${T.red}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.red }}>{qbError}</div>}
+
+      {/* Variance review — appears once invoice exists AND job is fully shipped */}
+      {qbInvoiceNumber && isFullyShipped && (
+        <button onClick={() => setShowVarianceModal(true)}
+          style={{ width: "100%", padding: "12px", borderRadius: 10, border: `1px solid ${T.amber}66`, cursor: "pointer",
+            background: T.amberDim, color: T.amber, fontSize: 13, fontWeight: 700, fontFamily: font,
+            transition: "opacity 0.15s" }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+          Update QB Invoice with {isShipThrough ? "Received" : "Shipped"} Qtys — Review Variance
+        </button>
+      )}
+      {showVarianceModal && (
+        <InvoiceVarianceReviewModal
+          jobId={job.id}
+          shippingRoute={job.shipping_route}
+          jobTitle={job.title}
+          clientName={job.clients?.name || ""}
+          onClose={() => setShowVarianceModal(false)}
+          onApproved={() => {
+            logJobActivity(job.id, "QB invoice updated with actual qtys — revised invoice emailed to client");
+            if (onReload) onReload();
+          }}
+        />
+      )}
+
       {showInvoiceEmail && (
         <SendEmailDialog
           type="invoice"

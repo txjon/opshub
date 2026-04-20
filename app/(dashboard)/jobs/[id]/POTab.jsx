@@ -162,7 +162,6 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const [itemFields,setItemFields] = useState({});
   const [saving,setSaving] = useState({});
   const [showPreview,setShowPreview] = useState(false);
-  const [showModal,setShowModal] = useState(false);
   const [showSendEmail,setShowSendEmail] = useState(false);
 
   useEffect(()=>{
@@ -324,10 +323,6 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.blue:T.surface,border:"1px solid "+(ready?T.blue:T.border),borderRadius:8,color:ready?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
                 Send to Decorator
               </button>
-              <button onClick={()=>{ if(ready) window.open(`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`,"_blank"); }} disabled={!ready}
-                style={{background:ready?T.accent:T.surface,border:"1px solid "+(ready?T.accent:T.border),borderRadius:7,color:ready?"#fff":T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
-                Preview
-              </button>
             </div>
           </div>
         </div>
@@ -486,24 +481,6 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
 
 
 
-      {showModal&&ready&&(
-        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",padding:"40px 20px"}} onClick={e=>{if(e.target===e.currentTarget)setShowModal(false)}}>
-          <div style={{width:"100%",maxWidth:860,display:"flex",flexDirection:"column",gap:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>{project?.clients?.name} — {active} PO</div>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>{const a=document.createElement("a");a.href=`/api/pdf/po/${project.id}?download=1${active?`&vendor=${encodeURIComponent(active)}`:""}`;a.download="po.pdf";a.click();}} style={{background:T.green,border:"none",borderRadius:7,color:"#fff",fontFamily:font,fontSize:12,fontWeight:600,padding:"7px 16px",cursor:"pointer"}}>Export PDF</button>
-                <button onClick={()=>setShowModal(false)} style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:7,color:"#fff",fontFamily:font,fontSize:12,padding:"7px 14px",cursor:"pointer"}}>Close</button>
-              </div>
-            </div>
-            <iframe
-              src={`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`}
-              style={{width:"100%",height:"80vh",border:"none",borderRadius:8,background:"#fff"}}
-              title="PO Preview"
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
