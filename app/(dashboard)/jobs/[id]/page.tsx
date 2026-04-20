@@ -8,6 +8,7 @@ import { BlanksTab } from "./BlanksTab";
 import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
 import { DocumentsTab } from "./DocumentsTab";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { ProductBuilder } from "./ProductBuilder";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -74,6 +75,7 @@ type Job = {
 export default function JobDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const supabase = createClient();
+  const isMobile = useIsMobile();
   const [tab, setTab] = useState(() => {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search).get("tab");
@@ -410,11 +412,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {/* Header — compact single row */}
       <div style={{marginBottom:12}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+        <div style={{display:"flex",alignItems:isMobile?"flex-start":"center",justifyContent:"space-between",gap:12,flexDirection:isMobile?"column":"row"}}>
           {/* Left: identifiers + name */}
-          <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
-            <div>
-              <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0,width:isMobile?"100%":"auto"}}>
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                 <span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(job as any).type_meta?.qb_invoice_number || job.job_number}</span>
                 {(job as any).type_meta?.qb_invoice_number && <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>{job.job_number}</span>}
                 <span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>{job.phase.replace(/_/g," ")}</span>
@@ -422,8 +424,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 {job.priority==="hot"&&<span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:T.redDim,color:T.red}}>Hot</span>}
                 {saving&&<span style={{fontSize:10,color:T.muted}}>Saving...</span>}
               </div>
-              <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:2}}>
-                <span style={{fontSize:18,fontWeight:800,color:T.text,letterSpacing:"-0.02em"}}>{(job.clients as any)?.name||"No client"}</span>
+              <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:2,flexWrap:"wrap"}}>
+                <span style={{fontSize:isMobile?16:18,fontWeight:800,color:T.text,letterSpacing:"-0.02em"}}>{(job.clients as any)?.name||"No client"}</span>
                 <span style={{fontSize:13,color:T.muted}}>{job.title}</span>
                 <span style={{fontSize:11,color:T.faint}}>{totalUnits.toLocaleString()} units</span>
               </div>
@@ -431,7 +433,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           </div>
 
           {/* Right: ship date + actions */}
-          <div style={{display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,flexShrink:0,flexWrap:"wrap"}}>
             {(() => {
               const isComplete = job.phase === "complete";
               const isCancelled = job.phase === "cancelled";
@@ -551,8 +553,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* ── Sidebar + Content Layout (Y axis: items | content) ── */}
       <div style={{display:"flex",gap:0,minHeight:"calc(100vh - 240px)"}}>
 
-        {/* ── Left Sidebar: Items list (only on builder + costing) ── */}
-        {(tab === "builder" || tab === "costing") && <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.card,overflowY:"auto"}}>
+        {/* ── Left Sidebar: Items list (only on builder + costing, hidden on mobile since editing is desktop-only) ── */}
+        {!isMobile && (tab === "builder" || tab === "costing") && <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.card,overflowY:"auto"}}>
           <div style={{padding:"8px 16px 6px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.08em"}}>
             Items ({items.length})
           </div>
@@ -611,7 +613,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   {tab==="overview"&&(
         <div style={{fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
 
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"start"}}>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"start"}}>
             {/* Left column: Project info + Shipping details */}
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
@@ -965,7 +967,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
 
       {tab==="proofs"&&(
-        <div style={{display:"grid",gridTemplateColumns:"2fr 3fr",gap:20,alignItems:"start"}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"2fr 3fr",gap:20,alignItems:"start"}}>
           <ApprovalsTab
             job={job}
             items={items}
