@@ -255,7 +255,12 @@ function FileCard({ file, itemName, stage }) {
         }}>{stageLabel}</span>
       </div>
       <div style={{ padding: "8px 10px", fontSize: 10, display: "flex", flexDirection: "column", gap: 4, borderTop: `1px solid ${T.border}` }}>
-        <div style={{ fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={file.file_name}>
+        <div style={{
+          fontWeight: 600, color: T.text,
+          overflow: "hidden", wordBreak: "break-word",
+          display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+          lineHeight: 1.3,
+        }} title={file.file_name}>
           {file.file_name || "Untitled"}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

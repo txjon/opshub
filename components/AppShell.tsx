@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut, FlaskConical, Truck, Users, Cog, ChartColumn } from "lucide-react";
 import { GlobalSearch } from "@/components/GlobalSearch";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 type Department = "owner" | "labs" | "distro" | "contacts" | "settings";
 
@@ -74,6 +75,7 @@ export function AppShell({
   const hasExtra = (page: string) => extraAccess.includes(page);
   const [activeDept, setActiveDept] = useState<Department>(detectDept(pathname));
   const [showSideQuests, setShowSideQuests] = useState(false);
+  const isMobile = useIsMobile();
 
   // Sync dept when pathname changes (after navigation completes, not during render)
   useEffect(() => {
@@ -87,7 +89,8 @@ export function AppShell({
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", background: "#f4f4f6" }}>
-      {/* ── Slim sidebar (department switcher) ── */}
+      {/* ── Slim sidebar (department switcher) — desktop only ── */}
+      {!isMobile && (
       <div style={{
         width: 56, background: "#000", display: "flex", flexDirection: "column",
         alignItems: "center", paddingTop: 12, paddingBottom: 12, flexShrink: 0,
@@ -147,17 +150,23 @@ export function AppShell({
           </button>
         </form>
       </div>
+      )}
 
       {/* ── Main content area ── */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto", minWidth: 0 }}>
         {/* ── Top nav bar ── */}
         <div style={{
           background: "#fff", borderBottom: "1px solid #dcdce0",
-          padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
-          height: 48, flexShrink: 0,
+          padding: isMobile ? "0 12px" : "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
+          height: 48, flexShrink: 0, gap: 8,
         }}>
-          {/* Left: nav links */}
-          <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          {/* Left: nav links (horizontally scrollable on mobile) */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: 2,
+            overflowX: "auto", overflowY: "hidden",
+            minWidth: 0, flex: 1,
+            scrollbarWidth: "none", WebkitOverflowScrolling: "touch",
+          }}>
             {navItems.map(item => {
               const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
               return (
@@ -169,6 +178,7 @@ export function AppShell({
                     textDecoration: "none", transition: "all 0.12s",
                     color: isActive ? "#000" : "#6b6b78",
                     background: isActive ? "#eaeaee" : "transparent",
+                    flexShrink: 0, whiteSpace: "nowrap",
                   }}
                 >
                   {item.label}
@@ -184,6 +194,7 @@ export function AppShell({
                 style={{
                   padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 500,
                   textDecoration: "none", color: "#a0a0ad", marginLeft: 4,
+                  flexShrink: 0, whiteSpace: "nowrap",
                 }}
               >
                 {crossLink.label}
@@ -191,7 +202,7 @@ export function AppShell({
             )}
 
             {/* Side quests dropdown */}
-            {SIDE_QUESTS.some(sq => hasExtra(sq.label.toLowerCase())) && <div style={{ position: "relative", marginLeft: 4 }}>
+            {SIDE_QUESTS.some(sq => hasExtra(sq.label.toLowerCase())) && <div style={{ position: "relative", marginLeft: 4, flexShrink: 0 }}>
               <button
                 onClick={() => setShowSideQuests(!showSideQuests)}
                 style={{
@@ -232,17 +243,70 @@ export function AppShell({
           </div>
 
           {/* Right: search + user */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
             <GlobalSearch />
-            <span style={{ fontSize: 11, color: "#a0a0ad" }}>{email?.split("@")[0]}</span>
+            {!isMobile && <span style={{ fontSize: 11, color: "#a0a0ad" }}>{email?.split("@")[0]}</span>}
           </div>
         </div>
 
         {/* ── Page content ── */}
-        <div style={{ flex: 1, padding: 24 }}>
+        <div style={{
+          flex: 1,
+          padding: isMobile ? "12px 12px" : 24,
+          paddingBottom: isMobile ? 76 : 24, // account for fixed bottom nav
+        }}>
           {children}
         </div>
       </div>
+
+      {/* ── Mobile bottom nav (department switcher) ── */}
+      {isMobile && (
+        <div style={{
+          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
+          background: "#000", color: "#fff",
+          display: "flex", alignItems: "center", justifyContent: "space-around",
+          padding: "6px 4px",
+          borderTop: "1px solid #222",
+        }}>
+          {(Object.entries(DEPT_ICONS) as [Department, { Icon: any; label: string }][]).map(([dept, { Icon, label }]) => {
+            if (!hasDept(dept)) return null;
+            const isActive = activeDept === dept;
+            return (
+              <Link
+                key={dept}
+                href={DEPT_NAV[dept][0].href}
+                onClick={() => setActiveDept(dept)}
+                style={{
+                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  gap: 2, padding: "6px 4px", borderRadius: 8,
+                  textDecoration: "none",
+                  background: isActive ? "#73b6c9" : "transparent",
+                  color: isActive ? "#000" : "#fff",
+                  minHeight: 44,
+                }}
+              >
+                <Icon size={18} />
+                <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase" }}>{label}</span>
+              </Link>
+            );
+          })}
+          <form action="/api/auth/signout" method="post" style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+            <button
+              type="submit"
+              title="Sign out"
+              style={{
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                gap: 2, padding: "6px 4px", borderRadius: 8,
+                background: "transparent", border: "none", color: "#888", cursor: "pointer",
+                minHeight: 44, minWidth: 44,
+              }}
+            >
+              <LogOut size={16} />
+              <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase" }}>Out</span>
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
