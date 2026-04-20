@@ -38,7 +38,7 @@ export function InvoiceVarianceReviewModal({
   const [pushing, setPushing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const useReceivedQtys = shippingRoute === "ship_through" || shippingRoute === "stage";
+  const prefersReceived = shippingRoute === "ship_through" || shippingRoute === "stage";
 
   useEffect(() => {
     (async () => {
@@ -54,13 +54,26 @@ export function InvoiceVarianceReviewModal({
         const orderedPerSize: Record<string, number> = {};
         for (const l of lines) orderedPerSize[l.size] = l.qty_ordered || 0;
 
-        const actualSource: Record<string, number> = useReceivedQtys
-          ? (it.received_qtys || {})
-          : (it.ship_qtys || {});
+        // Priority: received_qtys (HPD confirmed) → ship_qtys (decorator reported)
+        // → ordered (best we have). Order of the two by shipping route, but
+        // always fall through so we use the best available data.
+        const received = (it.received_qtys || {}) as Record<string, number>;
+        const shipped = (it.ship_qtys || {}) as Record<string, number>;
+        const hasReceived = Object.keys(received).length > 0;
+        const hasShipped = Object.keys(shipped).length > 0;
+        const firstChoice = prefersReceived ? received : shipped;
+        const secondChoice = prefersReceived ? shipped : received;
+
         const actualPerSize: Record<string, number> = {};
         for (const sz of Object.keys(orderedPerSize)) {
-          actualPerSize[sz] = actualSource[sz] ?? 0;
+          const fromFirst = firstChoice[sz];
+          const fromSecond = secondChoice[sz];
+          actualPerSize[sz] = (fromFirst !== undefined ? fromFirst : fromSecond) ?? 0;
         }
+        // Determine which source actually contributed the majority of data for the UI label
+        (it as any)._actualSourceLabel = prefersReceived
+          ? (hasReceived ? "HPD received" : (hasShipped ? "decorator shipped" : "ordered"))
+          : (hasShipped ? "decorator shipped" : (hasReceived ? "HPD received" : "ordered"));
 
         const orderedTotal = Object.values(orderedPerSize).reduce((a, q) => a + q, 0);
         const actualTotal = Object.values(actualPerSize).reduce((a, q) => a + q, 0);
@@ -85,7 +98,7 @@ export function InvoiceVarianceReviewModal({
       setBillableQtys(seed);
       setLoading(false);
     })();
-  }, [jobId, useReceivedQtys]);
+  }, [jobId, prefersReceived]);
 
   async function approveAndPush() {
     setPushing(true);
@@ -143,7 +156,7 @@ export function InvoiceVarianceReviewModal({
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Review invoice variance</div>
             <div style={{ fontSize: 11, color: T.muted }}>
-              {clientName ? `${clientName} · ` : ""}{jobTitle} · using {useReceivedQtys ? "HPD received" : "decorator shipped"} qtys
+              {clientName ? `${clientName} · ` : ""}{jobTitle} · using {prefersReceived ? "HPD received" : "decorator shipped"} qtys
             </div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 20, cursor: "pointer", padding: 4 }}>×</button>
@@ -163,7 +176,7 @@ export function InvoiceVarianceReviewModal({
                 <tr style={{ borderBottom: `1.5px solid ${T.text}` }}>
                   <th style={{ textAlign: "left", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Item</th>
                   <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Quoted qty</th>
-                  <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>{useReceivedQtys ? "Received" : "Shipped"}</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>{prefersReceived ? "Received" : "Shipped"}</th>
                   <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Billable</th>
                   <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Δ</th>
                   <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Unit $</th>

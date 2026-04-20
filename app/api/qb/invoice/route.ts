@@ -75,20 +75,28 @@ export async function POST(req: NextRequest) {
     }
 
     // items.sell_per_unit is the source of truth — set by CostingTab, rounded to cent
-    // useShippedQtys: use actual shipped (drop_ship) or received (ship_through) qtys instead of ordered
-    const isDropShip = (job as any).shipping_route === "drop_ship";
+    // useShippedQtys: use best-available qty (received_qtys → ship_qtys → ordered) with
+    // priority flipped by shipping route. Drop-ship prefers decorator-reported ship_qtys;
+    // ship_through/stage prefer HPD's received_qtys (warehouse confirmed).
+    const prefersReceived = (job as any).shipping_route === "ship_through" || (job as any).shipping_route === "stage";
     const lineItems: QBLineItem[] = [];
 
     for (const item of (items || [])) {
       const lines = (item as any).buy_sheet_lines || [];
-      const qtySource: Record<string, number> = useShippedQtys
-        ? (isDropShip ? ((item as any).ship_qtys || {}) : ((item as any).received_qtys || {}))
-        : {};
+      const received = ((item as any).received_qtys || {}) as Record<string, number>;
+      const shipped = ((item as any).ship_qtys || {}) as Record<string, number>;
+      const firstChoice = prefersReceived ? received : shipped;
+      const secondChoice = prefersReceived ? shipped : received;
+
       const perSize: Record<string, number> = {};
       for (const l of lines) {
-        perSize[l.size] = useShippedQtys
-          ? (qtySource[l.size] ?? 0)
-          : (l.qty_ordered || 0);
+        if (useShippedQtys) {
+          const fromFirst = firstChoice[l.size];
+          const fromSecond = secondChoice[l.size];
+          perSize[l.size] = (fromFirst !== undefined ? fromFirst : fromSecond) ?? 0;
+        } else {
+          perSize[l.size] = l.qty_ordered || 0;
+        }
       }
       let totalQty = Object.values(perSize).reduce((a, q) => a + (q || 0), 0);
 
