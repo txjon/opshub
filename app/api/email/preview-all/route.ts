@@ -4,6 +4,7 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { renderBrandedEmail, trackingBlock, missingAttachmentBlock } from "@/lib/email-template";
 
 // POST /api/email/preview-all
 // Sends one preview of each active email template to { to } (defaults to
@@ -19,32 +20,12 @@ const FROM_ADDR = () => process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro
 const FROM_PO = () => process.env.EMAIL_FROM_PO || FROM_ADDR();
 
 const DEMO_FOOTER =
-  `<hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 12px"/>` +
-  `<p style="font-size:10px;color:#aaa;line-height:1.5">` +
+  `<div style="max-width:560px;margin:0 auto;padding:0 20px;">` +
+  `<hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0;"/>` +
+  `<p style="font-size:10px;color:#aaa;line-height:1.5;font-family:-apple-system,sans-serif;">` +
   `<em>[PREVIEW] This is a rendered sample of what OpsHub would send. ` +
   `No data was written, no client was notified, no state changed. ` +
-  `For review only.</em></p>`;
-
-function missingAttachmentNote(expected: string, error: string | null) {
-  return `<div style="margin:20px 0;padding:12px 14px;background:#fef9ee;border:1px solid #f5dfa8;border-radius:6px;font-size:11px;color:#b45309">` +
-    `<strong>⚠ Expected attachment missing:</strong> ${expected}<br/>` +
-    `<span style="font-size:10px;opacity:0.8">` +
-    `Sample job couldn't render this PDF${error ? `: ${error}` : "."} In real sends this attachment would appear.` +
-    `</span></div>`;
-}
-
-function portalBtn(url: string | null, label = "View in Portal") {
-  if (!url) return "";
-  return `<a href="${url}" style="display:inline-block;padding:10px 24px;background:#f3f3f5;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px;border:1px solid #dcdce0">${label}</a>`;
-}
-function approveBtn(url: string | null) {
-  if (!url) return "";
-  return `<a href="${url}" style="display:inline-block;padding:12px 28px;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">Approve Quote</a>`;
-}
-function payBtn(url: string | null) {
-  if (!url) return "";
-  return `<a href="${url}" style="display:inline-block;padding:12px 28px;background:#34c97a;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">Pay Online</a>`;
-}
+  `For review only.</em></p></div>`;
 
 type PdfResult = { buffer: Buffer | null; status: number; error: string | null; size: number };
 
@@ -156,7 +137,9 @@ export async function POST(req: NextRequest) {
     const { Resend } = await import("resend");
     const resend = new Resend(process.env.RESEND_API_KEY);
 
-    const trackingLine = `<p>Tracking: <strong>1Z999AA10123456784</strong> · UPS</p>`;
+    // Sample tracking for shipping email previews
+    const sampleTracking = "1Z999AA10123456784";
+    const sampleCarrier = "UPS";
 
     type PreviewEmail = {
       key: string;
@@ -173,12 +156,14 @@ export async function POST(req: NextRequest) {
         from: FROM_ADDR(),
         subject: `[PREVIEW] Quote ${jobNum} — House Party Distro`,
         html:
-          `<p>Hi ${clientName},</p>` +
-          `<p>Your quote ${jobNum} is attached for review. When you're ready to move forward, you can approve it directly in your portal, or request changes if anything needs a second pass.</p>` +
-          `<p style="margin:20px 0;display:flex;gap:10px">${approveBtn(portalUrl)} ${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party,<br/>House Party Distro</p>` +
-          (quotePdf.buffer ? "" : missingAttachmentNote(`HPD-Quote-${jobNum}.pdf`, quotePdf.error)) +
-          DEMO_FOOTER,
+          renderBrandedEmail({
+            heading: `Quote ${jobNum}`,
+            greeting: `Hi ${clientName},`,
+            bodyHtml: `Your quote ${jobNum} is attached for review. When you're ready to move forward, you can approve it directly in your portal, or request changes if anything needs a second pass.`,
+            extraHtml: quotePdf.buffer ? "" : missingAttachmentBlock(`HPD-Quote-${jobNum}.pdf`, quotePdf.error),
+            cta: portalUrl ? { label: "Approve Quote", url: portalUrl, style: "dark" } : undefined,
+            secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
+          }) + DEMO_FOOTER,
         attachments: quotePdf.buffer ? [{ filename: `HPD-Quote-${jobNum}.pdf`, content: quotePdf.buffer.toString("base64") }] : [],
       },
       // 2. Invoice
@@ -187,12 +172,14 @@ export async function POST(req: NextRequest) {
         from: FROM_ADDR(),
         subject: `[PREVIEW] Invoice ${invoiceNum} — House Party Distro`,
         html:
-          `<p>Hi ${clientName},</p>` +
-          `<p>Your invoice #${invoiceNum} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.</p>` +
-          `<p style="margin:20px 0;display:flex;gap:10px">${payBtn(qbPaymentLink || "https://example.com/pay")} ${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party,<br/>House Party Distro</p>` +
-          (invoicePdf.buffer ? "" : missingAttachmentNote(`HPD-Invoice-${invoiceNum}.pdf`, invoicePdf.error)) +
-          DEMO_FOOTER,
+          renderBrandedEmail({
+            heading: `Invoice #${invoiceNum}`,
+            greeting: `Hi ${clientName},`,
+            bodyHtml: `Your invoice #${invoiceNum} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`,
+            extraHtml: invoicePdf.buffer ? "" : missingAttachmentBlock(`HPD-Invoice-${invoiceNum}.pdf`, invoicePdf.error),
+            cta: { label: "Pay Online", url: qbPaymentLink || "https://example.com/pay", style: "green" },
+            secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
+          }) + DEMO_FOOTER,
         attachments: invoicePdf.buffer ? [{ filename: `HPD-Invoice-${invoiceNum}.pdf`, content: invoicePdf.buffer.toString("base64") }] : [],
       },
       // 3. Proof ready
@@ -201,136 +188,145 @@ export async function POST(req: NextRequest) {
         from: FROM_ADDR(),
         subject: `[PREVIEW] Proof ready for review — ${clientName} · ${projectTitle}`,
         html:
-          `<p>Hi ${clientName},</p>` +
-          `<p>A proof is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.</p>` +
-          `<p style="margin:20px 0">${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party,<br/>House Party Distro</p>` + DEMO_FOOTER,
+          renderBrandedEmail({
+            heading: "Proof ready for review",
+            greeting: `Hi ${clientName},`,
+            bodyHtml: `A proof is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.`,
+            cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
+          }) + DEMO_FOOTER,
       },
-      // 5. Drop-ship shipment
+      // 4. Drop-ship shipment
       {
         key: "order_shipped_vendor",
         from: FROM_ADDR(),
         subject: `[PREVIEW] Part of your order has shipped — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`,
         html:
-          `<p>Hi ${clientName},</p>` +
-          `<p>Part of your order for Invoice ${invoiceNum} · ${projectTitle} has shipped, packing slip attached.</p>` +
-          trackingLine +
-          `<p style="margin:16px 0">${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party!<br/>House Party Distro</p>` +
-          (packingSlipPdf.buffer ? "" : missingAttachmentNote(`HPD-PackingSlip-${invoiceNum}-SampleVendor.pdf`, packingSlipPdf.error)) +
-          DEMO_FOOTER,
+          renderBrandedEmail({
+            heading: "Part of your order has shipped",
+            greeting: `Hi ${clientName},`,
+            bodyHtml: `Part of your order for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has shipped. The packing slip is attached.`,
+            extraHtml: trackingBlock(sampleTracking, sampleCarrier) + (packingSlipPdf.buffer ? "" : missingAttachmentBlock(`HPD-PackingSlip-${invoiceNum}-SampleVendor.pdf`, packingSlipPdf.error)),
+            cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
+            closing: "Welcome to the party!\nHouse Party Distro",
+          }) + DEMO_FOOTER,
         attachments: packingSlipPdf.buffer ? [{ filename: `HPD-PackingSlip-${invoiceNum}-SampleVendor.pdf`, content: packingSlipPdf.buffer.toString("base64") }] : [],
       },
-      // 6. Ship-through shipment
+      // 5. Ship-through shipment
       {
         key: "order_shipped_hpd",
         from: FROM_ADDR(),
         subject: `[PREVIEW] Your order has shipped — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`,
         html:
-          `<p>Hi ${clientName},</p>` +
-          `<p>Your order for ${projectTitle} has shipped from House Party Distro. The packing slip is attached.</p>` +
-          trackingLine +
-          `<p style="margin:16px 0">${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party!<br/>House Party Distro</p>` +
-          (packingSlipPdf.buffer ? "" : missingAttachmentNote(`HPD-PackingSlip-${invoiceNum}.pdf`, packingSlipPdf.error)) +
-          DEMO_FOOTER,
+          renderBrandedEmail({
+            heading: "Your order has shipped",
+            greeting: `Hi ${clientName},`,
+            bodyHtml: `Your order for <strong>${projectTitle}</strong> has shipped. The packing slip is attached.`,
+            extraHtml: trackingBlock(sampleTracking, sampleCarrier) + (packingSlipPdf.buffer ? "" : missingAttachmentBlock(`HPD-PackingSlip-${invoiceNum}.pdf`, packingSlipPdf.error)),
+            cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
+            closing: "Welcome to the party!\nHouse Party Distro",
+          }) + DEMO_FOOTER,
         attachments: packingSlipPdf.buffer ? [{ filename: `HPD-PackingSlip-${invoiceNum}.pdf`, content: packingSlipPdf.buffer.toString("base64") }] : [],
       },
-      // 7. Stage shipment (same copy as 6, fired from Fulfillment)
+      // 6. Production complete (stage route — NEW)
       {
-        key: "order_shipped_stage",
+        key: "production_complete",
         from: FROM_ADDR(),
-        subject: `[PREVIEW] Your order has shipped — ${clientName} · Invoice ${invoiceNum} · ${projectTitle} (stage route)`,
+        subject: `[PREVIEW] Production complete — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`,
         html:
-          `<p>Hi ${clientName},</p>` +
-          `<p>Your order for ${projectTitle} has shipped from House Party Distro. The packing slip is attached.</p>` +
-          trackingLine +
-          `<p style="margin:16px 0">${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party!<br/>House Party Distro</p>` +
-          (packingSlipPdf.buffer ? "" : missingAttachmentNote(`HPD-PackingSlip-${invoiceNum}.pdf`, packingSlipPdf.error)) +
-          DEMO_FOOTER,
-        attachments: packingSlipPdf.buffer ? [{ filename: `HPD-PackingSlip-${invoiceNum}.pdf`, content: packingSlipPdf.buffer.toString("base64") }] : [],
+          renderBrandedEmail({
+            heading: "Production complete",
+            greeting: `Hi ${clientName},`,
+            bodyHtml: `Production for <strong>${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment. We'll send shipping confirmation as soon as your order heads out.`,
+            cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
+          }) + DEMO_FOOTER,
       },
-      // 8. Revised invoice
+      // 7. Revised invoice
       {
         key: "invoice_revised",
         from: FROM_ADDR(),
         subject: `[PREVIEW] Revised invoice ${invoiceNum} — ${clientName} · ${projectTitle}`,
         html:
-          `<p>Hi ${clientName},</p>` +
-          `<p>Your invoice ${invoiceNum} has been updated with final shipped quantities. The revised copy is attached and waiting in your portal.</p>` +
-          `<p style="margin:20px 0;display:flex;gap:10px">${payBtn(qbPaymentLink || "https://example.com/pay")} ${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party,<br/>House Party Distro</p>` +
-          (invoicePdf.buffer ? "" : missingAttachmentNote(`HPD-Invoice-${invoiceNum}-Revised.pdf`, invoicePdf.error)) +
-          DEMO_FOOTER,
+          renderBrandedEmail({
+            heading: `Revised invoice #${invoiceNum}`,
+            greeting: `Hi ${clientName},`,
+            bodyHtml: `Your invoice #${invoiceNum} has been updated with final shipped quantities. The revised copy is attached and waiting in your portal.`,
+            extraHtml: invoicePdf.buffer ? "" : missingAttachmentBlock(`HPD-Invoice-${invoiceNum}-Revised.pdf`, invoicePdf.error),
+            cta: { label: "Pay Online", url: qbPaymentLink || "https://example.com/pay", style: "green" },
+            secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
+          }) + DEMO_FOOTER,
         attachments: invoicePdf.buffer ? [{ filename: `HPD-Invoice-${invoiceNum}-Revised.pdf`, content: invoicePdf.buffer.toString("base64") }] : [],
       },
-      // 9. Payment received
+      // 8. Payment received
       {
         key: "payment_received",
         from: FROM_ADDR(),
-        subject: `[PREVIEW] Payment received — ${clientName} · ${projectTitle}`,
+        subject: `[PREVIEW] Payment received — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`,
         html:
-          `<p>Hi ${clientName},</p>` +
-          `<p>Payment of <strong>$2,450.00</strong> received for ${projectTitle}. Appreciate you.</p>` +
-          `<p style="margin:20px 0">${portalBtn(portalUrl)}</p>` +
-          `<p>Welcome to the party,<br/>House Party Distro</p>` + DEMO_FOOTER,
+          renderBrandedEmail({
+            heading: "Payment received",
+            greeting: `Hi ${clientName},`,
+            bodyHtml: `Payment of <strong>$2,450.00</strong> received for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong>. Appreciate you.`,
+            cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
+          }) + DEMO_FOOTER,
       },
-      // 10. Purchase order (decorator-facing)
+      // 9. Purchase order (decorator-facing)
       {
         key: "po",
         from: FROM_PO(),
         subject: `[PREVIEW] HPD PO# ${invoiceNum} — House Party Distro`,
         html:
-          `<p>Hi,</p>` +
-          `<p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p>` +
-          `<p style="margin:16px 0"><a href="${BASE_URL()}/portal/vendor/preview" style="display:inline-block;padding:10px 24px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px">View in Vendor Portal</a></p>` +
-          `<p>You can confirm receipt, update production status, and enter tracking directly from the portal.</p>` +
-          `<p>Thanks,<br/>House Party Distro</p>` +
-          (poPdf.buffer ? "" : missingAttachmentNote(`HPD-PO-${invoiceNum}.pdf`, poPdf.error)) +
-          DEMO_FOOTER,
+          renderBrandedEmail({
+            heading: `Purchase order ${invoiceNum}`,
+            greeting: "Hi,",
+            bodyHtml: `Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.`,
+            extraHtml: poPdf.buffer ? "" : missingAttachmentBlock(`HPD-PO-${invoiceNum}.pdf`, poPdf.error),
+            cta: { label: "View in Vendor Portal", url: `${BASE_URL()}/portal/vendor/preview`, style: "dark" },
+            hint: "You can confirm receipt, update production status, and enter tracking directly from the portal.",
+            closing: "Thanks,\nHouse Party Distro",
+          }) + DEMO_FOOTER,
         attachments: poPdf.buffer ? [{ filename: `HPD-PO-${invoiceNum}.pdf`, content: poPdf.buffer.toString("base64") }] : [],
       },
-      // 11. Art intake (client-facing)
+      // 10. Art intake (client-facing)
       {
         key: "art_intake",
         from: FROM_ADDR(),
         subject: `[PREVIEW] Sample brief — quick brief from House Party Distro`,
         html:
-          `<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:20px">` +
-          `<div style="font-size:11px;color:#888;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px">House Party Distro</div>` +
-          `<h1 style="font-size:22px;margin:0 0 14px">Quick art brief — 2 minutes</h1>` +
-          `<p style="font-size:14px;color:#444;line-height:1.5;margin:0 0 16px">Hi ${clientName},<br/><br/>` +
-          `To kick off <strong>Sample Brief</strong>, we need a few things from you — what it's for, some reference images, and a vibe. Your link below is a permanent home for every art request we have in flight together, so you can come back any time.</p>` +
-          `<a href="${artIntakePortalExample}" style="display:inline-block;padding:12px 24px;background:#222;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Open your art requests →</a>` +
-          `<p style="font-size:12px;color:#888;margin-top:20px">Bookmark this link. Every art request we have in motion for you lives here.</p>` +
-          `</div>` + DEMO_FOOTER,
+          renderBrandedEmail({
+            heading: "Quick art brief — 2 minutes",
+            greeting: `Hi ${clientName},`,
+            bodyHtml: `To kick off <strong>Sample Brief</strong>, we need a few things from you — what it's for, some reference images, and a vibe. Your link below is a permanent home for every art request we have in flight together, so you can come back any time.`,
+            cta: { label: "Open your art requests →", url: artIntakePortalExample, style: "dark" },
+            hint: "Bookmark this link. Every art request we have in motion for you lives here.",
+            closing: "",
+          }) + DEMO_FOOTER,
       },
-      // 12. New art brief (designer-facing)
+      // 11. New art brief (designer-facing)
       {
         key: "new_art_brief",
         from: FROM_ADDR(),
         subject: `[PREVIEW] New art brief: Sample Brief`,
         html:
-          `<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:20px">` +
-          `<div style="font-size:11px;color:#888;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px">House Party Distro</div>` +
-          `<h1 style="font-size:22px;margin:0 0 16px">New brief for ${clientName}</h1>` +
-          `<p style="font-size:14px;color:#444;line-height:1.5"><strong>Sample Brief</strong> is ready for you to work on.</p>` +
-          `<a href="${designerPortalExample}" style="display:inline-block;margin-top:14px;padding:12px 24px;background:#222;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Open your dashboard →</a>` +
-          `<p style="font-size:12px;color:#888;margin-top:20px">This link is permanent — bookmark it and come back anytime.</p>` +
-          `</div>` + DEMO_FOOTER,
+          renderBrandedEmail({
+            heading: `New brief for ${clientName}`,
+            bodyHtml: `<strong>Sample Brief</strong> is ready for you to work on.`,
+            cta: { label: "Open your dashboard →", url: designerPortalExample, style: "dark" },
+            hint: "This link is permanent — bookmark it and come back anytime.",
+            closing: "",
+          }) + DEMO_FOOTER,
       },
-      // 13. Daily digest (owner internal)
+      // 12. Daily digest (owner internal)
       {
         key: "daily_digest",
         from: FROM_ADDR(),
         subject: `[PREVIEW] OpsHub · 🟡 3 alerts — ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
         html:
-          `<div style="font-family:sans-serif;max-width:600px">` +
-          `<h2 style="margin:0 0 16px">OpsHub Daily Digest</h2>` +
-          `<p style="color:#666;margin:0 0 20px">${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} · 3 alerts</p>` +
-          `<h3 style="color:#d97706;margin:16px 0 8px">Action Needed (3)</h3>` +
-          `<ul style="margin:0;padding-left:20px">` +
+          `<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px 20px;color:#111">` +
+          `<div style="font-size:11px;color:#888;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px">OpsHub</div>` +
+          `<h1 style="font-size:24px;margin:0 0 6px;font-weight:700;letter-spacing:-0.01em;">Daily digest</h1>` +
+          `<p style="color:#666;margin:0 0 20px;font-size:13px">${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} · 3 alerts</p>` +
+          `<h3 style="color:#d97706;margin:16px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.06em">Action needed (3)</h3>` +
+          `<ul style="margin:0;padding-left:20px;color:#444">` +
           `<li style="margin:4px 0;font-size:14px">Quote HPD-2604-012 awaiting client approval for 5 days</li>` +
           `<li style="margin:4px 0;font-size:14px">Invoice #1234 overdue by 2 days — ${clientName}</li>` +
           `<li style="margin:4px 0;font-size:14px">${projectTitle} has items stalled in production for 7+ days</li>` +

@@ -171,11 +171,21 @@ export default function WarehousePage() {
         ...j,
         items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now } : it),
       }));
-      // Auto-switch tab when all items in a job are received
+      // Auto-switch tab + fire client emails when all items received
       const job = updated.find(j => j.items.some(it => it.id === item.id));
       if (job && job.items.every(it => it.received_at_hpd)) {
         const dest = job.shipping_route === "stage" ? "fulfillment" : "shipping";
         setTimeout(() => setActiveTab(dest), 0);
+
+        // Stage route: fire "production complete — ready for fulfillment"
+        // email to client. Idempotency in notify route guards against dupes.
+        if (job.shipping_route === "stage") {
+          fetch("/api/email/notify", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "production_complete", jobId: job.id }),
+          }).catch(() => {});
+          logJobActivity(job.id, "Production complete — email sent to client");
+        }
       }
       return updated;
     });
@@ -220,21 +230,24 @@ export default function WarehousePage() {
       logJobActivity(jobId, "Fulfillment complete — order shipped to client");
       notifyTeam("Order shipped to client", "production", jobId, "job");
 
-      // Ship_through + stage: email client with packing slip + create invoice-ready notification.
-      // Notify route idempotency prevents dupe sends if this fires twice.
+      // Ship_through: email client with packing slip + invoice-ready notification.
+      // Stage: no client email here — fulfillment-shipped email is a future
+      // feature with its own copy (see roadmap). Internal invoice-ready
+      // notification still fires so manager can review variance.
       const { data: job } = await supabase.from("jobs").select("shipping_route, title, fulfillment_tracking, clients(name)").eq("id", jobId).single();
       const route = (job as any)?.shipping_route;
-      if (route === "ship_through" || route === "stage") {
-        const emailType = route === "ship_through" ? "order_shipped_hpd" : "order_shipped_stage";
+      if (route === "ship_through") {
         fetch("/api/email/notify", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            type: emailType,
+            type: "order_shipped_hpd",
             jobId,
             trackingNumber: (job as any).fulfillment_tracking || null,
           }),
         }).catch(() => {});
         logJobActivity(jobId, "Order shipped email sent to client");
+      }
+      if (route === "ship_through" || route === "stage") {
         await createInvoiceReadyNotification(jobId, (job as any).title || "", (job as any).clients?.name || "");
         logJobActivity(jobId, `${route === "ship_through" ? "Ship-through" : "Stage/Fulfillment"} complete — invoice ready to update with received qtys`);
       }

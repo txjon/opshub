@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { renderBrandedEmail } from "@/lib/email-template";
 
 export async function POST(req: NextRequest) {
   try {
@@ -37,19 +38,13 @@ export async function POST(req: NextRequest) {
       try {
         const subject = `New art brief: ${brief.title || "Untitled"}`;
         const clientName = (brief as any).clients?.name || "a client";
-        const html = `
-          <div style="font-family: -apple-system, sans-serif; max-width: 560px; margin: 0 auto; padding: 20px;">
-            <div style="font-size: 11px; color: #888; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px;">House Party Distro</div>
-            <h1 style="font-size: 22px; margin: 0 0 16px;">New brief for ${clientName}</h1>
-            <p style="font-size: 14px; color: #444; line-height: 1.5;">
-              <strong>${brief.title || "Untitled Brief"}</strong> is ready for you to work on.
-            </p>
-            <a href="${portalUrl}" style="display: inline-block; margin-top: 14px; padding: 12px 24px; background: #222; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
-              Open your dashboard →
-            </a>
-            <p style="font-size: 12px; color: #888; margin-top: 20px;">This link is permanent — bookmark it and come back anytime.</p>
-          </div>
-        `;
+        const html = renderBrandedEmail({
+          heading: `New brief for ${clientName}`,
+          bodyHtml: `<strong>${brief.title || "Untitled Brief"}</strong> is ready for you to work on.`,
+          cta: { label: "Open your dashboard →", url: portalUrl, style: "dark" },
+          hint: "This link is permanent — bookmark it and come back anytime.",
+          closing: "",
+        });
         const resendRes = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },

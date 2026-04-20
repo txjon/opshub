@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import crypto from "crypto";
+import { renderBrandedEmail } from "@/lib/email-template";
 
 // POST — email the client intake link to the client's contacts.
 // Body: { brief_id, to_emails?: string[], note?: string }
@@ -80,34 +81,26 @@ export async function POST(req: NextRequest) {
     }
 
     const noteHtml = note?.trim()
-      ? `<p style="font-size: 14px; color: #444; line-height: 1.5; margin: 0 0 16px;">${note.trim().replace(/\n/g, "<br/>")}</p>`
+      ? `<p style="font-size:14px;color:#444;line-height:1.55;margin:0 0 16px;">${note.trim().replace(/\n/g, "<br/>")}</p>`
       : "";
 
     const lead = multipleRequestsLikely
       ? `To kick off <strong>${title}</strong>, we need a few things from you — what it's for, some reference images, and a vibe. Your link below is a permanent home for every art request we have in flight together, so you can come back any time.`
       : `To kick off <strong>${title}</strong>, we need just a few things from you — what it's for, some reference images, and a vibe. It takes two minutes.`;
 
-    const cta = multipleRequestsLikely ? "Open your art requests →" : "Open the brief →";
+    const ctaLabel = multipleRequestsLikely ? "Open your art requests →" : "Open the brief →";
 
-    const html = `
-      <div style="font-family: -apple-system, sans-serif; max-width: 560px; margin: 0 auto; padding: 20px;">
-        <div style="font-size: 11px; color: #888; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px;">House Party Distro</div>
-        <h1 style="font-size: 22px; margin: 0 0 14px;">Quick art brief — 2 minutes</h1>
-        <p style="font-size: 14px; color: #444; line-height: 1.5; margin: 0 0 16px;">
-          Hi ${clientName},<br/><br/>
-          ${lead}
-        </p>
-        ${noteHtml}
-        <a href="${portalUrl}" style="display: inline-block; padding: 12px 24px; background: #222; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
-          ${cta}
-        </a>
-        <p style="font-size: 12px; color: #888; margin-top: 20px;">
-          ${multipleRequestsLikely
-            ? "Bookmark this link. Every art request we have in motion for you lives here."
-            : "The link is permanent — come back anytime to update your answers."}
-        </p>
-      </div>
-    `;
+    const html = renderBrandedEmail({
+      heading: "Quick art brief — 2 minutes",
+      greeting: `Hi ${clientName},`,
+      bodyHtml: lead,
+      extraHtml: noteHtml,
+      cta: { label: ctaLabel, url: portalUrl, style: "dark" },
+      hint: multipleRequestsLikely
+        ? "Bookmark this link. Every art request we have in motion for you lives here."
+        : "The link is permanent — come back anytime to update your answers.",
+      closing: "",
+    });
 
     const resendRes = await fetch("https://api.resend.com/emails", {
       method: "POST",

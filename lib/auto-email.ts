@@ -5,6 +5,7 @@
  */
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
+import { renderBrandedEmail } from "@/lib/email-template";
 
 const admin = () =>
   createClient(
@@ -92,32 +93,32 @@ export async function sendClientNotification(params: NotifyParams) {
     const portalUrl = job.portal_token
       ? `${baseUrl}/portal/${job.portal_token}`
       : null;
-    const portalButton = portalUrl
-      ? `<p style="margin:20px 0"><a href="${portalUrl}" style="display:inline-block;padding:12px 28px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">View Project Portal</a></p>`
-      : "";
 
     // Build email content based on type
     let subject = "";
     let html = "";
     const from = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-    const displayNum = (job as any).type_meta?.qb_invoice_number || job.job_number;
-    const projectRef = `${job.title}${displayNum ? ` (${displayNum})` : ""}`;
+    const invoiceNum = (job as any).type_meta?.qb_invoice_number || job.job_number || "";
 
     switch (params.type) {
       case "proof_ready":
         subject = `Proof ready for review — ${clientName} · ${job.title}`;
-        html = `<p>Hi ${clientName},</p>
-<p>A proof is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.</p>
-${portalButton}
-<p>Welcome to the party,<br/>House Party Distro</p>`;
+        html = renderBrandedEmail({
+          heading: "Proof ready for review",
+          greeting: `Hi ${clientName},`,
+          bodyHtml: `A proof is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.`,
+          cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
+        });
         break;
 
       case "payment_received":
-        subject = `Payment received — ${clientName} · ${job.title}`;
-        html = `<p>Hi ${clientName},</p>
-<p>Payment${params.amount ? ` of <strong>$${params.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong>` : ""} received for ${job.title}. Appreciate you.</p>
-${portalButton}
-<p>Welcome to the party,<br/>House Party Distro</p>`;
+        subject = `Payment received — ${clientName} · Invoice ${invoiceNum} · ${job.title}`;
+        html = renderBrandedEmail({
+          heading: "Payment received",
+          greeting: `Hi ${clientName},`,
+          bodyHtml: `Payment${params.amount ? ` of <strong>$${params.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong>` : ""} received for <strong>Invoice ${invoiceNum} · ${job.title}</strong>. Appreciate you.`,
+          cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
+        });
         break;
     }
 

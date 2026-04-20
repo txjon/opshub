@@ -6,6 +6,7 @@ import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getPortalUrl, getVendorPortalUrl } from "@/lib/auto-email";
+import { renderBrandedEmail } from "@/lib/email-template";
 
 export async function POST(req: NextRequest) {
   try {
@@ -79,29 +80,8 @@ export async function POST(req: NextRequest) {
       qbPaymentLink = jobData?.type_meta?.qb_payment_link || "";
     }
 
-    const payButton = qbPaymentLink
-      ? `<p style="margin:20px 0"><a href="${qbPaymentLink}" style="display:inline-block;padding:12px 28px;background:#34c97a;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">Pay Online</a></p>`
-      : "";
-
-    // Portal link for client-facing emails (quote, invoice — not PO)
-    let portalButton = "";
-    let approveButton = "";
-    if (type !== "po") {
-      const portalUrl = await getPortalUrl(jobId);
-      if (portalUrl) {
-        portalButton = `<a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#f3f3f5;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px;border:1px solid #dcdce0">View in Portal</a>`;
-        approveButton = `<a href="${portalUrl}" style="display:inline-block;padding:12px 28px;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:14px">Approve Quote</a>`;
-      }
-    }
-
-    // Vendor portal link for PO emails
-    let vendorPortalButton = "";
-    if (type === "po" && vendor) {
-      const vendorPortalUrl = await getVendorPortalUrl(vendor);
-      if (vendorPortalUrl) {
-        vendorPortalButton = `<p style="margin:16px 0"><a href="${vendorPortalUrl}" style="display:inline-block;padding:10px 24px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px">View in Vendor Portal</a></p>`;
-      }
-    }
+    const portalUrl = type !== "po" ? await getPortalUrl(jobId) : null;
+    const vendorPortalUrl = type === "po" && vendor ? await getVendorPortalUrl(vendor) : null;
 
     // Reply-to with plus-addressing for Gmail poller matching
     let replyTo: string | undefined;
@@ -119,10 +99,29 @@ export async function POST(req: NextRequest) {
       ...(replyTo ? { replyTo: replyTo } : {}),
       subject: defaultSubject,
       html: type === "quote"
-        ? `<p>Hi ${clientGreeting},</p><p>Your quote ${jobNum || ""} is attached for review. When you're ready to move forward, you can approve it directly in your portal, or request changes if anything needs a second pass.</p><p style="margin:20px 0;display:flex;gap:10px">${approveButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
+        ? renderBrandedEmail({
+            heading: `Quote ${jobNum || ""}`.trim(),
+            greeting: `Hi ${clientGreeting},`,
+            bodyHtml: `Your quote ${jobNum || ""} is attached for review. When you're ready to move forward, you can approve it directly in your portal, or request changes if anything needs a second pass.`,
+            cta: portalUrl ? { label: "Approve Quote", url: portalUrl, style: "dark" } : undefined,
+            secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
+          })
         : type === "invoice"
-        ? `<p>Hi ${clientGreeting},</p><p>Your invoice ${qbInvNum ? `#${qbInvNum}` : ""} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.</p><p style="margin:20px 0;display:flex;gap:10px">${payButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
-        : `<p>Hi,</p><p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p>${vendorPortalButton}<p>You can confirm receipt, update production status, and enter tracking directly from the portal.</p><p>Thanks,<br/>House Party Distro</p>`,
+        ? renderBrandedEmail({
+            heading: `Invoice${qbInvNum ? ` #${qbInvNum}` : ""}`,
+            greeting: `Hi ${clientGreeting},`,
+            bodyHtml: `Your invoice${qbInvNum ? ` #${qbInvNum}` : ""} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`,
+            cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
+            secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
+          })
+        : renderBrandedEmail({
+            heading: `Purchase order${qbInvNum ? ` ${qbInvNum}` : ""}`,
+            greeting: `Hi,`,
+            bodyHtml: `Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.`,
+            cta: vendorPortalUrl ? { label: "View in Vendor Portal", url: vendorPortalUrl, style: "dark" } : undefined,
+            hint: `You can confirm receipt, update production status, and enter tracking directly from the portal.`,
+            closing: "Thanks,\nHouse Party Distro",
+          }),
       attachments: [
         {
           filename,
