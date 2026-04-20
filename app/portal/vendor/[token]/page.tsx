@@ -499,46 +499,63 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                         )}
 
                         {/* ── Actions ── */}
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-                          {item.pipelineStage === "pending" && (
-                            <button
-                              onClick={() => setConfirmAction({ itemId: item.id, action: "confirm_received", label: `Confirm ${item.name} received?` })}
-                              style={{
-                                padding: "8px 16px", borderRadius: 8,
-                                background: C.accent, color: "#fff", border: "none",
-                                fontSize: 12, fontWeight: 600, cursor: "pointer",
-                              }}>
-                              Confirm Received
-                            </button>
-                          )}
-                          {item.pipelineStage === "in_production" && !item.shipTracking && (
-                            <button
-                              onClick={() => setShowTracking(showTracking === item.id ? null : item.id)}
-                              style={{
-                                padding: "8px 16px", borderRadius: 8,
-                                background: C.green, color: "#fff", border: "none",
-                                fontSize: 12, fontWeight: 600, cursor: "pointer",
-                              }}>
-                              Enter Tracking
-                            </button>
-                          )}
-                          {item.shipTracking && (
-                            <div style={{ fontSize: 12, color: C.green, fontWeight: 600, padding: "8px 0" }}>
-                              Tracking: {item.shipTracking}
+                        {(() => {
+                          const isShipped = item.pipelineStage === "shipped" || item.pipelineStage === "complete" || !!item.shipTracking;
+                          const alreadyReceived = item.pipelineStage === "in_production" || item.pipelineStage === "blanks_received" || isShipped;
+                          return (
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                              {/* Mark Blanks Received — visible until shipped */}
+                              {!isShipped && (
+                                <button
+                                  onClick={() => setConfirmAction({ itemId: item.id, action: "confirm_received", label: `Mark ${item.name} blanks as received?` })}
+                                  disabled={alreadyReceived}
+                                  style={{
+                                    padding: "8px 16px", borderRadius: 8,
+                                    background: alreadyReceived ? C.greenBg : C.accent,
+                                    color: alreadyReceived ? C.green : "#fff",
+                                    border: alreadyReceived ? `1px solid ${C.greenBorder}` : "none",
+                                    fontSize: 12, fontWeight: 600,
+                                    cursor: alreadyReceived ? "default" : "pointer",
+                                  }}>
+                                  {alreadyReceived ? "✓ Blanks Received" : "Mark Blanks Received"}
+                                </button>
+                              )}
+
+                              {/* Enter Tracking — visible until shipped */}
+                              {!isShipped && (
+                                <button
+                                  onClick={() => setShowTracking(showTracking === item.id ? null : item.id)}
+                                  style={{
+                                    padding: "8px 16px", borderRadius: 8,
+                                    background: C.green, color: "#fff", border: "none",
+                                    fontSize: 12, fontWeight: 600, cursor: "pointer",
+                                  }}>
+                                  {showTracking === item.id ? "Cancel" : "Enter Tracking + Ship Qtys"}
+                                </button>
+                              )}
+
+                              {/* Shipped state */}
+                              {item.shipTracking && (
+                                <div style={{ fontSize: 12, color: C.green, fontWeight: 600, padding: "8px 0" }}>
+                                  Tracking: {item.shipTracking}
+                                </div>
+                              )}
+
+                              {/* Report Discrepancy — always visible on unshipped items */}
+                              {!isShipped && (
+                                <button
+                                  onClick={() => setShowIssue(showIssue === item.id ? null : item.id)}
+                                  style={{
+                                    padding: "8px 16px", borderRadius: 8,
+                                    background: "transparent", color: C.amber, border: `1px solid ${C.amberBorder}`,
+                                    fontSize: 12, fontWeight: 600, cursor: "pointer",
+                                  }}>
+                                  {showIssue === item.id ? "Cancel" : "Report Discrepancy"}
+                                </button>
+                              )}
                             </div>
-                          )}
-                          {item.pipelineStage !== "shipped" && item.pipelineStage !== "complete" && (
-                            <button
-                              onClick={() => setShowIssue(showIssue === item.id ? null : item.id)}
-                              style={{
-                                padding: "8px 16px", borderRadius: 8,
-                                background: "transparent", color: C.amber, border: `1px solid ${C.amberBorder}`,
-                                fontSize: 12, fontWeight: 600, cursor: "pointer",
-                              }}>
-                              Report Discrepancy
-                            </button>
-                          )}
-                        </div>
+                          );
+                        })()}
 
                         {/* Tracking input + per-size ship qtys + packing slip */}
                         {showTracking === item.id && (
