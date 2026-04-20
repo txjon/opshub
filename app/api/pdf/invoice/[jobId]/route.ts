@@ -209,14 +209,36 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const termsRaw = job.payment_terms || "";
     const terms = TERMS_LABELS[termsRaw] || termsRaw.replace(/_/g, " ") || "—";
 
-    // items.sell_per_unit is the source of truth — set by CostingTab (auto-calc or override), rounded to cent
+    // items.sell_per_unit is the source of truth — set by CostingTab (auto-calc or override), rounded to cent.
+    // After variance push, use shipped/received per-size qtys for the invoice
+    // line items so PDF matches what's been billed in QB. Before: use quote qtys.
+    const variancePushed = !!(job.type_meta as any)?.qb_variance_pushed_at;
+    const prefersReceived = (job as any).shipping_route === "ship_through" || (job as any).shipping_route === "stage";
+
     let prods: any[] = [];
     if (costProds.length > 0) {
       prods = costProds.map(p => {
-        const savedQtys = p.qtys || {};
-        const totalQty = p.totalQty || Object.values(savedQtys).reduce((a: number, v: any) => a + v, 0);
-        if (totalQty === 0) return null;
         const dbItem = (items || []).find((it: any) => it.id === p.id);
+        const quotedQtys = p.qtys || {};
+
+        let effectiveQtys: Record<string, number>;
+        if (variancePushed && dbItem) {
+          const received = (dbItem.received_qtys || {}) as Record<string, number>;
+          const shipped = (dbItem.ship_qtys || {}) as Record<string, number>;
+          const firstChoice = prefersReceived ? received : shipped;
+          const secondChoice = prefersReceived ? shipped : received;
+          effectiveQtys = {};
+          for (const sz of Object.keys(quotedQtys)) {
+            const a = firstChoice[sz];
+            const b = secondChoice[sz];
+            effectiveQtys[sz] = a !== undefined ? a : b !== undefined ? b : (quotedQtys[sz] || 0);
+          }
+        } else {
+          effectiveQtys = quotedQtys;
+        }
+
+        const totalQty = Object.values(effectiveQtys).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+        if (totalQty === 0) return null;
         const sellPerUnit = parseFloat(dbItem?.sell_per_unit) || 0;
         const grossRev = Math.round(sellPerUnit * totalQty * 100) / 100;
         if (grossRev === 0) return null;
@@ -224,8 +246,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
           name: p.name || dbItem?.name || "Item",
           style: p.style || dbItem?.blank_vendor || "",
           color: p.color || dbItem?.blank_sku || "",
-          sizes: sortSizes(Object.keys(savedQtys).filter(sz => (savedQtys[sz] || 0) > 0)),
-          qtys: savedQtys,
+          sizes: sortSizes(Object.keys(effectiveQtys).filter(sz => (effectiveQtys[sz] || 0) > 0)),
+          qtys: effectiveQtys,
           totalQty,
           sellPerUnit,
           grossRev,

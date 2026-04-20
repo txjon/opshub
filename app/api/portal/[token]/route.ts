@@ -159,9 +159,12 @@ export async function GET(
       }
     }
 
-    // Build quote items using shared pricing engine (same as quote PDF)
+    // Build quote items — after variance push, use shipped qtys (what's
+    // actually billed); before, use quoted qtys.
     const costingData = job.costing_data as any;
     const costingSummary = job.costing_summary as any;
+    const variancePushed = !!(job.type_meta as any)?.qb_variance_pushed_at;
+    const prefersReceived = job.shipping_route === "ship_through" || job.shipping_route === "stage";
     const quoteItems: any[] = [];
 
     if (costingData?.costProds) {
@@ -169,12 +172,30 @@ export async function GET(
 
       for (const cp of costProds) {
         const item = (items || []).find((i: any) => i.id === cp.id);
-        const totalQty =
-          cp.totalQty ||
-          Object.values(cp.qtys || {}).reduce(
-            (a: number, v: any) => a + (Number(v) || 0),
-            0
-          );
+
+        // Qty source: post-variance we use ship/received per-size with fallback
+        // to quoted qtys; pre-variance we use quoted qtys (costing_data).
+        let effectiveQtys: Record<string, number>;
+        if (variancePushed && item) {
+          const received = (item.received_qtys || {}) as Record<string, number>;
+          const shipped = (item.ship_qtys || {}) as Record<string, number>;
+          const firstChoice = prefersReceived ? received : shipped;
+          const secondChoice = prefersReceived ? shipped : received;
+          const ordered = cp.qtys || {};
+          effectiveQtys = {};
+          for (const sz of Object.keys(ordered)) {
+            const a = firstChoice[sz];
+            const b = secondChoice[sz];
+            effectiveQtys[sz] = a !== undefined ? a : b !== undefined ? b : (ordered[sz] || 0);
+          }
+        } else {
+          effectiveQtys = cp.qtys || {};
+        }
+
+        const totalQty = Object.values(effectiveQtys).reduce(
+          (a: number, v: any) => a + (Number(v) || 0),
+          0
+        );
         if (totalQty <= 0) continue;
 
         // items.sell_per_unit is the source of truth
@@ -185,8 +206,8 @@ export async function GET(
           name: cp.name || item?.name || "Item",
           style: cp.style || item?.blank_sku || "",
           color: cp.color || item?.color || "",
-          sizes: cp.sizes || item?.sizes || [],
-          qtys: cp.qtys || item?.qtys || {},
+          sizes: Object.keys(effectiveQtys).filter(sz => (effectiveQtys[sz] || 0) > 0),
+          qtys: effectiveQtys,
           qty: totalQty,
           sellPerUnit,
           total: grossRev,
@@ -251,6 +272,10 @@ export async function GET(
       },
       invoiceStale: (() => {
         if (!typeMeta.qb_invoice_number) return false;
+        // After variance push, qb total reflects shipped qtys; quoteItems also
+        // now reflect shipped qtys (updated above). If still mismatched, it
+        // means something changed after the push — legitimately stale.
+        // Before variance push, standard pricing comparison.
         const quoteSubtotal = quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0);
         const qbSubtotal = (typeMeta.qb_total_with_tax || 0) - (typeMeta.qb_tax_amount || 0);
         return Math.abs(quoteSubtotal - qbSubtotal) > 0.01;
