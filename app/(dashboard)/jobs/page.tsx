@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 type Job = {
   id: string; title: string; job_type: string; phase: string; priority: string;
@@ -45,6 +46,7 @@ import { T, font, mono } from "@/lib/theme";
 export default function JobsPage() {
   const router = useRouter();
   const supabase = createClient();
+  const isMobile = useIsMobile();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("active");
@@ -153,21 +155,33 @@ export default function JobsPage() {
   return (
     <div style={{ fontFamily: font, color: T.text, display:"flex", flexDirection:"column", gap:14 }}>
       {/* Header */}
-      <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-        <h1 style={{ fontSize:22, fontWeight:700, margin:0, letterSpacing:"-0.02em" }}>Projects</h1>
+      <div style={{ display:"flex", alignItems:isMobile?"stretch":"center", gap:isMobile?10:12, flexDirection:isMobile?"column":"row", flexWrap:"wrap" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
+          <h1 style={{ fontSize:isMobile?20:22, fontWeight:700, margin:0, letterSpacing:"-0.02em" }}>Projects</h1>
+          {isMobile && (
+            <a href="/jobs/new" style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"8px 14px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none", whiteSpace:"nowrap" }}>
+              + New
+            </a>
+          )}
+        </div>
         <input
           value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Search clients, titles, job numbers..."
-          style={{ flex:1, maxWidth:360, padding:"7px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:font, outline:"none" }}
+          style={{ flex:1, maxWidth:isMobile?"100%":360, padding:"7px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:font, outline:"none" }}
         />
-        <a href="/jobs/new" style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"8px 18px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none", whiteSpace:"nowrap" }}>
-          + New Project
-        </a>
+        {!isMobile && (
+          <a href="/jobs/new" style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"8px 18px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none", whiteSpace:"nowrap" }}>
+            + New Project
+          </a>
+        )}
       </div>
 
       {/* Filter + sort bar */}
       <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-        <div style={{ display:"flex", gap:3, background:T.surface, padding:3, borderRadius:8 }}>
+        <div style={{
+          display:"flex", gap:3, background:T.surface, padding:3, borderRadius:8,
+          ...(isMobile ? { overflowX:"auto" as const, maxWidth:"100%", scrollbarWidth:"none" as any, WebkitOverflowScrolling:"touch" as any } : {}),
+        }}>
           {[
             ["active","All Active",jobs.filter(j => !["complete","cancelled"].includes(j.phase)).length],
             ["intake","Intake",phaseCounts.intake],
@@ -181,18 +195,29 @@ export default function JobsPage() {
             ["cancelled","Cancelled",phaseCounts.cancelled],
           ].map(([k,l,count]) => (
             <button key={k as string} onClick={() => setFilter(k as string)}
-              style={{ background:filter===k?T.accent:"transparent", color:filter===k?"#fff":T.muted, border:"none", borderRadius:5, padding:"4px 10px", fontSize:11, fontFamily:font, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
+              style={{ background:filter===k?T.accent:"transparent", color:filter===k?"#fff":T.muted, border:"none", borderRadius:5, padding:"4px 10px", fontSize:11, fontFamily:font, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:4, flexShrink:0, whiteSpace:"nowrap" }}>
               {l as string}
               {(count as number) > 0 && <span style={{ background:filter===k?"rgba(255,255,255,0.25)":T.faint+"44", borderRadius:10, padding:"0 5px", fontSize:9 }}>{count as number}</span>}
             </button>
           ))}
         </div>
-        <div style={{ marginLeft:"auto", display:"flex", gap:0, background:T.surface, borderRadius:8, padding:3 }}>
-          <SortBtn col="client" label="Client" />
-          <SortBtn col="priority" label="Priority" />
-          <SortBtn col="phase" label="Phase" />
-          <SortBtn col="target_ship_date" label="Ship Date" />
-        </div>
+        {!isMobile && (
+          <div style={{ marginLeft:"auto", display:"flex", gap:0, background:T.surface, borderRadius:8, padding:3 }}>
+            <SortBtn col="client" label="Client" />
+            <SortBtn col="priority" label="Priority" />
+            <SortBtn col="phase" label="Phase" />
+            <SortBtn col="target_ship_date" label="Ship Date" />
+          </div>
+        )}
+        {isMobile && (
+          <select value={sortKey} onChange={e => setSortKey(e.target.value)}
+            style={{ marginLeft:"auto", background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"5px 10px", fontSize:11, fontFamily:font, fontWeight:600, color:T.muted, outline:"none", cursor:"pointer" }}>
+            <option value="target_ship_date">Sort: Ship Date</option>
+            <option value="client">Sort: Client</option>
+            <option value="priority">Sort: Priority</option>
+            <option value="phase">Sort: Phase</option>
+          </select>
+        )}
       </div>
 
       {/* Job list */}
@@ -228,6 +253,58 @@ export default function JobsPage() {
           const invNum = job.type_meta?.qb_invoice_number;
           const progress = getItemProgress(job);
 
+          const paid = (job as any).payment_records?.some((p:any) => p.status === "paid");
+          const statusChip = paid
+            ? { label:"Paid", bg:T.greenDim, color:"#2a9e5c" }
+            : invNum
+            ? { label:"Invoice Sent", bg:T.blueDim, color:"#3a8a9e" }
+            : (job as any).quote_approved
+            ? { label:"Quote Approved", bg:T.greenDim, color:"#2a9e5c" }
+            : null;
+
+          if (isMobile) {
+            return (
+              <div key={job.id} onClick={() => router.push(`/jobs/${job.id}`)}
+                style={{ background:T.card, border:`1px solid ${borderColor}`, borderRadius:10, cursor:"pointer", padding:"10px 12px", display:"flex", flexDirection:"column", gap:6 }}>
+                {/* Row 1: Client + priority pill */}
+                <div style={{ display:"flex", alignItems:"flex-start", gap:8, justifyContent:"space-between" }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:T.text, wordBreak:"break-word", lineHeight:1.25, flex:1, minWidth:0 }}>
+                    {job.clients?.name||"No client"}
+                  </div>
+                  {job.priority !== "normal" && (
+                    <span style={{ padding:"2px 8px", borderRadius:99, fontSize:10, fontWeight:700, background:pri.bg, color:pri.text, whiteSpace:"nowrap", flexShrink:0 }}>{pri.label}</span>
+                  )}
+                </div>
+                {/* Row 2: Title · Job # */}
+                <div style={{ fontSize:12, color:T.faint, wordBreak:"break-word", lineHeight:1.35 }}>
+                  {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{invNum || job.job_number}</span>
+                </div>
+                {/* Row 3: phase + progress + units + status */}
+                <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginTop:2 }}>
+                  <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:99, background:phase.bg, color:phase.text, whiteSpace:"nowrap" }}>{phase.label}</span>
+                  {progress && <span style={{ fontSize:10, color:T.muted, fontFamily:mono, whiteSpace:"nowrap" }}>{progress}</span>}
+                  {totalUnits > 0 && <span style={{ fontSize:10, color:T.muted, fontFamily:mono, whiteSpace:"nowrap" }}>{totalUnits.toLocaleString()} units</span>}
+                  {statusChip && (
+                    <span style={{ fontSize:9, fontWeight:600, padding:"2px 7px", borderRadius:99, background:statusChip.bg, color:statusChip.color, whiteSpace:"nowrap" }}>
+                      {statusChip.label}
+                    </span>
+                  )}
+                </div>
+                {/* Row 4: ship date */}
+                {daysLeft !== null && (
+                  <div style={{ display:"flex", alignItems:"baseline", gap:6, fontFamily:mono }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.muted }}>
+                      {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Ships today":daysLeft+"d to ship"}
+                    </span>
+                    <span style={{ fontSize:10, color:T.faint }}>
+                      {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           return (
             <div key={job.id} onClick={() => router.push(`/jobs/${job.id}`)}
               style={{ background:T.card, border:`1px solid ${borderColor}`, borderRadius:10, cursor:"pointer", transition:"background 0.1s", display:"flex", alignItems:"center", gap:14, padding:"10px 14px", height:56 }}
@@ -253,13 +330,7 @@ export default function JobsPage() {
 
               {/* Status — show the single most relevant state */}
               <div style={{ display:"flex", gap:4, alignItems:"center", flex:1 }}>
-                {(() => {
-                  const paid = (job as any).payment_records?.some((p:any) => p.status === "paid");
-                  if (paid) return <span style={{ fontSize:9, fontWeight:600, padding:"3px 8px", borderRadius:99, background:T.greenDim, color:"#2a9e5c", whiteSpace:"nowrap" }}>Paid</span>;
-                  if (invNum) return <span style={{ fontSize:9, fontWeight:600, padding:"3px 8px", borderRadius:99, background:T.blueDim, color:"#3a8a9e", whiteSpace:"nowrap" }}>Invoice Sent</span>;
-                  if (job.quote_approved) return <span style={{ fontSize:9, fontWeight:600, padding:"3px 8px", borderRadius:99, background:T.greenDim, color:"#2a9e5c", whiteSpace:"nowrap" }}>Quote Approved</span>;
-                  return null;
-                })()}
+                {statusChip && <span style={{ fontSize:9, fontWeight:600, padding:"3px 8px", borderRadius:99, background:statusChip.bg, color:statusChip.color, whiteSpace:"nowrap" }}>{statusChip.label}</span>}
               </div>
 
               {/* Units */}
