@@ -16,8 +16,9 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
   const clientName = job?.clients?.name || "";
   const projectTitle = job?.title || "";
 
-  const approvedCount = items.filter(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved").length;
-  const allApproved = items.length > 0 && approvedCount === items.length;
+  // proofStatus.allApproved is OR'd with manualApproved in page.tsx (for
+  // lifecycle gates). Here we need honest per-item file-level approval, so we
+  // recompute from itemFiles loaded below rather than trust proofStatus.
 
   // Load files for all items to find mockups for proof generation
   useEffect(() => {
@@ -88,6 +89,19 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
     reloadFiles();
   }
 
+  // Honest file-level approval — proof files exist and all are approved.
+  // Distinct from manualApproved (artwork_status override).
+  const fileApprovedByItem = {};
+  for (const it of items) {
+    const files = itemFiles[it.id] || [];
+    const proofs = files.filter(f => f.stage === "proof");
+    fileApprovedByItem[it.id] = proofs.length > 0 && proofs.every(f => f.approval === "approved");
+  }
+  const fileApprovedCount = items.filter(it => fileApprovedByItem[it.id]).length;
+  const internalOnlyCount = items.filter(it => !fileApprovedByItem[it.id] && it.artwork_status === "approved").length;
+  const approvedCount = fileApprovedCount + internalOnlyCount;
+  const allApproved = items.length > 0 && approvedCount === items.length;
+
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 12 }}>
 
@@ -96,56 +110,75 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Proof Approvals</div>
           <span style={{ fontSize: 11, fontWeight: 600, color: allApproved ? T.green : T.amber }}>
-            {approvedCount}/{items.length} approved
+            {approvedCount}/{items.length} approved{internalOnlyCount > 0 ? ` · ${internalOnlyCount} internal` : ""}
           </span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {items.map((item, i) => {
-            const fileApproved = proofStatus[item.id]?.allApproved;
+            const files = itemFiles[item.id] || [];
+            const proofFiles = files.filter(f => f.stage === "proof");
+            const hasProof = proofFiles.length > 0;
+            const fileApproved = fileApprovedByItem[item.id];
             const manualApproved = item.artwork_status === "approved";
             const isApproved = fileApproved || manualApproved;
-            const files = itemFiles[item.id] || [];
             const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
-            const hasProofFile = files.some(f => f.stage === "proof" && f.approval && f.approval !== "none");
+            const revisionRequested = proofFiles.some(f => f.approval === "revision_requested");
+            const pendingClient = hasProof && !fileApproved && !revisionRequested;
+            const internalOnly = !fileApproved && manualApproved;
+
+            let pillText = "No proof yet";
+            let pillColor = T.faint;
+            let pillBg = "transparent";
+            let pillBorder = T.border;
+            if (fileApproved) { pillText = "✓ Approved by client"; pillColor = T.green; pillBg = T.greenDim; pillBorder = T.green + "44"; }
+            else if (revisionRequested) { pillText = "⚠ Revision requested"; pillColor = T.amber; pillBg = T.amber + "22"; pillBorder = T.amber + "44"; }
+            else if (internalOnly) { pillText = "✓ Approved (internal)"; pillColor = T.green; pillBg = T.greenDim; pillBorder = T.green + "44"; }
+            else if (pendingClient) { pillText = "Pending client review"; pillColor = T.accent; pillBg = T.accentDim; pillBorder = T.accent + "44"; }
 
             return (
-              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: T.surface, borderRadius: 6, border: `1px solid ${isApproved ? T.green + "44" : T.border}` }}>
+              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: T.surface, borderRadius: 6, border: `1px solid ${isApproved ? T.green + "44" : T.border}` }}>
                 <span style={{ width: 18, height: 18, borderRadius: 4, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
                   {String.fromCharCode(65 + i)}
                 </span>
-                <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  <span style={{ fontSize: 12, fontWeight: 600 }}>{item.name}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>
+                  <div style={{ fontSize: 10, color: T.muted, display: "flex", gap: 10, marginTop: 2 }}>
+                    {hasProof && mockupFile && (
+                      <button onClick={() => setProofModalItem(item)}
+                        style={{ padding: 0, background: "transparent", border: "none", color: T.muted, cursor: "pointer", fontFamily: font, fontSize: 10, textDecoration: "underline" }}>
+                        Regenerate
+                      </button>
+                    )}
+                    {!fileApproved && (
+                      <button onClick={async () => {
+                        const newStatus = manualApproved ? "not_started" : "approved";
+                        await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
+                        if (onUpdateItem) onUpdateItem(item.id, { artwork_status: newStatus });
+                        if (newStatus === "approved") logJobActivity(job.id, `${item.name} approved internally`);
+                        if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
+                      }}
+                        style={{ padding: 0, background: "transparent", border: "none", color: T.muted, cursor: "pointer", fontFamily: font, fontSize: 10, textDecoration: "underline" }}>
+                        {manualApproved ? "Unmark internal approval" : "Mark internally approved"}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                {/* Generate Proof button */}
-                {mockupFile && (
+                <span style={{ padding: "3px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600, color: pillColor, background: pillBg, border: `1px solid ${pillBorder}`, whiteSpace: "nowrap", flexShrink: 0 }}>
+                  {pillText}
+                </span>
+                {hasProof ? (
+                  <button onClick={() => setPreviewProofItem(proofFiles[0])}
+                    style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: T.accent, color: "#fff", flexShrink: 0 }}>
+                    View Proof
+                  </button>
+                ) : mockupFile ? (
                   <button onClick={() => setProofModalItem(item)}
-                    style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: T.amber, color: "#fff" }}>
-                    {files.some(f => f.stage === "proof") ? "Revise" : "Generate Proof"}
+                    style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: T.amber, color: "#fff", flexShrink: 0 }}>
+                    Generate Proof
                   </button>
+                ) : (
+                  <span style={{ fontSize: 10, color: T.faint, padding: "6px 14px", flexShrink: 0, whiteSpace: "nowrap" }}>Needs mockup</span>
                 )}
-                {!mockupFile && files.length > 0 && (
-                  <span style={{ fontSize: 9, color: T.faint }}>No mockup</span>
-                )}
-                {hasProofFile && (
-                  <button onClick={() => { const proofFile = files.find(f => f.stage === "proof"); if (proofFile) setPreviewProofItem(proofFile); }}
-                    style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, border: `1px solid ${T.border}`, cursor: "pointer", background: T.surface, color: T.text }}>
-                    Preview
-                  </button>
-                )}
-                <button onClick={async () => {
-                  const newStatus = isApproved ? "not_started" : "approved";
-                  await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
-                  if (onUpdateItem) onUpdateItem(item.id, { artwork_status: newStatus });
-                  if (newStatus === "approved") logJobActivity(job.id, `${item.name} proof approved`);
-                  if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
-                }}
-                  style={{ padding: "3px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer",
-                    background: isApproved ? T.greenDim : T.surface,
-                    color: isApproved ? T.green : T.muted,
-                    border: `1px solid ${isApproved ? T.green + "44" : T.border}`,
-                  }}>
-                  {isApproved ? "Approved" : "Approve"}
-                </button>
               </div>
             );
           })}

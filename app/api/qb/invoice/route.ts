@@ -75,20 +75,34 @@ export async function POST(req: NextRequest) {
     }
 
     // items.sell_per_unit is the source of truth — set by CostingTab, rounded to cent
-    // useShippedQtys: use actual shipped (drop_ship) or received (ship_through) qtys instead of ordered
-    const isDropShip = (job as any).shipping_route === "drop_ship";
+    // useShippedQtys: use best-available qty (received_qtys → ship_qtys → ordered) with
+    // priority flipped by shipping route. Drop-ship prefers decorator-reported ship_qtys;
+    // ship_through/stage prefer HPD's received_qtys (warehouse confirmed).
+    const prefersReceived = (job as any).shipping_route === "ship_through" || (job as any).shipping_route === "stage";
     const lineItems: QBLineItem[] = [];
 
     for (const item of (items || [])) {
       const lines = (item as any).buy_sheet_lines || [];
-      const qtySource: Record<string, number> = useShippedQtys
-        ? (isDropShip ? ((item as any).ship_qtys || {}) : ((item as any).received_qtys || {}))
-        : {};
+      const received = ((item as any).received_qtys || {}) as Record<string, number>;
+      const shipped = ((item as any).ship_qtys || {}) as Record<string, number>;
+      const firstChoice = prefersReceived ? received : shipped;
+      const secondChoice = prefersReceived ? shipped : received;
+
       const perSize: Record<string, number> = {};
       for (const l of lines) {
-        perSize[l.size] = useShippedQtys
-          ? (qtySource[l.size] ?? 0)
-          : (l.qty_ordered || 0);
+        if (useShippedQtys) {
+          const fromFirst = firstChoice[l.size];
+          const fromSecond = secondChoice[l.size];
+          const fromOrdered = l.qty_ordered || 0;
+          // Missing sizes fall through to ordered — matches packing slip + variance.
+          perSize[l.size] = fromFirst !== undefined
+            ? fromFirst
+            : fromSecond !== undefined
+            ? fromSecond
+            : fromOrdered;
+        } else {
+          perSize[l.size] = l.qty_ordered || 0;
+        }
       }
       let totalQty = Object.values(perSize).reduce((a, q) => a + (q || 0), 0);
 
@@ -142,13 +156,22 @@ export async function POST(req: NextRequest) {
         shipAddress: shipAddr,
       });
 
-      // Update tax/total in type_meta
+      // Update tax/total in type_meta. Also record variance-finalized timestamp
+      // when this update came from the shipped-qty variance review flow, so the
+      // UI knows the "pricing changed" staleness check is no longer meaningful
+      // (post-variance, qb total reflects shipped qtys, not costing grossRev).
       await admin.from("jobs").update({
         type_meta: {
           ...(job.type_meta || {}),
           qb_tax_amount: updated.taxAmount,
           qb_total_with_tax: updated.totalWithTax,
           qb_invoice_updated_at: new Date().toISOString(),
+          ...(useShippedQtys ? {
+            qb_variance_pushed_at: new Date().toISOString(),
+            qb_variance_total: updated.totalWithTax,
+            qb_variance_tax: updated.taxAmount,
+            ...(billableQtys ? { qb_variance_billable_qtys: billableQtys } : {}),
+          } : {}),
         },
       }).eq("id", jobId);
 

@@ -84,6 +84,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const isMobile = useIsMobile();
   const [activeToken, setActiveToken] = useState(params.token);
   const [projectCache, setProjectCache] = useState<Record<string, any>>({});
+  const [pdfPreview, setPdfPreview] = useState<{ src: string; title: string } | null>(null);
 
   useEffect(() => {
     if (projectCache[activeToken]) {
@@ -329,14 +330,18 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                   <div style={{ fontSize: 18, fontWeight: 700, color: C.red }}>{fmtD(balance)}</div>
                 </div>
               )}
-              <a href={`/api/pdf/invoice/${(project as any).id || ""}?portal=${activeToken}`} target="_blank" rel="noopener noreferrer"
+              <button
+                onClick={() => setPdfPreview({
+                  src: `/api/pdf/invoice/${(project as any).id || ""}?portal=${activeToken}`,
+                  title: `Invoice #${invoiceNumber}`,
+                })}
                 style={{
-                  marginLeft: "auto", padding: "6px 14px", borderRadius: 6, textDecoration: "none",
+                  marginLeft: "auto", padding: "6px 14px", borderRadius: 6, cursor: "pointer",
                   background: C.surface, color: C.text, border: `1px solid ${C.border}`,
-                  fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
+                  fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", fontFamily: C.font,
                 }}>
                 View Invoice #{invoiceNumber}
-              </a>
+              </button>
             </div>
 
             {/* Pay button — hidden when invoice is stale */}
@@ -565,14 +570,19 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               </div>
             )}
 
-            {/* Download Quote PDF */}
-            <a href={`/api/pdf/quote/${(project as any).id || ""}?portal=${activeToken}`} target="_blank" rel="noopener noreferrer"
+            {/* View Quote PDF */}
+            <button
+              onClick={() => setPdfPreview({
+                src: `/api/pdf/quote/${(project as any).id || ""}?portal=${activeToken}`,
+                title: `Quote ${project.jobNumber || ""}`.trim(),
+              })}
               style={{
-                display: "inline-block", marginTop: 12, fontSize: 12, fontWeight: 600,
-                color: C.accent, textDecoration: "none",
+                display: "inline-block", marginTop: 12, padding: 0, fontSize: 12, fontWeight: 600,
+                color: C.accent, background: "transparent", border: "none", cursor: "pointer",
+                fontFamily: C.font,
               }}>
-              Download Quote PDF
-            </a>
+              View Quote PDF
+            </button>
           </div>
         )}
 
@@ -760,6 +770,41 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 Approved {viewingProof.approvedAt ? fmtDate(viewingProof.approvedAt) : ""}
               </div>
             )}
+        </div>
+      )}
+
+      {/* PDF preview modal — shared for invoice + quote */}
+      {pdfPreview && (
+        <div
+          onClick={() => setPdfPreview(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 10000, padding: 24, fontFamily: C.font,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: "relative", width: "min(1000px, 96vw)", height: "92vh",
+              background: C.card, borderRadius: 10, display: "flex",
+              flexDirection: "column", overflow: "hidden",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div style={{ padding: "12px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{pdfPreview.title}</div>
+              <button
+                onClick={() => setPdfPreview(null)}
+                style={{ background: "none", border: "none", color: C.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}
+              >×</button>
+            </div>
+            <iframe
+              src={pdfPreview.src}
+              style={{ flex: 1, border: "none", background: "#fff" }}
+              title={pdfPreview.title}
+            />
+          </div>
         </div>
       )}
     </div>

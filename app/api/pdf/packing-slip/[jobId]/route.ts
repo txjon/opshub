@@ -53,13 +53,19 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const itemRows = vendorScopedItems.filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking).map((item: any, i: number) => {
       const lines = item.buy_sheet_lines || [];
-      // Drop ship: use ship_qtys (what decorator shipped). Ship-through/stage: use received_qtys (what HPD confirmed).
-      const qtySource = isDropShip ? (item.ship_qtys || {}) : (item.received_qtys || {});
+      // Priority: best available qty source. Drop-ship prefers decorator-reported
+      // ship_qtys; ship-through/stage prefers HPD-confirmed received_qtys. Either
+      // way, fall through to the other source if primary is empty, then to ordered.
+      const received = (item.received_qtys || {}) as Record<string, number>;
+      const shipped = (item.ship_qtys || {}) as Record<string, number>;
+      const firstChoice = isDropShip ? shipped : received;
+      const secondChoice = isDropShip ? received : shipped;
       const orderedQtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
-      // Use route-appropriate qtys, fall back to ordered
       const finalQtys: Record<string, number> = {};
       for (const l of lines) {
-        finalQtys[l.size] = qtySource[l.size] ?? orderedQtys[l.size] ?? 0;
+        const fromFirst = firstChoice[l.size];
+        const fromSecond = secondChoice[l.size];
+        finalQtys[l.size] = (fromFirst !== undefined ? fromFirst : (fromSecond !== undefined ? fromSecond : orderedQtys[l.size])) ?? 0;
       }
       const totalQty = Object.values(finalQtys).reduce((a, v) => a + v, 0);
       // Drop ship: decorator tracking. Ship-through/stage: HPD outbound tracking.
@@ -92,8 +98,14 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const totalUnits = vendorScopedItems.filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking)
       .reduce((a: number, it: any) => {
         const lines = it.buy_sheet_lines || [];
-        const qtySource = isDropShip ? (it.ship_qtys || {}) : (it.received_qtys || {});
-        return a + lines.reduce((b: number, l: any) => b + (qtySource[l.size] ?? l.qty_ordered ?? 0), 0);
+        const received = (it.received_qtys || {}) as Record<string, number>;
+        const shipped = (it.ship_qtys || {}) as Record<string, number>;
+        const firstChoice = isDropShip ? shipped : received;
+        const secondChoice = isDropShip ? received : shipped;
+        return a + lines.reduce((b: number, l: any) => {
+          const v = firstChoice[l.size] !== undefined ? firstChoice[l.size] : (secondChoice[l.size] !== undefined ? secondChoice[l.size] : l.qty_ordered);
+          return b + (v || 0);
+        }, 0);
       }, 0);
 
     const shipTo = (job.type_meta as any)?.venue_address || (job.type_meta as any)?.po_ship_to?.default || "";

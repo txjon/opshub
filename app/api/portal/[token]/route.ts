@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sortSizes } from "@/lib/theme";
 // Pricing source of truth: items.sell_per_unit
 
 const admin = () =>
@@ -69,11 +70,12 @@ export async function GET(
       });
     }
 
-    // Items (only fields the client should see)
+    // Items (only fields the client should see; ship_qtys/received_qtys needed
+    // for post-variance invoice line rendering)
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -83,7 +85,7 @@ export async function GET(
     // Proof/mockup files (only stages clients should see)
     let proofFiles: any[] = [];
     if (itemIds.length > 0) {
-      const { data: files } = await sb
+      const { data: files, error: fileErr } = await sb
         .from("item_files")
         .select(
           "id, item_id, file_name, stage, approval, approved_at, drive_file_id, drive_link, created_at"
@@ -159,34 +161,65 @@ export async function GET(
       }
     }
 
-    // Build quote items using shared pricing engine (same as quote PDF)
+    // Build quote items — after variance push, use shipped qtys (what's
+    // actually billed); before, use quoted qtys.
     const costingData = job.costing_data as any;
     const costingSummary = job.costing_summary as any;
+    const variancePushed = !!(job.type_meta as any)?.qb_variance_pushed_at;
+    const prefersReceived = job.shipping_route === "ship_through" || job.shipping_route === "stage";
     const quoteItems: any[] = [];
 
     if (costingData?.costProds) {
       const costProds = costingData.costProds;
 
       for (const cp of costProds) {
-        const item = (items || []).find((i: any) => i.id === cp.id);
-        const totalQty =
-          cp.totalQty ||
-          Object.values(cp.qtys || {}).reduce(
-            (a: number, v: any) => a + (Number(v) || 0),
-            0
-          );
+        // Match costing_data cp to an items row — first by id, then by name
+        // (items get recreated via ProductBuilder → new UUIDs, but costing_data
+        // still references the old ones).
+        let item = (items || []).find((i: any) => i.id === cp.id);
+        if (!item && cp.name) item = (items || []).find((i: any) => i.name === cp.name);
+
+        // Qty source: post-variance we use ship/received per-size with fallback
+        // to quoted qtys; pre-variance we use quoted qtys (costing_data).
+        let effectiveQtys: Record<string, number>;
+        if (variancePushed && item) {
+          const received = (item.received_qtys || {}) as Record<string, number>;
+          const shipped = (item.ship_qtys || {}) as Record<string, number>;
+          const firstChoice = prefersReceived ? received : shipped;
+          const secondChoice = prefersReceived ? shipped : received;
+          const ordered = cp.qtys || {};
+          effectiveQtys = {};
+          for (const sz of Object.keys(ordered)) {
+            const a = firstChoice[sz];
+            const b = secondChoice[sz];
+            effectiveQtys[sz] = a !== undefined ? a : b !== undefined ? b : (ordered[sz] || 0);
+          }
+        } else {
+          effectiveQtys = cp.qtys || {};
+        }
+
+        const totalQty = Object.values(effectiveQtys).reduce(
+          (a: number, v: any) => a + (Number(v) || 0),
+          0
+        );
         if (totalQty <= 0) continue;
 
-        // items.sell_per_unit is the source of truth
-        const sellPerUnit = parseFloat(item?.sell_per_unit) || 0;
+        // items.sell_per_unit is the source of truth. Fallback chain when the
+        // item row is missing or the value is 0 (legacy/ghost data):
+        // costing_data cp.sellOverride → qb_total/totalQty (proportional).
+        let sellPerUnit = parseFloat(item?.sell_per_unit) || 0;
+        if (sellPerUnit === 0 && cp.sellOverride) sellPerUnit = parseFloat(cp.sellOverride) || 0;
+        if (sellPerUnit === 0 && costingSummary?.grossRev && costingSummary?.totalUnits) {
+          sellPerUnit = Math.round((costingSummary.grossRev / costingSummary.totalUnits) * 100) / 100;
+        }
         const grossRev = Math.round(sellPerUnit * totalQty * 100) / 100;
 
         quoteItems.push({
           name: cp.name || item?.name || "Item",
           style: cp.style || item?.blank_sku || "",
-          color: cp.color || item?.color || "",
-          sizes: cp.sizes || item?.sizes || [],
-          qtys: cp.qtys || item?.qtys || {},
+          color: cp.color || "",
+          sizes: sortSizes(Object.keys(effectiveQtys).filter(sz => (effectiveQtys[sz] || 0) > 0)),
+          qtys: effectiveQtys,
           qty: totalQty,
           sellPerUnit,
           total: grossRev,
@@ -251,6 +284,10 @@ export async function GET(
       },
       invoiceStale: (() => {
         if (!typeMeta.qb_invoice_number) return false;
+        // After variance push, qb total reflects shipped qtys; quoteItems also
+        // now reflect shipped qtys (updated above). If still mismatched, it
+        // means something changed after the push — legitimately stale.
+        // Before variance push, standard pricing comparison.
         const quoteSubtotal = quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0);
         const qbSubtotal = (typeMeta.qb_total_with_tax || 0) - (typeMeta.qb_tax_amount || 0);
         return Math.abs(quoteSubtotal - qbSubtotal) > 0.01;
