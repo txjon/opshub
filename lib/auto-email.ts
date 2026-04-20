@@ -16,13 +16,7 @@ type NotifyParams = {
   jobId: string;
   type:
     | "proof_ready"
-    | "quote_approved"
-    | "payment_received"
-    | "tracking_update"
-    | "invoice_ready"
-    | "order_shipped_dropship"
-    | "order_shipped_hpd"
-    | "production_complete";
+    | "payment_received";
   itemName?: string;
   trackingNumber?: string;
   carrier?: string;
@@ -46,25 +40,6 @@ export async function sendClientNotification(params: NotifyParams) {
       .eq("id", params.jobId)
       .single();
     if (!job) return;
-
-    // Dedup: skip if this once-per-job email type has already been sent for this job.
-    // Guards against React strict-mode / concurrent renders firing the notify endpoint twice.
-    const ONCE_PER_JOB_KEYWORDS: Partial<Record<NotifyParams["type"], string>> = {
-      production_complete: "production complete notification sent",
-      quote_approved: "quote approval confirmation sent",
-    };
-    const keyword = ONCE_PER_JOB_KEYWORDS[params.type];
-    if (keyword) {
-      const { data: prior } = await sb.from("job_activity")
-        .select("id")
-        .eq("job_id", job.id)
-        .ilike("message", `%${keyword}%`)
-        .limit(1);
-      if (prior?.length) {
-        console.log(`[Auto-email] Skipping duplicate ${params.type} for job ${job.id} — already sent`);
-        return;
-      }
-    }
 
     // Get client name
     let clientName = "Client";
@@ -130,77 +105,17 @@ export async function sendClientNotification(params: NotifyParams) {
 
     switch (params.type) {
       case "proof_ready":
-        subject = `Proof Ready for Review — ${params.itemName || "Your Order"}`;
-        html = `<p>Hi${primary.name ? ` ${primary.name.split(" ")[0]}` : ""},</p>
-<p>A new proof is ready for your review${params.itemName ? ` for <strong>${params.itemName}</strong>` : ""}.</p>
-<p>You can review and approve it directly from your project portal.</p>
-${portalButton}
-<p>Let us know if you have any questions.</p>
-<p>Welcome to the party,<br/>House Party Distro</p>`;
-        break;
-
-      case "quote_approved":
-        subject = `Quote Confirmed — ${projectRef}`;
-        html = `<p>Hi${primary.name ? ` ${primary.name.split(" ")[0]}` : ""},</p>
-<p>Thank you for approving your quote for <strong>${projectRef}</strong>. We're getting started on your order.</p>
-<p>You can track your project status anytime from your portal.</p>
+        subject = `Proof ready for review — ${clientName} · ${job.title}`;
+        html = `<p>Hi ${clientName},</p>
+<p>A proof is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.</p>
 ${portalButton}
 <p>Welcome to the party,<br/>House Party Distro</p>`;
         break;
 
       case "payment_received":
-        subject = `Payment Received — ${projectRef}`;
-        html = `<p>Hi${primary.name ? ` ${primary.name.split(" ")[0]}` : ""},</p>
-<p>We've received your payment${params.amount ? ` of <strong>$${params.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong>` : ""} for <strong>${projectRef}</strong>. Thank you!</p>
-${portalButton}
-<p>Welcome to the party,<br/>House Party Distro</p>`;
-        break;
-
-      case "tracking_update":
-        subject = `Your Order Has Shipped — ${projectRef}`;
-        html = `<p>Hi${primary.name ? ` ${primary.name.split(" ")[0]}` : ""},</p>
-<p>Great news! Your order for <strong>${projectRef}</strong> has shipped.</p>
-${params.carrier ? `<p>Carrier: <strong>${params.carrier}</strong></p>` : ""}
-${params.trackingNumber ? `<p>Tracking: <strong>${params.trackingNumber}</strong></p>` : ""}
-${portalButton}
-<p>Welcome to the party,<br/>House Party Distro</p>`;
-        break;
-
-      case "invoice_ready":
-        subject = `Invoice Ready — ${projectRef}`;
-        html = `<p>Hi${primary.name ? ` ${primary.name.split(" ")[0]}` : ""},</p>
-<p>Your invoice for <strong>${projectRef}</strong> is ready.</p>
-<p>View your invoice and make a payment from your project portal.</p>
-${portalButton}
-<p>Welcome to the party,<br/>House Party Distro</p>`;
-        break;
-
-      case "order_shipped_dropship":
-        subject = `Your Order Has Shipped — ${projectRef}`;
-        html = `<p>Hi${primary.name ? ` ${primary.name.split(" ")[0]}` : ""},</p>
-<p>Your order for <strong>${projectRef}</strong> has shipped directly from our production partner.</p>
-${params.carrier ? `<p>Carrier: <strong>${params.carrier}</strong></p>` : ""}
-${params.trackingNumber ? `<p>Tracking: <strong>${params.trackingNumber}</strong></p>` : ""}
-<p>You should receive your order within a few business days.</p>
-${portalButton}
-<p>Welcome to the party,<br/>House Party Distro</p>`;
-        break;
-
-      case "order_shipped_hpd":
-        subject = `Your Order Has Shipped — ${projectRef}`;
-        html = `<p>Hi${primary.name ? ` ${primary.name.split(" ")[0]}` : ""},</p>
-<p>Your order for <strong>${projectRef}</strong> has shipped from House Party Distro.</p>
-${params.carrier ? `<p>Carrier: <strong>${params.carrier}</strong></p>` : ""}
-${params.trackingNumber ? `<p>Tracking: <strong>${params.trackingNumber}</strong></p>` : ""}
-${portalButton}
-<p>Welcome to the party,<br/>House Party Distro</p>`;
-        break;
-
-      case "production_complete":
-        subject = `Production Complete — ${projectRef}`;
-        html = `<p>Hi${primary.name ? ` ${primary.name.split(" ")[0]}` : ""},</p>
-<p>Great news! Production is complete for <strong>${projectRef}</strong>. All items have been received at our facility.</p>
-<p>We'll have your order packed and shipped soon.</p>
+        subject = `Payment received — ${clientName} · ${job.title}`;
+        html = `<p>Hi ${clientName},</p>
+<p>Payment${params.amount ? ` of <strong>$${params.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong>` : ""} received for ${job.title}. Appreciate you.</p>
 ${portalButton}
 <p>Welcome to the party,<br/>House Party Distro</p>`;
         break;
@@ -217,14 +132,8 @@ ${portalButton}
 
     // Log activity
     const activityMessages: Record<string, string> = {
-      proof_ready: `Auto-email: proof review notification sent to ${primary.email}${params.itemName ? ` for ${params.itemName}` : ""}`,
-      quote_approved: `Auto-email: quote approval confirmation sent to ${primary.email}`,
+      proof_ready: `Auto-email: proof review notification sent to ${primary.email}`,
       payment_received: `Auto-email: payment confirmation sent to ${primary.email}`,
-      tracking_update: `Auto-email: shipping notification sent to ${primary.email}`,
-      invoice_ready: `Auto-email: invoice notification sent to ${primary.email}`,
-      order_shipped_dropship: `Auto-email: drop-ship notification sent to ${primary.email}`,
-      order_shipped_hpd: `Auto-email: shipped from HPD notification sent to ${primary.email}`,
-      production_complete: `Auto-email: production complete notification sent to ${primary.email}`,
     };
 
     await sb.from("job_activity").insert({

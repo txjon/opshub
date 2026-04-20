@@ -21,57 +21,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Simple HTML email (no attachment) — used for proof/mockup links
-    if (type === "proof_link" && customBody) {
-      // Append portal link so client can approve directly
-      let proofHtml = customBody;
-      if (jobId) {
-        const portalUrl = await getPortalUrl(jobId);
-        if (portalUrl) {
-          proofHtml += `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#4361ee;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px">Review & Approve in Portal</a></p>`;
-        }
-      }
-      const proofReplyTo = jobId ? `hello+c.${jobId}@housepartydistro.com` : undefined;
-      const { data, error } = await resend.emails.send({
-        from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
-        to: recipientEmail,
-        ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
-        ...(proofReplyTo ? { replyTo: proofReplyTo } : {}),
-        subject: subject || "File for Review — House Party Distro",
-        html: proofHtml,
-      });
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-      // Log to email_messages for thread view + save proofs_sent_at for follow-up tracking
-      if (jobId) {
-        try {
-          const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-          await adminClient.from("email_messages").insert({
-            job_id: jobId,
-            direction: "outbound",
-            channel: "client",
-            from_email: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
-            from_name: "House Party Distro",
-            to_emails: [recipientEmail],
-            cc_emails: ccEmails || [],
-            subject: subject || "File for Review — House Party Distro",
-            body_text: "Proof/mockup sent for review",
-            resend_message_id: data?.id || null,
-          });
-          // Save proofs_sent_at for dashboard follow-up tracking
-          const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
-          await adminClient.from("jobs").update({ type_meta: { ...(jd?.type_meta || {}), proofs_sent_at: new Date().toISOString() } }).eq("id", jobId);
-          // Log activity server-side
-          await adminClient.from("job_activity").insert({
-            job_id: jobId, user_id: null, type: "auto",
-            message: `Proofs sent to client for approval via portal link`,
-          });
-        } catch {} // Non-fatal
-      }
-
-      return NextResponse.json({ success: true, id: data?.id });
-    }
-
     if (!jobId) {
       return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
     }
@@ -85,11 +34,12 @@ export async function POST(req: NextRequest) {
     let defaultSubject: string;
     let filename: string;
 
-    // Load job for document numbers
+    // Load job for document numbers + client name (for greeting)
     const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    const { data: jobData } = await adminClient.from("jobs").select("job_number, type_meta").eq("id", jobId).single();
+    const { data: jobData } = await adminClient.from("jobs").select("job_number, type_meta, clients(name)").eq("id", jobId).single();
     const qbInvNum = jobData?.type_meta?.qb_invoice_number;
     const jobNum = jobData?.job_number;
+    const clientGreeting = (jobData as any)?.clients?.name || (recipientName ? recipientName.split(" ")[0] : "there");
 
     if (type === "quote") {
       pdfUrl = `${baseUrl}/api/pdf/quote/${jobId}`;
@@ -174,11 +124,11 @@ export async function POST(req: NextRequest) {
       ...(replyTo ? { replyTo: replyTo } : {}),
       subject: defaultSubject,
       html: type === "quote"
-        ? `<p>Hi,</p><p>Your quote is attached. Please review the details and approve when ready.</p><p style="margin:20px 0;display:flex;gap:10px">${approveButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
+        ? `<p>Hi ${clientGreeting},</p><p>Your quote ${jobNum || ""} is attached for review. When you're ready to move forward, you can approve it directly in your portal, or request changes if anything needs a second pass.</p><p style="margin:20px 0;display:flex;gap:10px">${approveButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
         : type === "invoice"
-        ? `<p>Hi,</p><p>Your invoice is attached. You can view proofs and make payment from your project portal.</p><p style="margin:20px 0;display:flex;gap:10px">${payButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
+        ? `<p>Hi ${clientGreeting},</p><p>Your invoice ${qbInvNum ? `#${qbInvNum}` : ""} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.</p><p style="margin:20px 0;display:flex;gap:10px">${payButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
         : type === "invoice_proofs"
-        ? `<p>Hi,</p><p>Your invoice is attached along with proofs for review. Please approve your proofs and make payment from your portal.</p><p style="margin:20px 0;display:flex;gap:10px">${payButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
+        ? `<p>Hi ${clientGreeting},</p><p>Your invoice ${qbInvNum ? `#${qbInvNum}` : ""} and proofs are ready and waiting in your portal. Approve your proofs and complete payment or request any changes there. We'll get production rolling as soon as proofs are approved and payment is received.</p><p style="margin:20px 0;display:flex;gap:10px">${payButton} ${portalButton}</p><p>Welcome to the party,<br/>House Party Distro</p>`
         : `<p>Hi,</p><p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p>${vendorPortalButton}<p>You can confirm receipt, update production status, and enter tracking directly from the portal.</p><p>Thanks,<br/>House Party Distro</p>`,
       attachments: [
         {
@@ -234,7 +184,6 @@ export async function POST(req: NextRequest) {
         : type === "invoice" ? `Invoice sent to client (${recipientEmail})`
         : type === "invoice_proofs" ? `Invoice + proofs sent to client (${recipientEmail})`
         : type === "po" ? `PO sent to ${vendor || "decorator"} (${recipientEmail})`
-        : type === "proof_link" ? `Proofs sent to client for approval via portal link`
         : `Email sent (${type})`;
       await adminClient.from("job_activity").insert({
         job_id: jobId, user_id: null, type: "auto", message: activityMsg,

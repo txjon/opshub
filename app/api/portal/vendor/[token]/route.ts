@@ -440,15 +440,37 @@ export async function POST(
           "production", ctx.job.id
         );
 
-        // Auto-email client if drop_ship (goes direct to them)
+        // Auto-email client if drop_ship and all decorator's items on this job are now shipped.
+        // Same path ProductionTab uses — notify route handles idempotency.
         if (ctx.job.shipping_route === "drop_ship") {
-          sendClientNotification({
-            jobId: ctx.job.id,
-            type: "tracking_update",
-            itemName: ctx.item.name,
-            trackingNumber: tracking,
-            carrier: carrier || undefined,
-          }).catch(() => {});
+          try {
+            const { data: decoratorItems } = await sb
+              .from("items")
+              .select("id, pipeline_stage")
+              .eq("job_id", ctx.job.id)
+              .eq("decorator", decorator.name);
+            const allShipped = (decoratorItems || []).every(
+              (it: any) => it.id === itemId || it.pipeline_stage === "shipped"
+            );
+            if (allShipped) {
+              const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+              await fetch(`${baseUrl}/api/email/notify`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+                },
+                body: JSON.stringify({
+                  jobId: ctx.job.id,
+                  type: "order_shipped_vendor",
+                  decoratorId: decorator.id,
+                  vendorName: decorator.name,
+                  trackingNumber: tracking,
+                  carrier: carrier || undefined,
+                }),
+              }).catch(() => {});
+            }
+          } catch {}
         }
       }
       return NextResponse.json({ success: true });

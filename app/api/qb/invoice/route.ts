@@ -34,8 +34,9 @@ export async function POST(req: NextRequest) {
       userId = user.id;
     }
 
-    const { jobId, useShippedQtys } = await req.json();
+    const { jobId, useShippedQtys, billableQtys } = await req.json();
     if (!jobId) return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
+    // billableQtys: optional Record<itemId, totalQty> — variance review override (per-line edit/waive)
 
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -89,7 +90,14 @@ export async function POST(req: NextRequest) {
           ? (qtySource[l.size] ?? 0)
           : (l.qty_ordered || 0);
       }
-      const totalQty = Object.values(perSize).reduce((a, q) => a + (q || 0), 0);
+      let totalQty = Object.values(perSize).reduce((a, q) => a + (q || 0), 0);
+
+      // Override with billableQty if variance reviewer set one (waived or manual edit)
+      if (billableQtys && (item as any).id in billableQtys) {
+        const override = Number(billableQtys[(item as any).id]);
+        if (!isNaN(override) && override >= 0) totalQty = Math.floor(override);
+      }
+
       if (totalQty === 0) continue;
 
       const sellPerUnit = parseFloat((item as any).sell_per_unit) || 0;

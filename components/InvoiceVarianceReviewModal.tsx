@@ -33,11 +33,12 @@ export function InvoiceVarianceReviewModal({
 }) {
   const supabase = createClient();
   const [rows, setRows] = useState<VarianceRow[] | null>(null);
+  const [billableQtys, setBillableQtys] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [pushing, setPushing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const useReceivedQtys = shippingRoute === "ship_through";
+  const useReceivedQtys = shippingRoute === "ship_through" || shippingRoute === "stage";
 
   useEffect(() => {
     (async () => {
@@ -78,6 +79,10 @@ export function InvoiceVarianceReviewModal({
         };
       });
       setRows(built);
+      // Seed billableQtys with the actual (shipped/received) total per item — user can edit or waive
+      const seed: Record<string, number> = {};
+      built.forEach(r => { seed[r.id] = r.actualTotal; });
+      setBillableQtys(seed);
       setLoading(false);
     })();
   }, [jobId, useReceivedQtys]);
@@ -89,7 +94,7 @@ export function InvoiceVarianceReviewModal({
       const res = await fetch("/api/qb/invoice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, useShippedQtys: true }),
+        body: JSON.stringify({ jobId, useShippedQtys: true, billableQtys }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -105,11 +110,22 @@ export function InvoiceVarianceReviewModal({
     }
   }
 
+  function setBillable(itemId: string, qty: number) {
+    setBillableQtys(p => ({ ...p, [itemId]: Math.max(0, Math.floor(Number(qty) || 0)) }));
+  }
+
+  function waiveRow(row: VarianceRow) {
+    // Waive = bill at ordered qty, absorbing the extra we shipped
+    setBillable(row.id, row.orderedTotal);
+  }
+
   const totalOrdered = rows?.reduce((a, r) => a + r.orderedTotal, 0) || 0;
   const totalActual = rows?.reduce((a, r) => a + r.actualTotal, 0) || 0;
   const totalOrderedRev = rows?.reduce((a, r) => a + r.orderedRevenue, 0) || 0;
-  const totalActualRev = rows?.reduce((a, r) => a + r.actualRevenue, 0) || 0;
-  const totalDelta = totalActualRev - totalOrderedRev;
+  // Billable revenue uses the editable billableQtys (defaults to actualTotal)
+  const totalBillable = rows?.reduce((a, r) => a + (billableQtys[r.id] ?? r.actualTotal), 0) || 0;
+  const totalBillableRev = rows?.reduce((a, r) => a + (billableQtys[r.id] ?? r.actualTotal) * r.sellPerUnit, 0) || 0;
+  const totalDelta = totalBillableRev - totalOrderedRev;
 
   const fmt$ = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -147,7 +163,8 @@ export function InvoiceVarianceReviewModal({
                 <tr style={{ borderBottom: `1.5px solid ${T.text}` }}>
                   <th style={{ textAlign: "left", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Item</th>
                   <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Quoted qty</th>
-                  <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>{useReceivedQtys ? "Received qty" : "Shipped qty"}</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>{useReceivedQtys ? "Received" : "Shipped"}</th>
+                  <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Billable</th>
                   <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Δ</th>
                   <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Unit $</th>
                   <th style={{ textAlign: "right", padding: "6px 8px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Quoted $</th>
@@ -156,10 +173,15 @@ export function InvoiceVarianceReviewModal({
               </thead>
               <tbody>
                 {rows.map((r) => {
-                  const qtyDelta = r.actualTotal - r.orderedTotal;
-                  const revDelta = r.actualRevenue - r.orderedRevenue;
+                  const billable = billableQtys[r.id] ?? r.actualTotal;
+                  const billableRev = billable * r.sellPerUnit;
+                  // Δ is vs quoted (what we originally invoiced)
+                  const qtyDelta = billable - r.orderedTotal;
+                  const revDelta = billableRev - r.orderedRevenue;
                   const deltaColor = qtyDelta === 0 ? T.faint : qtyDelta > 0 ? T.green : T.red;
                   const sortedSizes = sortSizes(Object.keys(r.orderedPerSize));
+                  const overship = r.actualTotal > r.orderedTotal;
+                  const waived = overship && billable === r.orderedTotal;
                   return (
                     <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                       <td style={{ padding: "10px 8px", verticalAlign: "top" }}>
@@ -179,14 +201,36 @@ export function InvoiceVarianceReviewModal({
                         </div>
                       </td>
                       <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, color: T.muted }}>{r.orderedTotal.toLocaleString()}</td>
-                      <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, fontWeight: 700 }}>{r.actualTotal.toLocaleString()}</td>
+                      <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, color: T.muted }}>{r.actualTotal.toLocaleString()}</td>
+                      <td style={{ padding: "10px 8px", textAlign: "right" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
+                          <input
+                            type="number"
+                            min="0"
+                            value={billable}
+                            onChange={(e) => setBillable(r.id, parseInt(e.target.value || "0", 10))}
+                            onFocus={(e) => e.target.select()}
+                            style={{ width: 64, textAlign: "right", padding: "4px 6px", border: `1px solid ${billable !== r.actualTotal ? T.accent : T.border}`, borderRadius: 4, background: T.card, color: T.text, fontSize: 12, fontFamily: mono, outline: "none", fontWeight: 700 }}
+                          />
+                          {overship && !waived && (
+                            <button
+                              onClick={() => waiveRow(r)}
+                              title="Waive overage — bill at quoted quantity"
+                              style={{ padding: "2px 8px", background: "transparent", border: `1px solid ${T.amber}`, color: T.amber, borderRadius: 4, fontSize: 9, fontWeight: 600, cursor: "pointer", fontFamily: font }}
+                            >Waive</button>
+                          )}
+                          {waived && (
+                            <span style={{ fontSize: 9, color: T.amber, fontWeight: 600, fontFamily: font }}>waived</span>
+                          )}
+                        </div>
+                      </td>
                       <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, color: deltaColor, fontWeight: 700 }}>
                         {qtyDelta > 0 ? `+${qtyDelta}` : qtyDelta}
                       </td>
                       <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, color: T.faint }}>{fmt$(r.sellPerUnit)}</td>
                       <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, color: T.muted }}>{fmt$(r.orderedRevenue)}</td>
                       <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, fontWeight: 700 }}>
-                        {fmt$(r.actualRevenue)}
+                        {fmt$(billableRev)}
                         {revDelta !== 0 && (
                           <div style={{ fontSize: 9, color: revDelta > 0 ? T.green : T.red, fontWeight: 600 }}>
                             {revDelta > 0 ? "+" : ""}{fmt$(revDelta)}
@@ -202,13 +246,14 @@ export function InvoiceVarianceReviewModal({
                   <td style={{ padding: "10px 8px", fontWeight: 700 }}>Total</td>
                   <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, fontWeight: 700 }}>{totalOrdered.toLocaleString()}</td>
                   <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, fontWeight: 700 }}>{totalActual.toLocaleString()}</td>
-                  <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, fontWeight: 700, color: totalActual === totalOrdered ? T.faint : totalActual > totalOrdered ? T.green : T.red }}>
-                    {totalActual - totalOrdered > 0 ? "+" : ""}{(totalActual - totalOrdered).toLocaleString()}
+                  <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, fontWeight: 700 }}>{totalBillable.toLocaleString()}</td>
+                  <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, fontWeight: 700, color: totalBillable === totalOrdered ? T.faint : totalBillable > totalOrdered ? T.green : T.red }}>
+                    {totalBillable - totalOrdered > 0 ? "+" : ""}{(totalBillable - totalOrdered).toLocaleString()}
                   </td>
                   <td />
                   <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, fontWeight: 700 }}>{fmt$(totalOrderedRev)}</td>
                   <td style={{ padding: "10px 8px", textAlign: "right", fontFamily: mono, fontWeight: 700 }}>
-                    {fmt$(totalActualRev)}
+                    {fmt$(totalBillableRev)}
                     {totalDelta !== 0 && (
                       <div style={{ fontSize: 10, color: totalDelta > 0 ? T.green : T.red, fontWeight: 700 }}>
                         {totalDelta > 0 ? "+" : ""}{fmt$(totalDelta)}

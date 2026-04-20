@@ -7,7 +7,7 @@ import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { DriveThumb } from "@/components/DriveThumb";
 import { parsePsd } from "./ProcessingTab";
-import { ItemArtSection } from "./ArtTab";
+// ItemArtSection from ArtTab is no longer rendered — removed after workflow merge
 import {
   detectGarmentType, handleSizeToggle, distribute, DEFAULT_CURVE,
   SSPicker, ASColourPicker, LAApparelPicker, FavoritesPicker, OtherPicker, CottonCollectivePicker,
@@ -19,7 +19,6 @@ import {
  * Expanded: mockup left, blank → sizes → locations → files right.
  *
  * ALL save logic is identical to BuySheetTab (1500ms debounce, 3-state qty, temp ID swap).
- * ALL file management delegated to ItemArtSection from ArtTab.
  */
 export function ProductBuilder({ project, items, contacts, onItemsChanged, onRegisterSave, onSaveStatus, onSaved, onUpdateItem, selectedItemId }) {
   // ═══════════════════════════════════════════════════════════════

@@ -220,20 +220,23 @@ export default function WarehousePage() {
       logJobActivity(jobId, "Fulfillment complete — order shipped to client");
       notifyTeam("Order shipped to client", "production", jobId, "job");
 
-      // For ship_through: send client email with packing slip + create invoice-ready notification
+      // Ship_through + stage: email client with packing slip + create invoice-ready notification.
+      // Notify route idempotency prevents dupe sends if this fires twice.
       const { data: job } = await supabase.from("jobs").select("shipping_route, title, fulfillment_tracking, clients(name)").eq("id", jobId).single();
-      if ((job as any)?.shipping_route === "ship_through") {
+      const route = (job as any)?.shipping_route;
+      if (route === "ship_through" || route === "stage") {
+        const emailType = route === "ship_through" ? "order_shipped_hpd" : "order_shipped_stage";
         fetch("/api/email/notify", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            type: "order_shipped_hpd",
+            type: emailType,
             jobId,
             trackingNumber: (job as any).fulfillment_tracking || null,
           }),
         }).catch(() => {});
         logJobActivity(jobId, "Order shipped email sent to client");
         await createInvoiceReadyNotification(jobId, (job as any).title || "", (job as any).clients?.name || "");
-        logJobActivity(jobId, "Ship-through complete — invoice ready to update with received qtys");
+        logJobActivity(jobId, `${route === "ship_through" ? "Ship-through" : "Stage/Fulfillment"} complete — invoice ready to update with received qtys`);
       }
     }
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, fulfillment_status: status, ...(tracking !== undefined ? { fulfillment_tracking: tracking } : {}) } : j));

@@ -135,6 +135,29 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
     }
   }
 
+  async function resendShipmentEmail(item) {
+    if (!item.decorator_assignment_id) return;
+    const { data: assignment } = await supabase
+      .from("decorator_assignments")
+      .select("decorator_id")
+      .eq("id", item.decorator_assignment_id)
+      .single();
+    if (!assignment?.decorator_id) return;
+    await fetch("/api/email/notify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "order_shipped_vendor",
+        jobId: item.job_id,
+        decoratorId: assignment.decorator_id,
+        vendorName: item.decorator,
+        trackingNumber: item.ship_tracking || null,
+        resend: true,
+      }),
+    }).catch(() => {});
+    logJobActivity(item.job_id, `Resent shipment email — ${item.decorator}`);
+  }
+
   function updateShipQty(itemId, size, qty) {
     const current = localFields[itemId]?.ship_qtys || {};
     const updated = { ...current, [size]: parseInt(qty) || 0 };
@@ -223,9 +246,7 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
                 </div>
 
                 {item.pipeline_stage === "shipped" ? (
-                  <div style={{ marginTop: 8, background: T.greenDim, border: `1px solid ${T.green}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.green }}>
-                    Shipped — headed to warehouse for receiving
-                  </div>
+                  <ShippedBanner item={item} project={project} onResend={() => resendShipmentEmail(item)} />
                 ) : (
                   <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
                     <button onClick={() => markShipped(item.id)}
@@ -238,6 +259,40 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function ShippedBanner({ item, project, onResend }) {
+  const isDropShip = project?.shipping_route === "drop_ship";
+  // Find matching shipping notification for this item's decorator
+  const notifications = Array.isArray(project?.type_meta?.shipping_notifications)
+    ? project.type_meta.shipping_notifications
+    : [];
+  const match = notifications.find(n =>
+    n.type === "drop_ship_vendor" &&
+    n.decoratorName === item.decorator &&
+    (n.tracking || null) === (item.ship_tracking || null)
+  );
+
+  if (isDropShip && match) {
+    const sentDate = new Date(match.sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return (
+      <div style={{ marginTop: 8, background: T.greenDim, border: `1px solid ${T.green}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.green, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <span>✓ Client notified {sentDate}</span>
+        <button
+          onClick={onResend}
+          style={{ background: "transparent", color: T.green, border: `1px solid ${T.green}`, borderRadius: 5, padding: "3px 10px", fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font }}
+        >
+          Resend
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 8, background: T.greenDim, border: `1px solid ${T.green}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.green }}>
+      Shipped — {isDropShip ? "notification pending until all decorator items are shipped" : "headed to warehouse for receiving"}
     </div>
   );
 }
