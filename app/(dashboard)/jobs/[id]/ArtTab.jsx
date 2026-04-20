@@ -156,8 +156,10 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
         const psd = readPsd(new Uint8Array(buf));
         const PLACEMENT_MAP = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest','Right Chest':'Right Chest','Left Sleeve':'Left Sleeve','Right Sleeve':'Right Sleeve','Neck':'Neck','Hood':'Hood','Pocket':'Pocket' };
         const SKIP_GROUPS = ['Shirt Color','Shadows','Highlights','Mask','Client Art'];
-        // Layer names that should never affect printed-size math (reference/template/base/etc.)
-        const NON_INK_NAMES = new Set(["base","reference","guide","guides","template","preview","composite","bg","background","blank"]);
+        // Layer names that are template helpers, not ink/separations. "Base" is
+        // intentionally NOT in this list — Base is a real white underlayer pull
+        // and should appear on the proof as a separation.
+        const NON_INK_NAMES = new Set(["reference","guide","guides","template","preview","composite","bg","background","blank"]);
         const info = [];
         const groups = [...(psd.children || [])].reverse();
         for (const group of groups) {
@@ -174,7 +176,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
             // Blank layers (no canvas but with stored bounds) are often Pantone
             // callouts — include their bounds so group size matches Photoshop,
             // and keep them in the separation list so the printer sees them.
-            const excludeFromBounds = isBase || isHidden || isNonInk;
+            const excludeFromBounds = isHidden || isNonInk;
             if (isTag) { if(minL===Infinity){minL=layer.left||0;minT=layer.top||0;maxR=layer.right||0;maxB=layer.bottom||0;} }
             else if (!excludeFromBounds) { minL=Math.min(minL,layer.left||0);minT=Math.min(minT,layer.top||0);maxR=Math.max(maxR,layer.right||0);maxB=Math.max(maxB,layer.bottom||0); }
             let hex="#888888";
