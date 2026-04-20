@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { sortSizes } from "@/lib/theme";
 
 // ── Document-style theme — matches invoice/PO PDF aesthetic ──
 const C = {
@@ -567,7 +568,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                                   Shipped quantities (defaults to ordered)
                                 </div>
                                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                  {item.sizes.map(sz => {
+                                  {sortSizes(item.sizes).map(sz => {
                                     const ordered = item.qtys?.[sz] || 0;
                                     const current = shipQtyInputs[item.id]?.[sz];
                                     const value = current !== undefined ? current : ordered;
