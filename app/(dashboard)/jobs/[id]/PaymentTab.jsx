@@ -30,10 +30,14 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
   const qbPaymentLink = job.type_meta?.qb_payment_link;
   const [previewed, setPreviewed] = useState(false);
 
-  // Detect stale QB invoice — current pricing doesn't match QB total
+  // Detect stale QB invoice — current pricing doesn't match QB total.
+  // Suppressed once variance was pushed, because the QB total then reflects
+  // shipped qtys (not the costing grossRev quote total), so the comparison
+  // is no longer meaningful.
+  const variancePushedAt = job.type_meta?.qb_variance_pushed_at || null;
   const currentSubtotal = (job.costing_summary?.grossRev || 0);
   const qbSubtotal = (job.type_meta?.qb_total_with_tax || 0) - (job.type_meta?.qb_tax_amount || 0);
-  const invoiceStale = qbInvoiceNumber && Math.abs(currentSubtotal - qbSubtotal) > 0.01;
+  const invoiceStale = !variancePushedAt && qbInvoiceNumber && Math.abs(currentSubtotal - qbSubtotal) > 0.01;
 
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" };
   const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
@@ -160,8 +164,10 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
       )}
       {qbError && <div style={{ background: T.redDim, border: `1px solid ${T.red}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.red }}>{qbError}</div>}
 
-      {/* Variance review — appears once invoice exists AND job is fully shipped */}
-      {qbInvoiceNumber && isFullyShipped && (
+      {/* Variance review — appears once invoice exists AND job is fully shipped.
+          Once variance has been pushed, we flip to a subtle "✓ finalized" row
+          with an option to re-review if needed. */}
+      {qbInvoiceNumber && isFullyShipped && !variancePushedAt && (
         <button onClick={() => setShowVarianceModal(true)}
           style={{ width: "100%", padding: "12px", borderRadius: 10, border: `1px solid ${T.amber}66`, cursor: "pointer",
             background: T.amberDim, color: T.amber, fontSize: 13, fontWeight: 700, fontFamily: font,
@@ -170,6 +176,15 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
           onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
           Update QB Invoice with {isShipThrough ? "Received" : "Shipped"} Qtys — Review Variance
         </button>
+      )}
+      {qbInvoiceNumber && variancePushedAt && (
+        <div style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.green}44`, background: T.greenDim, color: T.green, fontSize: 12, fontWeight: 600, fontFamily: font, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <span>✓ Invoice finalized with {isShipThrough ? "received" : "shipped"} qtys · {new Date(variancePushedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+          <button onClick={() => setShowVarianceModal(true)}
+            style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.green}`, background: "transparent", color: T.green, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+            Re-review
+          </button>
+        </div>
       )}
       {showVarianceModal && (
         <InvoiceVarianceReviewModal

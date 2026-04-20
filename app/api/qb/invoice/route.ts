@@ -156,13 +156,22 @@ export async function POST(req: NextRequest) {
         shipAddress: shipAddr,
       });
 
-      // Update tax/total in type_meta
+      // Update tax/total in type_meta. Also record variance-finalized timestamp
+      // when this update came from the shipped-qty variance review flow, so the
+      // UI knows the "pricing changed" staleness check is no longer meaningful
+      // (post-variance, qb total reflects shipped qtys, not costing grossRev).
       await admin.from("jobs").update({
         type_meta: {
           ...(job.type_meta || {}),
           qb_tax_amount: updated.taxAmount,
           qb_total_with_tax: updated.totalWithTax,
           qb_invoice_updated_at: new Date().toISOString(),
+          ...(useShippedQtys ? {
+            qb_variance_pushed_at: new Date().toISOString(),
+            qb_variance_total: updated.totalWithTax,
+            qb_variance_tax: updated.taxAmount,
+            ...(billableQtys ? { qb_variance_billable_qtys: billableQtys } : {}),
+          } : {}),
         },
       }).eq("id", jobId);
 
