@@ -66,39 +66,39 @@ export function DocumentsTab({ job, items }) {
         <SectionHeader label="Project documents" />
         <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
           <DocRow
-            icon="📄" label="Quote"
+            label="Quote"
             previewHref={`/api/pdf/quote/${job.id}`}
             downloadHref={`/api/pdf/quote/${job.id}?download=1`}
             available={hasAnyItems}
             unavailableNote={!hasAnyItems ? "Add items first" : null}
           />
           <DocRow
-            icon="💰" label={qbInvoiceNumber ? `Invoice #${qbInvoiceNumber}` : "Invoice"}
+            label={qbInvoiceNumber ? `Invoice #${qbInvoiceNumber}` : "Invoice"}
             previewHref={`/api/pdf/invoice/${job.id}`}
             downloadHref={`/api/pdf/invoice/${job.id}?download=1`}
             available={hasAnyItems}
             unavailableNote={!hasAnyItems ? "Add items first" : null}
           />
           <DocRow
-            icon="📋" label="Invoice + Proofs"
+            label="Invoice + Proofs"
             previewHref={`/api/pdf/invoice-proofs/${job.id}`}
             downloadHref={`/api/pdf/invoice-proofs/${job.id}?download=1`}
             available={hasAnyItems}
           />
           <DocRow
-            icon="📦" label="Packing Slip"
+            label="Packing Slip"
             previewHref={`/api/pdf/packing-slip/${job.id}`}
             downloadHref={`/api/pdf/packing-slip/${job.id}?download=1`}
             available={hasAnyShipTracking}
             unavailableNote={!hasAnyShipTracking ? "Available after items ship" : null}
           />
           {vendors.length === 0 && (
-            <DocRow icon="🧾" label="Purchase Order" available={false} unavailableNote="No vendor assigned in Costing yet" />
+            <DocRow label="Purchase Order" available={false} unavailableNote="No vendor assigned in Costing yet" />
           )}
           {vendors.map(v => (
             <DocRow
               key={v}
-              icon="🧾" label={`PO — ${v}`}
+              label={`PO — ${v}`}
               previewHref={`/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`}
               downloadHref={`/api/pdf/po/${job.id}?download=1&vendor=${encodeURIComponent(v)}`}
               available={hasAnyItems}
@@ -137,16 +137,15 @@ function SectionHeader({ label }) {
   );
 }
 
-function DocRow({ icon, label, previewHref, downloadHref, available, unavailableNote }) {
+function DocRow({ label, previewHref, downloadHref, available, unavailableNote }) {
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+      display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
       borderBottom: `1px solid ${T.border}`, opacity: available ? 1 : 0.5,
     }}>
-      <span style={{ fontSize: 16, flexShrink: 0, width: 22, textAlign: "center" }}>{icon}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
-        {unavailableNote && <div style={{ fontSize: 10, color: T.faint, marginTop: 1 }}>{unavailableNote}</div>}
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.text, letterSpacing: "-0.01em" }}>{label}</div>
+        {unavailableNote && <div style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>{unavailableNote}</div>}
       </div>
       {available && previewHref && (
         <button
@@ -170,13 +169,15 @@ function DocRow({ icon, label, previewHref, downloadHref, available, unavailable
 
 function ItemFileGroup({ item, idx, filesByStage }) {
   const letter = String.fromCharCode(65 + idx);
-  const stages = STAGE_ORDER.filter(s => filesByStage[s]?.length > 0);
-  const totalFiles = stages.reduce((a, s) => a + filesByStage[s].length, 0);
+  // Flatten all files across stages into one grid, preserving stage order so
+  // mockups come first, proofs next, etc. Stage lives as a badge on each card.
+  const allFiles = STAGE_ORDER.flatMap(s => (filesByStage[s] || []).map(f => ({ ...f, _stage: s })));
+  const totalFiles = allFiles.length;
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
       {/* Item header */}
-      <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ padding: "10px 14px", borderBottom: totalFiles > 0 ? `1px solid ${T.border}` : "none", display: "flex", alignItems: "center", gap: 10 }}>
         <span style={{ width: 22, height: 22, borderRadius: 5, background: T.accentDim, color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, fontFamily: mono, flexShrink: 0 }}>{letter}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name || `Item ${idx + 1}`}</div>
@@ -189,22 +190,17 @@ function ItemFileGroup({ item, idx, filesByStage }) {
         <span style={{ fontSize: 10, color: T.faint }}>{totalFiles} file{totalFiles !== 1 ? "s" : ""}</span>
       </div>
 
-      {/* Files grouped by stage */}
       {totalFiles === 0 ? (
         <div style={{ padding: 14, fontSize: 11, color: T.faint }}>No files yet.</div>
       ) : (
-        <div style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-          {stages.map(stage => (
-            <div key={stage}>
-              <div style={{ fontSize: 9, fontWeight: 700, color: STAGE_COLORS[stage] || T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
-                {STAGE_LABELS[stage] || stage}
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {filesByStage[stage].map(f => (
-                  <FileCard key={f.id} file={f} itemName={item.name || ""} stage={stage} />
-                ))}
-              </div>
-            </div>
+        <div style={{
+          padding: 14,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+          gap: 12,
+        }}>
+          {allFiles.map(f => (
+            <FileCard key={f.id} file={f} itemName={item.name || ""} stage={f._stage} />
           ))}
         </div>
       )}
@@ -214,31 +210,43 @@ function ItemFileGroup({ item, idx, filesByStage }) {
 
 function FileCard({ file, itemName, stage }) {
   const isImage = file.mime_type?.startsWith("image/") || /\.(png|jpg|jpeg|gif|webp)$/i.test(file.file_name || "");
-  const isPdf = file.mime_type === "application/pdf" || /\.pdf$/i.test(file.file_name || "");
   const approval = file.approval;
   const approvalColor = approval === "approved" ? T.green : approval === "revision_requested" ? T.red : approval === "pending" ? T.amber : null;
+  const stageColor = STAGE_COLORS[stage] || T.muted;
+  const stageLabel = STAGE_LABELS[stage] || stage;
+  const ext = (file.file_name || "").split(".").pop()?.toUpperCase() || "FILE";
 
   return (
-    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden", width: 140, display: "flex", flexDirection: "column", background: T.surface }}>
-      {isImage ? (
-        <DriveThumb
-          driveFileId={file.drive_file_id}
-          enlargeable
-          title={`${itemName} — ${STAGE_LABELS[stage] || stage}`}
-          driveLink={file.drive_link || null}
-          style={{ width: 140, height: 120, objectFit: "contain", background: T.card, display: "block" }}
-          fallback={
-            <div style={{ width: 140, height: 120, background: T.card, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 10 }}>
-              No preview
-            </div>
-          }
-        />
-      ) : (
-        <div style={{ width: 140, height: 120, background: T.card, display: "flex", alignItems: "center", justifyContent: "center", color: T.muted, fontSize: 24 }}>
-          {isPdf ? "📄" : "📁"}
-        </div>
-      )}
-      <div style={{ padding: "6px 8px", fontSize: 10, display: "flex", flexDirection: "column", gap: 3 }}>
+    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden", display: "flex", flexDirection: "column", background: T.card }}>
+      <div style={{ position: "relative", background: T.surface }}>
+        {isImage ? (
+          <DriveThumb
+            driveFileId={file.drive_file_id}
+            enlargeable
+            title={`${itemName} — ${stageLabel}`}
+            driveLink={file.drive_link || null}
+            style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "contain", display: "block" }}
+            fallback={
+              <div style={{ width: "100%", aspectRatio: "1 / 1", display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 10 }}>
+                No preview
+              </div>
+            }
+          />
+        ) : (
+          <div style={{ width: "100%", aspectRatio: "1 / 1", display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 11, fontFamily: mono, fontWeight: 700, letterSpacing: "0.08em" }}>
+            {ext}
+          </div>
+        )}
+        {/* Stage badge — pinned top-left over thumbnail */}
+        <span style={{
+          position: "absolute", top: 6, left: 6,
+          background: stageColor, color: "#fff",
+          padding: "2px 7px", borderRadius: 4,
+          fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em",
+          fontFamily: font,
+        }}>{stageLabel}</span>
+      </div>
+      <div style={{ padding: "8px 10px", fontSize: 10, display: "flex", flexDirection: "column", gap: 4, borderTop: `1px solid ${T.border}` }}>
         <div style={{ fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={file.file_name}>
           {file.file_name || "Untitled"}
         </div>
