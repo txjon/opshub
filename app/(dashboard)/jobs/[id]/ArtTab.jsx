@@ -156,6 +156,8 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
         const psd = readPsd(new Uint8Array(buf));
         const PLACEMENT_MAP = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest','Right Chest':'Right Chest','Left Sleeve':'Left Sleeve','Right Sleeve':'Right Sleeve','Neck':'Neck','Hood':'Hood','Pocket':'Pocket' };
         const SKIP_GROUPS = ['Shirt Color','Shadows','Highlights','Mask','Client Art'];
+        // Layer names that should never affect printed-size math (reference/template/base/etc.)
+        const NON_INK_NAMES = new Set(["base","reference","guide","guides","template","preview","composite","bg","background","blank"]);
         const info = [];
         const groups = [...(psd.children || [])].reverse();
         for (const group of groups) {
@@ -165,13 +167,19 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
           let minL=Infinity,minT=Infinity,maxR=-Infinity,maxB=-Infinity;
           const colors = [];
           for (const layer of group.children) {
-            const isBase = (layer.name||"").toLowerCase() === "base";
+            const ln = (layer.name||"").toLowerCase().trim();
+            const isBase = ln === "base";
+            const isHidden = layer.hidden === true;
+            const isBlank = !layer.canvas; // no raster data → doesn't contribute to printed art
+            const isNonInk = NON_INK_NAMES.has(ln);
+            const excludeFromBounds = isBase || isHidden || isBlank || isNonInk;
             if (isTag) { if(minL===Infinity){minL=layer.left||0;minT=layer.top||0;maxR=layer.right||0;maxB=layer.bottom||0;} }
-            else if (!isBase) { minL=Math.min(minL,layer.left||0);minT=Math.min(minT,layer.top||0);maxR=Math.max(maxR,layer.right||0);maxB=Math.max(maxB,layer.bottom||0); }
+            else if (!excludeFromBounds) { minL=Math.min(minL,layer.left||0);minT=Math.min(minT,layer.top||0);maxR=Math.max(maxR,layer.right||0);maxB=Math.max(maxB,layer.bottom||0); }
             let hex="#888888";
             if(isBase) hex="#ffffff";
             else if(layer.canvas){const ctx=layer.canvas.getContext("2d");if(ctx){const d=ctx.getImageData(0,0,layer.canvas.width,layer.canvas.height).data;let rS=0,gS=0,bS=0,cnt=0;for(let i=0;i<d.length;i+=40){if(d[i+3]>128){rS+=d[i];gS+=d[i+1];bS+=d[i+2];cnt++;}}if(cnt>0)hex="#"+[rS,gS,bS].map(v=>Math.round(v/cnt).toString(16).padStart(2,"0")).join("");}}
-            colors.push({name:layer.name,hex});
+            // Only list real ink layers as "colors" on the proof — hidden/blank/non-ink aren't pulls
+            if (!isHidden && !isBlank && !isNonInk) colors.push({name:layer.name,hex});
           }
           const artW=maxR-minL,artH=maxB-minT;
           if(artW<=0||artH<=0) continue;
