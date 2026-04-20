@@ -150,7 +150,12 @@ export default function VendorPortalPage({ params }: { params: { token: string }
         fd.append("file", slip);
         await fetch(`/api/portal/vendor/${params.token}/packing-slip`, { method: "POST", body: fd }).catch(() => {});
       }
-      // Then mark shipped with tracking + per-size qtys
+      // Fill in ordered qtys for sizes the user didn't touch, so the saved
+      // ship_qtys object has a value for every size (matches UI defaults).
+      const ordered = item.qtys || {};
+      const inputs = shipQtyInputs[item.id] || {};
+      const completeShipQtys = { ...ordered, ...inputs };
+      // Then mark shipped with tracking + complete per-size qtys
       await fetch(`/api/portal/vendor/${params.token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -160,7 +165,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
           jobId: orderJobId,
           tracking: t.tracking.trim(),
           carrier: t.carrier || "",
-          shipQtys: shipQtyInputs[item.id] || null,
+          shipQtys: Object.keys(completeShipQtys).length > 0 ? completeShipQtys : null,
         }),
       });
       await loadData();

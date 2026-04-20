@@ -61,16 +61,24 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
       delete pendingSaves.current[key];
       delete saveTimers.current[key];
     }
+    // Fill in ordered qtys for any sizes the user didn't touch, so ship_qtys
+    // persists the complete per-size picture — not just the sizes that were
+    // edited. Users expect the defaults shown in the UI to be saved as-is.
+    const item = items.find(it => it.id === itemId);
+    const orderedQtys = item?.qtys || {};
+    const userInputs = f.ship_qtys || {};
+    const completeShipQtys = { ...orderedQtys, ...userInputs };
+    const hasAnyShipped = Object.values(completeShipQtys).some(q => (q || 0) > 0);
+
     await supabase.from("items").update({
       ship_tracking: f.ship_tracking || null,
       ship_notes: f.ship_notes || null,
-      ship_qtys: f.ship_qtys && Object.keys(f.ship_qtys).length > 0 ? f.ship_qtys : null,
+      ship_qtys: hasAnyShipped ? completeShipQtys : null,
       pipeline_stage: "shipped",
       received_at_hpd: false,
       received_at_hpd_at: null,
       received_qtys: null,
     }).eq("id", itemId);
-    const item = items.find(it => it.id === itemId);
     if (item) {
       logJobActivity(item.job_id, `${item.name} shipped from decorator${f.ship_tracking ? " — tracking: " + f.ship_tracking : ""}`);
       notifyTeam(`${item.name} shipped from decorator — incoming to warehouse`, "production", item.job_id, "job");

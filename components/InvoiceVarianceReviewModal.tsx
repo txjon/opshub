@@ -68,7 +68,14 @@ export function InvoiceVarianceReviewModal({
         for (const sz of Object.keys(orderedPerSize)) {
           const fromFirst = firstChoice[sz];
           const fromSecond = secondChoice[sz];
-          actualPerSize[sz] = (fromFirst !== undefined ? fromFirst : fromSecond) ?? 0;
+          const fromOrdered = orderedPerSize[sz];
+          // Missing sizes fall through to ordered — matches packing-slip logic.
+          // If you actually shipped zero of a size, save it as an explicit 0.
+          actualPerSize[sz] = fromFirst !== undefined
+            ? fromFirst
+            : fromSecond !== undefined
+            ? fromSecond
+            : fromOrdered;
         }
         // Determine which source actually contributed the majority of data for the UI label
         (it as any)._actualSourceLabel = prefersReceived

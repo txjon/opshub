@@ -93,7 +93,13 @@ export async function POST(req: NextRequest) {
         if (useShippedQtys) {
           const fromFirst = firstChoice[l.size];
           const fromSecond = secondChoice[l.size];
-          perSize[l.size] = (fromFirst !== undefined ? fromFirst : fromSecond) ?? 0;
+          const fromOrdered = l.qty_ordered || 0;
+          // Missing sizes fall through to ordered — matches packing slip + variance.
+          perSize[l.size] = fromFirst !== undefined
+            ? fromFirst
+            : fromSecond !== undefined
+            ? fromSecond
+            : fromOrdered;
         } else {
           perSize[l.size] = l.qty_ordered || 0;
         }
