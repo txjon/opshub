@@ -36,3 +36,14 @@ export const sortSizes = (sizes: string[]) =>
     if (bi === -1) return -1;
     return ai - bi;
   });
+
+// ── Mobile / responsive breakpoints ─────────────────────────────────────
+export const BP = {
+  mobile: 768,    // < 768 = phone
+  tablet: 1024,   // 768–1023 = tablet
+} as const;
+
+export const MQ = {
+  mobile: `(max-width: ${BP.mobile - 1}px)`,
+  tablet: `(max-width: ${BP.tablet - 1}px)`,
+} as const;

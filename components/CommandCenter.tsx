@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 
 type Alert = {
@@ -39,9 +40,7 @@ export function CommandCenter({ alerts, stats }: {
   const [invoiceInput, setInvoiceInput] = useState("");
   const [invoiceSaving, setInvoiceSaving] = useState(false);
   const [noContactWarn, setNoContactWarn] = useState<{ href: string; label: string } | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => { if (window.innerWidth < 768) setIsMobile(true); }, []);
+  const isMobile = useIsMobile();
 
   // Auto-refresh: poll every 45s while visible + on visibility change (catches portal/webhook state changes)
   useEffect(() => {
@@ -198,23 +197,23 @@ export function CommandCenter({ alerts, stats }: {
   return (
     <div style={{ fontFamily: font, color: T.text }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+      <div style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "space-between", marginBottom: 16, flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 0 }}>
+        <div style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: isMobile ? 12 : 20, flexDirection: isMobile ? "column" : "row", width: isMobile ? "100%" : "auto" }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700 }}>Command Center</div>
             <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
               {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(4, 1fr)" : "repeat(4, auto)", gap: isMobile ? 6 : 12, width: isMobile ? "100%" : "auto" }}>
             {[
               { label: "Projects", value: stats.active, color: T.accent },
               { label: "Items", value: stats.items, color: T.blue },
               { label: "Units", value: stats.units.toLocaleString(), color: T.blue },
               { label: "Prints", value: stats.prints.toLocaleString(), color: T.purple },
             ].map(kpi => (
-              <div key={kpi.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 14px", textAlign: "center" }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: kpi.color, fontFamily: mono }}>{kpi.value}</div>
+              <div key={kpi.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: isMobile ? "6px 8px" : "6px 14px", textAlign: "center", minWidth: 0 }}>
+                <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 800, color: kpi.color, fontFamily: mono }}>{kpi.value}</div>
                 <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>{kpi.label}</div>
               </div>
             ))}
