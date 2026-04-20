@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 // ── Document-style theme — matches invoice/quote PDF aesthetic ──
 const C = {
@@ -80,16 +81,9 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const [showQuoteReject, setShowQuoteReject] = useState(false);
   const [quoteRejectNote, setQuoteRejectNote] = useState("");
   const [viewingProof, setViewingProof] = useState<any>(null);
-  const [isMobile, setIsMobile] = useState(false);
+  const isMobile = useIsMobile();
   const [activeToken, setActiveToken] = useState(params.token);
   const [projectCache, setProjectCache] = useState<Record<string, any>>({});
-
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
 
   useEffect(() => {
     if (projectCache[activeToken]) {
