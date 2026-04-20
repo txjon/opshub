@@ -74,7 +74,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, color, blank_sku"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -216,7 +216,7 @@ export async function GET(
         quoteItems.push({
           name: cp.name || item?.name || "Item",
           style: cp.style || item?.blank_sku || "",
-          color: cp.color || item?.color || "",
+          color: cp.color || "",
           sizes: Object.keys(effectiveQtys).filter(sz => (effectiveQtys[sz] || 0) > 0),
           qtys: effectiveQtys,
           qty: totalQty,
