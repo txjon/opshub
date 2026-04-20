@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sortSizes } from "@/lib/theme";
 // Pricing source of truth: items.sell_per_unit
 
 const admin = () =>
@@ -217,7 +218,7 @@ export async function GET(
           name: cp.name || item?.name || "Item",
           style: cp.style || item?.blank_sku || "",
           color: cp.color || "",
-          sizes: Object.keys(effectiveQtys).filter(sz => (effectiveQtys[sz] || 0) > 0),
+          sizes: sortSizes(Object.keys(effectiveQtys).filter(sz => (effectiveQtys[sz] || 0) > 0)),
           qtys: effectiveQtys,
           qty: totalQty,
           sellPerUnit,
