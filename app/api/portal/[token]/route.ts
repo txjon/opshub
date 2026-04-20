@@ -69,11 +69,12 @@ export async function GET(
       });
     }
 
-    // Items (only fields the client should see)
+    // Items (only fields the client should see; ship_qtys/received_qtys needed
+    // for post-variance invoice line rendering)
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, color, blank_sku"
       )
       .eq("job_id", job.id)
       .order("sort_order");

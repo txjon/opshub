@@ -186,7 +186,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const { data: items } = await supabase
       .from("items")
-      .select("id, name, blank_vendor, blank_sku, sell_per_unit, garment_type, buy_sheet_lines(size, qty_ordered)")
+      .select("id, name, blank_vendor, blank_sku, sell_per_unit, garment_type, ship_qtys, received_qtys, buy_sheet_lines(size, qty_ordered)")
       .eq("job_id", jobId)
       .order("sort_order");
 
