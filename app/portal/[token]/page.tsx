@@ -794,16 +794,10 @@ export default function PortalPage({ params }: { params: { token: string } }) {
           >
             <div style={{ padding: "12px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{pdfPreview.title}</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <a href={pdfPreview.src} target="_blank" rel="noopener noreferrer"
-                  style={{ padding: "6px 12px", borderRadius: 6, background: C.surface, border: `1px solid ${C.border}`, color: C.text, fontSize: 11, fontWeight: 600, textDecoration: "none" }}>
-                  Open in new tab
-                </a>
-                <button
-                  onClick={() => setPdfPreview(null)}
-                  style={{ background: "none", border: "none", color: C.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}
-                >×</button>
-              </div>
+              <button
+                onClick={() => setPdfPreview(null)}
+                style={{ background: "none", border: "none", color: C.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}
+              >×</button>
             </div>
             <iframe
               src={pdfPreview.src}
