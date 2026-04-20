@@ -56,6 +56,8 @@ export default function VendorPortalPage({ params }: { params: { token: string }
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [trackingInputs, setTrackingInputs] = useState<Record<string, { tracking: string; carrier: string }>>({});
+  const [shipQtyInputs, setShipQtyInputs] = useState<Record<string, Record<string, number>>>({});
+  const [packingSlipFiles, setPackingSlipFiles] = useState<Record<string, File | null>>({});
   const [issueInputs, setIssueInputs] = useState<Record<string, string>>({});
   const [showIssue, setShowIssue] = useState<string | null>(null);
   const [showTracking, setShowTracking] = useState<string | null>(null);
@@ -128,6 +130,41 @@ export default function VendorPortalPage({ params }: { params: { token: string }
         setShowIssue(null);
         setConfirmAction(null);
       }
+    } catch {}
+    setActionLoading(null);
+  }
+
+  // Combined Mark as Shipped — per-size qtys + optional packing slip upload
+  async function markShipped(item: OrderItem, orderJobId: string) {
+    const t = trackingInputs[item.id];
+    if (!t?.tracking?.trim()) return;
+    const key = "enter_tracking" + item.id;
+    setActionLoading(key);
+    try {
+      // Upload packing slip first (if attached) so we have the Drive link logged
+      const slip = packingSlipFiles[item.id];
+      if (slip) {
+        const fd = new FormData();
+        fd.append("itemId", item.id);
+        fd.append("file", slip);
+        await fetch(`/api/portal/vendor/${params.token}/packing-slip`, { method: "POST", body: fd }).catch(() => {});
+      }
+      // Then mark shipped with tracking + per-size qtys
+      await fetch(`/api/portal/vendor/${params.token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "enter_tracking",
+          itemId: item.id,
+          jobId: orderJobId,
+          tracking: t.tracking.trim(),
+          carrier: t.carrier || "",
+          shipQtys: shipQtyInputs[item.id] || null,
+        }),
+      });
+      await loadData();
+      setShowTracking(null);
+      setPackingSlipFiles(prev => ({ ...prev, [item.id]: null }));
     } catch {}
     setActionLoading(null);
   }
@@ -495,17 +532,86 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                               onClick={() => setShowIssue(showIssue === item.id ? null : item.id)}
                               style={{
                                 padding: "8px 16px", borderRadius: 8,
-                                background: "transparent", color: C.red, border: `1px solid ${C.redBorder}`,
+                                background: "transparent", color: C.amber, border: `1px solid ${C.amberBorder}`,
                                 fontSize: 12, fontWeight: 600, cursor: "pointer",
                               }}>
-                              Flag Issue
+                              Report Discrepancy
                             </button>
                           )}
                         </div>
 
-                        {/* Tracking input */}
+                        {/* Tracking input + per-size ship qtys + packing slip */}
                         {showTracking === item.id && (
-                          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10, background: C.bg, padding: 12, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                            {/* Per-size shipped quantities */}
+                            {item.sizes && item.sizes.length > 0 && (
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.muted, marginBottom: 6 }}>
+                                  Shipped quantities (defaults to ordered)
+                                </div>
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                  {item.sizes.map(sz => {
+                                    const ordered = item.qtys?.[sz] || 0;
+                                    const current = shipQtyInputs[item.id]?.[sz];
+                                    const value = current !== undefined ? current : ordered;
+                                    const mismatch = value !== ordered;
+                                    return (
+                                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                        <span style={{ fontSize: 9, color: C.muted, fontFamily: C.mono }}>{sz}</span>
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          value={value}
+                                          onChange={e => {
+                                            const n = parseInt(e.target.value || "0", 10);
+                                            setShipQtyInputs(prev => ({
+                                              ...prev,
+                                              [item.id]: { ...(prev[item.id] || {}), [sz]: isNaN(n) ? 0 : n },
+                                            }));
+                                          }}
+                                          onFocus={e => e.target.select()}
+                                          style={{ width: 50, textAlign: "center", padding: "4px", border: `1px solid ${mismatch ? C.amber : C.border}`, borderRadius: 4, background: C.card, color: mismatch ? C.amber : C.text, fontSize: 12, fontFamily: C.mono, outline: "none" }}
+                                        />
+                                        <span style={{ fontSize: 8, color: C.faint, fontFamily: C.mono }}>{ordered}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Packing slip upload */}
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.muted, marginBottom: 6 }}>
+                                Packing slip (optional)
+                              </div>
+                              <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: C.card, border: `1px dashed ${C.border}`, borderRadius: 6, cursor: "pointer", fontSize: 12, color: C.muted }}>
+                                <input
+                                  type="file"
+                                  accept="application/pdf,image/*"
+                                  style={{ display: "none" }}
+                                  onChange={e => {
+                                    const f = e.target.files?.[0] || null;
+                                    setPackingSlipFiles(prev => ({ ...prev, [item.id]: f }));
+                                  }}
+                                />
+                                <span style={{ fontSize: 16, lineHeight: 1, color: C.faint }}>＋</span>
+                                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {packingSlipFiles[item.id]?.name || "Click to attach your packing slip (PDF or image)"}
+                                </span>
+                                {packingSlipFiles[item.id] && (
+                                  <span
+                                    onClick={e => { e.preventDefault(); e.stopPropagation(); setPackingSlipFiles(prev => ({ ...prev, [item.id]: null })); }}
+                                    style={{ fontSize: 14, color: C.muted, padding: "0 4px" }}
+                                  >×</span>
+                                )}
+                              </label>
+                            </div>
+
+                            {/* Carrier + tracking */}
+                            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.muted, marginTop: 4 }}>
+                              Tracking
+                            </div>
                             <div style={{ display: "flex", gap: 8 }}>
                               <select
                                 value={trackingInputs[item.id]?.carrier || ""}
@@ -539,16 +645,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                               />
                             </div>
                             <button
-                              onClick={() => {
-                                const t = trackingInputs[item.id];
-                                if (!t?.tracking?.trim()) return;
-                                doAction("enter_tracking", {
-                                  itemId: item.id,
-                                  jobId: order.jobId,
-                                  tracking: t.tracking.trim(),
-                                  carrier: t.carrier || "",
-                                });
-                              }}
+                              onClick={() => markShipped(item, order.jobId)}
                               disabled={!trackingInputs[item.id]?.tracking?.trim() || actionLoading === "enter_tracking" + item.id}
                               style={{
                                 padding: "10px 0", borderRadius: 8, width: "100%",
@@ -561,17 +658,21 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                           </div>
                         )}
 
-                        {/* Issue input */}
+                        {/* Discrepancy input — blanks received counts off, qc issues, etc. */}
                         {showIssue === item.id && (
-                          <div style={{ marginTop: 10 }}>
+                          <div style={{ marginTop: 10, background: C.amberBg, padding: 12, borderRadius: 8, border: `1px solid ${C.amberBorder}` }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.amber, marginBottom: 6 }}>
+                              Report a discrepancy on this item
+                            </div>
                             <textarea
                               value={issueInputs[item.id] || ""}
                               onChange={e => setIssueInputs(prev => ({ ...prev, [item.id]: e.target.value }))}
-                              placeholder="Describe the issue..."
+                              placeholder="e.g. short M-3, over L-12"
                               style={{
-                                width: "100%", minHeight: 60, padding: 10, borderRadius: 8,
-                                border: `1px solid ${C.border}`, fontSize: 12,
+                                width: "100%", minHeight: 60, padding: 10, borderRadius: 6,
+                                border: `1px solid ${C.amberBorder}`, fontSize: 12,
                                 fontFamily: C.font, resize: "vertical", background: C.card,
+                                boxSizing: "border-box",
                               }}
                             />
                             <button
@@ -585,12 +686,12 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                               }}
                               disabled={!issueInputs[item.id]?.trim() || actionLoading === "flag_issue" + item.id}
                               style={{
-                                marginTop: 6, padding: "8px 20px", borderRadius: 8,
-                                background: C.red, color: "#fff", border: "none",
+                                marginTop: 8, padding: "8px 20px", borderRadius: 6,
+                                background: C.amber, color: "#fff", border: "none",
                                 fontSize: 12, fontWeight: 600, cursor: "pointer",
                                 opacity: (!issueInputs[item.id]?.trim() || actionLoading === "flag_issue" + item.id) ? 0.5 : 1,
                               }}>
-                              {actionLoading === "flag_issue" + item.id ? "Sending..." : "Send Issue Report"}
+                              {actionLoading === "flag_issue" + item.id ? "Sending..." : "Send to HPD"}
                             </button>
                           </div>
                         )}
