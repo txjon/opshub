@@ -25,6 +25,15 @@ type Alert = {
 
 const daysUntil = (iso: string) => Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
 
+type KpiListItem = {
+  key: string;
+  clientName: string;
+  jobTitle: string;
+  jobNumber: string;
+  subtitle?: string;
+  href: string;
+};
+
 export function CommandCenter({ alerts, stats }: {
   alerts: Alert[];
   stats: {
@@ -32,9 +41,14 @@ export function CommandCenter({ alerts, stats }: {
     needsBlanks: number; needsPO: number; needsProofs: number;
     atDecorator: number; shipped: number; stalled: number; awaitingClient: number;
     decoratorCounts: Record<string, number>;
+    pipelineLists?: {
+      needsBlanks: KpiListItem[]; needsPO: KpiListItem[]; needsProofs: KpiListItem[];
+      atDecorator: KpiListItem[]; shipped: KpiListItem[]; stalled: KpiListItem[]; awaitingClient: KpiListItem[];
+    };
   };
 }) {
   const router = useRouter();
+  const [openKpi, setOpenKpi] = useState<string | null>(null);
   const [emailModal, setEmailModal] = useState<{ type: string; jobId: string; contacts: any[]; subject: string; vendor?: string } | null>(null);
   const [invoiceModal, setInvoiceModal] = useState<{ jobId: string; jobTitle: string; clientName: string; currentNumber: string | null } | null>(null);
   const [invoiceInput, setInvoiceInput] = useState("");
@@ -245,20 +259,48 @@ export function CommandCenter({ alerts, stats }: {
 
       {/* Pipeline summary */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-        {[
-          { label: "Needs Blanks", value: stats.needsBlanks, color: stats.needsBlanks > 0 ? T.amber : T.faint },
-          { label: "Needs PO", value: stats.needsPO, color: stats.needsPO > 0 ? T.amber : T.faint },
-          { label: "Awaiting Proofs", value: stats.needsProofs, color: stats.needsProofs > 0 ? T.amber : T.faint },
-          { label: "At Decorator", value: stats.atDecorator, color: stats.atDecorator > 0 ? T.blue : T.faint },
-          { label: "Shipped", value: stats.shipped, color: stats.shipped > 0 ? T.green : T.faint },
-          { label: "Stalled 7d+", value: stats.stalled, color: stats.stalled > 0 ? T.red : T.faint },
-          { label: "Awaiting Client", value: stats.awaitingClient, color: stats.awaitingClient > 0 ? T.muted : T.faint },
-        ].map(s => (
-          <div key={s.label} style={{ flex: 1, minWidth: 90, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, fontFamily: mono }}>{s.value}</div>
-            <div style={{ fontSize: 8, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 2 }}>{s.label}</div>
-          </div>
-        ))}
+        {([
+          { id: "needsBlanks",    label: "Needs Blanks",    value: stats.needsBlanks,    color: stats.needsBlanks > 0 ? T.amber : T.faint,   list: stats.pipelineLists?.needsBlanks },
+          { id: "needsPO",        label: "Needs PO",        value: stats.needsPO,        color: stats.needsPO > 0 ? T.amber : T.faint,       list: stats.pipelineLists?.needsPO },
+          { id: "needsProofs",    label: "Awaiting Proofs", value: stats.needsProofs,    color: stats.needsProofs > 0 ? T.amber : T.faint,   list: stats.pipelineLists?.needsProofs },
+          { id: "atDecorator",    label: "At Decorator",    value: stats.atDecorator,    color: stats.atDecorator > 0 ? T.blue : T.faint,    list: stats.pipelineLists?.atDecorator },
+          { id: "shipped",        label: "Shipped",         value: stats.shipped,        color: stats.shipped > 0 ? T.green : T.faint,       list: stats.pipelineLists?.shipped },
+          { id: "stalled",        label: "Stalled 7d+",     value: stats.stalled,        color: stats.stalled > 0 ? T.red : T.faint,         list: stats.pipelineLists?.stalled },
+          { id: "awaitingClient", label: "Awaiting Client", value: stats.awaitingClient, color: stats.awaitingClient > 0 ? T.muted : T.faint, list: stats.pipelineLists?.awaitingClient },
+        ] as const).map(s => {
+          const hasList = (s.list?.length ?? 0) > 0;
+          const isOpen = openKpi === s.id;
+          return (
+            <div
+              key={s.label}
+              onMouseEnter={() => { if (!isMobile && hasList) setOpenKpi(s.id); }}
+              onMouseLeave={() => { if (!isMobile) setOpenKpi(null); }}
+              onClick={() => { if (isMobile && hasList) setOpenKpi(isOpen ? null : s.id); }}
+              style={{
+                flex: 1, minWidth: 90, background: T.card,
+                border: `1px solid ${isOpen ? T.accent : T.border}`,
+                borderRadius: 8, padding: "8px 10px", textAlign: "center",
+                cursor: hasList ? "pointer" : "default",
+                position: "relative",
+                transition: "border-color 0.15s",
+              }}
+            >
+              <div style={{ fontSize: 20, fontWeight: 800, color: s.color, fontFamily: mono }}>{s.value}</div>
+              <div style={{ fontSize: 8, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 2 }}>{s.label}</div>
+
+              {isOpen && hasList && (
+                <KpiPopup
+                  items={s.list!}
+                  label={s.label}
+                  accent={s.color}
+                  onNavigate={(href) => { setOpenKpi(null); router.push(href); }}
+                  onClose={() => setOpenKpi(null)}
+                  isMobile={isMobile}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Decorator breakdown */}
@@ -355,6 +397,108 @@ export function CommandCenter({ alerts, stats }: {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── KPI Popup ─────────────────────────────────────────────────
+// Hover-triggered (desktop) / tap-triggered (mobile) list of projects
+// contributing to a pipeline KPI. Each row links to the relevant tab.
+function KpiPopup({
+  items,
+  label,
+  accent,
+  onNavigate,
+  onClose,
+  isMobile,
+}: {
+  items: KpiListItem[];
+  label: string;
+  accent: string;
+  onNavigate: (href: string) => void;
+  onClose: () => void;
+  isMobile: boolean;
+}) {
+  const mobileStyle: React.CSSProperties = {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+    zIndex: 1000, display: "flex", alignItems: "flex-end", justifyContent: "center",
+  };
+  const mobileSheet: React.CSSProperties = {
+    width: "100%", maxWidth: 480, maxHeight: "75vh",
+    background: T.card, borderRadius: "12px 12px 0 0",
+    display: "flex", flexDirection: "column",
+    boxShadow: "0 -8px 24px rgba(0,0,0,0.2)",
+  };
+  const desktopStyle: React.CSSProperties = {
+    position: "absolute", top: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)",
+    minWidth: 280, maxWidth: 360, maxHeight: 320,
+    background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+    zIndex: 100, display: "flex", flexDirection: "column",
+    textAlign: "left",
+  };
+
+  const body = (
+    <>
+      <div style={{
+        padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        flexShrink: 0,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 99, background: accent, flexShrink: 0 }} />
+          <span style={{ fontSize: 11, fontWeight: 700, color: T.text, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
+          <span style={{ fontSize: 10, color: T.faint }}>{items.length}</span>
+        </div>
+        {isMobile && (
+          <button onClick={(e) => { e.stopPropagation(); onClose(); }}
+            style={{ background: "none", border: "none", fontSize: 18, color: T.muted, cursor: "pointer", padding: 0, lineHeight: 1 }}>
+            ×
+          </button>
+        )}
+      </div>
+      <div style={{ overflowY: "auto", flex: 1 }}>
+        {items.map(it => (
+          <button
+            key={it.key}
+            onClick={(e) => { e.stopPropagation(); onNavigate(it.href); }}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              background: "transparent", border: "none",
+              padding: "10px 14px", borderBottom: `1px solid ${T.border}`,
+              cursor: "pointer", fontFamily: "inherit", color: T.text,
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+                {it.clientName} — {it.jobTitle}
+              </span>
+              <span style={{ fontSize: 10, color: T.faint, fontFamily: mono, flexShrink: 0 }}>{it.jobNumber}</span>
+            </div>
+            {it.subtitle && (
+              <div style={{ fontSize: 11, color: T.muted, marginTop: 3, lineHeight: 1.3 }}>{it.subtitle}</div>
+            )}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <div style={mobileStyle} onClick={(e) => { e.stopPropagation(); onClose(); }}>
+        <div style={mobileSheet} onClick={(e) => e.stopPropagation()}>
+          {body}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={desktopStyle} onClick={(e) => e.stopPropagation()}>
+      {body}
     </div>
   );
 }

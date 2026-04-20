@@ -319,50 +319,120 @@ export default async function DashboardPage() {
     return total;
   }, 0);
 
-  // Summary counts for production team
-  const needsBlanks = activeJobs.filter(j => {
-    const qa = (j as any).quote_approved;
-    const items = j.items || [];
-    const payments = paymentsByJob[j.id] || [];
-    const terms = j.payment_terms || "";
-    const paymentMet = terms === "net_15" || terms === "net_30" || payments.some((p: any) => p.status === "paid" || p.status === "partial");
-    const allProofs = items.length > 0 && items.every((it: any) => proofMap[it.id]?.allApproved || it.artwork_status === "approved");
-    const apparel = items.filter((it: any) => it.garment_type !== "accessory");
-    const blanksOrdered = apparel.filter((it: any) => it.blanks_order_number).length;
-    return qa && paymentMet && allProofs && apparel.length > 0 && blanksOrdered < apparel.length;
-  }).length;
+  // Helper: build a common list-entry shape for KPI drill-downs
+  const jobRef = (j: any, overrides: Partial<{ subtitle: string; href: string; key: string }> = {}) => ({
+    key: overrides.key ?? j.id,
+    clientName: j.clients?.name || "No client",
+    jobTitle: j.title || "Untitled",
+    jobNumber: (j.type_meta as any)?.qb_invoice_number || j.job_number || "",
+    subtitle: overrides.subtitle,
+    href: overrides.href || `/jobs/${j.id}`,
+  });
 
-  const needsPO = activeJobs.filter(j => {
-    const typeMeta = (j.type_meta || {}) as any;
-    const poSent = typeMeta.po_sent_vendors || [];
-    const costProds = ((j as any).costing_data?.costProds || []);
-    const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))] as string[];
-    return vendors.length > 0 && vendors.some((v: string) => !poSent.includes(v));
-  }).length;
+  // Build per-KPI lists (counts are just .length on each)
+  const needsBlanksList = activeJobs
+    .map(j => {
+      const qa = (j as any).quote_approved;
+      const items = j.items || [];
+      const payments = paymentsByJob[j.id] || [];
+      const terms = j.payment_terms || "";
+      const paymentMet = terms === "net_15" || terms === "net_30" || payments.some((p: any) => p.status === "paid" || p.status === "partial");
+      const allProofs = items.length > 0 && items.every((it: any) => proofMap[it.id]?.allApproved || it.artwork_status === "approved");
+      const apparel = items.filter((it: any) => it.garment_type !== "accessory");
+      const blanksOrdered = apparel.filter((it: any) => it.blanks_order_number).length;
+      const missing = apparel.length - blanksOrdered;
+      if (!(qa && paymentMet && allProofs && apparel.length > 0 && missing > 0)) return null;
+      return jobRef(j, { subtitle: `${missing} item${missing !== 1 ? "s" : ""} pending blanks`, href: `/jobs/${j.id}?tab=blanks` });
+    })
+    .filter(Boolean) as any[];
 
-  const needsProofs = activeJobs.filter(j => {
-    const items = j.items || [];
-    return items.some((it: any) => proofMap[it.id]?.pendingCount > 0);
-  }).length;
+  const needsPOList = activeJobs
+    .map(j => {
+      const typeMeta = (j.type_meta || {}) as any;
+      const poSent = typeMeta.po_sent_vendors || [];
+      const costProds = ((j as any).costing_data?.costProds || []);
+      const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))] as string[];
+      const pending = vendors.filter(v => !poSent.includes(v));
+      if (vendors.length === 0 || pending.length === 0) return null;
+      return jobRef(j, { subtitle: `${pending.join(", ")} · ${pending.length} PO${pending.length !== 1 ? "s" : ""} pending`, href: `/jobs/${j.id}?tab=po` });
+    })
+    .filter(Boolean) as any[];
 
-  const atDecorator = allItems.filter((it: any) => it.pipeline_stage === "in_production").length;
-  const shipped = allItems.filter((it: any) => it.pipeline_stage === "shipped" && !it.received_at_hpd).length;
-  const stalled = allItems.filter((it: any) => {
-    if (it.pipeline_stage !== "in_production") return false;
-    const ts = it.pipeline_timestamps?.in_production;
-    if (!ts) return false;
-    return Math.floor((Date.now() - new Date(ts).getTime()) / 86400000) >= 7;
-  }).length;
+  const needsProofsList = activeJobs
+    .map(j => {
+      const items = j.items || [];
+      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0);
+      if (pendingItems.length === 0) return null;
+      return jobRef(j, { subtitle: `${pendingItems.length} proof${pendingItems.length !== 1 ? "s" : ""} awaiting client review`, href: `/jobs/${j.id}?tab=proofs` });
+    })
+    .filter(Boolean) as any[];
 
-  const awaitingClient = activeJobs.filter(j => {
-    const qa = (j as any).quote_approved;
-    const items = j.items || [];
-    const payments = paymentsByJob[j.id] || [];
-    const terms = j.payment_terms || "";
-    const paymentMet = terms === "net_15" || terms === "net_30" || payments.some((p: any) => p.status === "paid" || p.status === "partial");
-    const allProofs = items.length > 0 && items.every((it: any) => proofMap[it.id]?.allApproved || it.artwork_status === "approved");
-    return !qa || !paymentMet || !allProofs;
-  }).length;
+  const atDecoratorList = (activeJobs.flatMap(j => (j.items || []).map((it: any) => ({ j, it }))))
+    .filter(({ it }) => it.pipeline_stage === "in_production")
+    .map(({ j, it }) => {
+      const ts = it.pipeline_timestamps?.in_production;
+      const days = ts ? Math.floor((Date.now() - new Date(ts).getTime()) / 86400000) : 0;
+      const decName = it.decorator_assignments?.[0]?.decorators?.short_code || it.decorator_assignments?.[0]?.decorators?.name || "";
+      return jobRef(j, {
+        key: `atd-${it.id}`,
+        subtitle: `${it.name}${decName ? ` · ${decName}` : ""}${ts ? ` · ${days}d in stage` : ""}`,
+        href: `/jobs/${j.id}?tab=production`,
+      });
+    });
+
+  const shippedList = (activeJobs.flatMap(j => (j.items || []).map((it: any) => ({ j, it }))))
+    .filter(({ it }) => it.pipeline_stage === "shipped" && !it.received_at_hpd)
+    .map(({ j, it }) => {
+      const decName = it.decorator_assignments?.[0]?.decorators?.short_code || it.decorator_assignments?.[0]?.decorators?.name || "";
+      return jobRef(j, {
+        key: `ship-${it.id}`,
+        subtitle: `${it.name}${decName ? ` · from ${decName}` : ""}${it.ship_tracking ? ` · ${it.ship_tracking}` : ""}`,
+        href: `/jobs/${j.id}?tab=production`,
+      });
+    });
+
+  const stalledList = (activeJobs.flatMap(j => (j.items || []).map((it: any) => ({ j, it }))))
+    .filter(({ it }) => {
+      if (it.pipeline_stage !== "in_production") return false;
+      const ts = it.pipeline_timestamps?.in_production;
+      if (!ts) return false;
+      return Math.floor((Date.now() - new Date(ts).getTime()) / 86400000) >= 7;
+    })
+    .map(({ j, it }) => {
+      const ts = it.pipeline_timestamps!.in_production;
+      const days = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000);
+      const decName = it.decorator_assignments?.[0]?.decorators?.short_code || it.decorator_assignments?.[0]?.decorators?.name || "";
+      return jobRef(j, {
+        key: `stalled-${it.id}`,
+        subtitle: `${it.name}${decName ? ` · ${decName}` : ""} · ${days}d at decorator`,
+        href: `/jobs/${j.id}?tab=production`,
+      });
+    });
+
+  const awaitingClientList = activeJobs
+    .map(j => {
+      const qa = (j as any).quote_approved;
+      const items = j.items || [];
+      const payments = paymentsByJob[j.id] || [];
+      const terms = j.payment_terms || "";
+      const paymentMet = terms === "net_15" || terms === "net_30" || payments.some((p: any) => p.status === "paid" || p.status === "partial");
+      const allProofs = items.length > 0 && items.every((it: any) => proofMap[it.id]?.allApproved || it.artwork_status === "approved");
+      if (qa && paymentMet && allProofs) return null;
+      const missing: string[] = [];
+      if (!qa) missing.push("quote");
+      if (!paymentMet) missing.push("payment");
+      if (!allProofs) missing.push("proof approval");
+      return jobRef(j, { subtitle: `Waiting on: ${missing.join(", ")}`, href: `/jobs/${j.id}` });
+    })
+    .filter(Boolean) as any[];
+
+  const needsBlanks = needsBlanksList.length;
+  const needsPO = needsPOList.length;
+  const needsProofs = needsProofsList.length;
+  const atDecorator = atDecoratorList.length;
+  const shipped = shippedList.length;
+  const stalled = stalledList.length;
+  const awaitingClient = awaitingClientList.length;
 
   // Decorator breakdown
   const decoratorCounts: Record<string, number> = {};
@@ -395,6 +465,15 @@ export default async function DashboardPage() {
     stalled,
     awaitingClient,
     decoratorCounts,
+    pipelineLists: {
+      needsBlanks: needsBlanksList,
+      needsPO: needsPOList,
+      needsProofs: needsProofsList,
+      atDecorator: atDecoratorList,
+      shipped: shippedList,
+      stalled: stalledList,
+      awaitingClient: awaitingClientList,
+    },
   };
 
   return <CommandCenter alerts={alerts} stats={stats} />;
