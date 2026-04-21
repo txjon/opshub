@@ -386,9 +386,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   if (loading && !initialLoadDone.current) return React.createElement(JobSkeleton, null);
   if (!job) return React.createElement("div", {style:{padding:"2rem",color:T.muted,fontSize:13}}, "Project not found.");
 
-  // Use costing_summary if available (set when costing tab is saved), fallback to item calculations
+  // Use costing_summary if available (set when costing tab is saved), fallback to item calculations.
+  // For revenue: effectiveRevenue picks QB-billed amount when an invoice has been pushed
+  // (covers variance-review adjustments), otherwise costing_summary.grossRev.
   const cs = job.costing_summary ? (typeof job.costing_summary === 'string' ? JSON.parse(job.costing_summary) : job.costing_summary) : null;
-  const totalRev = cs?.grossRev || items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.sell_per_unit)||0),0);
+  const qbTotal = (job.type_meta as any)?.qb_total_with_tax;
+  const qbTax = (job.type_meta as any)?.qb_tax_amount || 0;
+  const billedRev = qbTotal && qbTotal > 0 ? Math.max(0, qbTotal - qbTax) : null;
+  const totalRev = billedRev ?? cs?.grossRev ?? items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.sell_per_unit)||0),0);
   const totalCost = cs?.totalCost || items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.cost_per_unit)||0),0);
   const totalUnits = items.reduce((a,it)=>a+tQty(it.qtys||{}),0);
   const margin = totalRev>0?((totalRev-totalCost)/totalRev*100):0;
