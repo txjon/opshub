@@ -37,9 +37,10 @@ export async function POST(req: NextRequest) {
 
     // Load job for document numbers + client name (for greeting)
     const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    const { data: jobData } = await adminClient.from("jobs").select("job_number, type_meta, clients(name)").eq("id", jobId).single();
-    const qbInvNum = jobData?.type_meta?.qb_invoice_number;
-    const jobNum = jobData?.job_number;
+    const { data: jobData } = await adminClient.from("jobs").select("job_number, title, type_meta, clients(name)").eq("id", jobId).single();
+    const qbInvNum = (jobData as any)?.type_meta?.qb_invoice_number;
+    const jobNum = (jobData as any)?.job_number;
+    const projectTitle = (jobData as any)?.title || "";
     const clientGreeting = (jobData as any)?.clients?.name || (recipientName ? recipientName.split(" ")[0] : "there");
 
     if (type === "quote") {
@@ -55,7 +56,9 @@ export async function POST(req: NextRequest) {
     } else if (type === "invoice") {
       pdfUrl = `${baseUrl}/api/pdf/invoice/${jobId}?download=1`;
       fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-      defaultSubject = subject || `Invoice ${qbInvNum || ""} — House Party Distro`.trim();
+      // Standard post-invoice subject format: "Invoice — [Client] · Invoice [#] · [Project]"
+      const clientName = (jobData as any)?.clients?.name || "";
+      defaultSubject = subject || `Invoice — ${clientName}${qbInvNum ? ` · Invoice ${qbInvNum}` : ""} · ${projectTitle}`.trim();
       filename = `invoice-${qbInvNum || jobId.slice(0, 8)}.pdf`;
     } else {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
@@ -110,13 +113,15 @@ export async function POST(req: NextRequest) {
         ? renderBrandedEmail({
             heading: `Invoice${qbInvNum ? ` #${qbInvNum}` : ""}`,
             greeting: `Hi ${clientGreeting},`,
-            bodyHtml: `Your invoice${qbInvNum ? ` #${qbInvNum}` : ""} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`,
+            bodyHtml: qbInvNum && projectTitle
+              ? `Your invoice for <strong>Invoice ${qbInvNum} · ${projectTitle}</strong> is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`
+              : `Your invoice${qbInvNum ? ` #${qbInvNum}` : ""} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`,
             cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
             secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
           })
         : renderBrandedEmail({
             heading: `Purchase order${qbInvNum ? ` ${qbInvNum}` : ""}`,
-            greeting: `Hi,`,
+            greeting: `Hi ${vendor || "there"},`,
             bodyHtml: `Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.`,
             cta: vendorPortalUrl ? { label: "View in Vendor Portal", url: vendorPortalUrl, style: "dark" } : undefined,
             hint: `You can confirm receipt, update production status, and enter tracking directly from the portal.`,

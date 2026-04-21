@@ -235,8 +235,8 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
         const { error: sendErr } = await resend.emails.send({
           from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",
           to: clientEmail,
-          subject: `Payment Received — ${(job.clients as any)?.name || ""} · ${job.title}`,
-          html: `<p>Hi,</p><p>We've received your payment of <strong>$${amount.toLocaleString()}</strong>. Your paid invoice is attached for your records.</p>${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`,
+          subject: `Payment received — ${(job.clients as any)?.name || ""}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""} · ${job.title}`,
+          html: `<p>Hi,</p><p>Payment of <strong>$${amount.toLocaleString()}</strong> received for <strong>Invoice ${invoiceNum} · ${job.title}</strong>. Your paid invoice is attached for your records.</p>${portalButton}<p>Welcome to the party,<br/>House Party Distro</p>`,
           attachments: [{ filename: `HPD-Invoice-${invoiceNum}-PAID.pdf`, content: pdfBuffer.toString("base64") }],
         });
         if (sendErr) {

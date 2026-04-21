@@ -102,20 +102,27 @@ export async function POST(req: NextRequest) {
       let pdfFilename = "";
 
       if (type === "order_shipped_vendor") {
+        // Existing partial-shipment count for this job — used to number the
+        // filename so client can tell shipments apart without seeing vendor names
+        const partialCount = existing.filter(r => r.type === "drop_ship_vendor").length;
+        const suffix = partialCount > 0 ? `-${partialCount + 1}` : "";
         subject = `Part of your order has shipped — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`;
         heading = "Part of your order has shipped";
         bodyHtml = `Part of your order for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has shipped. The packing slip is attached.`;
-        pdfFilename = `HPD-PackingSlip-${invoiceNum}${vendorName ? `-${vendorName.replace(/[^a-z0-9]/gi, "")}` : ""}.pdf`;
+        pdfFilename = `HPD-PackingSlip-${invoiceNum}${suffix}.pdf`;
       } else {
         subject = `Your order has shipped — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`;
         heading = "Your order has shipped";
-        bodyHtml = `Your order for <strong>${projectTitle}</strong> has shipped. The packing slip is attached.`;
+        bodyHtml = `Your order for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has shipped. The packing slip is attached.`;
         pdfFilename = `HPD-PackingSlip-${invoiceNum}.pdf`;
       }
 
       let pdfBuffer: Buffer;
       try {
-        const slipUrl = `${BASE_URL()}/api/pdf/packing-slip/${jobId}${decoratorId ? `?decoratorId=${decoratorId}` : ""}`;
+        const params = new URLSearchParams();
+        if (decoratorId) params.set("decoratorId", decoratorId);
+        if (trackingNumber) params.set("tracking", trackingNumber);
+        const slipUrl = `${BASE_URL()}/api/pdf/packing-slip/${jobId}${params.toString() ? `?${params.toString()}` : ""}`;
         pdfBuffer = await fetchPdf(slipUrl);
       } catch (e: any) {
         console.error(`[notify/${type}] packing slip fetch failed:`, e.message);
@@ -183,7 +190,7 @@ export async function POST(req: NextRequest) {
       const html = renderBrandedEmail({
         heading: "Production complete",
         greeting: `Hi ${clientName || "there"},`,
-        bodyHtml: `Production for <strong>${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment.`,
+        bodyHtml: `Production for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment.`,
         cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
         closing: "Welcome to the party,\nHouse Party Distro",
       });
@@ -237,7 +244,7 @@ export async function POST(req: NextRequest) {
       const html = renderBrandedEmail({
         heading: `Revised invoice #${invoiceNum}`,
         greeting: `Hi ${clientName || "there"},`,
-        bodyHtml: `Your invoice #${invoiceNum} has been updated with final shipped quantities. The revised copy is attached and waiting in your portal.`,
+        bodyHtml: `Your invoice for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has been updated with final shipped quantities. The revised copy is attached and waiting in your portal.`,
         cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
         secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
       });
@@ -245,7 +252,7 @@ export async function POST(req: NextRequest) {
       await resend.emails.send({
         from: FROM_ADDR(),
         to: clientEmail,
-        subject: `Revised invoice ${invoiceNum} — ${clientName} · ${projectTitle}`,
+        subject: `Revised invoice — ${clientName}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""} · ${projectTitle}`,
         html,
         attachments: [{ filename: `HPD-Invoice-${invoiceNum}-Revised.pdf`, content: pdfBuffer.toString("base64") }],
       });
