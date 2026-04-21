@@ -1157,6 +1157,12 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           } else if (cp.sellOverride > 0) {
             itemUpdates.sell_per_unit = Math.round(cp.sellOverride * 100) / 100;
           }
+          // Per-item fully-loaded cost: blanks + decoration + setup + specialty +
+          // finishing + packaging, allocated across units. Source of truth for
+          // exact per-item margin (god-mode, reporting).
+          if (r2 && r2.qty > 0 && r2.totalCost >= 0) {
+            itemUpdates.cost_per_unit_all_in = Math.round((r2.totalCost / r2.qty) * 100) / 100;
+          }
           if (Object.keys(itemUpdates).length > 0) {
             await supabase.from("items").update(itemUpdates).eq("id", cp.id);
           }
