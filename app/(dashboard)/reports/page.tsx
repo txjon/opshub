@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 
@@ -28,6 +29,7 @@ function exportCsv(filename: string, headers: string[], rows: string[][]) {
 
 export default function ReportsPage() {
   const supabase = createClient();
+  const isMobile = useIsMobile();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -163,7 +165,7 @@ export default function ReportsPage() {
       </div>
 
       {/* KPIs */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(5,1fr)", gap: 8 }}>
         {[
           { label: "Total Revenue", value: fmtD(totalRevenue), color: T.accent },
           { label: "Total Cost", value: fmtD(totalCost), color: T.muted },
@@ -178,7 +180,7 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
 
         {/* Revenue by month */}
         <div style={card}>
@@ -209,7 +211,7 @@ export default function ReportsPage() {
           {turnaround && (
             <div style={card}>
               <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Average Turnaround</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
                 <div>
                   <div style={{ fontSize: 24, fontWeight: 700, color: T.accent, fontFamily: mono }}>{turnaround.avg}d</div>
                   <div style={{ fontSize: 10, color: T.muted }}>Average</div>
@@ -249,7 +251,8 @@ export default function ReportsPage() {
       {/* Revenue by client */}
       <div style={card}>
         <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Revenue by Client</div>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: isMobile ? 600 : "auto" }}>
           <thead>
             <tr>
               {["Client", "Revenue", "Cost", "Margin", "Units", "Projects", "Paid"].map(h => (
@@ -274,12 +277,14 @@ export default function ReportsPage() {
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Margins by project */}
       <div style={card}>
         <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Margins by Project</div>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: isMobile ? 600 : "auto" }}>
           <thead>
             <tr>
               {["Project", "Client", "Revenue", "Cost", "Margin", "Phase"].map(h => (
@@ -300,6 +305,7 @@ export default function ReportsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
