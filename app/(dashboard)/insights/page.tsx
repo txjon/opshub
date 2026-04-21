@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { effectiveRevenue, effectiveCost } from "@/lib/revenue";
 
 import { T, font, mono } from "@/lib/theme";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -42,14 +43,16 @@ export default function InsightsPage() {
     const active = jobs.filter(j => !["complete", "cancelled"].includes(j.phase));
     const completed = jobs.filter(j => j.phase === "complete");
 
-    // Revenue & profit
-    const totalRev = jobs.reduce((s, j) => s + (j.costing_summary?.grossRev || 0), 0);
-    const totalCost = jobs.reduce((s, j) => s + (j.costing_summary?.totalCost || 0), 0);
+    // Revenue & profit — use QB-adjusted revenue when invoice has been pushed
+    // (covers variance-review adjustments). costing_summary.grossRev stays
+    // frozen at the original quote after variance, which inflates these numbers.
+    const totalRev = jobs.reduce((s, j) => s + effectiveRevenue(j), 0);
+    const totalCost = jobs.reduce((s, j) => s + effectiveCost(j), 0);
     const totalProfit = totalRev - totalCost;
     const avgMargin = totalRev > 0 ? totalProfit / totalRev : 0;
 
-    const activeRev = active.reduce((s, j) => s + (j.costing_summary?.grossRev || 0), 0);
-    const activeProfit = active.reduce((s, j) => s + (j.costing_summary?.grossRev || 0) - (j.costing_summary?.totalCost || 0), 0);
+    const activeRev = active.reduce((s, j) => s + effectiveRevenue(j), 0);
+    const activeProfit = active.reduce((s, j) => s + effectiveRevenue(j) - effectiveCost(j), 0);
 
     // Cash flow
     const totalPaid = payments.filter(p => p.status === "paid").reduce((s, p) => s + (p.amount || 0), 0);
@@ -58,7 +61,7 @@ export default function InsightsPage() {
     // AR aging buckets
     const arBuckets = { current: 0, d30: 0, d60: 0, d90plus: 0 };
     for (const j of active) {
-      const rev = j.costing_summary?.grossRev || 0;
+      const rev = effectiveRevenue(j);
       if (rev <= 0) continue;
       const jobPaid = payments.filter(p => p.job_id === j.id && p.status === "paid").reduce((s: number, p: any) => s + (p.amount || 0), 0);
       const owed = rev - jobPaid;
@@ -83,9 +86,9 @@ export default function InsightsPage() {
       const cid = j.client_id || "unknown";
       const cname = (j.clients as any)?.name || "Unknown";
       if (!byClient[cid]) byClient[cid] = { name: cname, rev: 0, cost: 0, profit: 0, projects: 0, units: 0 };
-      byClient[cid].rev += j.costing_summary?.grossRev || 0;
-      byClient[cid].cost += j.costing_summary?.totalCost || 0;
-      byClient[cid].profit += (j.costing_summary?.grossRev || 0) - (j.costing_summary?.totalCost || 0);
+      byClient[cid].rev += effectiveRevenue(j);
+      byClient[cid].cost += effectiveCost(j);
+      byClient[cid].profit += effectiveRevenue(j) - effectiveCost(j);
       byClient[cid].projects += 1;
       byClient[cid].units += j.costing_summary?.totalQty || 0;
     }
@@ -171,8 +174,8 @@ export default function InsightsPage() {
         const cd = new Date(ct);
         return cd.getMonth() === d.getMonth() && cd.getFullYear() === d.getFullYear();
       });
-      const rev = monthJobs.reduce((s: number, j: any) => s + (j.costing_summary?.grossRev || 0), 0);
-      const cost = monthJobs.reduce((s: number, j: any) => s + (j.costing_summary?.totalCost || 0), 0);
+      const rev = monthJobs.reduce((s: number, j: any) => s + effectiveRevenue(j), 0);
+      const cost = monthJobs.reduce((s: number, j: any) => s + effectiveCost(j), 0);
       monthlyRev.push({ month: label, rev, cost, profit: rev - cost });
     }
     const maxMonthRev = Math.max(...monthlyRev.map(m => m.rev), 1);
@@ -201,7 +204,7 @@ export default function InsightsPage() {
           const sd = new Date(j.target_ship_date);
           return sd >= d && sd <= endD;
         })
-        .reduce((s: number, j: any) => s + (j.costing_summary?.grossRev || 0), 0);
+        .reduce((s: number, j: any) => s + effectiveRevenue(j), 0);
 
       // Collected: payments received in this month
       const collected = payments

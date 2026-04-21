@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import { effectiveRevenue, effectiveCost } from "@/lib/revenue";
 
 const fmtD = (n: number) => "$" + Math.round(n).toLocaleString();
 const fmtPct = (n: number) => n.toFixed(1) + "%";
@@ -35,7 +36,7 @@ export default function ReportsPage() {
 
   useEffect(() => {
     supabase.from("jobs")
-      .select("*, clients(name), costing_summary, phase_timestamps, items(id, buy_sheet_lines(qty_ordered)), payment_records(amount, status)")
+      .select("*, clients(name), costing_summary, type_meta, phase_timestamps, items(id, buy_sheet_lines(qty_ordered)), payment_records(amount, status)")
       .order("created_at", { ascending: false })
       .then(({ data }) => {
         setJobs((data || []) as Job[]);
@@ -51,9 +52,8 @@ export default function ReportsPage() {
       if (!d) continue;
       const key = d.toLocaleDateString("en-US", { year: "numeric", month: "short" });
       if (!months[key]) months[key] = { revenue: 0, cost: 0, units: 0, count: 0 };
-      const cs = j.costing_summary;
-      months[key].revenue += cs?.grossRev || 0;
-      months[key].cost += cs?.totalCost || 0;
+      months[key].revenue += effectiveRevenue(j);
+      months[key].cost += effectiveCost(j);
       months[key].units += (j.items || []).reduce((a, it) => a + (it.buy_sheet_lines || []).reduce((b, l) => b + (l.qty_ordered || 0), 0), 0);
       months[key].count++;
     }
@@ -66,9 +66,8 @@ export default function ReportsPage() {
     for (const j of jobs) {
       const name = j.clients?.name || "Unknown";
       if (!clients[name]) clients[name] = { revenue: 0, cost: 0, units: 0, jobs: 0, paid: 0 };
-      const cs = j.costing_summary;
-      clients[name].revenue += cs?.grossRev || 0;
-      clients[name].cost += cs?.totalCost || 0;
+      clients[name].revenue += effectiveRevenue(j);
+      clients[name].cost += effectiveCost(j);
       clients[name].units += (j.items || []).reduce((a, it) => a + (it.buy_sheet_lines || []).reduce((b, l) => b + (l.qty_ordered || 0), 0), 0);
       clients[name].jobs++;
       clients[name].paid += (j.payment_records || []).filter(p => p.status === "paid").reduce((a, p) => a + p.amount, 0);
@@ -79,11 +78,10 @@ export default function ReportsPage() {
   // ── Margins by project ──
   const marginsByProject = useMemo(() => {
     return jobs
-      .filter(j => j.costing_summary?.grossRev > 0)
+      .filter(j => effectiveRevenue(j) > 0)
       .map(j => {
-        const cs = j.costing_summary;
-        const rev = cs.grossRev || 0;
-        const cost = cs.totalCost || 0;
+        const rev = effectiveRevenue(j);
+        const cost = effectiveCost(j);
         const margin = rev > 0 ? ((rev - cost) / rev * 100) : 0;
         return { title: j.title, client: j.clients?.name || "", revenue: rev, cost, margin, phase: j.phase };
       })
@@ -103,8 +101,8 @@ export default function ReportsPage() {
   }, [jobs]);
 
   // ── KPIs ──
-  const totalRevenue = jobs.reduce((a, j) => a + (j.costing_summary?.grossRev || 0), 0);
-  const totalCost = jobs.reduce((a, j) => a + (j.costing_summary?.totalCost || 0), 0);
+  const totalRevenue = jobs.reduce((a, j) => a + effectiveRevenue(j), 0);
+  const totalCost = jobs.reduce((a, j) => a + effectiveCost(j), 0);
   const avgMargin = totalRevenue > 0 ? ((totalRevenue - totalCost) / totalRevenue * 100) : 0;
   const totalUnits = jobs.reduce((a, j) => a + (j.items || []).reduce((b, it) => b + (it.buy_sheet_lines || []).reduce((c, l) => c + (l.qty_ordered || 0), 0), 0), 0);
   const totalPaid = jobs.reduce((a, j) => a + (j.payment_records || []).filter(p => p.status === "paid").reduce((b, p) => b + p.amount, 0), 0);
@@ -114,9 +112,8 @@ export default function ReportsPage() {
     exportCsv("opshub-projects.csv",
       ["Quote #", "Invoice #", "Client", "Title", "Type", "Phase", "Priority", "Ship Date", "Revenue", "Cost", "Margin %", "Units", "Paid"],
       jobs.map(j => {
-        const cs = j.costing_summary;
-        const rev = cs?.grossRev || 0;
-        const cost = cs?.totalCost || 0;
+        const rev = effectiveRevenue(j);
+        const cost = effectiveCost(j);
         const units = (j.items || []).reduce((a, it) => a + (it.buy_sheet_lines || []).reduce((b, l) => b + (l.qty_ordered || 0), 0), 0);
         const paid = (j.payment_records || []).filter(p => p.status === "paid").reduce((a, p) => a + p.amount, 0);
         return [(j as any).job_number || "", (j as any).type_meta?.qb_invoice_number || "", j.clients?.name || "", j.title, j.job_type, j.phase, (j as any).priority || "", j.target_ship_date || "", String(rev), String(cost), rev > 0 ? ((rev - cost) / rev * 100).toFixed(1) : "0", String(units), String(paid)];
