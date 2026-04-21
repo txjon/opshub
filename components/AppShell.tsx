@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut, FlaskConical, Truck, Users, Cog, ChartColumn } from "lucide-react";
@@ -206,45 +206,16 @@ export function AppShell({
               </Link>
             )}
 
-            {/* Side quests dropdown */}
-            {SIDE_QUESTS.some(sq => hasExtra(sq.label.toLowerCase())) && <div style={{ position: "relative", marginLeft: 4, flexShrink: 0 }}>
-              <button
-                onClick={() => setShowSideQuests(!showSideQuests)}
-                style={{
-                  padding: "6px 10px", borderRadius: 6, fontSize: 12, fontWeight: 500,
-                  border: "none", cursor: "pointer", color: "#a0a0ad",
-                  background: showSideQuests ? "#eaeaee" : "transparent",
-                }}
-              >
-                ···
-              </button>
-              {showSideQuests && (
-                <>
-                  <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setShowSideQuests(false)} />
-                  <div style={{
-                    position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 100,
-                    background: "#fff", border: "1px solid #dcdce0", borderRadius: 8,
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)", minWidth: 140, padding: 4,
-                  }}>
-                    {SIDE_QUESTS.filter(sq => hasExtra(sq.label.toLowerCase())).map(sq => (
-                      <Link
-                        key={sq.href}
-                        href={sq.href}
-                        onClick={() => setShowSideQuests(false)}
-                        style={{
-                          display: "block", padding: "8px 12px", borderRadius: 4,
-                          fontSize: 12, fontWeight: 500, textDecoration: "none",
-                          color: pathname === sq.href ? "#000" : "#6b6b78",
-                          background: pathname === sq.href ? "#eaeaee" : "transparent",
-                        }}
-                      >
-                        {sq.label}
-                      </Link>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>}
+            {/* Side quests dropdown — uses position:fixed w/ ref-measured coords
+                so it escapes the nav container's overflow:hidden clip */}
+            {SIDE_QUESTS.some(sq => hasExtra(sq.label.toLowerCase())) && (
+              <SideQuestsMenu
+                items={SIDE_QUESTS.filter(sq => hasExtra(sq.label.toLowerCase()))}
+                pathname={pathname}
+                open={showSideQuests}
+                setOpen={setShowSideQuests}
+              />
+            )}
           </div>
 
           {/* Right: search + user */}
@@ -311,6 +282,66 @@ export function AppShell({
             </button>
           </form>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Portal-less dropdown that escapes the nav's overflow:hidden by using
+// position:fixed with measured coords from the trigger button.
+function SideQuestsMenu({ items, pathname, open, setOpen }: {
+  items: { href: string; label: string }[];
+  pathname: string | null;
+  open: boolean;
+  setOpen: (v: boolean) => void;
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!open || !btnRef.current) return;
+    const rect = btnRef.current.getBoundingClientRect();
+    setCoords({ top: rect.bottom + 4, left: rect.left });
+  }, [open]);
+
+  return (
+    <div style={{ marginLeft: 4, flexShrink: 0 }}>
+      <button
+        ref={btnRef}
+        onClick={() => setOpen(!open)}
+        style={{
+          padding: "6px 10px", borderRadius: 6, fontSize: 12, fontWeight: 500,
+          border: "none", cursor: "pointer", color: "#a0a0ad",
+          background: open ? "#eaeaee" : "transparent",
+        }}
+      >
+        ···
+      </button>
+      {open && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setOpen(false)} />
+          <div style={{
+            position: "fixed", top: coords.top, left: coords.left, zIndex: 100,
+            background: "#fff", border: "1px solid #dcdce0", borderRadius: 8,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.08)", minWidth: 140, padding: 4,
+          }}>
+            {items.map(sq => (
+              <Link
+                key={sq.href}
+                href={sq.href}
+                onClick={() => setOpen(false)}
+                style={{
+                  display: "block", padding: "8px 12px", borderRadius: 4,
+                  fontSize: 12, fontWeight: 500, textDecoration: "none",
+                  color: pathname === sq.href ? "#000" : "#6b6b78",
+                  background: pathname === sq.href ? "#eaeaee" : "transparent",
+                }}
+              >
+                {sq.label}
+              </Link>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
