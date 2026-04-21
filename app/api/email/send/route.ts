@@ -55,7 +55,11 @@ export async function POST(req: NextRequest) {
     } else if (type === "invoice") {
       pdfUrl = `${baseUrl}/api/pdf/invoice/${jobId}?download=1`;
       fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-      defaultSubject = subject || `Invoice ${qbInvNum || ""} — House Party Distro`.trim();
+      // Standard post-invoice subject format: "Invoice — [Client] · Invoice [#] · [Project]"
+      const clientName = (jobData as any)?.clients?.name || "";
+      const { data: jobTitleRow } = await adminClient.from("jobs").select("title").eq("id", jobId).single();
+      const projectTitle = (jobTitleRow as any)?.title || "";
+      defaultSubject = subject || `Invoice — ${clientName}${qbInvNum ? ` · Invoice ${qbInvNum}` : ""} · ${projectTitle}`.trim();
       filename = `invoice-${qbInvNum || jobId.slice(0, 8)}.pdf`;
     } else {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });

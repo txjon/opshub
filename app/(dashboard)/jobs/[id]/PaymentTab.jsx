@@ -206,7 +206,7 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
           jobId={job.id}
           contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
           defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
-          defaultSubject={`Invoice — ${job.clients?.name || ""} · ${job.title}`}
+          defaultSubject={`Invoice — ${job.clients?.name || ""}${job.type_meta?.qb_invoice_number ? ` · Invoice ${job.type_meta.qb_invoice_number}` : ""} · ${job.title}`}
           onClose={() => setShowInvoiceEmail(false)}
           onSent={() => { logJobActivity(job.id, "Invoice sent to client"); setShowInvoiceEmail(false); }}
         />

@@ -249,7 +249,7 @@ export async function POST(req: NextRequest) {
       await resend.emails.send({
         from: FROM_ADDR(),
         to: clientEmail,
-        subject: `Revised invoice ${invoiceNum} — ${clientName} · ${projectTitle}`,
+        subject: `Revised invoice — ${clientName}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""} · ${projectTitle}`,
         html,
         attachments: [{ filename: `HPD-Invoice-${invoiceNum}-Revised.pdf`, content: pdfBuffer.toString("base64") }],
       });
