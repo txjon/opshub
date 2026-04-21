@@ -30,6 +30,7 @@ export type WarehouseItem = {
   received_qtys: Record<string, number>;
   ship_notes: string;
   decorator_assignment_id: string | null;
+  receiving_data?: { condition?: string; notes?: string; received_by?: string | null; received_by_email?: string | null; received_at?: string } | null;
 };
 
 export type WarehouseJob = {
@@ -122,6 +123,7 @@ export function useWarehouse() {
             ship_qtys: it.ship_qtys || {},
             received_qtys: it.received_qtys || {},
             decorator_assignment_id: assignmentMap[it.id] || null,
+            receiving_data: it.receiving_data || null,
           };
         }),
       });
@@ -169,10 +171,28 @@ export function useWarehouse() {
     }, 800);
   }
 
-  async function markReceived(item: WarehouseItem) {
+  async function markReceived(item: WarehouseItem, opts?: { condition?: string; notes?: string }) {
     const now = new Date().toISOString();
-    await supabase.from("items").update({ received_at_hpd: true, received_at_hpd_at: now }).eq("id", item.id);
-    logJobActivity(item.job_id, `${item.name} received at warehouse`);
+
+    // Capture audit trail in receiving_data JSONB:
+    //   received_by (user), received_at (timestamp), condition, notes.
+    const { data: { user } } = await supabase.auth.getUser();
+    const receivingData = {
+      condition: opts?.condition || "good",
+      notes: opts?.notes || "",
+      received_by: user?.id || null,
+      received_by_email: user?.email || null,
+      received_at: now,
+    };
+
+    await supabase.from("items").update({
+      received_at_hpd: true,
+      received_at_hpd_at: now,
+      receiving_data: receivingData,
+    }).eq("id", item.id);
+
+    const conditionTag = opts?.condition && opts.condition !== "good" ? ` (${opts.condition})` : "";
+    logJobActivity(item.job_id, `${item.name} received at warehouse${conditionTag}${opts?.notes ? ` — ${opts.notes}` : ""}`);
 
     // Check if this completes the job BEFORE updating state — so the side effect
     // isn't inside the state updater (React may call updaters twice in dev/concurrent).
@@ -180,7 +200,7 @@ export function useWarehouse() {
     const willAllBeReceived = !!currentJob && currentJob.items.every(it => it.id === item.id ? true : it.received_at_hpd);
 
     setJobs(prev => prev.map(j => ({
-      ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now } : it),
+      ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now, receiving_data: receivingData as any } : it),
     })));
 
     if (willAllBeReceived) {

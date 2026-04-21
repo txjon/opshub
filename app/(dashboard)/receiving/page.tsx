@@ -35,6 +35,7 @@ export default function ReceivingPage() {
   const [jobs, setJobs] = useState<{ id: string; title: string; client_name: string; job_number: string }[]>([]);
   const [tab, setTab] = useState<"production" | "outside">("production");
   const [conditionNote, setConditionNote] = useState<Record<string, string>>({});
+  const [itemCondition, setItemCondition] = useState<Record<string, string>>({});
   const [packingSlips, setPackingSlips] = useState<Record<string, { file_name: string; drive_link: string }[]>>({});
   const [receivingPhotos, setReceivingPhotos] = useState<Record<string, { file_name: string; drive_link: string }[]>>({});
   const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
@@ -250,7 +251,12 @@ export default function ReceivingPage() {
                   </button>
                   {job.items.some(it => !it.received_at_hpd) && (
                     <button onClick={async () => {
-                      for (const it of job.items.filter(i => !i.received_at_hpd)) await markReceived(it);
+                      for (const it of job.items.filter(i => !i.received_at_hpd)) {
+                        await markReceived(it, {
+                          condition: itemCondition[it.id] || "good",
+                          notes: conditionNote[it.id] || "",
+                        });
+                      }
                     }} style={{ fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 4, background: T.green, color: "#fff", border: "none", cursor: "pointer" }}>
                       Receive All
                     </button>
@@ -344,17 +350,48 @@ export default function ReceivingPage() {
                           </td>
                           <td style={{ padding: "8px" }}>
                             {item.received_at_hpd ? (
-                              <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: hasVariance ? T.amberDim : T.greenDim, color: hasVariance ? T.amber : T.green }}>
-                                {hasVariance ? "Variance" : "Good"}
-                              </span>
+                              <div>
+                                <span style={{
+                                  fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99,
+                                  background: (item.receiving_data as any)?.condition === "damaged" ? "#3a0a0a"
+                                    : (item.receiving_data as any)?.condition === "partial_damage" ? T.amberDim
+                                    : hasVariance ? T.amberDim : T.greenDim,
+                                  color: (item.receiving_data as any)?.condition === "damaged" ? T.red
+                                    : (item.receiving_data as any)?.condition === "partial_damage" ? T.amber
+                                    : hasVariance ? T.amber : T.green,
+                                }}>
+                                  {(item.receiving_data as any)?.condition === "damaged" ? "Damaged"
+                                    : (item.receiving_data as any)?.condition === "partial_damage" ? "Partial damage"
+                                    : hasVariance ? "Variance" : "Good"}
+                                </span>
+                                {(item.receiving_data as any)?.notes && (
+                                  <div style={{ fontSize: 9, color: T.muted, marginTop: 3, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }} title={(item.receiving_data as any).notes}>
+                                    {(item.receiving_data as any).notes}
+                                  </div>
+                                )}
+                              </div>
                             ) : (
-                              <input
-                                type="text"
-                                placeholder="Notes..."
-                                value={conditionNote[item.id] || ""}
-                                onChange={e => setConditionNote(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                style={{ ...ic, width: 100, fontSize: 10, padding: "3px 6px" }}
-                              />
+                              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                <select
+                                  value={itemCondition[item.id] || "good"}
+                                  onChange={e => setItemCondition(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  style={{ ...ic, width: 110, fontSize: 10, padding: "3px 6px" }}
+                                >
+                                  <option value="good">Good</option>
+                                  <option value="partial_damage">Partial damage</option>
+                                  <option value="damaged">Damaged</option>
+                                </select>
+                                <input
+                                  type="text"
+                                  placeholder={itemCondition[item.id] && itemCondition[item.id] !== "good" ? "Describe damage..." : "Notes (optional)"}
+                                  value={conditionNote[item.id] || ""}
+                                  onChange={e => setConditionNote(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  style={{
+                                    ...ic, width: 110, fontSize: 10, padding: "3px 6px",
+                                    borderColor: itemCondition[item.id] && itemCondition[item.id] !== "good" ? T.amber : T.border,
+                                  }}
+                                />
+                              </div>
                             )}
                           </td>
                           <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
@@ -367,7 +404,10 @@ export default function ReceivingPage() {
                               ) : (
                                 <>
                                   <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
-                                  <button onClick={() => markReceived(item)} style={{ fontSize: 10, fontWeight: 600, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "4px 12px", cursor: "pointer" }}>Receive</button>
+                                  <button onClick={() => markReceived(item, {
+                                    condition: itemCondition[item.id] || "good",
+                                    notes: conditionNote[item.id] || "",
+                                  })} style={{ fontSize: 10, fontWeight: 600, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "4px 12px", cursor: "pointer" }}>Receive</button>
                                 </>
                               )}
                             </div>
