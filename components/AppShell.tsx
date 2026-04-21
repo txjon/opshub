@@ -84,10 +84,11 @@ export function AppShell({
   }, [pathname]);
 
   const baseNavItems = DEPT_NAV[activeDept] || [];
-  // God Mode is email-gated (owner personal financial/CRM view) — shown only
-  // to Jon even among other owner-role users.
+  // God Mode + Planner are email-gated (owner personal tools) — shown only
+  // to Jon even among other owner-role users. Planner is a local-only symlink
+  // to ~/claude-planner; gitignored so it never deploys to Vercel.
   const navItems = activeDept === "owner" && email === "jon@housepartydistro.com"
-    ? [...baseNavItems, { href: "/god-mode", label: "God Mode" }]
+    ? [...baseNavItems, { href: "/god-mode", label: "God Mode" }, { href: "/planner/index.html", label: "Planner", external: true }]
     : baseNavItems;
   const rawCrossLink = DEPT_CROSSLINKS[activeDept];
   const crossLink = rawCrossLink && hasDept(rawCrossLink.dept) ? rawCrossLink : null;
@@ -172,20 +173,25 @@ export function AppShell({
             minWidth: 0, flex: 1,
             scrollbarWidth: "none", WebkitOverflowScrolling: "touch",
           }}>
-            {navItems.map(item => {
+            {navItems.map((item: any) => {
               const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+              const linkStyle = {
+                padding: "6px 14px", borderRadius: 6, fontSize: 13, fontWeight: isActive ? 700 : 500,
+                textDecoration: "none", transition: "all 0.12s",
+                color: isActive ? "#000" : "#6b6b78",
+                background: isActive ? "#eaeaee" : "transparent",
+                flexShrink: 0, whiteSpace: "nowrap",
+              } as const;
+              // External links (static files outside Next routing) use <a> + target=_blank
+              if (item.external) {
+                return (
+                  <a key={item.href} href={item.href} target="_blank" rel="noopener noreferrer" style={linkStyle}>
+                    {item.label}
+                  </a>
+                );
+              }
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  style={{
-                    padding: "6px 14px", borderRadius: 6, fontSize: 13, fontWeight: isActive ? 700 : 500,
-                    textDecoration: "none", transition: "all 0.12s",
-                    color: isActive ? "#000" : "#6b6b78",
-                    background: isActive ? "#eaeaee" : "transparent",
-                    flexShrink: 0, whiteSpace: "nowrap",
-                  }}
-                >
+                <Link key={item.href} href={item.href} style={linkStyle}>
                   {item.label}
                 </Link>
               );
