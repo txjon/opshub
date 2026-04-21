@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
           })
         : renderBrandedEmail({
             heading: `Purchase order${qbInvNum ? ` ${qbInvNum}` : ""}`,
-            greeting: `Hi,`,
+            greeting: `Hi ${vendor || "there"},`,
             bodyHtml: `Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.`,
             cta: vendorPortalUrl ? { label: "View in Vendor Portal", url: vendorPortalUrl, style: "dark" } : undefined,
             hint: `You can confirm receipt, update production status, and enter tracking directly from the portal.`,

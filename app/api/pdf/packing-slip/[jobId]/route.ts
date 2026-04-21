@@ -42,11 +42,15 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const route = job.shipping_route || "ship_through";
     const isDropShip = route === "drop_ship";
 
-    // Optional per-vendor filter — limits packing slip to items assigned to one decorator
+    // Optional filters — limit the slip to one decorator and/or one tracking number
     const decoratorFilter = req.nextUrl.searchParams.get("decoratorId");
-    const vendorScopedItems = decoratorFilter
+    const trackingFilter = req.nextUrl.searchParams.get("tracking");
+    let vendorScopedItems = decoratorFilter
       ? (items || []).filter((it: any) => (it.decorator_assignments || []).some((da: any) => da.decorator_id === decoratorFilter))
       : (items || []);
+    if (trackingFilter) {
+      vendorScopedItems = vendorScopedItems.filter((it: any) => (it.ship_tracking || "") === trackingFilter);
+    }
     const vendorName = decoratorFilter
       ? (vendorScopedItems[0]?.decorator_assignments?.[0]?.decorators?.name || "")
       : "";

@@ -11,6 +11,26 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
   const [showProofEmail, setShowProofEmail] = useState(false);
   const [proofModalItem, setProofModalItem] = useState(null);
   const [itemFiles, setItemFiles] = useState({});
+  const [sendingProofEmail, setSendingProofEmail] = useState(false);
+  const [proofEmailSent, setProofEmailSent] = useState(false);
+
+  async function sendProofForReview() {
+    if (!window.confirm("Send a proof-review email to the client? They'll get a link to the portal to approve or request changes.")) return;
+    setSendingProofEmail(true);
+    try {
+      await fetch("/api/email/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id, type: "proof_ready" }),
+      });
+      logJobActivity(job.id, "Proof review email sent to client");
+      setProofEmailSent(true);
+      setTimeout(() => setProofEmailSent(false), 3000);
+    } catch (e) {
+      console.error("Proof email send failed", e);
+    }
+    setSendingProofEmail(false);
+  }
 
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" };
   const clientName = job?.clients?.name || "";
@@ -186,7 +206,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
       </div>
 
       {/* ── Action Buttons ── */}
-      <div style={{ display: "flex", gap: 8, alignSelf: "flex-start" }}>
+      <div style={{ display: "flex", gap: 8, alignSelf: "flex-start", flexWrap: "wrap" }}>
         <button onClick={() => {
           const allProofs = items.flatMap(it => (itemFiles[it.id] || []).filter(f => f.stage === "proof"));
           if (allProofs.length > 0) setPreviewProofItem(allProofs[0]);
@@ -208,6 +228,22 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             Generate All ({itemsWithMockups.length})
           </button>
         )}
+        {(() => {
+          const anyProofs = items.some(it => (itemFiles[it.id] || []).some(f => f.stage === "proof"));
+          if (!anyProofs) return null;
+          return (
+            <button onClick={sendProofForReview} disabled={sendingProofEmail}
+              style={{ padding: "10px 20px", borderRadius: 8, border: "none",
+                cursor: sendingProofEmail ? "default" : "pointer",
+                background: proofEmailSent ? T.greenDim : T.blue,
+                color: proofEmailSent ? T.green : "#fff",
+                fontSize: 12, fontWeight: 700, fontFamily: font,
+                opacity: sendingProofEmail ? 0.6 : 1,
+                transition: "opacity 0.15s" }}>
+              {sendingProofEmail ? "Sending…" : proofEmailSent ? "✓ Sent to client" : "Send proofs to client for review"}
+            </button>
+          );
+        })()}
       </div>
 
       {/* ── Proof Modal (single item) ── */}

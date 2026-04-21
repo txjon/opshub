@@ -87,30 +87,9 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
       }
       onUpdateItem(itemId, { pipeline_stage: "shipped", decorator_assignment_id: item.decorator_assignment_id });
 
-      // Per-vendor shipment email (drop_ship only): fires when all items for THIS decorator are shipped
-      if (project?.shipping_route === "drop_ship" && item.decorator) {
-        const vendorItems = items.filter(it => it.decorator === item.decorator);
-        const vendorAllShipped = vendorItems.every(it => it.id === itemId ? true : it.pipeline_stage === "shipped");
-        if (vendorAllShipped) {
-          let decoratorId = null;
-          if (item.decorator_assignment_id) {
-            const { data: assignment } = await supabase.from("decorator_assignments").select("decorator_id").eq("id", item.decorator_assignment_id).single();
-            decoratorId = assignment?.decorator_id;
-          }
-          fetch("/api/email/notify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              type: "order_shipped_vendor",
-              jobId: project.id,
-              decoratorId,
-              vendorName: item.decorator,
-              trackingNumber: f.ship_tracking || null,
-            }),
-          }).catch(() => {});
-          logJobActivity(project.id, `${item.decorator} shipment complete — per-vendor email sent to client`);
-        }
-      }
+      // Shipment update emails are now manually triggered per tracking number
+      // from the Production page "Send shipment update" button — auto-fire
+      // removed so the team controls exactly when the client is notified.
 
       // Invoice-ready-to-update notification when ALL items on the job are shipped (drop_ship)
       if (project?.shipping_route === "drop_ship") {

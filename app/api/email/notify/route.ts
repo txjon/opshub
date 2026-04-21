@@ -119,7 +119,10 @@ export async function POST(req: NextRequest) {
 
       let pdfBuffer: Buffer;
       try {
-        const slipUrl = `${BASE_URL()}/api/pdf/packing-slip/${jobId}${decoratorId ? `?decoratorId=${decoratorId}` : ""}`;
+        const params = new URLSearchParams();
+        if (decoratorId) params.set("decoratorId", decoratorId);
+        if (trackingNumber) params.set("tracking", trackingNumber);
+        const slipUrl = `${BASE_URL()}/api/pdf/packing-slip/${jobId}${params.toString() ? `?${params.toString()}` : ""}`;
         pdfBuffer = await fetchPdf(slipUrl);
       } catch (e: any) {
         console.error(`[notify/${type}] packing slip fetch failed:`, e.message);

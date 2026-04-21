@@ -21,11 +21,22 @@ type ProdItem = {
   ship_qtys: Record<string, number>; ship_notes: string;
 };
 
+type ShipmentNotificationRecord = {
+  type: string;
+  decoratorId: string | null;
+  decoratorName: string | null;
+  sentAt: string;
+  recipients: string[];
+  tracking: string | null;
+  resend?: boolean;
+};
+
 type ProjectGroup = {
   jobId: string; jobNumber: string; invoiceNumber: string | null; jobTitle: string; clientName: string;
   shipDate: string | null; phase: string; completedAt: string | null;
   decoratorGroups: DecoratorGroup[];
   totalItems: number; totalUnits: number;
+  shippingNotifications: ShipmentNotificationRecord[];
 };
 
 type DecoratorGroup = {
@@ -109,14 +120,16 @@ export default function ProductionPage() {
       };
 
       if (!projectMap[it.job_id]) {
+        const tm = (job as any).type_meta || {};
         projectMap[it.job_id] = {
           jobId: job.id, jobNumber: job.job_number,
-          invoiceNumber: (job as any).type_meta?.qb_invoice_number || null,
+          invoiceNumber: tm.qb_invoice_number || null,
           jobTitle: job.title,
           clientName: job.clients?.name || "",
-          shipDate: (() => { const vDates = Object.values((job as any).type_meta?.po_ship_dates || {}).filter(Boolean) as string[]; return vDates.length > 0 ? vDates.sort()[0] : job.target_ship_date; })(),
+          shipDate: (() => { const vDates = Object.values(tm.po_ship_dates || {}).filter(Boolean) as string[]; return vDates.length > 0 ? vDates.sort()[0] : job.target_ship_date; })(),
           phase: job.phase, completedAt: (job as any).phase_timestamps?.complete || null,
           decoratorGroups: [], totalItems: 0, totalUnits: 0,
+          shippingNotifications: Array.isArray(tm.shipping_notifications) ? tm.shipping_notifications : [],
         };
       }
       projectMap[it.job_id].totalItems++;
@@ -194,27 +207,10 @@ export default function ProductionPage() {
     const jobTitle = (jobRow as any)?.title || "";
 
     if (route === "drop_ship") {
-      // Per-vendor shipment email: fires when all items from THIS decorator are shipped
-      if (item.decorator_id) {
-        const { data: vendorItems } = await supabase.from("items")
-          .select("id, pipeline_stage, decorator_assignments!inner(decorator_id)")
-          .eq("job_id", item.job_id)
-          .eq("decorator_assignments.decorator_id", item.decorator_id);
-        const vendorAllShipped = (vendorItems || []).every((it: any) => it.id === item.id ? true : it.pipeline_stage === "shipped");
-        if (vendorAllShipped) {
-          fetch("/api/email/notify", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              type: "order_shipped_vendor",
-              jobId: item.job_id,
-              decoratorId: item.decorator_id,
-              vendorName: item.decorator_name,
-              trackingNumber: item.ship_tracking || null,
-            }),
-          }).catch(() => {});
-          logJobActivity(item.job_id, `${item.decorator_name} shipment complete — per-vendor email sent to client`);
-        }
-      }
+      // Shipment update emails are manually fired per tracking number from
+      // the "Send shipment update" button (sendShipmentUpdate below) — no
+      // auto-fire on markShipped so partial shipments don't leave the
+      // client in the dark.
 
       // Invoice-ready notification when ALL job items shipped
       const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage").eq("job_id", item.job_id);
@@ -225,6 +221,39 @@ export default function ProductionPage() {
       }
     }
     loadAll();
+  }
+
+  // Manually fire a shipment-update email to the client for a single
+  // tracking-number batch. The notify route dedups on
+  // (jobId + decoratorId + trackingNumber) so hitting this twice is safe.
+  async function sendShipmentUpdate(args: {
+    jobId: string;
+    decoratorId: string | null;
+    decoratorName: string | null;
+    trackingNumber: string | null;
+  }) {
+    const { jobId, decoratorId, decoratorName, trackingNumber } = args;
+    try {
+      const res = await fetch("/api/email/notify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "order_shipped_vendor",
+          jobId,
+          decoratorId,
+          vendorName: decoratorName,
+          trackingNumber,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.skipped === "already_sent") {
+        logJobActivity(jobId, `Shipment update already sent for this tracking — skipped`);
+      } else {
+        logJobActivity(jobId, `Shipment update email sent to client${trackingNumber ? ` — tracking ${trackingNumber}` : ""}`);
+      }
+      loadAll();
+    } catch (e) {
+      console.error("sendShipmentUpdate failed", e);
+    }
   }
 
   // Notify managers that the invoice can be updated with actual shipped qtys
@@ -583,6 +612,27 @@ export default function ProductionPage() {
                                     <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>
                                       {item.ship_tracking || "Shipped"}
                                     </span>
+                                    {(() => {
+                                      const notified = project.shippingNotifications.some(r =>
+                                        r.type === "drop_ship_vendor" &&
+                                        r.decoratorId === item.decorator_id &&
+                                        (r.tracking || null) === (item.ship_tracking || null)
+                                      );
+                                      if (notified) {
+                                        return <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>Notified ✓</span>;
+                                      }
+                                      return (
+                                        <button onClick={(e) => { e.stopPropagation(); sendShipmentUpdate({
+                                          jobId: project.jobId,
+                                          decoratorId: item.decorator_id,
+                                          decoratorName: item.decorator_name,
+                                          trackingNumber: item.ship_tracking || null,
+                                        }); }}
+                                          style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
+                                          Send shipment update
+                                        </button>
+                                      );
+                                    })()}
                                     <button onClick={(e) => { e.stopPropagation(); undoShipped(item); }}
                                       style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
                                       Undo

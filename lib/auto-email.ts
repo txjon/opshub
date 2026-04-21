@@ -98,15 +98,22 @@ export async function sendClientNotification(params: NotifyParams) {
     let subject = "";
     let html = "";
     const from = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-    const invoiceNum = (job as any).type_meta?.qb_invoice_number || job.job_number || "";
+    // Prefer QB invoice # when available; fall back to job number for pre-invoice sends.
+    const qbInvoiceNum = (job as any).type_meta?.qb_invoice_number || "";
+    const hasQbInvoice = !!qbInvoiceNum;
+    const invoiceNum = qbInvoiceNum || job.job_number || "";
+    const invoiceSuffix = hasQbInvoice ? ` · Invoice ${qbInvoiceNum}` : "";
+    const bodyRef = hasQbInvoice
+      ? `<strong>Invoice ${qbInvoiceNum} · ${job.title}</strong>`
+      : `<strong>${job.title}</strong>`;
 
     switch (params.type) {
       case "proof_ready":
-        subject = `Proof ready for review — ${clientName} · ${job.title}`;
+        subject = `Proof ready for review — ${clientName}${invoiceSuffix} · ${job.title}`;
         html = renderBrandedEmail({
           heading: "Proof ready for review",
           greeting: `Hi ${clientName},`,
-          bodyHtml: `A proof is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.`,
+          bodyHtml: `A proof for ${bodyRef} is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.`,
           cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
         });
         break;
@@ -116,7 +123,7 @@ export async function sendClientNotification(params: NotifyParams) {
         html = renderBrandedEmail({
           heading: "Payment received",
           greeting: `Hi ${clientName},`,
-          bodyHtml: `Payment${params.amount ? ` of <strong>$${params.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong>` : ""} received for <strong>Invoice ${invoiceNum} · ${job.title}</strong>. Appreciate you.`,
+          bodyHtml: `Payment${params.amount ? ` of <strong>$${params.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong>` : ""} received for <strong>Invoice ${invoiceNum} · ${job.title}</strong>. Thank you!`,
           cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
         });
         break;

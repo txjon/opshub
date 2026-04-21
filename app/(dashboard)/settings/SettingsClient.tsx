@@ -19,28 +19,6 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [editingRole, setEditingRole] = useState<string | null>(null);
-  const [sendingPreviews, setSendingPreviews] = useState(false);
-  const [previewResult, setPreviewResult] = useState<string | null>(null);
-  const [previewDiagnostics, setPreviewDiagnostics] = useState<any>(null);
-
-  async function sendPreviewEmails() {
-    setSendingPreviews(true);
-    setPreviewResult(null);
-    setPreviewDiagnostics(null);
-    try {
-      const res = await fetch("/api/email/preview-all", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
-      const data = await res.json();
-      if (!res.ok) {
-        setPreviewResult(`Error: ${data.error || "Failed"}`);
-      } else {
-        setPreviewResult(`Sent ${data.totalSent || 0} of ${(data.sent || []).length} to ${data.to}. Sample job: ${data.sampleJob?.jobNumber || "—"} (${data.sampleJob?.clientName || ""}).`);
-        setPreviewDiagnostics(data.pdfDiagnostics);
-      }
-    } catch (e: any) {
-      setPreviewResult(`Error: ${e.message}`);
-    }
-    setSendingPreviews(false);
-  }
 
   async function invite() {
     if (!email.trim()) return;
@@ -87,59 +65,6 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
         >
           + Invite member
         </button>
-      </div>
-
-      {/* Email preview — send all 13 active templates to my inbox */}
-      <div className="rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <div className="text-sm font-semibold">Email preview</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Sends a rendered sample of every active email template to your inbox. 13 emails, no DB writes, clearly labeled [PREVIEW].
-            </div>
-          </div>
-          <button
-            onClick={sendPreviewEmails}
-            disabled={sendingPreviews}
-            className="px-4 py-2 text-sm font-semibold rounded-lg bg-secondary hover:bg-secondary/80 border border-border whitespace-nowrap disabled:opacity-50"
-          >
-            {sendingPreviews ? "Sending..." : "Send me every email"}
-          </button>
-        </div>
-        {previewResult && (
-          <div className={`mt-3 text-xs ${previewResult.startsWith("Error") ? "text-red-500" : "text-green-500"}`}>
-            {previewResult}
-          </div>
-        )}
-        {previewDiagnostics && (
-          <div className="mt-3 rounded border border-border bg-secondary/30 p-3 text-xs space-y-2">
-            <div className="font-semibold">PDF attachment status:</div>
-            {Object.entries(previewDiagnostics).map(([key, val]: any) => {
-              // Try to unwrap JSON error (route returns { error, detail })
-              let displayErr = val.error || "";
-              try {
-                const parsed = JSON.parse(displayErr);
-                if (parsed.detail) displayErr = parsed.detail;
-                else if (parsed.error) displayErr = parsed.error;
-              } catch {}
-              return (
-                <div key={key} className="flex flex-col gap-1 border-l-2 pl-2" style={{ borderColor: val.ok ? "#22c55e" : "#ef4444" }}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-muted-foreground">{key}</span>
-                    {val.ok ? (
-                      <span className="text-green-500">✓ {(val.size / 1024).toFixed(0)} KB</span>
-                    ) : (
-                      <span className="text-red-500">✕ HTTP {val.status || "—"}</span>
-                    )}
-                  </div>
-                  {!val.ok && displayErr && (
-                    <pre className="text-red-500/80 whitespace-pre-wrap break-all font-mono text-[10px] leading-4 bg-red-500/5 p-2 rounded max-h-32 overflow-auto">{displayErr}</pre>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       {inviting && (

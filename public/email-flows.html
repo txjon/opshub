@@ -322,37 +322,18 @@
         </div>
       </div>
 
-      <!-- Invoice + Proofs send -->
+
+      <!-- Per-vendor shipped — manually triggered per tracking -->
       <div class="flow" data-kind="user">
         <div class="cell trigger" data-label="Trigger">
-          Proofs &amp; Invoice tab → “Send Invoice &amp; Proofs”
-          <div class="trigger-src">ApprovalsTab.jsx · SendEmailDialog</div>
-        </div>
-        <div class="cell" data-label="Route"><span class="route">POST /api/email/send</span></div>
-        <div class="cell" data-label="Type"><span class="type-pill client">invoice_proofs</span></div>
-        <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
-        <div class="cell attach" data-label="Attach"><span class="attach-tag">Invoice + Proofs combined PDF</span></div>
-        <div class="preview">
-          <div class="preview-subject"><span class="label">Subject</span>Invoice + Proofs — [Client Name] · [Project Title]</div>
-          <div class="preview-body">
-            <p>Hi [Client],</p>
-            <p>Your invoice and approved proofs are attached in one PDF for your records. Production kicks off once the invoice is paid.</p>
-            <p><span class="cta" style="background:#e5f9ed;border-color:#4ddb8866;color:#1a7a4a">Pay Online →</span> &nbsp; <span class="cta">View in Portal</span></p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Per-vendor shipped -->
-      <div class="flow" data-kind="auto">
-        <div class="cell trigger" data-label="Trigger">
-          Drop-ship: all of one decorator’s items marked shipped
-          <div class="trigger-src">ProductionTab · production/page · vendor portal</div>
+          Production page → “Send shipment update” button on a shipped item
+          <div class="trigger-src">production/page.tsx · sendShipmentUpdate()</div>
         </div>
         <div class="cell" data-label="Route"><span class="route">POST /api/email/notify</span></div>
         <div class="cell" data-label="Type"><span class="type-pill client">order_shipped_vendor</span></div>
         <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
-        <div class="cell attach" data-label="Attach"><span class="attach-tag">Packing slip (scoped to this shipment)</span></div>
-        <div class="note">Fires once per decorator when their portion of the job ships. Client sees a generic "Part of your order has shipped" — vendor names are not referenced in subject, body, attachment filename, or the packing slip PDF.</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">Packing slip (filtered to this tracking #)</span></div>
+        <div class="note">Batches by tracking number. User marks items shipped with a tracking #, then clicks "Send shipment update" — one email fires per unique tracking. Items sharing a tracking # ride in one email; next-day shipments with a different tracking trigger a separate email. Server dedups on (jobId + decoratorId + tracking). Vendor names never leave the internal logs.</div>
         <div class="preview">
           <div class="preview-subject"><span class="label">Subject</span>Part of your order has shipped — [Client Name] · Invoice [#] · [Project Title]</div>
           <div class="preview-body">
@@ -445,31 +426,29 @@
           <div class="preview-body">
             <p><em>Heading: Payment received</em></p>
             <p>Hi [Client],</p>
-            <p>Payment of <strong>$X,XXX.XX</strong> received for <strong>Invoice [#] · [Project Title]</strong>. Appreciate you.</p>
+            <p>Payment of <strong>$X,XXX.XX</strong> received for <strong>Invoice [#] · [Project Title]</strong>. Thank you!</p>
             <p><span class="cta">View in Portal</span></p>
           </div>
         </div>
       </div>
 
-      <!-- Generic sendClientNotification fallback cases -->
-      <div class="flow" data-kind="auto">
+      <!-- proof_ready — manually fired -->
+      <div class="flow" data-kind="user">
         <div class="cell trigger" data-label="Trigger">
-          proof_ready (auto) — also payment_received handled inline here
-          <div class="trigger-src">lib/auto-email.ts · sendClientNotification()</div>
+          Proofs &amp; Invoice tab → “Send proofs to client for review”
+          <div class="trigger-src">ApprovalsTab.jsx · sendProofForReview()</div>
         </div>
-        <div class="cell" data-label="Route"><span class="route">called directly (no HTTP hop)</span></div>
-        <div class="cell" data-label="Type">
-          <span class="type-pill client">proof_ready</span>
-          <span class="type-pill client">payment_received</span>
-        </div>
+        <div class="cell" data-label="Route"><span class="route">POST /api/email/notify</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill client">proof_ready</span></div>
         <div class="cell recipient" data-label="To">Primary contact + other contacts as CC</div>
         <div class="cell attach" data-label="Attach"><span class="attach-tag none">None — text + portal link</span></div>
+        <div class="note">One consolidated email pointing the client to the portal to review every proof on the job. Use this when a proof is uploaded fresh or a revision is ready. Subject picks up Invoice # when it exists; falls back to project title only if the job hasn't been pushed to QB yet.</div>
         <div class="preview">
-          <div class="preview-subject"><span class="label">Subject</span>Proof ready for review — [Client Name] · [Project Title]</div>
+          <div class="preview-subject"><span class="label">Subject</span>Proof ready for review — [Client Name] · Invoice [#] · [Project Title]</div>
           <div class="preview-body">
             <p><em>Heading: Proof ready for review</em></p>
             <p>Hi [Client],</p>
-            <p>A proof is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.</p>
+            <p>A proof for <strong>Invoice [#] · [Project Title]</strong> is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.</p>
             <p><span class="cta">View in Portal</span></p>
           </div>
         </div>
@@ -504,7 +483,7 @@
           <div class="preview-subject"><span class="label">Subject</span>HPD PO# [inv][letters] — [Client Name] — [Project Title] — [Vendor]</div>
           <div class="preview-body">
             <p><em>Heading: Purchase order [inv]</em></p>
-            <p>Hi,</p>
+            <p>Hi [Vendor],</p>
             <p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p>
             <p><span class="cta">View in Vendor Portal</span></p>
             <p><em>You can confirm receipt, update production status, and enter tracking directly from the portal.</em></p>
@@ -537,17 +516,6 @@
         <div class="note">Groups active alerts by priority (Critical / Action Needed / Heads Up). Only fires if at least one alert exists.</div>
       </div>
 
-      <div class="flow" data-kind="user">
-        <div class="cell trigger" data-label="Trigger">
-          Settings → “Send Preview of All Emails”
-          <div class="trigger-src">SettingsClient · /api/email/preview-all</div>
-        </div>
-        <div class="cell" data-label="Route"><span class="route">POST /api/email/preview-all</span></div>
-        <div class="cell" data-label="Type"><span class="type-pill internal">preview_all</span></div>
-        <div class="cell recipient" data-label="To">Current logged-in admin</div>
-        <div class="cell attach" data-label="Attach"><span class="attach-tag">Every template × attachment combo</span></div>
-        <div class="note">Admin-only QA tool. Sends each email type sequentially using a real recent job as sample data. Useful after email-copy or layout changes.</div>
-      </div>
     </div>
   </section>
 
