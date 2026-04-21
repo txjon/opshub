@@ -133,7 +133,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             {approvedCount}/{items.length} approved{internalOnlyCount > 0 ? ` · ${internalOnlyCount} internal` : ""}
           </span>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {items.map((item, i) => {
             const files = itemFiles[item.id] || [];
             const proofFiles = files.filter(f => f.stage === "proof");
@@ -146,58 +146,116 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             const pendingClient = hasProof && !fileApproved && !revisionRequested;
             const internalOnly = !fileApproved && manualApproved;
 
-            let pillText = "No proof yet";
+            // Clean status pill — short labels, softer colors
+            let pillText = "No proof";
             let pillColor = T.faint;
             let pillBg = "transparent";
-            let pillBorder = T.border;
-            if (fileApproved) { pillText = "✓ Approved by client"; pillColor = T.green; pillBg = T.greenDim; pillBorder = T.green + "44"; }
-            else if (revisionRequested) { pillText = "⚠ Revision requested"; pillColor = T.amber; pillBg = T.amber + "22"; pillBorder = T.amber + "44"; }
-            else if (internalOnly) { pillText = "✓ Approved (internal)"; pillColor = T.green; pillBg = T.greenDim; pillBorder = T.green + "44"; }
-            else if (pendingClient) { pillText = "Pending client review"; pillColor = T.accent; pillBg = T.accentDim; pillBorder = T.accent + "44"; }
+            if (fileApproved)          { pillText = "Client approved"; pillColor = T.green; pillBg = T.greenDim; }
+            else if (revisionRequested){ pillText = "Revision";        pillColor = T.amber; pillBg = T.amberDim; }
+            else if (internalOnly)     { pillText = "Internal";        pillColor = T.green; pillBg = T.greenDim; }
+            else if (pendingClient)    { pillText = "Pending client";  pillColor = T.accent; pillBg = T.accentDim; }
+
+            const metaLink = {
+              padding: 0, background: "transparent", border: "none",
+              color: T.faint, cursor: "pointer", fontFamily: font, fontSize: 10,
+              fontWeight: 500,
+            };
 
             return (
-              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: T.surface, borderRadius: 6, border: `1px solid ${isApproved ? T.green + "44" : T.border}` }}>
-                <span style={{ width: 18, height: 18, borderRadius: 4, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
+              <div key={item.id}
+                style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "10px 14px",
+                  background: T.card,
+                  borderRadius: 8,
+                  border: `1px solid ${isApproved ? T.green + "33" : T.border}`,
+                  boxShadow: isApproved ? "none" : "0 1px 2px rgba(0,0,0,0.02)",
+                }}>
+                {/* Letter badge — small circle */}
+                <span style={{
+                  width: 24, height: 24, borderRadius: "50%",
+                  background: isApproved ? T.greenDim : T.surface,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 10, fontWeight: 700,
+                  color: isApproved ? T.green : T.muted,
+                  fontFamily: mono, flexShrink: 0,
+                }}>
                   {String.fromCharCode(65 + i)}
                 </span>
+
+                {/* Name + inline meta actions */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>
-                  <div style={{ fontSize: 10, color: T.muted, display: "flex", gap: 10, marginTop: 2 }}>
+                  <div style={{
+                    fontSize: 13, fontWeight: 600, color: T.text,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    letterSpacing: "-0.01em",
+                  }} title={item.name}>
+                    {item.name}
+                  </div>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
                     {hasProof && mockupFile && (
-                      <button onClick={() => setProofModalItem(item)}
-                        style={{ padding: 0, background: "transparent", border: "none", color: T.muted, cursor: "pointer", fontFamily: font, fontSize: 10, textDecoration: "underline" }}>
-                        Regenerate
-                      </button>
+                      <button
+                        onClick={() => setProofModalItem(item)}
+                        style={metaLink}
+                        onMouseEnter={e => (e.currentTarget.style.color = T.accent)}
+                        onMouseLeave={e => (e.currentTarget.style.color = T.faint)}
+                      >↻ Regenerate</button>
                     )}
                     {!fileApproved && (
-                      <button onClick={async () => {
-                        const newStatus = manualApproved ? "not_started" : "approved";
-                        await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
-                        if (onUpdateItem) onUpdateItem(item.id, { artwork_status: newStatus });
-                        if (newStatus === "approved") logJobActivity(job.id, `${item.name} approved internally`);
-                        if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
-                      }}
-                        style={{ padding: 0, background: "transparent", border: "none", color: T.muted, cursor: "pointer", fontFamily: font, fontSize: 10, textDecoration: "underline" }}>
-                        {manualApproved ? "Unmark internal approval" : "Mark internally approved"}
-                      </button>
+                      <button
+                        onClick={async () => {
+                          const newStatus = manualApproved ? "not_started" : "approved";
+                          await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
+                          if (onUpdateItem) onUpdateItem(item.id, { artwork_status: newStatus });
+                          if (newStatus === "approved") logJobActivity(job.id, `${item.name} approved internally`);
+                          if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
+                        }}
+                        style={metaLink}
+                        onMouseEnter={e => (e.currentTarget.style.color = manualApproved ? T.red : T.green)}
+                        onMouseLeave={e => (e.currentTarget.style.color = T.faint)}
+                      >{manualApproved ? "Unmark internal" : "Mark internal"}</button>
                     )}
                   </div>
                 </div>
-                <span style={{ padding: "3px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600, color: pillColor, background: pillBg, border: `1px solid ${pillBorder}`, whiteSpace: "nowrap", flexShrink: 0 }}>
+
+                {/* Status pill */}
+                <span style={{
+                  padding: "3px 9px", borderRadius: 99,
+                  fontSize: 10, fontWeight: 600,
+                  color: pillColor, background: pillBg,
+                  whiteSpace: "nowrap", flexShrink: 0,
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                }}>
+                  {fileApproved || internalOnly ? <span style={{ fontSize: 9 }}>✓</span> : null}
+                  {revisionRequested ? <span style={{ fontSize: 9 }}>⚠</span> : null}
                   {pillText}
                 </span>
+
+                {/* Primary action */}
                 {hasProof ? (
                   <button onClick={() => setPreviewProofItem(proofFiles[0])}
-                    style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: T.accent, color: "#fff", flexShrink: 0 }}>
-                    View Proof
+                    style={{
+                      padding: "7px 14px", borderRadius: 7, fontSize: 11, fontWeight: 600,
+                      border: `1px solid ${T.border}`, cursor: "pointer",
+                      background: T.card, color: T.text, flexShrink: 0,
+                      fontFamily: font, transition: "all 0.15s",
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.card; e.currentTarget.style.color = T.text; }}>
+                    View proof
                   </button>
                 ) : mockupFile ? (
                   <button onClick={() => setProofModalItem(item)}
-                    style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", background: T.amber, color: "#fff", flexShrink: 0 }}>
-                    Generate Proof
+                    style={{
+                      padding: "7px 14px", borderRadius: 7, fontSize: 11, fontWeight: 600,
+                      border: "none", cursor: "pointer",
+                      background: T.amber, color: "#fff", flexShrink: 0,
+                      fontFamily: font,
+                    }}>
+                    Generate
                   </button>
                 ) : (
-                  <span style={{ fontSize: 10, color: T.faint, padding: "6px 14px", flexShrink: 0, whiteSpace: "nowrap" }}>Needs mockup</span>
+                  <span style={{ fontSize: 10, color: T.faint, padding: "6px 10px", flexShrink: 0, whiteSpace: "nowrap" }}>Needs mockup</span>
                 )}
               </div>
             );
