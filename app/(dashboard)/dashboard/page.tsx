@@ -394,24 +394,6 @@ export default async function DashboardPage() {
       });
     });
 
-  const stalledList = (activeJobs.flatMap(j => (j.items || []).map((it: any) => ({ j, it }))))
-    .filter(({ it }) => {
-      if (it.pipeline_stage !== "in_production") return false;
-      const ts = it.pipeline_timestamps?.in_production;
-      if (!ts) return false;
-      return Math.floor((Date.now() - new Date(ts).getTime()) / 86400000) >= 7;
-    })
-    .map(({ j, it }) => {
-      const ts = it.pipeline_timestamps!.in_production;
-      const days = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000);
-      const decName = it.decorator_assignments?.[0]?.decorators?.short_code || it.decorator_assignments?.[0]?.decorators?.name || "";
-      return jobRef(j, {
-        key: `stalled-${it.id}`,
-        subtitle: `${it.name}${decName ? ` · ${decName}` : ""} · ${days}d at decorator`,
-        href: `/jobs/${j.id}?tab=production`,
-      });
-    });
-
   const awaitingClientList = activeJobs
     .map(j => {
       const qa = (j as any).quote_approved;
@@ -434,7 +416,6 @@ export default async function DashboardPage() {
   const needsProofs = needsProofsList.length;
   const atDecorator = atDecoratorList.length;
   const shipped = shippedList.length;
-  const stalled = stalledList.length;
   const awaitingClient = awaitingClientList.length;
 
   // Decorator breakdown — only items currently AT the decorator. Matches the
@@ -467,7 +448,6 @@ export default async function DashboardPage() {
     needsProofs,
     atDecorator,
     shipped,
-    stalled,
     awaitingClient,
     decoratorCounts,
     pipelineLists: {
@@ -476,7 +456,6 @@ export default async function DashboardPage() {
       needsProofs: needsProofsList,
       atDecorator: atDecoratorList,
       shipped: shippedList,
-      stalled: stalledList,
       awaitingClient: awaitingClientList,
     },
   };

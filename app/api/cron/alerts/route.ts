@@ -10,7 +10,7 @@ const admin = () =>
 
 /**
  * Scheduled alert check — runs via Vercel Cron daily.
- * Scans for: overdue payments, stalled production, upcoming ship dates,
+ * Scans for: overdue payments, upcoming ship dates,
  * pending proofs, unapproved quotes.
  * Creates notifications + sends daily digest email to owner.
  *
@@ -102,25 +102,6 @@ export async function GET(req: NextRequest) {
             message: `Ships in ${daysUntil}d · ${ref}`,
             jobId: job.id,
           });
-        }
-      }
-
-      // ── STALLED IN PRODUCTION (7+ days) ──
-      for (const item of items) {
-        if (item.pipeline_stage === "in_production") {
-          const timestamps = item.pipeline_timestamps as any;
-          const enteredAt = timestamps?.in_production;
-          if (enteredAt) {
-            const daysInStage = Math.floor((now.getTime() - new Date(enteredAt).getTime()) / 86400000);
-            if (daysInStage >= 7) {
-              alerts.push({
-                priority: 1,
-                type: "stalled_production",
-                message: `${item.name} stalled — ${daysInStage}d in production · ${ref}`,
-                jobId: job.id,
-              });
-            }
-          }
         }
       }
 
