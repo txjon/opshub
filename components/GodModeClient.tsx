@@ -165,6 +165,26 @@ export function GodModeClient(props: Props) {
   const [modalDecorator, setModalDecorator] = useState<DecoratorStat | null>(null);
   const [modalCashWeek, setModalCashWeek] = useState<number | null>(null);
   const [modalCategory, setModalCategory] = useState<CategoryStat | null>(null);
+  const [backfillStatus, setBackfillStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [backfillResult, setBackfillResult] = useState<string>("");
+
+  async function runBackfill() {
+    if (backfillStatus === "running") return;
+    if (!confirm("Backfill per-item costs for every historical job? This re-runs CostingTab's calculation server-side and writes cost_per_unit_all_in on every item. Safe to re-run.")) return;
+    setBackfillStatus("running");
+    setBackfillResult("");
+    try {
+      const res = await fetch("/api/admin/backfill-item-costs", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Backfill failed");
+      setBackfillStatus("done");
+      setBackfillResult(`${data.itemsUpdated} items updated across ${data.jobsScanned} jobs${data.itemsSkipped ? ` · ${data.itemsSkipped} skipped` : ""}${data.totalErrors ? ` · ${data.totalErrors} errors` : ""}`);
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (e: any) {
+      setBackfillStatus("error");
+      setBackfillResult(e.message || "Failed");
+    }
+  }
 
   const card: any = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "20px 24px", marginBottom: 16 };
   const sectionHead: any = { display: "flex", alignItems: "center", gap: 12, borderBottom: `1px solid ${T.border}`, paddingBottom: 8, marginBottom: 16 };
@@ -457,7 +477,22 @@ export function GodModeClient(props: Props) {
         <div style={sectionHead}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Margin by Category</h2>
           <span style={{ color: T.muted, fontSize: 12 }}>Revenue + cost per garment type</span>
-          <div style={{ marginLeft: "auto" }}>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            {backfillResult && (
+              <span style={{ fontSize: 10, color: backfillStatus === "error" ? T.red : T.green, marginRight: 4 }}>
+                {backfillResult}
+              </span>
+            )}
+            <button onClick={runBackfill} disabled={backfillStatus === "running"}
+              style={{
+                padding: "4px 10px", borderRadius: 6,
+                background: backfillStatus === "running" ? T.surface : T.accent,
+                border: "none", color: "#fff", fontSize: 11, fontWeight: 600,
+                cursor: backfillStatus === "running" ? "wait" : "pointer", fontFamily: font,
+                opacity: backfillStatus === "running" ? 0.5 : 1,
+              }}>
+              {backfillStatus === "running" ? "Backfilling…" : "Backfill exact costs"}
+            </button>
             <CsvBtn onClick={() => downloadCsv("god-mode-margin-by-category.csv", categories.map(c => ({
               garment_type: c.garmentType, revenue: c.revenue.toFixed(2), cost: c.cost.toFixed(2),
               profit: (c.revenue - c.cost).toFixed(2), margin_pct: (c.marginPct * 100).toFixed(2),
