@@ -153,6 +153,72 @@
   }
   .scrub-banner strong { font-weight: 700; }
 
+  /* ── Review controls ──────────────────────────────────────────── */
+  .review-bar {
+    position: sticky; top: 0; z-index: 20;
+    background: #fff; border: 1px solid #dcdce0; border-radius: 10px;
+    padding: 12px 16px; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.04);
+  }
+  .review-progress {
+    font-size: 13px; font-weight: 700; color: #1a1a1a;
+  }
+  .review-progress .count { font-family: 'IBM Plex Mono', monospace; color: #4361ee; }
+  .review-bar .actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+  .review-bar button {
+    padding: 6px 14px; border-radius: 6px; border: 1px solid #dcdce0;
+    background: #fff; color: #1a1a1a; font-size: 12px; font-weight: 600;
+    font-family: inherit; cursor: pointer;
+  }
+  .review-bar button.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+  .review-bar button:hover { border-color: #4361ee; }
+
+  .review-status { font-size: 11px; color: #a0a0ad; }
+
+  .flow[data-reviewed="yes"] { background: #f6fbf7; }
+  .flow[data-reviewed="yes"]::before { background: #4ddb88 !important; }
+  .flow[data-flagged="yes"] { background: #fef8e4; }
+  .flow[data-flagged="yes"]::before { background: #f4b22b !important; }
+
+  .review-row {
+    grid-column: 1 / -1;
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: #fafafb;
+    border: 1px solid #e0e0e4; border-radius: 8px;
+    display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .review-checks {
+    display: flex; gap: 14px; flex-shrink: 0; flex-wrap: wrap;
+  }
+  .review-label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; color: #1a1a1a;
+    cursor: pointer; user-select: none;
+  }
+  .review-label input {
+    width: 16px; height: 16px; cursor: pointer;
+    accent-color: #4361ee;
+  }
+  .review-label.flag input { accent-color: #f4b22b; }
+  .review-comment {
+    flex: 1; min-width: 240px;
+    padding: 6px 10px; border: 1px solid #dcdce0; border-radius: 6px;
+    font-size: 12px; font-family: inherit; color: #1a1a1a;
+    background: #fff; resize: vertical; min-height: 32px;
+    outline: none;
+  }
+  .review-comment:focus { border-color: #4361ee; }
+  .review-comment::placeholder { color: #a0a0ad; }
+
+  .copy-success {
+    display: none;
+    font-size: 11px; color: #2a9e5c; font-weight: 600;
+    padding: 4px 10px; background: #e5f9ed; border-radius: 6px;
+  }
+  .copy-success.show { display: inline-block; }
+
   @media (max-width: 900px) {
     .flow, .flow-header { grid-template-columns: 1fr; }
     .flow-header { font-size: 8px; }
@@ -185,6 +251,20 @@
     The packing-slip PDF no longer prints "Shipment from: [Vendor]", and the attachment filename uses a
     shipment index (e.g. <code>HPD-PackingSlip-4145-2.pdf</code>) instead of the decorator's short code.
     Vendor portals and internal activity logs still reference the decorator by name.
+  </div>
+
+  <div class="review-bar">
+    <div class="review-progress">
+      <span class="count"><span id="reviewed-count">0</span>/<span id="total-count">0</span></span>
+      reviewed
+      <span class="review-status" id="review-status"></span>
+    </div>
+    <div class="actions">
+      <span class="copy-success" id="copy-success">Copied ✓</span>
+      <button id="copy-review" class="primary">Copy review notes</button>
+      <button id="mark-all">Mark all approved</button>
+      <button id="clear-review">Reset</button>
+    </div>
   </div>
 
   <!-- ──────────────── CLIENT EMAILS ──────────────── -->
@@ -541,6 +621,153 @@
 
 </div>
 
-<script>document.getElementById("date").textContent = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });</script>
+<script>
+document.getElementById("date").textContent = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+// ── Review controls ────────────────────────────────────────────
+(function () {
+  const STORAGE_KEY = "opshub.email-review.v1";
+  let state = {};
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) state = JSON.parse(raw);
+  } catch (_) { state = {}; }
+
+  const saveState = () => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
+    updateProgress();
+  };
+
+  const slugify = (s) => (s || "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+
+  // Only rows that have a .cell.trigger element (= real flow rows, not the route-reference rows)
+  const flows = Array.from(document.querySelectorAll(".flow")).filter(f => f.querySelector(".cell.trigger"));
+  const reviewedCountEl = document.getElementById("reviewed-count");
+  const totalCountEl = document.getElementById("total-count");
+  const statusEl = document.getElementById("review-status");
+
+  function attachControls(flow, idx) {
+    const triggerCell = flow.querySelector(".cell.trigger");
+    const firstLine = (triggerCell?.childNodes[0]?.textContent || "flow").trim();
+    const id = slugify(firstLine) + "-" + idx;
+    flow.dataset.flowId = id;
+    flow.dataset.title = firstLine;
+
+    const saved = state[id] || {};
+    if (saved.approved) flow.dataset.reviewed = "yes";
+    if (saved.flagged) flow.dataset.flagged = "yes";
+
+    const row = document.createElement("div");
+    row.className = "review-row";
+    row.innerHTML = `
+      <div class="review-checks">
+        <label class="review-label"><input type="checkbox" class="rv-approved" ${saved.approved ? "checked" : ""}> Approved</label>
+        <label class="review-label flag"><input type="checkbox" class="rv-flagged" ${saved.flagged ? "checked" : ""}> Needs change</label>
+      </div>
+      <textarea class="review-comment" placeholder="Notes on this email (optional)…" rows="1">${(saved.comment || "").replace(/</g, "&lt;")}</textarea>
+    `;
+    flow.appendChild(row);
+
+    const approvedBox = row.querySelector(".rv-approved");
+    const flaggedBox = row.querySelector(".rv-flagged");
+    const comment = row.querySelector(".review-comment");
+
+    approvedBox.addEventListener("change", () => {
+      state[id] = state[id] || {};
+      state[id].approved = approvedBox.checked;
+      if (approvedBox.checked) { flaggedBox.checked = false; state[id].flagged = false; flow.dataset.flagged = ""; }
+      flow.dataset.reviewed = approvedBox.checked ? "yes" : "";
+      saveState();
+    });
+    flaggedBox.addEventListener("change", () => {
+      state[id] = state[id] || {};
+      state[id].flagged = flaggedBox.checked;
+      if (flaggedBox.checked) { approvedBox.checked = false; state[id].approved = false; flow.dataset.reviewed = ""; }
+      flow.dataset.flagged = flaggedBox.checked ? "yes" : "";
+      saveState();
+    });
+    comment.addEventListener("input", () => {
+      state[id] = state[id] || {};
+      state[id].comment = comment.value;
+      saveState();
+    });
+  }
+
+  function updateProgress() {
+    const reviewedIds = new Set(
+      Object.entries(state).filter(([, v]) => v && (v.approved || v.flagged)).map(([k]) => k)
+    );
+    const relevantIds = flows.map(f => f.dataset.flowId);
+    const done = relevantIds.filter(id => reviewedIds.has(id)).length;
+    reviewedCountEl.textContent = done;
+    totalCountEl.textContent = relevantIds.length;
+
+    const flaggedCount = Object.values(state).filter(v => v && v.flagged).length;
+    statusEl.textContent = flaggedCount > 0 ? "· " + flaggedCount + " flagged" : (done === relevantIds.length && relevantIds.length > 0 ? "· all set" : "");
+    statusEl.style.color = flaggedCount > 0 ? "#f4b22b" : "#a0a0ad";
+  }
+
+  flows.forEach(attachControls);
+  updateProgress();
+
+  // Actions
+  document.getElementById("mark-all").addEventListener("click", () => {
+    flows.forEach(f => {
+      const id = f.dataset.flowId;
+      state[id] = state[id] || {};
+      state[id].approved = true;
+      state[id].flagged = false;
+      f.dataset.reviewed = "yes"; f.dataset.flagged = "";
+      const ab = f.querySelector(".rv-approved");
+      const fb = f.querySelector(".rv-flagged");
+      if (ab) ab.checked = true;
+      if (fb) fb.checked = false;
+    });
+    saveState();
+  });
+
+  document.getElementById("clear-review").addEventListener("click", () => {
+    if (!confirm("Clear all review checkboxes and comments?")) return;
+    state = {};
+    flows.forEach(f => {
+      f.dataset.reviewed = ""; f.dataset.flagged = "";
+      const ab = f.querySelector(".rv-approved");
+      const fb = f.querySelector(".rv-flagged");
+      const tx = f.querySelector(".review-comment");
+      if (ab) ab.checked = false;
+      if (fb) fb.checked = false;
+      if (tx) tx.value = "";
+    });
+    saveState();
+  });
+
+  document.getElementById("copy-review").addEventListener("click", async () => {
+    const lines = ["OpsHub email review — " + new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }), ""];
+    flows.forEach((f, i) => {
+      const id = f.dataset.flowId;
+      const s = state[id] || {};
+      const mark = s.approved ? "[x]" : s.flagged ? "[!]" : "[ ]";
+      lines.push((i + 1) + ". " + mark + " " + f.dataset.title);
+      if (s.comment && s.comment.trim()) {
+        s.comment.trim().split(/\n/).forEach(line => lines.push("     > " + line));
+      }
+    });
+    const approved = Object.values(state).filter(v => v && v.approved).length;
+    const flagged = Object.values(state).filter(v => v && v.flagged).length;
+    lines.push("");
+    lines.push("Summary: " + approved + " approved · " + flagged + " flagged · " + (flows.length - approved - flagged) + " pending");
+    const text = lines.join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      const success = document.getElementById("copy-success");
+      success.classList.add("show");
+      setTimeout(() => success.classList.remove("show"), 1600);
+    } catch (e) {
+      alert(text);
+    }
+  });
+})();
+</script>
 </body>
 </html>
