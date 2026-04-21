@@ -945,9 +945,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             </div>
           </div>
 
-          {/* Email history — read-only log of every email this project has sent */}
+          {/* Email history — outbound only. Inbound routing via a shared
+               reply-to is unreliable (replies get tagged to the wrong job),
+               so we suppress inbound here until per-job reply addressing is
+               rebuilt. Replies still land in Gmail as today. */}
           <div style={{ marginTop: 18 }}>
-            <EmailThread jobId={job.id} title="Email history" />
+            <EmailThread jobId={job.id} title="Emails sent from OpsHub" outboundOnly />
           </div>
         </div>
       )}

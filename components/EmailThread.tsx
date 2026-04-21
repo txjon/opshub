@@ -52,12 +52,16 @@ function cleanBody(text: string | null): string | null {
   return clean.trim() || null;
 }
 
-export function EmailThread({ jobId, onCompose, channel, decoratorId, title = "Email history" }: {
+export function EmailThread({ jobId, onCompose, channel, decoratorId, title = "Email history", outboundOnly = false }: {
   jobId: string;
   onCompose?: () => void;
   channel?: "client" | "production";
   decoratorId?: string;
   title?: string;
+  /** When true, hide inbound emails entirely. Useful where job-specific
+   *  reply-routing isn't reliable — prevents inbound rows tagged to the
+   *  wrong job (from a shared catch-all) from polluting the project view. */
+  outboundOnly?: boolean;
 }) {
   const supabase = createClient();
   const [emails, setEmails] = useState<Email[]>([]);
@@ -65,7 +69,7 @@ export function EmailThread({ jobId, onCompose, channel, decoratorId, title = "E
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState("");
 
-  useEffect(() => { load(); }, [jobId, channel, decoratorId]);
+  useEffect(() => { load(); }, [jobId, channel, decoratorId, outboundOnly]);
 
   async function load() {
     let query = supabase
@@ -74,6 +78,7 @@ export function EmailThread({ jobId, onCompose, channel, decoratorId, title = "E
       .eq("job_id", jobId);
     if (channel) query = query.eq("channel", channel);
     if (decoratorId) query = query.eq("decorator_id", decoratorId);
+    if (outboundOnly) query = query.eq("direction", "outbound");
     const { data } = await query
       .order("created_at", { ascending: false })
       .limit(50);
