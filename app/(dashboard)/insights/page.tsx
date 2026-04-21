@@ -94,16 +94,18 @@ export default function InsightsPage() {
     }
     const clientRanking = Object.values(byClient).sort((a, b) => b.rev - a.rev);
 
-    // Profitability by decorator
-    const byDecorator: Record<string, { name: string; rev: number; items: number; avgDays: number; totalDays: number; completedItems: number; onTime: number; totalOnTime: number }> = {};
+    // Throughput by decorator (items handled + avg turnaround).
+    // Note: revenue per decorator isn't meaningful as a sum of items.sell_per_unit —
+    // job revenue is per-job, not per-item-assignment. See god-mode drill-down for
+    // real per-item margin attribution.
+    const byDecorator: Record<string, { name: string; items: number; avgDays: number; totalDays: number; completedItems: number }> = {};
     for (const item of items) {
       const da = item.decorator_assignments?.[0];
       if (!da) continue;
       const dname = da.decorators?.name || da.decorators?.short_code || "Unknown";
       const did = da.decorator_id || "unknown";
-      if (!byDecorator[did]) byDecorator[did] = { name: dname, rev: 0, items: 0, avgDays: 0, totalDays: 0, completedItems: 0, onTime: 0, totalOnTime: 0 };
+      if (!byDecorator[did]) byDecorator[did] = { name: dname, items: 0, avgDays: 0, totalDays: 0, completedItems: 0 };
       byDecorator[did].items += 1;
-      byDecorator[did].rev += (item.sell_per_unit || 0);
 
       // Turnaround from pipeline_timestamps
       const ts = item.pipeline_timestamps || {};
