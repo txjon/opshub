@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
       { data: allProofs },
     ] = await Promise.all([
       sb.from("payment_records").select("id, job_id, amount, status, due_date, type").in("job_id", jobIds),
-      sb.from("items").select("id, job_id, name, pipeline_stage, pipeline_timestamps, blanks_order_number").in("job_id", jobIds),
+      sb.from("items").select("id, job_id, name, pipeline_stage, pipeline_timestamps, blanks_order_number, artwork_status").in("job_id", jobIds),
       sb.from("item_files").select("id, item_id, stage, approval, created_at").in("stage", ["proof"]).eq("approval", "pending").is("superseded_at", null),
     ]);
 
@@ -126,9 +126,11 @@ export async function GET(req: NextRequest) {
 
       // ── PROOFS PENDING 3+ DAYS ──
       for (const proof of proofs) {
+        const item = items.find(i => i.id === proof.item_id);
+        // Skip manually approved items — override settles it, no nag needed.
+        if (item?.artwork_status === "approved") continue;
         const daysPending = Math.floor((now.getTime() - new Date(proof.created_at).getTime()) / 86400000);
         if (daysPending >= 3) {
-          const item = items.find(i => i.id === proof.item_id);
           alerts.push({
             priority: 2,
             type: "pending_proof",

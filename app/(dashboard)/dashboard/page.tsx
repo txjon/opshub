@@ -226,7 +226,9 @@ export default async function DashboardPage() {
 
     // 7. Upload proofs / Awaiting approval (both can fire — items can be in different states)
     if (quoteApproved && !allProofsApproved) {
-      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0);
+      // Exclude items with manual override (artwork_status='approved') — they
+      // don't need client approval even if the underlying proof is pending.
+      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0 && it.artwork_status !== "approved");
       const itemsNeedingProofs = items.filter((it: any) => {
         const proofs = (proofFiles || []).filter(f => f.item_id === it.id && f.stage === "proof");
         return proofs.length === 0 && it.artwork_status !== "approved";
@@ -361,7 +363,8 @@ export default async function DashboardPage() {
   const needsProofsList = activeJobs
     .map(j => {
       const items = j.items || [];
-      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0);
+      // Exclude manually approved items — they don't need client review.
+      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0 && it.artwork_status !== "approved");
       if (pendingItems.length === 0) return null;
       return jobRef(j, { subtitle: `${pendingItems.length} proof${pendingItems.length !== 1 ? "s" : ""} awaiting client review`, href: `/jobs/${j.id}?tab=proofs` });
     })
