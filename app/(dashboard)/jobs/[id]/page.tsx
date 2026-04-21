@@ -9,6 +9,7 @@ import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
 import { DocumentsTab } from "./DocumentsTab";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { EmailThread } from "@/components/EmailThread";
 import { ProductBuilder } from "./ProductBuilder";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -942,6 +943,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </div>
 
             </div>
+          </div>
+
+          {/* Email history — read-only log of every email this project has sent */}
+          <div style={{ marginTop: 18 }}>
+            <EmailThread jobId={job.id} title="Email history" />
           </div>
         </div>
       )}

@@ -52,11 +52,12 @@ function cleanBody(text: string | null): string | null {
   return clean.trim() || null;
 }
 
-export function EmailThread({ jobId, onCompose, channel, decoratorId }: {
+export function EmailThread({ jobId, onCompose, channel, decoratorId, title = "Email history" }: {
   jobId: string;
-  onCompose: () => void;
+  onCompose?: () => void;
   channel?: "client" | "production";
   decoratorId?: string;
+  title?: string;
 }) {
   const supabase = createClient();
   const [emails, setEmails] = useState<Email[]>([]);
@@ -96,15 +97,17 @@ export function EmailThread({ jobId, onCompose, channel, decoratorId }: {
         marginBottom: 12,
       }}>
         <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>
-          Email ({emails.length})
+          {title} ({emails.length})
         </div>
-        <button onClick={onCompose} style={{
-          background: T.accent, border: "none", borderRadius: 6,
-          color: "#fff", fontSize: 10, fontWeight: 600, padding: "5px 12px",
-          cursor: "pointer",
-        }}>
-          Compose
-        </button>
+        {onCompose && (
+          <button onClick={onCompose} style={{
+            background: T.accent, border: "none", borderRadius: 6,
+            color: "#fff", fontSize: 10, fontWeight: 600, padding: "5px 12px",
+            cursor: "pointer",
+          }}>
+            Compose
+          </button>
+        )}
       </div>
 
       {emails.length === 0 ? (
@@ -112,7 +115,7 @@ export function EmailThread({ jobId, onCompose, channel, decoratorId }: {
           textAlign: "center", color: T.faint, fontSize: 11, padding: "20px 0",
           background: T.card, borderRadius: 8, border: `1px solid ${T.border}`,
         }}>
-          No emails yet. Click Compose to send the first one.
+          No emails sent yet.
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
