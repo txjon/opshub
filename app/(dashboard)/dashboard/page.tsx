@@ -437,10 +437,12 @@ export default async function DashboardPage() {
   const stalled = stalledList.length;
   const awaitingClient = awaitingClientList.length;
 
-  // Decorator breakdown
+  // Decorator breakdown — only items currently AT the decorator. Matches the
+  // "At Decorator" KPI filter (in_production). Shipped items have left the
+  // decorator and belong in the Shipped bucket.
   const decoratorCounts: Record<string, number> = {};
   for (const it of allItems) {
-    if (it.pipeline_stage === "in_production" || it.pipeline_stage === "shipped") {
+    if (it.pipeline_stage === "in_production") {
       const da = (it as any).decorator_assignments?.[0]?.decorators;
       const vendor = da?.short_code || da?.name || "Unassigned";
       decoratorCounts[vendor] = (decoratorCounts[vendor] || 0) + 1;
