@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
       } else {
         subject = `Your order has shipped — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`;
         heading = "Your order has shipped";
-        bodyHtml = `Your order for <strong>${projectTitle}</strong> has shipped. The packing slip is attached.`;
+        bodyHtml = `Your order for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has shipped. The packing slip is attached.`;
         pdfFilename = `HPD-PackingSlip-${invoiceNum}.pdf`;
       }
 
@@ -187,7 +187,7 @@ export async function POST(req: NextRequest) {
       const html = renderBrandedEmail({
         heading: "Production complete",
         greeting: `Hi ${clientName || "there"},`,
-        bodyHtml: `Production for <strong>${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment.`,
+        bodyHtml: `Production for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment.`,
         cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
         closing: "Welcome to the party,\nHouse Party Distro",
       });
@@ -241,7 +241,7 @@ export async function POST(req: NextRequest) {
       const html = renderBrandedEmail({
         heading: `Revised invoice #${invoiceNum}`,
         greeting: `Hi ${clientName || "there"},`,
-        bodyHtml: `Your invoice #${invoiceNum} has been updated with final shipped quantities. The revised copy is attached and waiting in your portal.`,
+        bodyHtml: `Your invoice for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has been updated with final shipped quantities. The revised copy is attached and waiting in your portal.`,
         cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
         secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
       });
