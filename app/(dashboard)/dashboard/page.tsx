@@ -20,7 +20,7 @@ export default async function DashboardPage() {
 
   const allItemIds = (jobs || []).flatMap(j => (j.items || []).map((it: any) => it.id));
   const { data: proofFiles } = allItemIds.length > 0
-    ? await supabase.from("item_files").select("item_id, stage, approval, notes").in("item_id", allItemIds).in("stage", ["proof", "mockup"])
+    ? await supabase.from("item_files").select("item_id, stage, approval, notes").in("item_id", allItemIds).in("stage", ["proof", "mockup"]).is("superseded_at", null)
     : { data: [] };
 
   // Load contacts for email modals

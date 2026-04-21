@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
     ] = await Promise.all([
       sb.from("payment_records").select("id, job_id, amount, status, due_date, type").in("job_id", jobIds),
       sb.from("items").select("id, job_id, name, pipeline_stage, pipeline_timestamps, blanks_order_number").in("job_id", jobIds),
-      sb.from("item_files").select("id, item_id, stage, approval, created_at").in("stage", ["proof"]).eq("approval", "pending"),
+      sb.from("item_files").select("id, item_id, stage, approval, created_at").in("stage", ["proof"]).eq("approval", "pending").is("superseded_at", null),
     ]);
 
     // Client names

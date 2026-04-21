@@ -206,7 +206,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (itemsRes.data) {
       const ids = itemsRes.data.map((it: any) => it.id);
       if (ids.length > 0) {
-        const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids);
+        const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids).is("superseded_at", null);
         const ps: Record<string, { allApproved: boolean }> = {};
         const filesPerItem: Record<string, boolean> = {};
         for (const id of ids) {

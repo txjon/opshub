@@ -135,7 +135,7 @@ export function useWarehouse() {
     if (!jobData || jobData.phase === "on_hold" || jobData.phase === "cancelled") return;
     const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage, blanks_order_number, ship_tracking, received_at_hpd, artwork_status, garment_type").eq("job_id", jobId);
     const { data: payments } = await supabase.from("payment_records").select("amount, status").eq("job_id", jobId);
-    const { data: proofFiles } = await supabase.from("item_files").select("item_id, approval").eq("stage", "proof").in("item_id", (jobItems || []).map(it => it.id));
+    const { data: proofFiles } = await supabase.from("item_files").select("item_id, approval").eq("stage", "proof").is("superseded_at", null).in("item_id", (jobItems || []).map(it => it.id));
     const proofStatus: Record<string, { allApproved: boolean }> = {};
     for (const it of (jobItems || [])) {
       const manualApproved = it.artwork_status === "approved";

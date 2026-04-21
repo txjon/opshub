@@ -32,6 +32,22 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const result = await uploadFile(folderId, file.name, file.type, buffer);
 
+    // Proof overwrite: supersede active proofs for this item + delete their
+    // Drive files (DB row kept for history + counter accuracy).
+    if (stage === "proof") {
+      const { data: existing } = await supabase
+        .from("item_files")
+        .select("id, drive_file_id")
+        .eq("item_id", itemId)
+        .eq("stage", "proof")
+        .is("superseded_at", null);
+      const now = new Date().toISOString();
+      for (const old of (existing || [])) {
+        if (old.drive_file_id) { try { await deleteFile(old.drive_file_id); } catch {} }
+        await supabase.from("item_files").update({ superseded_at: now }).eq("id", old.id);
+      }
+    }
+
     // Save metadata to database
     const { data, error } = await supabase.from("item_files").insert({
       item_id: itemId,
