@@ -57,7 +57,7 @@ const DEPT_CROSSLINKS: Partial<Record<Department, { href: string; label: string;
 };
 
 function detectDept(pathname: string): Department {
-  if (["/insights", "/reports"].some(p => pathname.startsWith(p))) return "owner";
+  if (["/insights", "/reports", "/god-mode"].some(p => pathname.startsWith(p))) return "owner";
   if (["/distro", "/receiving", "/shipping", "/fulfillment", "/ecomm"].some(p => pathname.startsWith(p))) return "distro";
   if (["/clients", "/decorators"].some(p => pathname.startsWith(p))) return "contacts";
   if (["/settings"].some(p => pathname.startsWith(p))) return "settings";
@@ -83,7 +83,12 @@ export function AppShell({
     setActiveDept(deptFromPath);
   }, [pathname]);
 
-  const navItems = DEPT_NAV[activeDept] || [];
+  const baseNavItems = DEPT_NAV[activeDept] || [];
+  // God Mode is email-gated (owner personal financial/CRM view) — shown only
+  // to Jon even among other owner-role users.
+  const navItems = activeDept === "owner" && email === "jon@housepartydistro.com"
+    ? [...baseNavItems, { href: "/god-mode", label: "God Mode" }]
+    : baseNavItems;
   const rawCrossLink = DEPT_CROSSLINKS[activeDept];
   const crossLink = rawCrossLink && hasDept(rawCrossLink.dept) ? rawCrossLink : null;
 
