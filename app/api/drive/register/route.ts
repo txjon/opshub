@@ -14,9 +14,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Overwrite: delete existing files of the same stage for this item (proof, mockup)
-    if (stage === "proof" || stage === "mockup") {
-      const { data: existing } = await supabase.from("item_files").select("id, drive_file_id").eq("item_id", itemId).eq("stage", stage);
+    // Overwrite behavior differs by stage:
+    // - proof: mark superseded_at (preserve DB row for history + counters) and
+    //   delete the old Drive file. Project folder is the physical archive.
+    // - mockup: delete DB row + Drive file (no history needed).
+    if (stage === "proof") {
+      const { data: existing } = await supabase
+        .from("item_files")
+        .select("id, drive_file_id")
+        .eq("item_id", itemId)
+        .eq("stage", "proof")
+        .is("superseded_at", null);
+      const now = new Date().toISOString();
+      for (const old of (existing || [])) {
+        if (old.drive_file_id) { try { await deleteFile(old.drive_file_id); } catch {} }
+        await supabase.from("item_files").update({ superseded_at: now }).eq("id", old.id);
+      }
+    } else if (stage === "mockup") {
+      const { data: existing } = await supabase.from("item_files").select("id, drive_file_id").eq("item_id", itemId).eq("stage", "mockup");
       for (const old of (existing || [])) {
         if (old.drive_file_id) { try { await deleteFile(old.drive_file_id); } catch {} }
         await supabase.from("item_files").delete().eq("id", old.id);

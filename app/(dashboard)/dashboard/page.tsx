@@ -20,7 +20,7 @@ export default async function DashboardPage() {
 
   const allItemIds = (jobs || []).flatMap(j => (j.items || []).map((it: any) => it.id));
   const { data: proofFiles } = allItemIds.length > 0
-    ? await supabase.from("item_files").select("item_id, stage, approval, notes").in("item_id", allItemIds).in("stage", ["proof", "mockup"])
+    ? await supabase.from("item_files").select("item_id, stage, approval, notes").in("item_id", allItemIds).in("stage", ["proof", "mockup"]).is("superseded_at", null)
     : { data: [] };
 
   // Load contacts for email modals
@@ -226,7 +226,9 @@ export default async function DashboardPage() {
 
     // 7. Upload proofs / Awaiting approval (both can fire — items can be in different states)
     if (quoteApproved && !allProofsApproved) {
-      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0);
+      // Exclude items with manual override (artwork_status='approved') — they
+      // don't need client approval even if the underlying proof is pending.
+      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0 && it.artwork_status !== "approved");
       const itemsNeedingProofs = items.filter((it: any) => {
         const proofs = (proofFiles || []).filter(f => f.item_id === it.id && f.stage === "proof");
         return proofs.length === 0 && it.artwork_status !== "approved";
@@ -361,7 +363,8 @@ export default async function DashboardPage() {
   const needsProofsList = activeJobs
     .map(j => {
       const items = j.items || [];
-      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0);
+      // Exclude manually approved items — they don't need client review.
+      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0 && it.artwork_status !== "approved");
       if (pendingItems.length === 0) return null;
       return jobRef(j, { subtitle: `${pendingItems.length} proof${pendingItems.length !== 1 ? "s" : ""} awaiting client review`, href: `/jobs/${j.id}?tab=proofs` });
     })
@@ -391,24 +394,6 @@ export default async function DashboardPage() {
       });
     });
 
-  const stalledList = (activeJobs.flatMap(j => (j.items || []).map((it: any) => ({ j, it }))))
-    .filter(({ it }) => {
-      if (it.pipeline_stage !== "in_production") return false;
-      const ts = it.pipeline_timestamps?.in_production;
-      if (!ts) return false;
-      return Math.floor((Date.now() - new Date(ts).getTime()) / 86400000) >= 7;
-    })
-    .map(({ j, it }) => {
-      const ts = it.pipeline_timestamps!.in_production;
-      const days = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000);
-      const decName = it.decorator_assignments?.[0]?.decorators?.short_code || it.decorator_assignments?.[0]?.decorators?.name || "";
-      return jobRef(j, {
-        key: `stalled-${it.id}`,
-        subtitle: `${it.name}${decName ? ` · ${decName}` : ""} · ${days}d at decorator`,
-        href: `/jobs/${j.id}?tab=production`,
-      });
-    });
-
   const awaitingClientList = activeJobs
     .map(j => {
       const qa = (j as any).quote_approved;
@@ -431,13 +416,14 @@ export default async function DashboardPage() {
   const needsProofs = needsProofsList.length;
   const atDecorator = atDecoratorList.length;
   const shipped = shippedList.length;
-  const stalled = stalledList.length;
   const awaitingClient = awaitingClientList.length;
 
-  // Decorator breakdown
+  // Decorator breakdown — only items currently AT the decorator. Matches the
+  // "At Decorator" KPI filter (in_production). Shipped items have left the
+  // decorator and belong in the Shipped bucket.
   const decoratorCounts: Record<string, number> = {};
   for (const it of allItems) {
-    if (it.pipeline_stage === "in_production" || it.pipeline_stage === "shipped") {
+    if (it.pipeline_stage === "in_production") {
       const da = (it as any).decorator_assignments?.[0]?.decorators;
       const vendor = da?.short_code || da?.name || "Unassigned";
       decoratorCounts[vendor] = (decoratorCounts[vendor] || 0) + 1;
@@ -462,7 +448,6 @@ export default async function DashboardPage() {
     needsProofs,
     atDecorator,
     shipped,
-    stalled,
     awaitingClient,
     decoratorCounts,
     pipelineLists: {
@@ -471,7 +456,6 @@ export default async function DashboardPage() {
       needsProofs: needsProofsList,
       atDecorator: atDecoratorList,
       shipped: shippedList,
-      stalled: stalledList,
       awaitingClient: awaitingClientList,
     },
   };

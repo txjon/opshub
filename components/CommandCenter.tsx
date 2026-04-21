@@ -39,11 +39,11 @@ export function CommandCenter({ alerts, stats }: {
   stats: {
     active: number; items: number; units: number; prints: number; sales: number; production: number; billing: number; shippingThisWeek: number;
     needsBlanks: number; needsPO: number; needsProofs: number;
-    atDecorator: number; shipped: number; stalled: number; awaitingClient: number;
+    atDecorator: number; shipped: number; awaitingClient: number;
     decoratorCounts: Record<string, number>;
     pipelineLists?: {
       needsBlanks: KpiListItem[]; needsPO: KpiListItem[]; needsProofs: KpiListItem[];
-      atDecorator: KpiListItem[]; shipped: KpiListItem[]; stalled: KpiListItem[]; awaitingClient: KpiListItem[];
+      atDecorator: KpiListItem[]; shipped: KpiListItem[]; awaitingClient: KpiListItem[];
     };
   };
 }) {
@@ -273,7 +273,6 @@ export function CommandCenter({ alerts, stats }: {
           { id: "needsProofs",    label: "Awaiting Proofs", value: stats.needsProofs,    color: stats.needsProofs > 0 ? T.amber : T.faint,   list: stats.pipelineLists?.needsProofs },
           { id: "atDecorator",    label: "At Decorator",    value: stats.atDecorator,    color: stats.atDecorator > 0 ? T.blue : T.faint,    list: stats.pipelineLists?.atDecorator },
           { id: "shipped",        label: "Shipped",         value: stats.shipped,        color: stats.shipped > 0 ? T.green : T.faint,       list: stats.pipelineLists?.shipped },
-          { id: "stalled",        label: "Stalled 7d+",     value: stats.stalled,        color: stats.stalled > 0 ? T.red : T.faint,         list: stats.pipelineLists?.stalled },
           { id: "awaitingClient", label: "Awaiting Client", value: stats.awaitingClient, color: stats.awaitingClient > 0 ? T.muted : T.faint, list: stats.pipelineLists?.awaitingClient },
         ] as const).map(s => {
           const hasList = (s.list?.length ?? 0) > 0;

@@ -28,7 +28,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
   useEffect(() => {
     if (!items.length) return;
     const ids = items.map(it => it.id);
-    supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids).then(({ data }) => {
+    supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids).is("superseded_at", null).then(({ data }) => {
       const status = {};
       for (const it of items) {
         const proofs = (data || []).filter(f => f.item_id === it.id && f.stage === "proof");

@@ -85,13 +85,14 @@ export async function GET(
     // Proof/mockup files (only stages clients should see)
     let proofFiles: any[] = [];
     if (itemIds.length > 0) {
-      const { data: files, error: fileErr } = await sb
+      const { data: files } = await sb
         .from("item_files")
         .select(
           "id, item_id, file_name, stage, approval, approved_at, drive_file_id, drive_link, created_at"
         )
         .in("item_id", itemIds)
         .in("stage", ["mockup", "proof"])
+        .is("superseded_at", null)
         .order("created_at", { ascending: false });
       proofFiles = files || [];
     }
@@ -423,7 +424,8 @@ export async function POST(
           .update({ approval: "approved", approved_at: new Date().toISOString() })
           .in("item_id", itemIds)
           .eq("stage", "proof")
-          .eq("approval", "pending");
+          .eq("approval", "pending")
+          .is("superseded_at", null);
 
         // Also mark items as manually approved
         await sb.from("items")
@@ -440,6 +442,16 @@ export async function POST(
     }
 
     if (action === "approve-proof" && fileId) {
+      // Guard against acting on a superseded proof (client loaded stale portal)
+      const { data: target } = await sb
+        .from("item_files")
+        .select("id, superseded_at")
+        .eq("id", fileId)
+        .single();
+      if (!target || target.superseded_at) {
+        return NextResponse.json({ error: "This proof is no longer active. Please refresh." }, { status: 400 });
+      }
+
       await sb
         .from("item_files")
         .update({ approval: "approved", approved_at: new Date().toISOString() })
@@ -486,6 +498,16 @@ export async function POST(
     }
 
     if (action === "request-revision" && fileId) {
+      // Guard against acting on a superseded proof
+      const { data: target } = await sb
+        .from("item_files")
+        .select("id, superseded_at")
+        .eq("id", fileId)
+        .single();
+      if (!target || target.superseded_at) {
+        return NextResponse.json({ error: "This proof is no longer active. Please refresh." }, { status: 400 });
+      }
+
       await sb
         .from("item_files")
         .update({

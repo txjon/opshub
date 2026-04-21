@@ -9,6 +9,7 @@ import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
 import { DocumentsTab } from "./DocumentsTab";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { EmailThread } from "@/components/EmailThread";
 import { ProductBuilder } from "./ProductBuilder";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -205,7 +206,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (itemsRes.data) {
       const ids = itemsRes.data.map((it: any) => it.id);
       if (ids.length > 0) {
-        const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids);
+        const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids).is("superseded_at", null);
         const ps: Record<string, { allApproved: boolean }> = {};
         const filesPerItem: Record<string, boolean> = {};
         for (const id of ids) {
@@ -942,6 +943,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </div>
 
             </div>
+          </div>
+
+          {/* Email history — outbound only. Inbound routing via a shared
+               reply-to is unreliable (replies get tagged to the wrong job),
+               so we suppress inbound here until per-job reply addressing is
+               rebuilt. Replies still land in Gmail as today. */}
+          <div style={{ marginTop: 18 }}>
+            <EmailThread jobId={job.id} title="Emails sent from OpsHub" outboundOnly />
           </div>
         </div>
       )}
