@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsHub — Email Flows</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    background: #f4f4f6; color: #1a1a1a; padding: 32px 24px 80px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 28px; letter-spacing: -0.02em; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: #6b6b78; margin-bottom: 32px; }
+
+  .legend {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    padding: 14px 18px; background: #fff; border: 1px solid #dcdce0;
+    border-radius: 10px; margin-bottom: 28px; font-size: 12px; color: #6b6b78;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 99px; flex-shrink: 0; }
+
+  .section { margin-bottom: 40px; }
+  .section-title {
+    font-size: 11px; font-weight: 700; color: #6b6b78;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    margin-bottom: 12px;
+  }
+  .section-sub {
+    font-size: 12px; color: #a0a0ad; margin-bottom: 14px;
+  }
+
+  .flows {
+    background: #fff; border: 1px solid #dcdce0; border-radius: 12px;
+    overflow: hidden;
+  }
+  .flow {
+    display: grid;
+    grid-template-columns: 1.2fr 1.2fr 1.1fr 1.3fr 0.9fr;
+    gap: 14px; padding: 14px 18px;
+    border-bottom: 1px solid #dcdce0;
+    align-items: flex-start; position: relative;
+  }
+  .flow:last-child { border-bottom: none; }
+  .flow::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: #dcdce0;
+  }
+  .flow[data-kind="user"]::before { background: #000; }
+  .flow[data-kind="auto"]::before { background: #73b6c9; }
+  .flow[data-kind="webhook"]::before { background: #fd3aa3; }
+  .flow[data-kind="cron"]::before { background: #f4b22b; }
+
+  .flow-header {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1.2fr 1.2fr 1.1fr 1.3fr 0.9fr;
+    gap: 14px; padding: 10px 18px; margin: 0 -18px;
+    background: #eaeaee; border-bottom: 1px solid #dcdce0;
+    font-size: 9px; font-weight: 700; color: #6b6b78;
+    text-transform: uppercase; letter-spacing: 0.07em;
+  }
+  .flow-header span {}
+
+  .cell {}
+  .trigger {
+    font-size: 13px; font-weight: 600; color: #1a1a1a; line-height: 1.35;
+  }
+  .trigger-src {
+    font-size: 10px; color: #a0a0ad; margin-top: 3px;
+    font-family: 'IBM Plex Mono', 'Courier New', monospace;
+  }
+  .route {
+    font-size: 11px; font-family: 'IBM Plex Mono', 'Courier New', monospace;
+    color: #1a1a1a; background: #f3f3f5;
+    padding: 3px 8px; border-radius: 4px; display: inline-block;
+    word-break: break-all;
+  }
+  .type-pill {
+    display: inline-block;
+    font-size: 10px; font-weight: 700;
+    padding: 3px 9px; border-radius: 99px;
+    background: #e8e8e8; color: #1a1a1a;
+    font-family: 'IBM Plex Mono', 'Courier New', monospace;
+    letter-spacing: 0.02em;
+  }
+  .type-pill.client { background: #e3f1f5; color: #1c7a8f; }
+  .type-pill.vendor { background: #fef5e0; color: #8a5a00; }
+  .type-pill.internal { background: #e5f9ed; color: #1a7a4a; }
+
+  .recipient {
+    font-size: 12px; color: #1a1a1a; line-height: 1.4;
+  }
+  .recipient-fallback {
+    font-size: 10px; color: #a0a0ad; margin-top: 2px; font-style: italic;
+  }
+  .attach {
+    font-size: 11px; color: #6b6b78; line-height: 1.4;
+  }
+  .attach-tag {
+    display: inline-block; font-size: 9px; font-weight: 700;
+    padding: 2px 7px; border-radius: 4px;
+    background: #fee8f4; color: #b8237a; letter-spacing: 0.04em;
+    margin: 1px 3px 1px 0;
+  }
+  .attach-tag.none { background: #f3f3f5; color: #a0a0ad; font-weight: 500; }
+
+  .note {
+    grid-column: 1 / -1;
+    margin-top: 6px;
+    font-size: 11px; color: #a0a0ad;
+    padding: 6px 10px; background: #fafafb;
+    border-left: 2px solid #dcdce0; border-radius: 0 4px 4px 0;
+  }
+
+  @media (max-width: 900px) {
+    .flow, .flow-header { grid-template-columns: 1fr; }
+    .flow-header { font-size: 8px; }
+    .flow-header span { display: none; }
+    .flow-header span:first-child { display: block; }
+    .cell::before {
+      content: attr(data-label);
+      display: block;
+      font-size: 8px; font-weight: 700; color: #a0a0ad;
+      text-transform: uppercase; letter-spacing: 0.07em;
+      margin-bottom: 3px;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Email flows</h1>
+  <p class="sub">Every email OpsHub sends, where it fires from, and what it carries. Generated <span id="date"></span> from current code.</p>
+
+  <div class="legend">
+    <div class="legend-item"><span class="dot" style="background:#000"></span> User-triggered (button click)</div>
+    <div class="legend-item"><span class="dot" style="background:#73b6c9"></span> Auto-notification (state change)</div>
+    <div class="legend-item"><span class="dot" style="background:#fd3aa3"></span> Webhook-triggered (external event)</div>
+    <div class="legend-item"><span class="dot" style="background:#f4b22b"></span> Cron / scheduled</div>
+  </div>
+
+  <!-- ──────────────── CLIENT EMAILS ──────────────── -->
+  <section class="section">
+    <div class="section-title">Client-facing emails</div>
+    <div class="section-sub">Transactional + automated emails to project contacts.</div>
+
+    <div class="flows">
+      <div class="flow-header">
+        <span>Trigger</span><span>Route</span><span>Email type</span><span>Recipient</span><span>Attachments</span>
+      </div>
+
+      <!-- Quote send -->
+      <div class="flow" data-kind="user">
+        <div class="cell trigger" data-label="Trigger">
+          Quote tab → “Send to Client”
+          <div class="trigger-src">CostingTab.jsx · SendEmailDialog</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">POST /api/email/send</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill client">quote</span></div>
+        <div class="cell recipient" data-label="To">
+          Billing → Primary → any contact
+          <div class="recipient-fallback">Picks first available email</div>
+        </div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">Quote PDF</span></div>
+      </div>
+
+      <!-- Invoice send -->
+      <div class="flow" data-kind="user">
+        <div class="cell trigger" data-label="Trigger">
+          Proofs &amp; Invoice tab → “Send Invoice + Portal Link”
+          <div class="trigger-src">PaymentTab.jsx · SendEmailDialog</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">POST /api/email/send</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill client">invoice</span></div>
+        <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">Invoice PDF</span></div>
+      </div>
+
+      <!-- Invoice + Proofs send -->
+      <div class="flow" data-kind="user">
+        <div class="cell trigger" data-label="Trigger">
+          Proofs &amp; Invoice tab → “Send Invoice &amp; Proofs”
+          <div class="trigger-src">ApprovalsTab.jsx · SendEmailDialog</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">POST /api/email/send</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill client">invoice_proofs</span></div>
+        <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">Invoice + Proofs combined PDF</span></div>
+      </div>
+
+      <!-- Per-vendor shipped -->
+      <div class="flow" data-kind="auto">
+        <div class="cell trigger" data-label="Trigger">
+          Drop-ship: all of one decorator’s items marked shipped
+          <div class="trigger-src">ProductionTab · production/page · vendor portal</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">POST /api/email/notify</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill client">order_shipped_vendor</span></div>
+        <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">Packing slip (filtered to that decorator)</span></div>
+        <div class="note">Fires once per decorator when their portion of the job is complete. Client sees “Part of your order has shipped from [Vendor]”.</div>
+      </div>
+
+      <!-- Ship-through shipped -->
+      <div class="flow" data-kind="auto">
+        <div class="cell trigger" data-label="Trigger">
+          Ship-through: warehouse → “Mark Shipped”
+          <div class="trigger-src">warehouse/page · shipping/page · use-warehouse</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">POST /api/email/notify</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill client">order_shipped_hpd</span></div>
+        <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">Full packing slip</span></div>
+        <div class="note">Client sees “Your order has shipped from House Party Distro”.</div>
+      </div>
+
+      <!-- Production complete -->
+      <div class="flow" data-kind="auto">
+        <div class="cell trigger" data-label="Trigger">
+          All items received at HPD (ship-through / stage only)
+          <div class="trigger-src">use-warehouse · markReceived</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">POST /api/email/notify</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill client">production_complete</span></div>
+        <div class="cell recipient" data-label="To">Client primary</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">Packing slip</span></div>
+        <div class="note">Server-side dedup check in auto-email.ts — once-per-job. Won’t re-fire.</div>
+      </div>
+
+      <!-- Invoice revised -->
+      <div class="flow" data-kind="auto">
+        <div class="cell trigger" data-label="Trigger">
+          QB invoice pushed or updated with shipped qtys (variance review)
+          <div class="trigger-src">/api/qb/invoice · updateInvoice</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">POST /api/email/notify</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill client">invoice_revised</span></div>
+        <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">Revised Invoice PDF</span></div>
+      </div>
+
+      <!-- QB payment received -->
+      <div class="flow" data-kind="webhook">
+        <div class="cell trigger" data-label="Trigger">
+          QuickBooks sends Payment webhook
+          <div class="trigger-src">/api/qb/webhook2 · Intuit → OpsHub</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">inline Resend send</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill client">payment_received (PAID stamp)</span></div>
+        <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">Invoice PDF (PAID-stamped)</span></div>
+        <div class="note">webhook1 (legacy) delegates to sendClientNotification with no attachment. webhook2 is the active endpoint and attaches the PAID-stamped invoice inline.</div>
+      </div>
+
+      <!-- Generic sendClientNotification fallback cases -->
+      <div class="flow" data-kind="auto">
+        <div class="cell trigger" data-label="Trigger">
+          Various — proof ready, quote approved, tracking update, invoice ready
+          <div class="trigger-src">lib/auto-email.ts · sendClientNotification()</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">called directly (no HTTP hop)</span></div>
+        <div class="cell" data-label="Type">
+          <span class="type-pill client">proof_ready</span>
+          <span class="type-pill client">quote_approved</span>
+          <span class="type-pill client">tracking_update</span>
+          <span class="type-pill client">invoice_ready</span>
+        </div>
+        <div class="cell recipient" data-label="To">Primary contact + other contacts as CC</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag none">None — text + portal link</span></div>
+        <div class="note">quote_approved and production_complete are dedup-guarded (once-per-job) via job_activity check.</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ──────────────── VENDOR EMAILS ──────────────── -->
+  <section class="section">
+    <div class="section-title">Decorator / vendor-facing emails</div>
+    <div class="section-sub">Purchase order delivery to print partners.</div>
+
+    <div class="flows">
+      <div class="flow-header">
+        <span>Trigger</span><span>Route</span><span>Email type</span><span>Recipient</span><span>Attachments</span>
+      </div>
+
+      <div class="flow" data-kind="user">
+        <div class="cell trigger" data-label="Trigger">
+          PO tab → “Send to Decorator”
+          <div class="trigger-src">POTab.jsx · SendEmailDialog</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">POST /api/email/send</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill vendor">po</span></div>
+        <div class="cell recipient" data-label="To">
+          Decorator contacts (multi-select, all checked by default)
+          <div class="recipient-fallback">Includes vendor portal link in body</div>
+        </div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">PO PDF (per-vendor)</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────────────── INTERNAL EMAILS ──────────────── -->
+  <section class="section">
+    <div class="section-title">Internal / admin emails</div>
+    <div class="section-sub">Not delivered to clients or decorators.</div>
+
+    <div class="flows">
+      <div class="flow-header">
+        <span>Trigger</span><span>Route</span><span>Email type</span><span>Recipient</span><span>Attachments</span>
+      </div>
+
+      <div class="flow" data-kind="cron">
+        <div class="cell trigger" data-label="Trigger">
+          Daily cron at ~8:00 local
+          <div class="trigger-src">/api/cron/alerts · vercel.json schedule</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">inline Resend send</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill internal">daily_digest</span></div>
+        <div class="cell recipient" data-label="To"><code>OWNER_EMAIL</code> env (you)</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag none">None — HTML digest inline</span></div>
+        <div class="note">Groups active alerts by priority (Critical / Action Needed / Heads Up). Only fires if at least one alert exists.</div>
+      </div>
+
+      <div class="flow" data-kind="user">
+        <div class="cell trigger" data-label="Trigger">
+          Settings → “Send Preview of All Emails”
+          <div class="trigger-src">SettingsClient · /api/email/preview-all</div>
+        </div>
+        <div class="cell" data-label="Route"><span class="route">POST /api/email/preview-all</span></div>
+        <div class="cell" data-label="Type"><span class="type-pill internal">preview_all</span></div>
+        <div class="cell recipient" data-label="To">Current logged-in admin</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">Every template × attachment combo</span></div>
+        <div class="note">Admin-only QA tool. Sends each email type sequentially using a real recent job as sample data. Useful after email-copy or layout changes.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────────────── ROUTE REFERENCE ──────────────── -->
+  <section class="section">
+    <div class="section-title">Route reference</div>
+    <div class="section-sub">What each API route does, in plain English.</div>
+
+    <div class="flows">
+      <div class="flow" data-kind="user" style="grid-template-columns: 1fr 3fr;">
+        <div class="cell" data-label="Route"><span class="route">/api/email/send</span></div>
+        <div class="cell" data-label="Handles" style="grid-column: 2;">
+          Generic transactional send. Accepts <code>type</code> of <code>quote / invoice / invoice_proofs / po</code>. Fetches the matching PDF route, attaches it, sends via Resend, logs to email_messages + job_activity.
+        </div>
+      </div>
+
+      <div class="flow" data-kind="auto" style="grid-template-columns: 1fr 3fr;">
+        <div class="cell" data-label="Route"><span class="route">/api/email/notify</span></div>
+        <div class="cell" data-label="Handles" style="grid-column: 2;">
+          Auto-notifications triggered by state changes. Handles <code>order_shipped_vendor / order_shipped_hpd / order_shipped / production_complete / invoice_revised</code> directly (with PDF attachments) and delegates everything else to <code>sendClientNotification()</code>.
+        </div>
+      </div>
+
+      <div class="flow" data-kind="auto" style="grid-template-columns: 1fr 3fr;">
+        <div class="cell" data-label="Route"><span class="route">lib/auto-email.ts</span></div>
+        <div class="cell" data-label="Handles" style="grid-column: 2;">
+          <code>sendClientNotification()</code> — fallback for no-attachment notifications. Handles <code>proof_ready / quote_approved / payment_received / tracking_update / invoice_ready / production_complete / order_shipped_*</code>. Includes dedup guard for once-per-job types.
+        </div>
+      </div>
+
+      <div class="flow" data-kind="webhook" style="grid-template-columns: 1fr 3fr;">
+        <div class="cell" data-label="Route"><span class="route">/api/qb/webhook2</span></div>
+        <div class="cell" data-label="Handles" style="grid-column: 2;">
+          Active QuickBooks webhook. On a Payment event, records the payment, notifies the team, and fires an inline Resend send with the PAID-stamped invoice PDF. webhook1 is the older version — still present but superseded.
+        </div>
+      </div>
+
+      <div class="flow" data-kind="cron" style="grid-template-columns: 1fr 3fr;">
+        <div class="cell" data-label="Route"><span class="route">/api/cron/alerts</span></div>
+        <div class="cell" data-label="Handles" style="grid-column: 2;">
+          Runs on Vercel cron. Scans active jobs for stalled items, overdue payments, upcoming ship dates; emails a digest to <code>OWNER_EMAIL</code> and also writes in-app notifications to team members.
+        </div>
+      </div>
+
+      <div class="flow" style="grid-template-columns: 1fr 3fr;">
+        <div class="cell" data-label="Route"><span class="route">/api/email/compose</span></div>
+        <div class="cell" data-label="Handles" style="grid-column: 2;">
+          Generic body-driven send — takes a pre-built subject/body and sends. Legacy of the removed in-app email composer. No UI references this anymore; route is still mounted.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ──────────────── NOTES ──────────────── -->
+  <section class="section">
+    <div class="section-title">Design rules currently in code</div>
+    <div class="flows">
+      <div class="flow" style="grid-template-columns: 1fr;">
+        <div class="cell" style="grid-column: 1;">
+          <ul style="font-size: 13px; line-height: 1.7; color: #1a1a1a; padding-left: 20px;">
+            <li><strong>3-email rule per job</strong>: proofs + invoice + shipping (per shipment). Other auto-notifications are throttled by once-per-job dedup.</li>
+            <li><strong>Recipient fallback</strong>: billing → primary → any contact with email. Ship-related emails always prefer billing so AP sees them.</li>
+            <li><strong>Per-vendor ship emails</strong>: drop-ship jobs fire once per decorator when their slice is shipped. Client sees one email per vendor shipment, not one per item.</li>
+            <li><strong>Invoice revision</strong>: pushing updated qtys to QB auto-sends a revised invoice to the client. Triggered from variance review or any re-push.</li>
+            <li><strong>Archive of sends</strong>: every outbound email writes a row to <code>email_messages</code> + an auto log to <code>job_activity</code>. Visible on the project activity feed.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>document.getElementById("date").textContent = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });</script>
+</body>
+</html>

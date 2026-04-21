@@ -49,7 +49,7 @@ export default function ClientsPage() {
         </button>
       </div>
       {adding && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
             onKeyDown={async e => {
               if (e.key === "Enter" && newName.trim()) {
@@ -81,11 +81,11 @@ export default function ClientsPage() {
           className="w-full max-w-xs px-3 py-2 text-sm rounded-lg border border-border bg-secondary/50 text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50"
         />
       </div>
-      <div className="rounded-xl border border-border overflow-hidden">
+      <div className="rounded-xl border border-border overflow-x-auto">
         {loading ? (
           <div className="p-4"><SkeletonTable rows={6} cols={3} /></div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[380px]">
             <thead>
               <tr className="border-b border-border bg-secondary/50">
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">Name</th>

@@ -3,12 +3,14 @@ import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 type ClientOption = { id: string; name: string; default_terms: string | null; };
 
 export default function NewJobPage() {
   const router = useRouter();
   const supabase = createClient();
+  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -232,7 +234,7 @@ export default function NewJobPage() {
         {/* Project details */}
         <div style={{ ...s.card, marginBottom: 12, opacity: selectedClient ? 1 : 0.4, pointerEvents: selectedClient ? "auto" : "none", transition: "opacity 0.2s" }}>
           <span style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: font, display: "block", marginBottom: 10 }}>Project Details</span>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
             <div>
               <label style={s.label}>Project memo</label>
               <input value={form.title} onChange={e => set("title", e.target.value)} style={s.input} />
@@ -285,7 +287,7 @@ export default function NewJobPage() {
               {/* Primary contact */}
               <div style={{ background: T.surface, borderRadius: 8, padding: "12px 14px" }}>
                 <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: font }}>Primary Contact</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
                   <div>
                     <label style={s.label}>Name</label>
                     <input value={nc.contactName} onChange={e => setNc(p => ({ ...p, contactName: e.target.value }))} style={s.input} />
@@ -310,7 +312,7 @@ export default function NewJobPage() {
                         style={{ position: "absolute", top: 8, right: 10, background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 12 }}
                         onMouseEnter={e => (e.currentTarget.style.color = T.red)} onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>✕</button>
                       <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6, fontFamily: font }}>Additional Contact</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: 6 }}>
                         <div><label style={s.label}>Name</label><input value={c.name} onChange={e => updateExtraContact(idx, "name", e.target.value)} style={s.input} /></div>
                         <div><label style={s.label}>Email</label><input value={c.email} onChange={e => updateExtraContact(idx, "email", e.target.value)} style={s.input} /></div>
                         <div><label style={s.label}>Phone</label><input value={c.phone} onChange={e => updateExtraContact(idx, "phone", e.target.value)} style={s.input} /></div>
@@ -331,7 +333,7 @@ export default function NewJobPage() {
               </div>
 
               {/* Addresses */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                 <div>
                   <label style={s.label}>Billing Address</label>
                   <textarea value={nc.billingAddress} onChange={e => setNc(p => ({ ...p, billingAddress: e.target.value }))}
