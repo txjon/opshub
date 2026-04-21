@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { effectiveRevenue } from "@/lib/revenue";
 
 type Job = {
   id: string; title: string; job_type: string; phase: string; priority: string;
@@ -244,7 +245,7 @@ export default function JobsPage() {
           const borderColor = job.priority==="hot" ? T.red+"44" : job.priority==="rush" ? T.amber+"44" : daysLeft!==null&&daysLeft<0 ? T.red+"44" : T.border;
           const totalUnits = (job.items||[]).reduce((a:number,it:any) =>
             a + (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0), 0);
-          const totalRevenue = (job as any).costing_summary?.grossRev ||
+          const totalRevenue = effectiveRevenue(job as any) ||
             (job.items||[]).reduce((a:number,it:any) => {
               const qty = (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0);
               return a + (it.sell_per_unit||0) * qty;

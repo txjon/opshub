@@ -6,6 +6,7 @@ import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SkeletonRows } from "@/components/Skeleton";
 import Link from "next/link";
+import { effectiveRevenue } from "@/lib/revenue";
 
 type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
@@ -39,7 +40,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const [cRes, ctRes, jRes] = await Promise.all([
       supabase.from("clients").select("*").eq("id", params.id).single(),
       supabase.from("contacts").select("*").eq("client_id", params.id).order("name"),
-      supabase.from("jobs").select("*, costing_summary, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
+      supabase.from("jobs").select("*, costing_summary, type_meta, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
     ]);
     if (cRes.data) setClient(cRes.data);
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
@@ -68,7 +69,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   );
   if (!client) return <div style={{padding:"2rem",color:T.muted,fontSize:13}}>Client not found.</div>;
 
-  const totalRev = jobs.reduce((a,j) => a + (j.costing_summary?.grossRev || 0), 0);
+  const totalRev = jobs.reduce((a,j) => a + effectiveRevenue(j), 0);
   const totalUnits = jobs.reduce((a,j) => a + (j.items||[]).reduce((b: number,it: any) => b + (it.buy_sheet_lines||[]).reduce((c: number,l: any) => c + (l.qty_ordered||0), 0), 0), 0);
   const activeJobs = jobs.filter(j => !["complete","cancelled"].includes(j.phase));
 
@@ -329,7 +330,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               <div style={{display:"flex",flexDirection:"column",gap:4}}>
                 {jobs.map(j=>{
                   const phase = PHASE_COLORS[j.phase]||PHASE_COLORS.intake;
-                  const rev = j.costing_summary?.grossRev || 0;
+                  const rev = effectiveRevenue(j);
                   const units = (j.items||[]).reduce((a: number,it: any) => a + (it.buy_sheet_lines||[]).reduce((b: number,l: any) => b + (l.qty_ordered||0), 0), 0);
                   return(
                     <Link key={j.id} href={`/jobs/${j.id}`} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:T.surface,borderRadius:6,textDecoration:"none",color:T.text,transition:"background 0.1s"}}

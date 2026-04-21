@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { GodModeClient, type ClientStat, type DecoratorStat, type CashRow, type CategoryStat } from "@/components/GodModeClient";
+import { effectiveRevenue, effectiveCost } from "@/lib/revenue";
 
 // Owner-only page. Email-gated (distinct from role=owner so multi-owner
 // setups don't auto-expose Jon's financial view).
@@ -74,8 +75,8 @@ export default async function GodModePage() {
   const ytdCutoff = new Date(now.getFullYear(), 0, 1);
   const allClientStats: ClientStat[] = clients.map(c => {
     const clientJobs = revenueJobs.filter(j => j.client_id === c.id);
-    const lifetimeRev = clientJobs.reduce((s, j) => s + ((j.costing_summary as any)?.grossRev || 0), 0);
-    const totalCost = clientJobs.reduce((s, j) => s + ((j.costing_summary as any)?.totalCost || 0), 0);
+    const lifetimeRev = clientJobs.reduce((s, j) => s + effectiveRevenue(j), 0);
+    const totalCost = clientJobs.reduce((s, j) => s + effectiveCost(j), 0);
     const avgMarginPct = lifetimeRev > 0 ? (lifetimeRev - totalCost) / lifetimeRev : 0;
 
     let lastJobAt: Date | null = null;
@@ -147,8 +148,8 @@ export default async function GodModePage() {
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
     clientJobsDetail[c.clientId] = clientJobs.map(j => {
-      const grossRev = (j.costing_summary as any)?.grossRev || 0;
-      const tCost = (j.costing_summary as any)?.totalCost || 0;
+      const grossRev = effectiveRevenue(j);
+      const tCost = effectiveCost(j);
       const marginPct = grossRev > 0 ? (grossRev - tCost) / grossRev : 0;
       const paid = (paymentsByJob[j.id] || []).filter(p => p.status === "paid").reduce((s, p) => s + p.amount, 0);
       const qbTotal = (j.type_meta as any)?.qb_total_with_tax || grossRev;
@@ -358,19 +359,26 @@ export default async function GodModePage() {
     const remainingCost = Math.max(0, jobCost - allocatedExactCost);
     const remainingRev = perItem.filter(x => x.exact === null).reduce((s, x) => s + x.rev, 0);
 
+    // Scale per-item revenue so the category total matches the job's actual
+    // billed revenue (covers variance-review adjustments where the QB total
+    // differs from the sum of items' sell_per_unit × ordered qty).
+    const billedRev = effectiveRevenue(j);
+    const revScale = jobRevSum > 0 && billedRev > 0 ? billedRev / jobRevSum : 1;
+
     const clientName = clientById[j.client_id]?.name || "—";
 
     for (const { it, rev, exact } of perItem) {
       const type = it.garment_type || "uncategorized";
       if (!byCat[type]) byCat[type] = { garmentType: type, revenue: 0, cost: 0, units: 0, jobIds: new Set(), exactRev: 0, items: [] };
       const units = ((it as any).buy_sheet_lines || []).reduce((s: number, l: any) => s + (l.qty_ordered || 0), 0);
+      const scaledRev = rev * revScale;
 
       let itemCost: number;
       let isExact: boolean;
       if (exact !== null) {
         itemCost = exact;
         isExact = true;
-        byCat[type].exactRev += rev;
+        byCat[type].exactRev += scaledRev;
       } else if (remainingRev > 0) {
         itemCost = remainingCost * (rev / remainingRev);
         isExact = false;
@@ -379,7 +387,7 @@ export default async function GodModePage() {
         isExact = false;
       }
 
-      byCat[type].revenue += rev;
+      byCat[type].revenue += scaledRev;
       byCat[type].cost += itemCost;
       byCat[type].units += units;
       byCat[type].jobIds.add(j.id);
@@ -389,9 +397,9 @@ export default async function GodModePage() {
         jobTitle: j.title,
         clientName,
         units,
-        revenue: rev,
+        revenue: scaledRev,
         cost: itemCost,
-        marginPct: rev > 0 ? (rev - itemCost) / rev : 0,
+        marginPct: scaledRev > 0 ? (scaledRev - itemCost) / scaledRev : 0,
         exact: isExact,
       });
     }
