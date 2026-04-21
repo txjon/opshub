@@ -115,6 +115,43 @@
     padding: 6px 10px; background: #fafafb;
     border-left: 2px solid #dcdce0; border-radius: 0 4px 4px 0;
   }
+  .preview {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+    background: #fff; border: 1px solid #e0e0e4; border-radius: 6px;
+    overflow: hidden;
+  }
+  .preview-subject {
+    padding: 6px 12px;
+    background: #fafafb;
+    border-bottom: 1px solid #e0e0e4;
+    font-size: 11px; font-weight: 600; color: #1a1a1a;
+  }
+  .preview-subject .label {
+    display: inline-block; width: 56px;
+    font-size: 9px; font-weight: 700; color: #a0a0ad;
+    text-transform: uppercase; letter-spacing: 0.07em;
+  }
+  .preview-body {
+    padding: 12px 14px;
+    font-size: 12px; color: #1a1a1a; line-height: 1.55;
+    font-family: 'IBM Plex Sans', Arial, sans-serif;
+  }
+  .preview-body strong { font-weight: 700; color: #000; }
+  .preview-body em { color: #8b8b96; font-style: normal; font-size: 11px; }
+  .preview-body p { margin-bottom: 8px; }
+  .preview-body p:last-child { margin-bottom: 0; }
+  .preview-body .cta {
+    display: inline-block; margin-top: 6px;
+    padding: 6px 14px; background: #f3f3f5; border: 1px solid #d0d0d4;
+    color: #1a1a1a; border-radius: 6px; font-size: 11px; font-weight: 600;
+  }
+  .scrub-banner {
+    margin-bottom: 20px; padding: 12px 16px;
+    background: #e5f9ed; border: 1px solid #4ddb8844; border-radius: 10px;
+    font-size: 12px; color: #1a7a4a; line-height: 1.5;
+  }
+  .scrub-banner strong { font-weight: 700; }
 
   @media (max-width: 900px) {
     .flow, .flow-header { grid-template-columns: 1fr; }
@@ -143,6 +180,13 @@
     <div class="legend-item"><span class="dot" style="background:#f4b22b"></span> Cron / scheduled</div>
   </div>
 
+  <div class="scrub-banner">
+    <strong>Sourcing privacy:</strong> vendor / decorator names are scrubbed from every client-facing email.
+    The packing-slip PDF no longer prints "Shipment from: [Vendor]", and the attachment filename uses a
+    shipment index (e.g. <code>HPD-PackingSlip-4145-2.pdf</code>) instead of the decorator's short code.
+    Vendor portals and internal activity logs still reference the decorator by name.
+  </div>
+
   <!-- ──────────────── CLIENT EMAILS ──────────────── -->
   <section class="section">
     <div class="section-title">Client-facing emails</div>
@@ -166,6 +210,15 @@
           <div class="recipient-fallback">Picks first available email</div>
         </div>
         <div class="cell attach" data-label="Attach"><span class="attach-tag">Quote PDF</span></div>
+        <div class="preview">
+          <div class="preview-subject"><span class="label">Subject</span>Quote — [Client Name] · [Project Title]</div>
+          <div class="preview-body">
+            <p><em>Heading: Quote [Job#]</em></p>
+            <p>Hi [Client],</p>
+            <p>Your quote [job#] is attached for review. When you're ready to move forward, you can approve it directly in your portal, or request changes if anything needs a second pass.</p>
+            <p><span class="cta">Approve Quote →</span> &nbsp; <span class="cta">View in Portal</span></p>
+          </div>
+        </div>
       </div>
 
       <!-- Invoice send -->
@@ -178,6 +231,15 @@
         <div class="cell" data-label="Type"><span class="type-pill client">invoice</span></div>
         <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
         <div class="cell attach" data-label="Attach"><span class="attach-tag">Invoice PDF</span></div>
+        <div class="preview">
+          <div class="preview-subject"><span class="label">Subject</span>Invoice — [Client Name] · [Project Title]</div>
+          <div class="preview-body">
+            <p><em>Heading: Invoice #[QB invoice#]</em></p>
+            <p>Hi [Client],</p>
+            <p>Your invoice #[QB invoice#] is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.</p>
+            <p><span class="cta" style="background:#e5f9ed;border-color:#4ddb8866;color:#1a7a4a">Pay Online →</span> &nbsp; <span class="cta">View in Portal</span></p>
+          </div>
+        </div>
       </div>
 
       <!-- Invoice + Proofs send -->
@@ -190,6 +252,14 @@
         <div class="cell" data-label="Type"><span class="type-pill client">invoice_proofs</span></div>
         <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
         <div class="cell attach" data-label="Attach"><span class="attach-tag">Invoice + Proofs combined PDF</span></div>
+        <div class="preview">
+          <div class="preview-subject"><span class="label">Subject</span>Invoice + Proofs — [Client Name] · [Project Title]</div>
+          <div class="preview-body">
+            <p>Hi [Client],</p>
+            <p>Your invoice and approved proofs are attached in one PDF for your records. Production kicks off once the invoice is paid.</p>
+            <p><span class="cta" style="background:#e5f9ed;border-color:#4ddb8866;color:#1a7a4a">Pay Online →</span> &nbsp; <span class="cta">View in Portal</span></p>
+          </div>
+        </div>
       </div>
 
       <!-- Per-vendor shipped -->
@@ -201,8 +271,18 @@
         <div class="cell" data-label="Route"><span class="route">POST /api/email/notify</span></div>
         <div class="cell" data-label="Type"><span class="type-pill client">order_shipped_vendor</span></div>
         <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
-        <div class="cell attach" data-label="Attach"><span class="attach-tag">Packing slip (filtered to that decorator)</span></div>
-        <div class="note">Fires once per decorator when their portion of the job is complete. Client sees “Part of your order has shipped from [Vendor]”.</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag">Packing slip (scoped to this shipment)</span></div>
+        <div class="note">Fires once per decorator when their portion of the job ships. Client sees a generic "Part of your order has shipped" — vendor names are not referenced in subject, body, attachment filename, or the packing slip PDF.</div>
+        <div class="preview">
+          <div class="preview-subject"><span class="label">Subject</span>Part of your order has shipped — [Client Name] · Invoice [#] · [Project Title]</div>
+          <div class="preview-body">
+            <p><em>Heading: Part of your order has shipped</em></p>
+            <p>Hi [Client],</p>
+            <p>Part of your order for <strong>Invoice [#] · [Project Title]</strong> has shipped. The packing slip is attached.</p>
+            <p><em>Tracking: [carrier] [#]</em></p>
+            <p><span class="cta">View in Portal</span></p>
+          </div>
+        </div>
       </div>
 
       <!-- Ship-through shipped -->
@@ -215,7 +295,16 @@
         <div class="cell" data-label="Type"><span class="type-pill client">order_shipped_hpd</span></div>
         <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
         <div class="cell attach" data-label="Attach"><span class="attach-tag">Full packing slip</span></div>
-        <div class="note">Client sees “Your order has shipped from House Party Distro”.</div>
+        <div class="preview">
+          <div class="preview-subject"><span class="label">Subject</span>Your order has shipped — [Client Name] · Invoice [#] · [Project Title]</div>
+          <div class="preview-body">
+            <p><em>Heading: Your order has shipped</em></p>
+            <p>Hi [Client],</p>
+            <p>Your order for <strong>[Project Title]</strong> has shipped. The packing slip is attached.</p>
+            <p><em>Tracking: [carrier] [#]</em></p>
+            <p><span class="cta">View in Portal</span></p>
+          </div>
+        </div>
       </div>
 
       <!-- Production complete -->
@@ -227,8 +316,17 @@
         <div class="cell" data-label="Route"><span class="route">POST /api/email/notify</span></div>
         <div class="cell" data-label="Type"><span class="type-pill client">production_complete</span></div>
         <div class="cell recipient" data-label="To">Client primary</div>
-        <div class="cell attach" data-label="Attach"><span class="attach-tag">Packing slip</span></div>
-        <div class="note">Server-side dedup check in auto-email.ts — once-per-job. Won’t re-fire.</div>
+        <div class="cell attach" data-label="Attach"><span class="attach-tag none">None — inline only</span></div>
+        <div class="note">Server-side dedup on shipping_notifications record — once-per-job.</div>
+        <div class="preview">
+          <div class="preview-subject"><span class="label">Subject</span>Production complete — [Client Name] · Invoice [#] · [Project Title]</div>
+          <div class="preview-body">
+            <p><em>Heading: Production complete</em></p>
+            <p>Hi [Client],</p>
+            <p>Production for <strong>[Project Title]</strong> is complete. All items are at our facility and ready for fulfillment.</p>
+            <p><span class="cta">View in Portal</span></p>
+          </div>
+        </div>
       </div>
 
       <!-- Invoice revised -->
@@ -241,6 +339,14 @@
         <div class="cell" data-label="Type"><span class="type-pill client">invoice_revised</span></div>
         <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
         <div class="cell attach" data-label="Attach"><span class="attach-tag">Revised Invoice PDF</span></div>
+        <div class="preview">
+          <div class="preview-subject"><span class="label">Subject</span>Revised invoice #[inv] — [Client Name] · [Project Title]</div>
+          <div class="preview-body">
+            <p>Hi [Client],</p>
+            <p>Your invoice for <strong>[Project Title]</strong> has been updated with final shipped quantities. The revised PDF is attached.</p>
+            <p><span class="cta" style="background:#e5f9ed;border-color:#4ddb8866;color:#1a7a4a">Pay Online →</span> &nbsp; <span class="cta">View in Portal</span></p>
+          </div>
+        </div>
       </div>
 
       <!-- QB payment received -->
@@ -254,24 +360,39 @@
         <div class="cell recipient" data-label="To">Billing → Primary → any contact</div>
         <div class="cell attach" data-label="Attach"><span class="attach-tag">Invoice PDF (PAID-stamped)</span></div>
         <div class="note">webhook1 (legacy) delegates to sendClientNotification with no attachment. webhook2 is the active endpoint and attaches the PAID-stamped invoice inline.</div>
+        <div class="preview">
+          <div class="preview-subject"><span class="label">Subject</span>Payment received — [Client Name] · Invoice [#] · [Project Title]</div>
+          <div class="preview-body">
+            <p><em>Heading: Payment received</em></p>
+            <p>Hi [Client],</p>
+            <p>Payment of <strong>$X,XXX.XX</strong> received for <strong>Invoice [#] · [Project Title]</strong>. Appreciate you.</p>
+            <p><span class="cta">View in Portal</span></p>
+          </div>
+        </div>
       </div>
 
       <!-- Generic sendClientNotification fallback cases -->
       <div class="flow" data-kind="auto">
         <div class="cell trigger" data-label="Trigger">
-          Various — proof ready, quote approved, tracking update, invoice ready
+          proof_ready (auto) — also payment_received handled inline here
           <div class="trigger-src">lib/auto-email.ts · sendClientNotification()</div>
         </div>
         <div class="cell" data-label="Route"><span class="route">called directly (no HTTP hop)</span></div>
         <div class="cell" data-label="Type">
           <span class="type-pill client">proof_ready</span>
-          <span class="type-pill client">quote_approved</span>
-          <span class="type-pill client">tracking_update</span>
-          <span class="type-pill client">invoice_ready</span>
+          <span class="type-pill client">payment_received</span>
         </div>
         <div class="cell recipient" data-label="To">Primary contact + other contacts as CC</div>
         <div class="cell attach" data-label="Attach"><span class="attach-tag none">None — text + portal link</span></div>
-        <div class="note">quote_approved and production_complete are dedup-guarded (once-per-job) via job_activity check.</div>
+        <div class="preview">
+          <div class="preview-subject"><span class="label">Subject</span>Proof ready for review — [Client Name] · [Project Title]</div>
+          <div class="preview-body">
+            <p><em>Heading: Proof ready for review</em></p>
+            <p>Hi [Client],</p>
+            <p>A proof is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.</p>
+            <p><span class="cta">View in Portal</span></p>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -299,6 +420,17 @@
           <div class="recipient-fallback">Includes vendor portal link in body</div>
         </div>
         <div class="cell attach" data-label="Attach"><span class="attach-tag">PO PDF (per-vendor)</span></div>
+        <div class="preview">
+          <div class="preview-subject"><span class="label">Subject</span>HPD PO# [inv][letters] — [Client Name] — [Project Title] — [Vendor]</div>
+          <div class="preview-body">
+            <p><em>Heading: Purchase order [inv]</em></p>
+            <p>Hi,</p>
+            <p>Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.</p>
+            <p><span class="cta">View in Vendor Portal</span></p>
+            <p><em>You can confirm receipt, update production status, and enter tracking directly from the portal.</em></p>
+            <p>Thanks,<br/>House Party Distro</p>
+          </div>
+        </div>
       </div>
     </div>
   </section>

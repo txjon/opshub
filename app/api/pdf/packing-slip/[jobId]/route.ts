@@ -139,7 +139,6 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         <div style="font-size:11px;color:#666;line-height:1.8;font-family:${fnt}">
           <div><span style="font-weight:600">Date:</span> ${today}</div>
           <div><span style="font-weight:600">Order:</span> ${invoiceNum}</div>
-          ${vendorName ? `<div><span style="font-weight:600">Shipment from:</span> ${vendorName}</div>` : ""}
         </div>
       </div>
     </div>

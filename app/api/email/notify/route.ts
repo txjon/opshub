@@ -102,10 +102,14 @@ export async function POST(req: NextRequest) {
       let pdfFilename = "";
 
       if (type === "order_shipped_vendor") {
+        // Existing partial-shipment count for this job — used to number the
+        // filename so client can tell shipments apart without seeing vendor names
+        const partialCount = existing.filter(r => r.type === "drop_ship_vendor").length;
+        const suffix = partialCount > 0 ? `-${partialCount + 1}` : "";
         subject = `Part of your order has shipped — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`;
         heading = "Part of your order has shipped";
         bodyHtml = `Part of your order for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has shipped. The packing slip is attached.`;
-        pdfFilename = `HPD-PackingSlip-${invoiceNum}${vendorName ? `-${vendorName.replace(/[^a-z0-9]/gi, "")}` : ""}.pdf`;
+        pdfFilename = `HPD-PackingSlip-${invoiceNum}${suffix}.pdf`;
       } else {
         subject = `Your order has shipped — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`;
         heading = "Your order has shipped";
