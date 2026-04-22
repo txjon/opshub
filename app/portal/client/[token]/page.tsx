@@ -81,6 +81,7 @@ export default function ClientPortal({ params }: { params: { token: string } }) 
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("all");
   const [openBrief, setOpenBrief] = useState<Brief | null>(null);
+  const [showNew, setShowNew] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -117,9 +118,15 @@ export default function ClientPortal({ params }: { params: { token: string } }) 
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
       {/* Top bar */}
       <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: "14px 24px" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>House Party Distro</div>
-          <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{data.client.name} · Design Studio</div>
+        <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>House Party Distro</div>
+            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>{data.client.name} · Design Studio</div>
+          </div>
+          <button onClick={() => setShowNew(true)}
+            style={{ padding: "9px 18px", background: C.text, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: C.font, whiteSpace: "nowrap" }}>
+            + New Request
+          </button>
         </div>
       </div>
 
@@ -172,6 +179,14 @@ export default function ClientPortal({ params }: { params: { token: string } }) 
           brief={openBrief}
           meta={clientStateFor(openBrief)}
           onClose={() => { setOpenBrief(null); loadPortal(); }}
+        />
+      )}
+
+      {showNew && (
+        <NewRequestModal
+          token={params.token}
+          onClose={() => setShowNew(false)}
+          onCreated={() => { setShowNew(false); loadPortal(); }}
         />
       )}
     </div>
@@ -523,6 +538,192 @@ function CenterMsg({ msg, err }: { msg: string; err?: boolean }) {
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ color: err ? C.red : C.muted, fontSize: 14 }}>{msg}</div>
+    </div>
+  );
+}
+
+
+type StagedFile = { id: string; file: File; previewUrl: string | null; status: "queued" | "uploading" | "done" | "error"; errorMsg?: string };
+
+function NewRequestModal({ token, onClose, onCreated }: {
+  token: string; onClose: () => void; onCreated: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [files, setFiles] = useState<StagedFile[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape" && !submitting) onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose, submitting]);
+
+  function addFiles(list: File[]) {
+    if (!list.length) return;
+    const staged = list.map(f => ({
+      id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2),
+      file: f,
+      previewUrl: f.type.startsWith("image/") ? URL.createObjectURL(f) : null,
+      status: "queued" as const,
+    }));
+    setFiles(prev => [...prev, ...staged]);
+  }
+  function removeFile(id: string) {
+    setFiles(prev => {
+      const match = prev.find(f => f.id === id);
+      if (match?.previewUrl) URL.revokeObjectURL(match.previewUrl);
+      return prev.filter(f => f.id !== id);
+    });
+  }
+  useEffect(() => () => files.forEach(f => f.previewUrl && URL.revokeObjectURL(f.previewUrl)), []); // eslint-disable-line
+
+  async function submit() {
+    if (submitting || files.length === 0) return;
+    setSubmitting(true);
+    setErrorMsg(null);
+    const briefRes = await fetch(`/api/portal/client/${token}/briefs`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: title.trim() || null, concept: description.trim() || null }),
+    });
+    const briefData = await briefRes.json();
+    if (!briefRes.ok || !briefData.brief) {
+      setErrorMsg(briefData.error || "Couldn't create the request");
+      setSubmitting(false);
+      return;
+    }
+    const brief = briefData.brief;
+    setProgress({ current: 0, total: files.length });
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      setFiles(prev => prev.map(x => x.id === f.id ? { ...x, status: "uploading" } : x));
+      try {
+        const fd = new FormData();
+        fd.append("file", f.file);
+        const res = await fetch(`/api/portal/client/${token}/briefs/${brief.id}/files`, { method: "POST", body: fd });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          setFiles(prev => prev.map(x => x.id === f.id ? { ...x, status: "error", errorMsg: err.error || "Upload failed" } : x));
+        } else {
+          setFiles(prev => prev.map(x => x.id === f.id ? { ...x, status: "done" } : x));
+        }
+      } catch (e: any) {
+        setFiles(prev => prev.map(x => x.id === f.id ? { ...x, status: "error", errorMsg: e.message } : x));
+      }
+      setProgress({ current: i + 1, total: files.length });
+    }
+    setSubmitting(false);
+    onCreated();
+  }
+
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget && !submitting) onClose(); }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); addFiles(Array.from(e.dataTransfer.files || [])); }}
+        style={{
+          background: C.card, border: `2px solid ${dragOver ? C.text : C.border}`,
+          borderRadius: 14, width: "min(900px, 96vw)", height: "min(820px, 92vh)",
+          display: "flex", flexDirection: "column", overflow: "hidden", transition: "border-color 0.1s",
+        }}>
+        <div style={{ padding: "14px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>New Request</div>
+          <button onClick={onClose} disabled={submitting}
+            style={{ background: "none", border: "none", color: C.muted, fontSize: 22, cursor: submitting ? "not-allowed" : "pointer", padding: "0 4px" }}>×</button>
+        </div>
+
+        <div style={{ padding: "12px 22px", borderBottom: `1px solid ${C.border}`, background: C.surface }}>
+          <input value={title} onChange={e => setTitle(e.target.value)} disabled={submitting}
+            placeholder="Working title (optional)"
+            style={{ width: "100%", padding: "9px 12px", fontSize: 13, borderRadius: 7, border: `1px solid ${C.border}`, background: C.card, color: C.text, outline: "none", fontFamily: C.font, boxSizing: "border-box" }} />
+        </div>
+
+        <div style={{ padding: "10px 22px", borderBottom: `1px solid ${C.border}`, background: C.surface }}>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            onFocus={e => {
+              if (!e.target.value) {
+                setDescription("• ");
+                setTimeout(() => { (e.target as HTMLTextAreaElement).setSelectionRange(2, 2); }, 0);
+              }
+            }}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                const target = e.target as HTMLTextAreaElement;
+                const pos = target.selectionStart;
+                const before = description.slice(0, pos);
+                const after = description.slice(pos);
+                const insert = "\n• ";
+                setDescription(before + insert + after);
+                setTimeout(() => target.setSelectionRange(pos + insert.length, pos + insert.length), 0);
+              }
+            }}
+            disabled={submitting} rows={3}
+            placeholder="Notes (optional) — one bullet per line"
+            style={{ width: "100%", padding: "8px 12px", fontSize: 12, borderRadius: 7, border: `1px solid ${C.border}`, background: C.card, color: C.text, outline: "none", fontFamily: C.font, resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }}
+          />
+        </div>
+
+        <div style={{ flex: 1, overflow: "auto", padding: 20, background: dragOver ? "rgba(26, 26, 26, 0.05)" : "transparent" }}>
+          {files.length === 0 ? (
+            <div onClick={() => !submitting && inputRef.current?.click()}
+              style={{
+                minHeight: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                color: C.muted, fontSize: 13, cursor: submitting ? "default" : "pointer",
+                border: `2px dashed ${C.border}`, borderRadius: 10, padding: 40,
+              }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6, color: C.text }}>Drop your reference images here</div>
+              <div>or click to browse</div>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
+              {files.map(f => (
+                <div key={f.id} style={{ position: "relative", aspectRatio: "1", background: "#f4f4f7", borderRadius: 8, padding: 8, border: `1px solid ${C.border}` }}>
+                  {f.previewUrl ? (
+                    <img src={f.previewUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff", borderRadius: 4 }} />
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", fontSize: 10, color: C.muted }}>
+                      {f.file.name}
+                    </div>
+                  )}
+                  {!submitting && (
+                    <button onClick={() => removeFile(f.id)}
+                      style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 99, background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", cursor: "pointer", fontSize: 12, lineHeight: 1 }}>×</button>
+                  )}
+                  {f.status === "uploading" && <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.blue, borderRadius: 8 }}>Uploading…</div>}
+                  {f.status === "done" && <div style={{ position: "absolute", top: 4, left: 4, background: C.green, color: "#fff", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 99 }}>✓</div>}
+                  {f.status === "error" && <div style={{ position: "absolute", inset: 0, background: "rgba(255, 200, 200, 0.85)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.red, borderRadius: 8, padding: 4, textAlign: "center" }}>{f.errorMsg || "Failed"}</div>}
+                </div>
+              ))}
+              {!submitting && (
+                <button onClick={() => inputRef.current?.click()}
+                  style={{ aspectRatio: "1", background: "transparent", border: `2px dashed ${C.border}`, borderRadius: 8, color: C.muted, fontSize: 20, cursor: "pointer" }}>+</button>
+              )}
+            </div>
+          )}
+          <input ref={inputRef} type="file" multiple accept="image/*"
+            style={{ display: "none" }}
+            onChange={e => { addFiles(Array.from(e.target.files || [])); e.target.value = ""; }} />
+        </div>
+
+        <div style={{ padding: "12px 22px", borderTop: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div style={{ fontSize: 11, color: errorMsg ? C.red : C.muted }}>
+            {errorMsg || (progress ? `Uploading ${progress.current} of ${progress.total}…` : files.length > 0 ? `${files.length} image${files.length !== 1 ? "s" : ""} attached` : "Drop images to get started")}
+          </div>
+          <button onClick={submit} disabled={submitting || files.length === 0}
+            style={{ padding: "10px 22px", background: files.length > 0 && !submitting ? C.text : C.border, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: files.length > 0 && !submitting ? "pointer" : "not-allowed", fontFamily: C.font }}>
+            {submitting ? "Submitting…" : "Submit request"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
