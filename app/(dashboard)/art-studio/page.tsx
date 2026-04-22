@@ -871,25 +871,48 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   }, [allFiles]);
 
   useEffect(() => {
-    fetch(`/api/art-briefs?id=${brief.id}`).then(r => r.json()).then(data => {
-      if (data.brief) {
-        setAssignedDesignerId(data.brief.assigned_designer_id || null);
-        setSentAt(data.brief.sent_to_designer_at || null);
-      }
-      setAllFiles(data.files || []);
-    });
+    const loadBrief = () => {
+      fetch(`/api/art-briefs?id=${brief.id}`).then(r => r.json()).then(data => {
+        if (data.brief) {
+          setAssignedDesignerId(data.brief.assigned_designer_id || null);
+          setSentAt(data.brief.sent_to_designer_at || null);
+        }
+        setAllFiles(data.files || []);
+      });
+    };
+    loadBrief();
     fetch("/api/designers").then(r => r.json()).then(d => setDesigners((d.designers || []).filter((x: any) => x.active)));
+    // Poll every 15s so designer uploads and client annotations propagate
+    // live while the modal is open. (Designers list is static — no poll.)
+    const interval = setInterval(loadBrief, 15000);
+    return () => clearInterval(interval);
   }, [brief.id]);
 
   // Keep legacy refs used below ("finals" promote-final list)
   const finals = useMemo(() => allFiles.filter(f => f.kind === "final").sort((a, b) => (b.version || 0) - (a.version || 0)), [allFiles]);
   const wips = useMemo(() => allFiles.filter(f => f.kind === "wip").sort((a, b) => (b.version || 0) - (a.version || 0)), [allFiles]);
 
-  // Sync HPD's note editor when hero changes
+  const [hpdNote, setHpdNote] = useState("");
+  const [hpdNoteSaved, setHpdNoteSaved] = useState("");
+
+  // Init HPD's note editor when hero changes; on poll-driven annotation
+  // updates, only sync if HPD has nothing typed (preserve in-progress edits).
+  const lastInitHeroRef = useRef<string | null>(null);
+  const hpdNoteSavedRef = useRef("");
+  useEffect(() => { hpdNoteSavedRef.current = hpdNoteSaved; }, [hpdNoteSaved]);
   useEffect(() => {
     const saved = hero?.hpd_annotation || "";
-    setHpdNote(saved);
-    setHpdNoteSaved(saved);
+    const currentHeroId = hero?.id || null;
+    if (lastInitHeroRef.current !== currentHeroId) {
+      lastInitHeroRef.current = currentHeroId;
+      setHpdNote(saved);
+      setHpdNoteSaved(saved);
+      return;
+    }
+    if (saved !== hpdNoteSavedRef.current) {
+      setHpdNote(prev => prev === hpdNoteSavedRef.current ? saved : prev);
+      setHpdNoteSaved(saved);
+    }
   }, [hero?.id, hero?.hpd_annotation]);
 
   async function runPrimaryAction(action: PrimaryActionKind) {
@@ -970,8 +993,6 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     }
   }
 
-  const [hpdNote, setHpdNote] = useState("");
-  const [hpdNoteSaved, setHpdNoteSaved] = useState("");
   async function saveHpdAnnotation(fileId: string, annotation: string) {
     if (annotation === hpdNoteSaved) return;
     try {

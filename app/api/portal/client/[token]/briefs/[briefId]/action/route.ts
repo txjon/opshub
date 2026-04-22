@@ -77,7 +77,10 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     // Communication happens on the artifact, not in a separate thread.
     if (fileId && cleaned) {
       await ctx.db.from("art_brief_files")
-        .update({ client_annotation: cleaned })
+        .update({
+          client_annotation: cleaned,
+          annotation_updated_at: new Date().toISOString(),
+        })
         .eq("id", fileId)
         .eq("brief_id", brief.id);
     }

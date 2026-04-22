@@ -471,16 +471,22 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  useEffect(() => { load(); }, [brief.id]);
+  useEffect(() => {
+    load(true);
+    // Poll every 15s so designer/HPD notes, new uploads, and annotations
+    // propagate live while the modal is open.
+    const interval = setInterval(() => load(false), 15000);
+    return () => clearInterval(interval);
+  }, [brief.id]);
 
-  async function load() {
-    setLoading(true);
+  async function load(initial: boolean = false) {
+    if (initial) setLoading(true);
     try {
       const res = await fetch(`/api/portal/client/${token}/briefs/${brief.id}`);
       const data = await res.json();
       if (res.ok) setDetail(data);
     } catch {}
-    setLoading(false);
+    if (initial) setLoading(false);
   }
 
   const [actionPending, setActionPending] = useState<string | null>(null);

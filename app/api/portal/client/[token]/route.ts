@@ -64,13 +64,25 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         const a = f.annotation_updated_at || "";
         return c > a ? c : a;
       };
+      // Smart inference for annotation activity (single shared
+      // annotation_updated_at column): if the role matches the file's
+      // uploader, the annotation was set at upload (use created_at).
+      // Otherwise it was PATCHed later (use shared). This prevents HPD's
+      // PATCH time from being attributed to the designer's upload-time
+      // note, which broke unread-badge math.
       for (const f of visibleFiles) {
         bump(f.brief_id, f.uploader_role, f.created_at, "upload", f.kind);
-        if (f.annotation_updated_at) {
-          if (f.hpd_annotation) bump(f.brief_id, "hpd", f.annotation_updated_at, "note", f.kind);
-          if (f.designer_annotation) bump(f.brief_id, "designer", f.annotation_updated_at, "note", f.kind);
-          if (f.client_annotation) bump(f.brief_id, "client", f.annotation_updated_at, "note", f.kind);
-        }
+        const inferAt = (role: "hpd" | "designer" | "client", has: boolean) => {
+          if (!has) return null;
+          if (f.uploader_role === role) return f.created_at;
+          return f.annotation_updated_at || null;
+        };
+        const hpdAt = inferAt("hpd", !!f.hpd_annotation);
+        const designerAt = inferAt("designer", !!f.designer_annotation);
+        const clientAt = inferAt("client", !!f.client_annotation);
+        if (hpdAt) bump(f.brief_id, "hpd", hpdAt, "note", f.kind);
+        if (designerAt) bump(f.brief_id, "designer", designerAt, "note", f.kind);
+        if (clientAt) bump(f.brief_id, "client", clientAt, "note", f.kind);
       }
       for (const m of (msgsRes.data || [])) bump(m.brief_id, m.sender_role, m.created_at, "message");
 

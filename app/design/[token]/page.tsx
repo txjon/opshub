@@ -246,7 +246,7 @@ export default function DesignerPortal({ params }: { params: { token: string } }
         <BriefDetailModal
           token={params.token}
           briefId={selected}
-          onClose={() => { setSelected(null); loadDashboard(); }}
+          onClose={() => { setSelected(null); loadDashboard(false); }}
         />
       )}
     </div>
@@ -492,7 +492,14 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
   const [uploadNote, setUploadNote] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => { load(); }, [briefId]);
+  useEffect(() => {
+    load();
+    // Poll every 15s so HPD/client notes, new uploads, and annotations
+    // propagate live while the modal is open. Typing state is preserved by
+    // the init-vs-poll split below.
+    const interval = setInterval(() => load(), 15000);
+    return () => clearInterval(interval);
+  }, [briefId]);
 
   // Escape closes the modal
   useEffect(() => {
@@ -501,11 +508,25 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // When hero changes, load the designer's saved note for this file
+  // When hero changes, init the designer's note from that file's saved value.
+  // When files update via poll, sync the "saved" marker but don't clobber an
+  // in-progress edit (only update the textarea if user has nothing typed).
+  const lastInitHeroRef = useRef<string | null>(null);
+  const designerNoteSavedRef = useRef("");
+  useEffect(() => { designerNoteSavedRef.current = designerNoteSaved; }, [designerNoteSaved]);
   useEffect(() => {
-    const saved = (heroId && files.find(f => f.id === heroId)?.designer_annotation) || "";
-    setDesignerNote(saved);
-    setDesignerNoteSaved(saved);
+    const heroFile = heroId ? files.find(f => f.id === heroId) : null;
+    const saved = heroFile?.designer_annotation || "";
+    if (lastInitHeroRef.current !== heroId) {
+      lastInitHeroRef.current = heroId;
+      setDesignerNote(saved);
+      setDesignerNoteSaved(saved);
+      return;
+    }
+    if (saved !== designerNoteSavedRef.current) {
+      setDesignerNote(prev => prev === designerNoteSavedRef.current ? saved : prev);
+      setDesignerNoteSaved(saved);
+    }
   }, [heroId, files]);
 
   async function load() {
