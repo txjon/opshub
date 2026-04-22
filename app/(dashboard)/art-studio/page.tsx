@@ -981,19 +981,53 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     const newFiles: any[] = [];
     const noteForBatch = uploadNote.trim();
     for (const file of files) {
-      const fd = new FormData();
-      fd.append("brief_id", brief.id);
-      fd.append("file", file);
-      fd.append("kind", kind);
-      if (noteForBatch) fd.append("hpd_annotation", noteForBatch);
       try {
-        const res = await fetch("/api/art-briefs/upload-reference", { method: "POST", body: fd });
-        const data = await res.json();
-        if (!res.ok) {
-          setRefUploadError(data.error || "Upload failed");
-        } else if (data.file) {
-          newFiles.push(data.file);
+        // 1. Request a resumable upload session (server mints a Drive URL)
+        const sessionRes = await fetch("/api/art-briefs/upload-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            brief_id: brief.id,
+            file_name: file.name,
+            mime_type: file.type || "application/octet-stream",
+            kind,
+          }),
+        });
+        if (!sessionRes.ok) {
+          const err = await sessionRes.json().catch(() => ({}));
+          throw new Error(err.error || "Could not start upload");
         }
+        const { uploadUrl } = await sessionRes.json();
+
+        // 2. PUT bytes directly to Drive — bypasses Vercel body limit
+        const putRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: file,
+        });
+        if (!putRes.ok) throw new Error("Drive upload failed");
+        const driveFile = await putRes.json();
+
+        // 3. Register in OpsHub
+        const completeRes = await fetch("/api/art-briefs/upload-session/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            brief_id: brief.id,
+            drive_file_id: driveFile.id,
+            file_name: file.name,
+            mime_type: file.type || "application/octet-stream",
+            file_size: file.size,
+            kind,
+            note: noteForBatch || null,
+          }),
+        });
+        if (!completeRes.ok) {
+          const err = await completeRes.json().catch(() => ({}));
+          throw new Error(err.error || "Could not register upload");
+        }
+        const data = await completeRes.json();
+        if (data.file) newFiles.push(data.file);
       } catch (e: any) {
         setRefUploadError(e.message || "Upload failed");
       }

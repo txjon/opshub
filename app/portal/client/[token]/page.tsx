@@ -519,17 +519,46 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
 
   async function uploadFile(file: File) {
     setUploading(true);
+    const noteForBatch = uploadNote.trim();
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      if (uploadNote.trim()) fd.append("note", uploadNote.trim());
-      await fetch(`/api/portal/client/${token}/briefs/${brief.id}/files`, {
+      // 1. Session URL from server (server contacts Drive to mint it)
+      const sessionRes = await fetch(`/api/portal/client/${token}/briefs/${brief.id}/upload-session`, {
         method: "POST",
-        body: fd,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_name: file.name,
+          mime_type: file.type || "application/octet-stream",
+        }),
+      });
+      if (!sessionRes.ok) throw new Error("Could not start upload");
+      const { uploadUrl } = await sessionRes.json();
+
+      // 2. PUT bytes directly to Drive
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("Drive upload failed");
+      const driveFile = await putRes.json();
+
+      // 3. Register in OpsHub
+      await fetch(`/api/portal/client/${token}/briefs/${brief.id}/upload-session/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          drive_file_id: driveFile.id,
+          file_name: file.name,
+          mime_type: file.type || "application/octet-stream",
+          file_size: file.size,
+          note: noteForBatch || null,
+        }),
       });
       setUploadNote("");
       await load();
-    } catch {}
+    } catch (e: any) {
+      alert(`Upload failed: ${e.message || "unknown error"}`);
+    }
     setUploading(false);
   }
 

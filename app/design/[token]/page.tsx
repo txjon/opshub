@@ -520,11 +520,46 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
 
   async function upload(file: File, kind: UploadKind) {
     setUploadingKind(kind);
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("kind", kind);
-    if (uploadNote.trim()) fd.append("note", uploadNote.trim());
-    await fetch(`/api/design/${token}/briefs/${briefId}/files`, { method: "POST", body: fd });
+    const noteForBatch = uploadNote.trim();
+    try {
+      // 1. Session — server returns Drive upload URL
+      const sessionRes = await fetch(`/api/design/${token}/briefs/${briefId}/upload-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_name: file.name,
+          mime_type: file.type || "application/octet-stream",
+          kind,
+        }),
+      });
+      if (!sessionRes.ok) throw new Error("Could not start upload");
+      const { uploadUrl } = await sessionRes.json();
+
+      // 2. PUT bytes directly to Drive
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("Drive upload failed");
+      const driveFile = await putRes.json();
+
+      // 3. Register with OpsHub — triggers state transition + notification
+      await fetch(`/api/design/${token}/briefs/${briefId}/upload-session/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          drive_file_id: driveFile.id,
+          file_name: file.name,
+          mime_type: file.type || "application/octet-stream",
+          file_size: file.size,
+          kind,
+          note: noteForBatch || null,
+        }),
+      });
+    } catch (e: any) {
+      alert(`Upload failed: ${e.message || "unknown error"}`);
+    }
     setUploadNote("");
     setUploadingKind(null);
     load();
