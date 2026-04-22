@@ -41,20 +41,32 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PATCH — update annotation on a file
+// PATCH — update annotation on a file, or toggle client visibility for WIPs
+// Body: { id, client_annotation?, hpd_annotation?, notes?, shared_with_client? }
+// When shared_with_client flips true, auto-posts a thread message so the
+// client sees the nudge next to the file.
 export async function PATCH(req: NextRequest) {
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const { id, client_annotation, hpd_annotation, notes } = await req.json();
+    const { id, client_annotation, hpd_annotation, notes, shared_with_client } = await req.json();
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
     const updates: any = {};
+    const isAnnotationEdit = client_annotation !== undefined || hpd_annotation !== undefined;
     if (client_annotation !== undefined) updates.client_annotation = client_annotation;
     if (hpd_annotation !== undefined) updates.hpd_annotation = hpd_annotation;
     if (notes !== undefined) updates.notes = notes;
+    if (shared_with_client === true) updates.shared_with_client_at = new Date().toISOString();
+    if (shared_with_client === false) updates.shared_with_client_at = null;
+    // Stamp annotation_updated_at so tile bumps on note edits, not just uploads
+    if (isAnnotationEdit) updates.annotation_updated_at = new Date().toISOString();
     const { error } = await supabase.from("art_brief_files").update(updates).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // NOTE: no auto-message on share. The shared_with_client_at timestamp is
+    // the canonical signal — client portal surfaces it as "HPD posted work in
+    // progress for review" on the tile + fires the direction-check banner.
+    // An extra chat message would clutter the thread.
     return NextResponse.json({ success: true });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });

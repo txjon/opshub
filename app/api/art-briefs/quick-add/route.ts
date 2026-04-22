@@ -31,6 +31,14 @@ export async function POST(req: NextRequest) {
     const { data: client } = await supabase.from("clients").select("name").eq("id", clientId).single();
     const clientName = (client as any)?.name || "Unknown";
 
+    // Default designer: pre-assign to sole active designer for convenience.
+    // Doesn't auto-send — HPD clicks "Send to Designer" when brief is ready.
+    let finalDesignerId: string | null = null;
+    const { data: activeDesigners } = await supabase.from("designers").select("id").eq("active", true);
+    if (activeDesigners && activeDesigners.length === 1) {
+      finalDesignerId = activeDesigners[0].id;
+    }
+
     // Create draft brief first
     const { data: brief, error: briefErr } = await supabase.from("art_briefs").insert({
       client_id: clientId,
@@ -38,6 +46,7 @@ export async function POST(req: NextRequest) {
       item_id: itemId,
       title,
       state: "draft",
+      assigned_designer_id: finalDesignerId,
       created_by: user.id,
     }).select("*").single();
 

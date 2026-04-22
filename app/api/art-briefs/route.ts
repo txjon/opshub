@@ -16,9 +16,15 @@ export async function GET(req: NextRequest) {
     const id = req.nextUrl.searchParams.get("id");
     const all = req.nextUrl.searchParams.get("all");
 
+    // Note on the items embed: migration 029 added items.design_id → art_briefs(id),
+    // creating a second FK between the two tables. Without the !fkey hint PostgREST
+    // throws PGRST201 (ambiguous embed). We want the legacy 1:1 "this brief is for
+    // this item" relationship, so force the item_id FK explicitly.
+    const ITEMS_EMBED = "items!art_briefs_item_id_fkey(name)";
+
     if (id) {
       const [briefRes, filesRes, msgsRes] = await Promise.all([
-        supabase.from("art_briefs").select("*, items(name), jobs(title, job_number), clients(name)").eq("id", id).single(),
+        supabase.from("art_briefs").select(`*, ${ITEMS_EMBED}, jobs(title, job_number), clients(name)`).eq("id", id).single(),
         supabase.from("art_brief_files").select("*").eq("brief_id", id).order("created_at"),
         supabase.from("art_brief_messages").select("*").eq("brief_id", id).order("created_at"),
       ]);
@@ -30,21 +36,34 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    let query = supabase.from("art_briefs").select("*, items(name), jobs(title, job_number, job_type), clients(name)").order("created_at", { ascending: false });
+    // Hide aborted briefs older than the 60-day repurpose window — HPD can
+    // still access fresh abortions for reuse.
+    const abortCutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    let query = supabase.from("art_briefs")
+      .select(`*, ${ITEMS_EMBED}, jobs(title, job_number, job_type), clients(name)`)
+      .or(`client_aborted_at.is.null,client_aborted_at.gte.${abortCutoff}`)
+      .order("created_at", { ascending: false });
     if (itemId) query = query.eq("item_id", itemId);
     if (jobId) query = query.eq("job_id", jobId);
     if (clientId) query = query.eq("client_id", clientId);
 
     const { data, error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("[art-briefs GET] query error:", error);
+      return NextResponse.json({ error: error.message, code: error.code, hint: error.hint }, { status: 500 });
+    }
 
-    // Attach message counts + best thumbnail per brief in one extra fetch
+    console.log(`[art-briefs GET] user=${user.id.slice(0,8)} returned ${data?.length || 0} briefs`);
+
+    // Attach message counts, best thumbnail, and last-activity-per-role.
+    // last_*_activity tells downstream UIs "who's been radio silent" so we can
+    // flag unread client activity on HPD/designer tiles.
     const briefs = data || [];
     if (briefs.length > 0) {
       const ids = briefs.map((b: any) => b.id);
       const [msgsRes, filesRes] = await Promise.all([
-        supabase.from("art_brief_messages").select("brief_id, sender_role").in("brief_id", ids),
-        supabase.from("art_brief_files").select("brief_id, drive_file_id, drive_link, kind, created_at").in("brief_id", ids).order("created_at", { ascending: false }),
+        supabase.from("art_brief_messages").select("brief_id, sender_role, created_at").in("brief_id", ids),
+        supabase.from("art_brief_files").select("brief_id, drive_file_id, drive_link, kind, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation").in("brief_id", ids).order("created_at", { ascending: false }),
       ]);
 
       // Message counts
@@ -55,26 +74,55 @@ export async function GET(req: NextRequest) {
         if (m.sender_role === "designer") c.designer++;
       });
 
+      // Last activity per role — type distinguishes upload / note / message
+      // so downstream can render specific preview strings.
+      type Activity = { at: string; type: "message" | "upload" | "note"; kind?: string };
+      const lastByRole: Record<string, { client?: Activity; designer?: Activity; hpd?: Activity }> = {};
+      const bump = (bid: string, role: string | null | undefined, at: string, type: "message" | "upload" | "note", kind?: string) => {
+        const r = role === "client" ? "client" : role === "designer" ? "designer" : "hpd";
+        const slot = (lastByRole[bid] ||= {});
+        const cur = (slot as any)[r] as Activity | undefined;
+        if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type, kind };
+      };
+      (msgsRes.data || []).forEach((m: any) => bump(m.brief_id, m.sender_role, m.created_at, "message"));
+      // Files: upload event attributed to uploader. Annotation edits attributed
+      // to whichever role's annotation is populated (we can't tell which role
+      // edited without per-field timestamps — but the presence of their note
+      // is a good heuristic).
+      (filesRes.data || []).forEach((f: any) => {
+        bump(f.brief_id, f.uploader_role, f.created_at, "upload", f.kind);
+        if (f.annotation_updated_at) {
+          if (f.hpd_annotation) bump(f.brief_id, "hpd", f.annotation_updated_at, "note", f.kind);
+          if (f.designer_annotation) bump(f.brief_id, "designer", f.annotation_updated_at, "note", f.kind);
+          if (f.client_annotation) bump(f.brief_id, "client", f.annotation_updated_at, "note", f.kind);
+        }
+      });
+
       // Up to 4 thumbnails per brief for the image-first card mosaic.
-      // Priority: final > wip > reference > client_intake, newest first within kind.
-      const rank: Record<string, number> = { final: 4, wip: 3, reference: 2, client_intake: 1 };
-      const perBrief: Record<string, Array<{ drive_file_id: string; drive_link: string | null; kind: string; created_at: string }>> = {};
+      // Sort by "last touched" — upload OR annotation edit — so notes-only
+      // activity bumps the tile preview.
+      const lastTouched = (f: any) => {
+        const c = f.created_at || "";
+        const a = f.annotation_updated_at || "";
+        return c > a ? c : a;
+      };
+      const perBrief: Record<string, any[]> = {};
       (filesRes.data || []).forEach((f: any) => {
         if (!f.drive_file_id) return;
         (perBrief[f.brief_id] ||= []).push(f);
       });
       Object.keys(perBrief).forEach(bid => {
-        perBrief[bid].sort((a, b) => {
-          const r = (rank[b.kind] || 0) - (rank[a.kind] || 0);
-          if (r !== 0) return r;
-          return (b.created_at || "").localeCompare(a.created_at || "");
-        });
+        perBrief[bid].sort((a, b) => lastTouched(b).localeCompare(lastTouched(a)));
       });
 
       briefs.forEach((b: any) => {
         const c = counts[b.id] || { total: 0, designer: 0 };
         b.message_count = c.total;
         b.designer_message_count = c.designer;
+        const la = lastByRole[b.id] || {};
+        b.last_client_activity = la.client || null;
+        b.last_designer_activity = la.designer || null;
+        b.last_hpd_activity = la.hpd || null;
         const all = perBrief[b.id] || [];
         b.thumbs = all.slice(0, 4).map(f => ({ drive_file_id: f.drive_file_id, drive_link: f.drive_link }));
         b.thumb_total = all.length;
@@ -98,7 +146,19 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const { item_id, job_id, client_id, title, concept, placement, colors, reference_urls, deadline, internal_notes, state, assigned_to } = body;
+    const { item_id, job_id, client_id, title, concept, placement, colors, reference_urls, deadline, internal_notes, state, assigned_to, assigned_designer_id } = body;
+
+    // Default designer: if caller didn't specify AND there's exactly one
+    // active designer, pre-assign to them. Doesn't auto-send — HPD still clicks
+    // "Send to Designer" when the brief is actually ready. New briefs stay in
+    // draft (awaiting client info / HPD prep) regardless of designer assignment.
+    let finalDesignerId: string | null = assigned_designer_id || null;
+    if (!finalDesignerId) {
+      const { data: activeDesigners } = await supabase.from("designers").select("id").eq("active", true);
+      if (activeDesigners && activeDesigners.length === 1) {
+        finalDesignerId = activeDesigners[0].id;
+      }
+    }
 
     const { data, error } = await supabase.from("art_briefs").insert({
       item_id: item_id || null,
@@ -107,6 +167,7 @@ export async function POST(req: NextRequest) {
       title, concept, placement, colors,
       reference_urls: reference_urls || [],
       deadline, internal_notes, assigned_to,
+      assigned_designer_id: finalDesignerId,
       state: state || "draft",
       created_by: user.id,
     }).select("*").single();

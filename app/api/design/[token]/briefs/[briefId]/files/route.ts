@@ -23,9 +23,13 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
   const formData = await req.formData();
   const file = formData.get("file") as File;
-  const kind = (formData.get("kind") as string) || "wip"; // "wip" or "final"
+  // wip → 1st_draft → revision → final  (four-stage designer flow)
+  const kind = (formData.get("kind") as string) || "wip";
+  // Optional note attached at upload time — lands as the uploader's
+  // annotation on the new file (the per-image "caption" for this role).
+  const note = ((formData.get("note") as string) || "").trim() || null;
   if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
-  if (!["wip", "final"].includes(kind)) return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
+  if (!["wip", "first_draft", "revision", "final"].includes(kind)) return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
 
   // Upload to Drive
   const token = await getDriveToken();
@@ -68,17 +72,22 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     kind,
     version,
     uploader_role: "designer",
+    designer_annotation: note,
   }).select("*").single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Auto state transition
+  // Auto state transition — maps upload kind to brief state:
+  //   wip → wip_review (HPD sanity-checks before client sees it)
+  //   first_draft → client_review (client formally reviews)
+  //   revision → client_review (updated version, client reviews again)
+  //   final → pending_prep (HPD prepares production file before products spawn)
   const now = new Date().toISOString();
   let newState = ctx.brief.state;
   if (kind === "wip") newState = "wip_review";
-  if (kind === "final") newState = "final_approved";
-  if (ctx.brief.state === "sent") newState = kind === "wip" ? "wip_review" : newState;
-  if (ctx.brief.state === "revisions") newState = kind === "wip" ? "wip_review" : newState;
+  if (kind === "first_draft") newState = "client_review";
+  if (kind === "revision") newState = "client_review";
+  if (kind === "final") newState = "pending_prep";
 
   await ctx.db.from("art_briefs").update({
     state: newState,
@@ -86,38 +95,44 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     updated_at: now,
   }).eq("id", ctx.brief.id);
 
-  // Auto-promote final → item's print_ready (closes the handoff loop)
-  let promoted = false;
-  if (kind === "final" && ctx.brief.item_id && driveFile.id && driveFile.webViewLink) {
-    const { data: existing } = await ctx.db.from("item_files")
-      .select("id")
-      .eq("item_id", ctx.brief.item_id)
-      .eq("drive_file_id", driveFile.id)
-      .maybeSingle();
-    if (!existing) {
-      await ctx.db.from("item_files").insert({
-        item_id: ctx.brief.item_id,
-        file_name: file.name,
-        stage: "print_ready",
-        drive_file_id: driveFile.id,
-        drive_link: driveFile.webViewLink,
-        mime_type: file.type,
-        file_size: file.size,
-        uploaded_by: null,
-      });
-      await ctx.db.from("items").update({ drive_link: driveFile.webViewLink }).eq("id", ctx.brief.item_id);
-      promoted = true;
-    }
-  }
+  // NOTE: no more auto-promote to print_ready on final. Under the Client Hub flow,
+  // designer final → pending_prep → HPD cleanup (CMYK, separations, Drive upload)
+  // → production_ready is the moment print_ready gets written. A future HPD action
+  // handles that transition.
 
-  const activityMsg = kind === "final"
-    ? `Designer uploaded FINAL for "${ctx.brief.title || "brief"}"${promoted ? " — auto-synced to print-ready" : ""}`
-    : `Designer uploaded WIP v${version} for "${ctx.brief.title || "brief"}"`;
+  const kindLabel: Record<string, string> = {
+    wip: "WIP", first_draft: "1st Draft", revision: "Revision", final: "FINAL",
+  };
+  const activityMsg = `Designer uploaded ${kindLabel[kind] || kind.toUpperCase()} v${version} for "${ctx.brief.title || "brief"}"`;
 
   await notifyTeamServer(activityMsg, kind === "final" ? "approval" : "production", ctx.brief.id, "art_brief");
   if (ctx.brief.job_id) await logJobActivityServer(ctx.brief.job_id, activityMsg);
 
-  return NextResponse.json({ file: data, state: newState, promoted });
+  return NextResponse.json({ file: data, state: newState });
+}
+
+// PATCH — designer updates their per-image annotation. Only designer_annotation
+// is mutable from this surface; client + HPD annotations are edited on their
+// own surfaces. File must belong to this brief.
+export async function PATCH(req: NextRequest, { params }: { params: { token: string; briefId: string } }) {
+  const ctx = await verifyAccess(params.token, params.briefId);
+  if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const { fileId, designer_annotation } = await req.json();
+  if (!fileId) return NextResponse.json({ error: "fileId required" }, { status: 400 });
+
+  const { data: file } = await ctx.db.from("art_brief_files").select("id, brief_id").eq("id", fileId).single();
+  if (!file || file.brief_id !== ctx.brief.id) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const { error } = await ctx.db.from("art_brief_files")
+    .update({
+      designer_annotation: designer_annotation?.trim() || null,
+      annotation_updated_at: new Date().toISOString(),
+    })
+    .eq("id", fileId);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ success: true });
 }
 
 // DELETE — designer removes their own upload

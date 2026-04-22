@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdmin } from "@supabase/supabase-js";
 import crypto from "crypto";
+
+function admin() {
+  return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+}
 
 async function requireOwner() {
   const supabase = await createClient();
@@ -8,7 +13,8 @@ async function requireOwner() {
   if (!user) return { error: "Unauthorized", status: 401 as const };
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
   if (!["owner", "manager"].includes(profile?.role)) return { error: "Forbidden", status: 403 as const };
-  return { supabase, user };
+  // Use service-role client for writes — avoids RLS gotchas on a settings-only table.
+  return { supabase: admin(), user };
 }
 
 export async function GET() {
@@ -20,16 +26,28 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireOwner();
-  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  const { name, email, notes } = await req.json();
-  if (!name?.trim()) return NextResponse.json({ error: "Name required" }, { status: 400 });
-  const token = crypto.randomBytes(24).toString("hex");
-  const { data, error } = await auth.supabase.from("designers").insert({
-    name: name.trim(), email: email?.trim() || null, notes: notes?.trim() || null, portal_token: token, active: true,
-  }).select("*").single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ designer: data });
+  try {
+    const auth = await requireOwner();
+    if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    const { name, email, notes } = await req.json();
+    if (!name?.trim()) return NextResponse.json({ error: "Name required" }, { status: 400 });
+    const token = crypto.randomBytes(24).toString("hex");
+    const { data, error } = await auth.supabase.from("designers").insert({
+      name: name.trim(),
+      email: email?.trim() || null,
+      notes: notes?.trim() || null,
+      portal_token: token,
+      active: true,
+    }).select("*").single();
+    if (error) {
+      console.error("[designers POST] insert error:", error);
+      return NextResponse.json({ error: error.message, code: error.code, hint: error.hint }, { status: 500 });
+    }
+    return NextResponse.json({ designer: data });
+  } catch (e: any) {
+    console.error("[designers POST] exception:", e);
+    return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
+  }
 }
 
 export async function PATCH(req: NextRequest) {

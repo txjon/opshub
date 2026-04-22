@@ -3,20 +3,19 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { ArtBriefMessages } from "@/components/ArtBriefMessages";
-import {
-  STAGES,
-  STAGE_BY_KEY,
-  type Card,
-  type BoardFilters,
-  type AvailableProject,
-  KanbanBoard,
-  ClientLanesBoard,
-  BoardFilterControls,
-  ActiveFilterBar,
-} from "@/components/ArtBoard";
 import { ProjectPicker } from "@/components/ProjectPicker";
+import {
+  resolveBrief,
+  sortYourMove,
+  sortInFlight,
+  matchesFilter,
+  type Resolution,
+  type FilterKey,
+  type PrimaryActionKind,
+} from "@/lib/art-studio-v2";
 
+// Kept for BriefDetailModal's (legacy) state dropdown. When the modal is
+// rebuilt (Phase 2), this map goes with it.
 const STATE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   draft: { label: "Draft", color: T.muted, bg: T.surface },
   sent: { label: "Sent", color: T.accent, bg: T.accentDim },
@@ -25,6 +24,8 @@ const STATE_LABELS: Record<string, { label: string; color: string; bg: string }>
   client_review: { label: "Client Review", color: T.purple, bg: T.purpleDim },
   revisions: { label: "Revisions", color: T.red, bg: T.redDim },
   final_approved: { label: "Final Approved", color: T.green, bg: T.greenDim },
+  pending_prep: { label: "Pending Prep", color: T.amber, bg: T.amberDim },
+  production_ready: { label: "Production Ready", color: T.green, bg: T.greenDim },
   delivered: { label: "Delivered", color: T.green, bg: T.greenDim },
 };
 
@@ -33,6 +34,7 @@ type Brief = {
   title: string | null;
   concept: string | null;
   state: string;
+  source?: string | null;
   deadline: string | null;
   assigned_to: string | null;
   created_at: string;
@@ -43,6 +45,7 @@ type Brief = {
   client_id: string | null;
   client_intake_token?: string | null;
   client_intake_submitted_at?: string | null;
+  sent_to_designer_at?: string | null;
   items?: { name: string } | null;
   jobs?: { title: string; job_number: string; job_type: string | null } | null;
   clients?: { name: string } | null;
@@ -54,107 +57,259 @@ type Brief = {
   thumb_link?: string | null;
 };
 
-// Map brief.state (+ intake sub-state) to one of the 9 ArtBoard stages.
-function stageForBrief(b: Brief) {
-  const s = b.state;
-  if (s === "draft") {
-    if (b.client_intake_submitted_at) return STAGE_BY_KEY.intake_submitted;
-    if (b.client_intake_token) return STAGE_BY_KEY.awaiting_intake;
-    return STAGE_BY_KEY.draft;
-  }
-  if (s === "sent" || s === "in_progress") return STAGE_BY_KEY.sent_to_designer;
-  if (s === "wip_review") return STAGE_BY_KEY.wip_review;
-  if (s === "client_review") return STAGE_BY_KEY.client_review;
-  if (s === "revisions") return STAGE_BY_KEY.revisions;
-  if (s === "final_approved") return STAGE_BY_KEY.final_approved;
-  if (s === "delivered") return STAGE_BY_KEY.delivered;
-  return STAGE_BY_KEY.draft;
-}
-
-function daysSince(iso?: string | null) {
-  if (!iso) return 0;
-  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
-}
-
-// Real brief → board Card. Meta is derived from actual fields.
-function briefToCard(b: Brief): Card {
-  const stage = stageForBrief(b);
-  const dCount = b.designer_message_count || 0;
-  const daysUpdated = daysSince(b.updated_at || b.created_at);
-  const lines: string[] = [];
-  let urgency: Card["meta"]["urgency"] = "normal";
-  let cta: string | undefined;
-
-  if (stage.key === "draft") {
-    lines.push("No intake sent yet");
-    if (daysUpdated > 3) urgency = "stale";
-    cta = "Open brief";
-  } else if (stage.key === "awaiting_intake") {
-    lines.push(`Intake sent ${daysUpdated}d ago`);
-    lines.push("Waiting on client");
-    if (daysUpdated > 3) urgency = "stale";
-    cta = "Send reminder";
-  } else if (stage.key === "intake_submitted") {
-    lines.push(`Submitted ${daysSince(b.client_intake_submitted_at)}d ago`);
-    lines.push("Ready to translate");
-    urgency = "action";
-    cta = "Translate";
-  } else if (stage.key === "sent_to_designer") {
-    lines.push(`Sent ${daysUpdated}d ago`);
-    if (dCount) lines.push(`${dCount} msg from designer`);
-    else lines.push("No updates yet");
-    if (daysUpdated > 4) urgency = "stale";
-  } else if (stage.key === "wip_review") {
-    lines.push(`WIP uploaded ${daysUpdated}d ago${b.version_count ? ` · v${b.version_count}` : ""}`);
-    if (dCount) lines.push(`${dCount} msg from designer`);
-    urgency = "action";
-    cta = "Review & send to client";
-  } else if (stage.key === "client_review") {
-    lines.push(`With client ${daysUpdated}d`);
-    if (daysUpdated > 3) urgency = "stale";
-    cta = "Nudge client";
-  } else if (stage.key === "revisions") {
-    lines.push(`Revisions requested ${daysUpdated}d ago`);
-    if (dCount) lines.push(`${dCount} msg from designer`);
-    urgency = "action";
-    cta = "View feedback";
-  } else if (stage.key === "final_approved") {
-    lines.push(`Final uploaded${b.version_count ? ` v${b.version_count}` : ""}`);
-    lines.push("Ready for handoff");
-    urgency = "action";
-    cta = "→ Print-Ready";
-  } else if (stage.key === "delivered") {
-    lines.push(`Delivered ${daysUpdated}d ago`);
-    urgency = "done";
-  }
-
-  if (b.deadline) {
-    const d = new Date(b.deadline);
-    lines.push(`Due ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`);
-  }
-
-  const thumbs = (b.thumbs || []).map(t => ({ fileId: t.drive_file_id, link: t.drive_link }));
-
-  return {
-    id: b.id,
-    title: b.title || "",
-    clientName: b.clients?.name || "Unlinked",
-    jobTitle: b.jobs?.title || (b.items?.name ? b.items.name : ""),
-    jobNumber: b.jobs?.job_number || null,
-    jobType: b.jobs?.job_type || null,
-    jobId: b.job_id,
-    thumbs,
-    thumbTotal: b.thumb_total ?? thumbs.length,
-    thumbFileId: b.thumb_file_id || null,
-    thumbLink: b.thumb_link || null,
-    stage,
-    meta: { lines, urgency, cta },
-    hash: 0,
-  };
-}
-
 type Client = { id: string; name: string };
 
+// ─── Image mosaic (image-first tile visual) ───────────────────────────────
+// Up to 4 thumbnails in a smart 1/2/3/4-cell layout. Overflow → "+N" badge.
+// Copied from components/ArtBoard so the legacy preview page can diverge
+// without our tiles being affected.
+function thumbUrl(fileId: string | null | undefined, w = 400) {
+  if (!fileId) return null;
+  return `https://drive.google.com/thumbnail?id=${fileId}&sz=w${w}`;
+}
+
+type Thumb = { drive_file_id: string | null; drive_link: string | null };
+
+function ImageMosaic({ thumbs, total, aspect = "4/3" }: { thumbs: Thumb[]; total: number; aspect?: string }) {
+  const count = Math.min(thumbs.length, 4);
+  const overflow = Math.max(0, total - 4);
+
+  if (count === 0) {
+    return (
+      <div style={{ width: "100%", aspectRatio: aspect, background: "#f4f4f7", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: 10, color: T.faint }}>No images</span>
+      </div>
+    );
+  }
+
+  let gridTemplate = "1fr", rows = "1fr";
+  if (count === 2) { gridTemplate = "1fr 1fr"; rows = "1fr"; }
+  if (count === 3) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
+  if (count === 4) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
+
+  return (
+    <div style={{
+      width: "100%", aspectRatio: aspect, background: "#f4f4f7",
+      display: "grid", gridTemplateColumns: gridTemplate, gridTemplateRows: rows,
+      gap: 2, overflow: "hidden",
+    }}>
+      {thumbs.slice(0, count).map((t, i) => {
+        const spanLeft = count === 3 && i === 0;
+        const isLast = i === count - 1;
+        return (
+          <div key={i} style={{
+            position: "relative", background: "#fff",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            overflow: "hidden",
+            ...(spanLeft ? { gridRow: "1 / span 2" } : {}),
+          }}>
+            {t.drive_file_id ? (
+              <img
+                src={thumbUrl(t.drive_file_id, 320) || ""}
+                referrerPolicy="no-referrer"
+                alt=""
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                onError={e => ((e.target as HTMLImageElement).style.display = "none")}
+              />
+            ) : (
+              <span style={{ fontSize: 9, color: T.faint }}>—</span>
+            )}
+            {isLast && overflow > 0 && (
+              <div style={{
+                position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: "#fff", fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em",
+              }}>+{overflow}</div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Small colored dot — replaces the kanban stage column. Tooltip carries the
+// literal state for the rare case anyone cares; day-to-day it's decoration.
+function OwnerDot({ owner }: { owner: Resolution["owner"] }) {
+  const color = owner === "hpd" ? T.accent
+    : owner === "client" ? T.purple
+    : owner === "designer" ? T.blue
+    : T.green;
+  const label = owner === "hpd" ? "Your move"
+    : owner === "client" ? "With client"
+    : owner === "designer" ? "With designer"
+    : "Delivered";
+  return (
+    <div title={label} style={{
+      width: 9, height: 9, borderRadius: "50%", background: color, flexShrink: 0,
+      boxShadow: "0 0 0 2px rgba(255,255,255,0.9), 0 0 0 3px rgba(0,0,0,0.06)",
+    }} />
+  );
+}
+
+// ─── BriefTile — the new image-first card ────────────────────────────────
+// Replaces the nine-column kanban BriefCard. Shows mosaic + title + context
+// + activity line + primary action (only in "Your move" sections).
+function BriefTile({
+  brief,
+  resolution,
+  variant = "large",
+  onOpen,
+  onAction,
+  actionPending,
+}: {
+  brief: Brief;
+  resolution: Resolution;
+  variant?: "large" | "compact";
+  onOpen: () => void;
+  onAction: (kind: PrimaryActionKind) => void;
+  actionPending?: PrimaryActionKind | null;
+}) {
+  const hasTitle = brief.title && brief.title.trim().length > 0;
+  const context = brief.clients?.name || "Unlinked";
+  const subContext = brief.jobs?.title || brief.items?.name || "";
+  const dCount = brief.designer_message_count || 0;
+  // Show primary action on Your move tiles + on aborted tiles (Repurpose)
+  const showAction = !!resolution.primary
+    && resolution.primary.action !== "open"
+    && (resolution.section === "your_move" || resolution.isAborted);
+  const pending = actionPending === resolution.primary?.action;
+
+  return (
+    <div
+      onClick={onOpen}
+      style={{
+        background: T.card,
+        border: resolution.hasUnreadClient
+          ? `2px solid ${T.red}`
+          : `1px solid ${resolution.urgency === "stale" ? T.amber + "77" : T.border}`,
+        borderRadius: 10,
+        overflow: "hidden",
+        cursor: "pointer",
+        transition: "transform 0.08s, border-color 0.08s, box-shadow 0.08s",
+        position: "relative",
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)";
+        (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)";
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLElement).style.transform = "none";
+        (e.currentTarget as HTMLElement).style.boxShadow = "none";
+      }}
+    >
+      {resolution.hasUnreadClient && (
+        <div style={{
+          position: "absolute", top: 10, left: 10, zIndex: 2,
+          padding: "4px 12px", borderRadius: 4,
+          background: T.red, color: "#fff",
+          fontSize: 10, fontWeight: 800, letterSpacing: "0.08em",
+          boxShadow: "0 2px 8px rgba(255, 50, 77, 0.35)",
+        }}>NEW</div>
+      )}
+      {resolution.isAborted && (
+        <div style={{ position: "absolute", top: 8, left: 8, padding: "2px 8px", borderRadius: 4, background: T.red, color: "#fff", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", zIndex: 2 }}>
+          ABORTED
+        </div>
+      )}
+      <div style={{ opacity: resolution.isAborted ? 0.55 : 1 }}>
+        <ImageMosaic
+          thumbs={brief.thumbs || []}
+          total={brief.thumb_total ?? (brief.thumbs?.length || 0)}
+          aspect={variant === "compact" ? "1/1" : "4/3"}
+        />
+      </div>
+      <div style={{ padding: variant === "compact" ? "8px 10px" : "10px 12px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+          <OwnerDot owner={resolution.owner} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {hasTitle && (
+              <div style={{
+                fontSize: variant === "compact" ? 12 : 13,
+                fontWeight: resolution.hasUnreadClient ? 800 : 700,
+                color: T.text, lineHeight: 1.25,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {brief.title}
+              </div>
+            )}
+            <div style={{
+              fontSize: variant === "compact" ? 10 : 11,
+              color: T.muted, marginTop: hasTitle ? 1 : 0,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {context}{subContext ? ` · ${subContext}` : ""}
+            </div>
+          </div>
+          {dCount > 0 && (
+            <span title={`${dCount} from designer`} style={{
+              fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 3,
+              background: T.blueDim, color: T.blue, flexShrink: 0,
+            }}>{dCount}</span>
+          )}
+        </div>
+
+        {variant === "large" && (
+          <div style={{
+            fontSize: 11,
+            color: resolution.hasUnreadClient ? T.red : (resolution.urgency === "action" ? T.text : T.muted),
+            marginTop: 6, lineHeight: 1.3,
+            fontWeight: resolution.hasUnreadClient ? 700 : (resolution.urgency === "action" ? 600 : 400),
+          }}>
+            {resolution.activity}
+          </div>
+        )}
+
+        {brief.deadline && variant === "large" && (
+          <div style={{ fontSize: 10, color: T.amber, marginTop: 3, fontWeight: 600 }}>
+            Due {new Date(brief.deadline).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+          </div>
+        )}
+
+        {showAction && resolution.primary && (
+          <button
+            onClick={e => { e.stopPropagation(); onAction(resolution.primary!.action); }}
+            disabled={pending}
+            style={{
+              marginTop: 10, width: "100%",
+              padding: "7px 12px",
+              background: pending ? T.accentDim : T.accent,
+              color: pending ? T.muted : "#fff",
+              border: "none", borderRadius: 5,
+              fontSize: 11, fontWeight: 700, cursor: pending ? "wait" : "pointer",
+              fontFamily: font,
+            }}
+          >
+            {pending ? "Working…" : resolution.primary.label}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Filter pill button ────────────────────────────────────────────────────
+function FilterPill({ label, count, active, onClick }: { label: string; count?: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "6px 12px",
+        borderRadius: 4, // rectangles w/ small radius per plan
+        border: `1px solid ${active ? T.text : T.border}`,
+        background: active ? T.text : T.card,
+        color: active ? T.bg : T.muted,
+        fontSize: 11, fontWeight: 600, fontFamily: font, cursor: "pointer",
+        transition: "all 0.1s",
+        letterSpacing: "0.02em",
+      }}
+    >
+      {label}{typeof count === "number" && count > 0 ? ` · ${count}` : ""}
+    </button>
+  );
+}
+
+// ─── Main page ─────────────────────────────────────────────────────────────
 export default function ArtStudioPage() {
   const supabase = createClient();
   const router = useRouter();
@@ -164,13 +319,12 @@ export default function ArtStudioPage() {
   const [loading, setLoading] = useState(true);
   const [showNewRequest, setShowNewRequest] = useState(false);
   const [selectedBrief, setSelectedBrief] = useState<Brief | null>(null);
-  const [filters, setFiltersState] = useState<BoardFilters>({
-    search: "",
-    clientFilter: "",
-    projectFilter: "",
-    view: "by_stage",
-  });
-  const setFilters = (patch: Partial<BoardFilters>) => setFiltersState(p => ({ ...p, ...patch }));
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [search, setSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState("");
+  const [deliveredExpanded, setDeliveredExpanded] = useState(false);
+  // Keyed by brief id so two tiles can never claim the spinner
+  const [actionPending, setActionPending] = useState<Record<string, PrimaryActionKind | null>>({});
 
   useEffect(() => { loadBriefs(); loadClients(); }, []);
 
@@ -195,187 +349,251 @@ export default function ArtStudioPage() {
     setClients(data || []);
   }
 
-  // Map briefs → board cards once, then apply filters against cards
-  const allCards = useMemo(() => briefs.map(briefToCard), [briefs]);
+  // Resolve each brief once — section/owner/activity/primary-action
+  const resolved = useMemo(
+    () => briefs.map(b => ({ brief: b, res: resolveBrief(b) })),
+    [briefs]
+  );
 
   const allClients = useMemo(() => {
     const set = new Set<string>();
-    allCards.forEach(c => set.add(c.clientName));
-    return [...set].sort();
-  }, [allCards]);
+    briefs.forEach(b => b.clients?.name && set.add(b.clients.name));
+    return Array.from(set).sort();
+  }, [briefs]);
 
-  const availableProjects = useMemo<AvailableProject[]>(() => {
-    const map = new Map<string, AvailableProject>();
-    allCards.forEach(c => {
-      if (!c.jobId) return;
-      if (filters.clientFilter && c.clientName !== filters.clientFilter) return;
-      const cur = map.get(c.jobId);
-      if (cur) cur.count++;
-      else map.set(c.jobId, { jobId: c.jobId, title: c.jobTitle, jobNumber: c.jobNumber, clientName: c.clientName, count: 1 });
+  // Base predicate: search + client filter (applied before section split)
+  const basePassed = useMemo(() => {
+    return resolved.filter(({ brief }) => {
+      if (clientFilter && brief.clients?.name !== clientFilter) return false;
+      if (search.trim()) {
+        const q = search.trim().toLowerCase();
+        const hit =
+          (brief.title || "").toLowerCase().includes(q) ||
+          (brief.clients?.name || "").toLowerCase().includes(q) ||
+          (brief.jobs?.title || "").toLowerCase().includes(q) ||
+          (brief.jobs?.job_number || "").toLowerCase().includes(q) ||
+          (brief.items?.name || "").toLowerCase().includes(q);
+        if (!hit) return false;
+      }
+      return true;
     });
-    return [...map.values()].sort((a, b) =>
-      a.clientName.localeCompare(b.clientName) || a.title.localeCompare(b.title)
-    );
-  }, [allCards, filters.clientFilter]);
+  }, [resolved, clientFilter, search]);
 
-  useEffect(() => {
-    if (!filters.projectFilter) return;
-    const ok = availableProjects.some(p => p.jobId === filters.projectFilter);
-    if (!ok) setFilters({ projectFilter: "" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [availableProjects]);
+  // Filter pills slice basePassed by section/owner
+  const filtered = useMemo(
+    () => basePassed.filter(({ res }) => matchesFilter(res, filter)),
+    [basePassed, filter]
+  );
 
-  const filteredCards = useMemo(() => {
-    let out = allCards;
-    if (filters.clientFilter) out = out.filter(c => c.clientName === filters.clientFilter);
-    if (filters.projectFilter) out = out.filter(c => c.jobId === filters.projectFilter);
-    if (filters.search.trim()) {
-      const q = filters.search.trim().toLowerCase();
-      out = out.filter(c =>
-        c.title.toLowerCase().includes(q) ||
-        c.clientName.toLowerCase().includes(q) ||
-        c.jobTitle.toLowerCase().includes(q) ||
-        (c.jobNumber || "").toLowerCase().includes(q)
-      );
+  // Split into sections. Your-move uses deadline-weighted oldest ordering,
+  // in-flight is newest-first, delivered matches in-flight.
+  const yourMove = useMemo(() => {
+    const list = filtered.filter(r => r.res.section === "your_move").map(r => r.brief);
+    return sortYourMove(list).map(b => ({ brief: b, res: resolveBrief(b) }));
+  }, [filtered]);
+
+  const inFlight = useMemo(() => {
+    const list = filtered.filter(r => r.res.section === "in_flight").map(r => r.brief);
+    return sortInFlight(list).map(b => ({ brief: b, res: resolveBrief(b) }));
+  }, [filtered]);
+
+  const delivered = useMemo(() => {
+    const list = filtered.filter(r => r.res.section === "delivered").map(r => r.brief);
+    return sortInFlight(list).map(b => ({ brief: b, res: resolveBrief(b) }));
+  }, [filtered]);
+
+  // Section counts for the header (based on pill-filtered set, not section-filtered)
+  const sectionCounts = useMemo(() => {
+    // Match "All" pill's semantics (hides delivered)
+    const visibleForAll = basePassed.filter(r => r.res.section !== "delivered");
+    return {
+      all: visibleForAll.length,
+      your_move: basePassed.filter(r => r.res.section === "your_move").length,
+      with_client: basePassed.filter(r => r.res.section === "in_flight" && r.res.owner === "client").length,
+      with_designer: basePassed.filter(r => r.res.section === "in_flight" && r.res.owner === "designer").length,
+      delivered: basePassed.filter(r => r.res.section === "delivered").length,
+    };
+  }, [basePassed]);
+
+  async function runAction(brief: Brief, action: PrimaryActionKind) {
+    if (action === "open") { setSelectedBrief(brief); return; }
+    setActionPending(p => ({ ...p, [brief.id]: action }));
+    try {
+      const res = await fetch(`/api/art-briefs/${brief.id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || `Action ${action} failed`);
+      } else {
+        await loadBriefs();
+      }
+    } finally {
+      setActionPending(p => ({ ...p, [brief.id]: null }));
     }
-    return out;
-  }, [allCards, filters]);
-
-  // Filtered briefs for list view (keeps the original row rendering that staff know)
-  const filteredBriefs = useMemo(() => {
-    const ids = new Set(filteredCards.map(c => c.id));
-    return briefs.filter(b => ids.has(b.id));
-  }, [filteredCards, briefs]);
-
-  function openBriefFromCard(card: Card) {
-    const b = briefs.find(x => x.id === card.id);
-    if (b) setSelectedBrief(b);
   }
 
-  const projectCount = useMemo(() => {
-    const s = new Set<string>();
-    allCards.forEach(c => c.jobId && s.add(c.jobId));
-    return s.size;
-  }, [allCards]);
-
-  const ic = { padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, boxSizing: "border-box" as const };
-  const label = { fontSize: 10, fontWeight: 600 as const, color: T.muted, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 4, display: "block" };
+  const totalVisible = yourMove.length + inFlight.length + (filter === "delivered" ? delivered.length : 0);
 
   return (
     <div style={{ fontFamily: font, color: T.text }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Art Studio</h1>
           <p style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
-            {filteredCards.length} {filters.clientFilter ? `briefs for ${filters.clientFilter}` : "briefs"} · {allClients.length} {allClients.length === 1 ? "client" : "clients"} · {projectCount} {projectCount === 1 ? "project" : "projects"} active
+            {sectionCounts.your_move > 0
+              ? <><strong style={{ color: T.text }}>{sectionCounts.your_move}</strong> need your move</>
+              : "Nothing needs your move."}
+            {sectionCounts.with_client + sectionCounts.with_designer > 0 && (
+              <> · <strong style={{ color: T.text }}>{sectionCounts.with_client + sectionCounts.with_designer}</strong> in flight</>
+            )}
+            {sectionCounts.delivered > 0 && (
+              <> · {sectionCounts.delivered} delivered</>
+            )}
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => setShowNewRequest(true)}
-            style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontSize: 14, fontFamily: font, fontWeight: 700, cursor: "pointer" }}>
-            + New Request
-          </button>
-        </div>
+        <button onClick={() => setShowNewRequest(true)}
+          style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontSize: 14, fontFamily: font, fontWeight: 700, cursor: "pointer" }}>
+          + New Request
+        </button>
       </div>
 
-      {/* Filter controls */}
-      <div style={{ marginBottom: 14 }}>
-        <BoardFilterControls
-          filters={filters}
-          setFilters={setFilters}
-          allClients={allClients}
-          availableProjects={availableProjects}
-          showListView
+      {/* Filter pills */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        <FilterPill label="All" count={sectionCounts.all} active={filter === "all"} onClick={() => setFilter("all")} />
+        <FilterPill label="Your move" count={sectionCounts.your_move} active={filter === "your_move"} onClick={() => setFilter("your_move")} />
+        <FilterPill label="With client" count={sectionCounts.with_client} active={filter === "with_client"} onClick={() => setFilter("with_client")} />
+        <FilterPill label="With designer" count={sectionCounts.with_designer} active={filter === "with_designer"} onClick={() => setFilter("with_designer")} />
+        <FilterPill label="Delivered" count={sectionCounts.delivered} active={filter === "delivered"} onClick={() => setFilter("delivered")} />
+      </div>
+
+      {/* Search + client filter row */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search items, clients…"
+          style={{ padding: "7px 12px", fontSize: 12, borderRadius: 6, border: `1px solid ${T.border}`, background: T.card, color: T.text, outline: "none", fontFamily: font, width: 220 }}
         />
+        <select
+          value={clientFilter}
+          onChange={e => setClientFilter(e.target.value)}
+          style={{ padding: "7px 12px", fontSize: 12, borderRadius: 6, border: `1px solid ${clientFilter ? T.text : T.border}`, background: T.card, color: T.text, outline: "none", fontFamily: font, cursor: "pointer", minWidth: 180, fontWeight: clientFilter ? 600 : 400 }}
+        >
+          <option value="">All clients ({allClients.length})</option>
+          {allClients.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        {(search || clientFilter) && (
+          <button onClick={() => { setSearch(""); setClientFilter(""); }}
+            style={{ padding: "7px 14px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+            Clear filters
+          </button>
+        )}
       </div>
 
-      <ActiveFilterBar
-        filters={filters}
-        setFilters={setFilters}
-        availableProjects={availableProjects}
-        resultCount={filteredCards.length}
-      />
-
-      {/* Board */}
+      {/* Content */}
       {loading ? (
-        <div style={{ fontSize: 13, color: T.muted }}>Loading...</div>
+        <div style={{ fontSize: 13, color: T.muted }}>Loading…</div>
       ) : briefs.length === 0 ? (
         <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 40, textAlign: "center", fontSize: 13, color: T.faint }}>
           No requests yet. Click <strong>+ New Request</strong> to load some references.
         </div>
-      ) : filteredCards.length === 0 ? (
+      ) : totalVisible === 0 && !(filter === "all" && delivered.length > 0) ? (
         <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 30, textAlign: "center", fontSize: 12, color: T.faint }}>
-          No briefs match the current filter.
-          <button onClick={() => setFilters({ clientFilter: "", projectFilter: "", search: "" })}
-            style={{ color: T.accent, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontSize: 12, fontFamily: font, marginLeft: 6 }}>
-            Clear filter
-          </button>
+          Nothing in this bucket.
         </div>
-      ) : filters.view === "by_stage" ? (
-        <KanbanBoard
-          cards={filteredCards}
-          onSelectCard={openBriefFromCard}
-          onClientFilter={(name) => setFilters({ clientFilter: name, projectFilter: "" })}
-          onProjectFilter={(jobId, clientName) => setFilters({ clientFilter: clientName, projectFilter: jobId })}
-        />
-      ) : filters.view === "by_client" ? (
-        <ClientLanesBoard
-          cards={filteredCards}
-          onSelectCard={openBriefFromCard}
-          onFilterClient={(name) => setFilters({ clientFilter: name, projectFilter: "" })}
-          onFilterProject={(jobId, clientName) => setFilters({ clientFilter: clientName, projectFilter: jobId })}
-          clientFilter={filters.clientFilter}
-          projectFilter={filters.projectFilter}
-        />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {filteredBriefs.map(b => {
-            const stage = stageForBrief(b);
-            const context = b.clients?.name || b.jobs?.title || "Unlinked";
-            const dCount = b.designer_message_count || 0;
-            return (
-              <div key={b.id} onClick={() => setSelectedBrief(b)}
-                style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 16, transition: "border-color 0.1s" }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = T.accent)}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = T.border)}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 8 }}>
-                    {b.title || "Untitled Brief"}
-                    {dCount > 0 && (
-                      <span title={`${dCount} message${dCount === 1 ? "" : "s"} from designer`}
-                        style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: T.accentDim, color: T.accent, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                        💬 {dCount}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                    {context}{b.items?.name ? ` · ${b.items.name}` : ""}
-                    {b.deadline && ` · Due ${new Date(b.deadline).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
-                    {b.version_count > 0 && ` · v${b.version_count}`}
-                  </div>
-                </div>
-                <span style={{ fontSize: 10, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: stage.bg, color: stage.accent }}>
-                  {stage.label}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+        <>
+          {/* Your move — prominent, shown first */}
+          {yourMove.length > 0 && (
+            <Section
+              title="Your move"
+              count={yourMove.length}
+              hint="HPD owns the next step"
+              tone="action"
+            >
+              <TileGrid>
+                {yourMove.map(({ brief, res }) => (
+                  <BriefTile
+                    key={brief.id}
+                    brief={brief}
+                    resolution={res}
+                    variant="large"
+                    onOpen={() => setSelectedBrief(brief)}
+                    onAction={(kind) => runAction(brief, kind)}
+                    actionPending={actionPending[brief.id] || null}
+                  />
+                ))}
+              </TileGrid>
+            </Section>
+          )}
+
+          {/* In flight — client or designer owns */}
+          {inFlight.length > 0 && (
+            <Section
+              title="In flight"
+              count={inFlight.length}
+              hint="Waiting on client or designer"
+              tone="neutral"
+            >
+              <TileGrid>
+                {inFlight.map(({ brief, res }) => (
+                  <BriefTile
+                    key={brief.id}
+                    brief={brief}
+                    resolution={res}
+                    variant="large"
+                    onOpen={() => setSelectedBrief(brief)}
+                    onAction={(kind) => runAction(brief, kind)}
+                    actionPending={actionPending[brief.id] || null}
+                  />
+                ))}
+              </TileGrid>
+            </Section>
+          )}
+
+          {/* Delivered — collapsed by default unless filter = delivered */}
+          {(filter === "delivered" || delivered.length > 0) && (
+            <Section
+              title="Delivered"
+              count={delivered.length}
+              hint="Closed loop — ready for product life"
+              tone="muted"
+              collapsible={filter !== "delivered"}
+              expanded={filter === "delivered" || deliveredExpanded}
+              onToggle={() => setDeliveredExpanded(x => !x)}
+            >
+              {(filter === "delivered" || deliveredExpanded) && (
+                <TileGrid compact>
+                  {delivered.map(({ brief, res }) => (
+                    <BriefTile
+                      key={brief.id}
+                      brief={brief}
+                      resolution={res}
+                      variant="compact"
+                      onOpen={() => setSelectedBrief(brief)}
+                      onAction={(kind) => runAction(brief, kind)}
+                      actionPending={actionPending[brief.id] || null}
+                    />
+                  ))}
+                </TileGrid>
+              )}
+            </Section>
+          )}
+        </>
       )}
 
-      {/* New Request modal — visual-first single-brief input */}
       {showNewRequest && (
         <NewRequestModal
           clients={clients}
           onClose={() => setShowNewRequest(false)}
-          onCreated={(brief) => {
-            loadBriefs();
-            if (brief) setSelectedBrief(brief);
-          }}
+          onCreated={() => loadBriefs()}
         />
       )}
 
-      {/* Brief detail modal */}
       {selectedBrief && (
         <BriefDetailModal brief={selectedBrief} onClose={(updated) => {
           setSelectedBrief(null);
@@ -385,6 +603,168 @@ export default function ArtStudioPage() {
       )}
     </div>
   );
+}
+
+// ─── Section shell ─────────────────────────────────────────────────────────
+function Section({
+  title, count, hint, tone = "neutral",
+  collapsible, expanded, onToggle, children,
+}: {
+  title: string;
+  count: number;
+  hint?: string;
+  tone?: "action" | "neutral" | "muted";
+  collapsible?: boolean;
+  expanded?: boolean;
+  onToggle?: () => void;
+  children: React.ReactNode;
+}) {
+  const toneColor = tone === "action" ? T.text : tone === "muted" ? T.faint : T.muted;
+  return (
+    <section style={{ marginBottom: 28 }}>
+      <div style={{
+        display: "flex", alignItems: "baseline", gap: 10,
+        marginBottom: 10, paddingBottom: 6,
+        borderBottom: `1px solid ${T.border}`,
+      }}>
+        <h2 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: toneColor, letterSpacing: "0.02em" }}>
+          {title}
+        </h2>
+        <span style={{ fontSize: 11, fontWeight: 700, color: toneColor, fontFamily: mono }}>
+          {count}
+        </span>
+        {hint && <span style={{ fontSize: 11, color: T.faint }}>{hint}</span>}
+        {collapsible && (
+          <button onClick={onToggle}
+            style={{ marginLeft: "auto", background: "transparent", border: "none", color: T.muted, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+            {expanded ? "Hide ↑" : "Show ↓"}
+          </button>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+// ─── Tile grid ─────────────────────────────────────────────────────────────
+function TileGrid({ children, compact }: { children: React.ReactNode; compact?: boolean }) {
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: compact
+        ? "repeat(auto-fill, minmax(160px, 1fr))"
+        : "repeat(auto-fill, minmax(240px, 1fr))",
+      gap: compact ? 8 : 12,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+// Kind labels + colors for the file strip badges. These match the designer
+// portal's mental model so uploads feel coherent across surfaces.
+const KIND_META: Record<string, { short: string; bg: string; fg: string; rank: number }> = {
+  final:       { short: "FINAL",  bg: T.green,    fg: "#fff",       rank: 5 },
+  revision:    { short: "REV",    bg: T.amber,    fg: "#fff",       rank: 4 },
+  first_draft: { short: "1ST",    bg: T.accent,   fg: "#fff",       rank: 3 },
+  wip:         { short: "WIP",    bg: T.blue,     fg: "#fff",       rank: 2 },
+  reference:   { short: "REF",    bg: T.purple,   fg: "#fff",       rank: 1 },
+  client_intake: { short: "INTK", bg: T.purpleDim, fg: T.purple,    rank: 1 },
+  packing_slip: { short: "PACK",  bg: T.surface,  fg: T.muted,      rank: 0 },
+  print_ready: { short: "PRINT",  bg: T.green,    fg: "#fff",       rank: 5 },
+};
+
+// What HPD should know + do next, based on brief state. Surfaces the one
+// most useful action (when there is one) alongside plain-English status.
+function hpdNextStep(state: string): {
+  text: string;
+  tone: "info" | "action" | "done";
+  action?: { label: string; kind: "send_to_client" | "mark_production_ready" | "mark_delivered" | "upload_print_ready" };
+} | null {
+  if (state === "draft") {
+    return { text: "Fill in the brief, then Send to Designer when ready.", tone: "info" };
+  }
+  if (state === "sent" || state === "in_progress") {
+    return { text: "Designer is working. You'll see a WIP when they share.", tone: "info" };
+  }
+  if (state === "wip_review") {
+    return { text: "Designer shared a WIP — take a look. Everyone can see it.", tone: "info" };
+  }
+  if (state === "client_review") {
+    return { text: "Client is reviewing the draft. Wait for approve or revision request.", tone: "info" };
+  }
+  if (state === "revisions") {
+    return { text: "Client requested changes — designer is handling it.", tone: "info" };
+  }
+  if (state === "final_approved" || state === "pending_prep") {
+    return {
+      text: "Client approved. Upload the Print-Ready file when prep is done.",
+      tone: "action",
+      action: { label: "+ Upload Print-Ready", kind: "upload_print_ready" },
+    };
+  }
+  if (state === "production_ready") {
+    return {
+      text: "Print-Ready file is up. Ready to close this out.",
+      tone: "action",
+      action: { label: "Mark Delivered", kind: "mark_delivered" },
+    };
+  }
+  if (state === "delivered") {
+    return { text: "Complete.", tone: "done" };
+  }
+  return null;
+}
+
+// Bullet-auto helper for textareas — focus empty → "• ", Enter → "\n• ".
+// Mirrors the New Request modal input style so all note fields feel alike.
+function bulletHandlers(value: string, setValue: (v: string) => void) {
+  return {
+    onFocus: (e: React.FocusEvent<HTMLTextAreaElement>) => {
+      if (!e.target.value) {
+        const b = "• ";
+        setValue(b);
+        setTimeout(() => (e.target as HTMLTextAreaElement).setSelectionRange(b.length, b.length), 0);
+      }
+    },
+    onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const t = e.target as HTMLTextAreaElement;
+        const pos = t.selectionStart;
+        const insert = "\n• ";
+        const next = value.slice(0, pos) + insert + value.slice(pos);
+        setValue(next);
+        setTimeout(() => t.setSelectionRange(pos + insert.length, pos + insert.length), 0);
+      }
+    },
+  };
+}
+
+// Pick the default hero: latest file of the kind matching brief's current
+// state. Falls back to newest file of any kind.
+function pickHeroFile(state: string, files: any[]): any | null {
+  if (!files.length) return null;
+  // State-to-relevant-kind preference order
+  const pref: Record<string, string[]> = {
+    draft: ["reference", "client_intake"],
+    sent: ["reference"],
+    in_progress: ["wip", "reference"],
+    wip_review: ["wip", "reference"],
+    client_review: ["first_draft", "revision", "wip"],
+    revisions: ["first_draft", "revision", "wip"],
+    final_approved: ["final", "first_draft", "wip"],
+    pending_prep: ["final", "first_draft"],
+    production_ready: ["print_ready", "final"],
+    delivered: ["print_ready", "final"],
+  };
+  const order = pref[state] || ["final", "first_draft", "wip", "reference"];
+  for (const kind of order) {
+    const hit = files.filter(f => f.kind === kind).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
+    if (hit) return hit;
+  }
+  // Fallback — newest overall
+  return [...files].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
 }
 
 function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?: boolean) => void }) {
@@ -400,6 +780,8 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   const [saving, setSaving] = useState(false);
   const [savedIndicator, setSavedIndicator] = useState(false);
   const [changed, setChanged] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [actionPending, setActionPending] = useState<PrimaryActionKind | null>(null);
 
   async function save(updates: any) {
     setSaving(true);
@@ -418,27 +800,28 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     if ((form as any)[field] !== (brief as any)[field]) save({ [field]: (form as any)[field] });
   }
 
-  async function handleDelete() {
-    if (!window.confirm("Delete this brief permanently?")) return;
-    await fetch(`/api/art-briefs?id=${brief.id}`, { method: "DELETE" });
-    onClose(true);
+  async function handleArchive() {
+    if (!window.confirm("Archive this brief? It'll disappear from the active list. You'll have 60 days to repurpose it before it's gone for good.")) return;
+    const res = await fetch(`/api/art-briefs/${brief.id}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "archive" }),
+    });
+    if (res.ok) onClose(true);
+    else alert("Archive failed");
   }
 
   const ic = { width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, boxSizing: "border-box" as const };
   const label = { fontSize: 10, fontWeight: 600 as const, color: T.muted, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 4, display: "block" };
 
   const context = brief.clients?.name || brief.jobs?.title || "Unlinked brief";
+  const resolution = useMemo(() => resolveBrief({
+    ...brief,
+    state: form.state,
+  }), [brief, form.state]);
 
-  const [intakeData, setIntakeData] = useState<{ purpose: string | null; audience: string | null; mood_words: string[]; no_gos: string | null; submitted: string | null }>({
-    purpose: (brief as any).purpose || null,
-    audience: (brief as any).audience || null,
-    mood_words: (brief as any).mood_words || [],
-    no_gos: (brief as any).no_gos || null,
-    submitted: (brief as any).client_intake_submitted_at || null,
-  });
-  const [references, setReferences] = useState<any[]>([]);
-  const [wips, setWips] = useState<any[]>([]);
-  const [finals, setFinals] = useState<any[]>([]);
+  const [allFiles, setAllFiles] = useState<any[]>([]);
+  const [heroId, setHeroId] = useState<string | null>(null);
   const [promoting, setPromoting] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [designers, setDesigners] = useState<any[]>([]);
@@ -448,26 +831,70 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   const [assignedDesignerId, setAssignedDesignerId] = useState<string | null>((brief as any).assigned_designer_id || null);
   const [sentAt, setSentAt] = useState<string | null>((brief as any).sent_to_designer_at || null);
 
+  // Derived: references subset (for annotation UI + uploads)
+  const references = useMemo(() => allFiles.filter(f => f.kind === "reference"), [allFiles]);
+  const hero = useMemo(() => {
+    if (heroId) {
+      const found = allFiles.find(f => f.id === heroId);
+      if (found) return found;
+    }
+    return pickHeroFile(form.state, allFiles);
+  }, [allFiles, heroId, form.state]);
+
+  // Strip order: newest first, but keep references at the end so creative
+  // work uploads get prominence.
+  const stripFiles = useMemo(() => {
+    const nonRef = allFiles.filter(f => f.kind !== "reference")
+      .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+    const refs = allFiles.filter(f => f.kind === "reference")
+      .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+    return [...nonRef, ...refs];
+  }, [allFiles]);
+
   useEffect(() => {
     fetch(`/api/art-briefs?id=${brief.id}`).then(r => r.json()).then(data => {
       if (data.brief) {
-        setIntakeData({
-          purpose: data.brief.purpose || null,
-          audience: data.brief.audience || null,
-          mood_words: data.brief.mood_words || [],
-          no_gos: data.brief.no_gos || null,
-          submitted: data.brief.client_intake_submitted_at || null,
-        });
         setAssignedDesignerId(data.brief.assigned_designer_id || null);
         setSentAt(data.brief.sent_to_designer_at || null);
       }
-      const files = data.files || [];
-      setReferences(files.filter((f: any) => f.kind === "reference"));
-      setWips(files.filter((f: any) => f.kind === "wip").sort((a: any, b: any) => b.version - a.version));
-      setFinals(files.filter((f: any) => f.kind === "final").sort((a: any, b: any) => b.version - a.version));
+      setAllFiles(data.files || []);
     });
     fetch("/api/designers").then(r => r.json()).then(d => setDesigners((d.designers || []).filter((x: any) => x.active)));
   }, [brief.id]);
+
+  // Keep legacy refs used below ("finals" promote-final list)
+  const finals = useMemo(() => allFiles.filter(f => f.kind === "final").sort((a, b) => (b.version || 0) - (a.version || 0)), [allFiles]);
+  const wips = useMemo(() => allFiles.filter(f => f.kind === "wip").sort((a, b) => (b.version || 0) - (a.version || 0)), [allFiles]);
+
+  // Sync HPD's note editor when hero changes
+  useEffect(() => {
+    const saved = hero?.hpd_annotation || "";
+    setHpdNote(saved);
+    setHpdNoteSaved(saved);
+  }, [hero?.id, hero?.hpd_annotation]);
+
+  async function runPrimaryAction(action: PrimaryActionKind) {
+    if (action === "open") return;
+    setActionPending(action);
+    try {
+      const res = await fetch(`/api/art-briefs/${brief.id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed");
+      } else {
+        setForm(p => ({ ...p, state: data.to }));
+        setChanged(true);
+        setSendResult(`→ ${data.to.replace(/_/g, " ")}`);
+        setTimeout(() => setSendResult(null), 2500);
+      }
+    } finally {
+      setActionPending(null);
+    }
+  }
 
   async function promoteFinalToPrintReady(fileId: string) {
     setPromoting(fileId);
@@ -524,47 +951,41 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     }
   }
 
-  const [sendingIntake, setSendingIntake] = useState(false);
-  const [intakeEmailResult, setIntakeEmailResult] = useState<string | null>(null);
-  async function emailIntakeToClient() {
-    setSendingIntake(true);
-    const res = await fetch("/api/art-briefs/send-intake", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ brief_id: brief.id }),
-    });
-    const data = await res.json();
-    setSendingIntake(false);
-    if (data.success) {
-      setIntakeEmailResult(`Emailed to ${data.recipients.join(", ")}`);
-      setChanged(true);
-    } else {
-      setIntakeEmailResult(`Error: ${data.error}`);
-    }
-    setTimeout(() => setIntakeEmailResult(null), 3500);
-  }
-
+  const [hpdNote, setHpdNote] = useState("");
+  const [hpdNoteSaved, setHpdNoteSaved] = useState("");
   async function saveHpdAnnotation(fileId: string, annotation: string) {
-    await fetch("/api/art-briefs/files", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: fileId, hpd_annotation: annotation }),
-    }).catch(() => {});
+    if (annotation === hpdNoteSaved) return;
+    try {
+      await fetch("/api/art-briefs/files", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: fileId, hpd_annotation: annotation }),
+      });
+      setHpdNoteSaved(annotation);
+      // Keep local state in sync so re-focusing the file shows the latest value.
+      setAllFiles(p => p.map(f => f.id === fileId ? { ...f, hpd_annotation: annotation || null } : f));
+      setChanged(true);
+    } catch {}
   }
 
   const refInputRef = useRef<HTMLInputElement>(null);
+  const printInputRef = useRef<HTMLInputElement>(null);
   const [uploadingRefs, setUploadingRefs] = useState(0);
   const [refUploadError, setRefUploadError] = useState<string | null>(null);
+  const [uploadNote, setUploadNote] = useState("");
 
-  async function uploadReferences(files: File[]) {
+  async function uploadFiles(files: File[], kind: "reference" | "print_ready") {
     if (!files.length) return;
     setUploadingRefs(files.length);
     setRefUploadError(null);
     let doneCount = 0;
     const newFiles: any[] = [];
+    const noteForBatch = uploadNote.trim();
     for (const file of files) {
       const fd = new FormData();
       fd.append("brief_id", brief.id);
       fd.append("file", file);
-      fd.append("kind", "reference");
+      fd.append("kind", kind);
+      if (noteForBatch) fd.append("hpd_annotation", noteForBatch);
       try {
         const res = await fetch("/api/art-briefs/upload-reference", { method: "POST", body: fd });
         const data = await res.json();
@@ -579,8 +1000,9 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
       doneCount++;
       setUploadingRefs(files.length - doneCount);
     }
+    setUploadNote("");
     if (newFiles.length) {
-      setReferences(p => [...p, ...newFiles]);
+      setAllFiles(p => [...p, ...newFiles]);
       setChanged(true);
     }
     setUploadingRefs(0);
@@ -589,284 +1011,347 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   async function deleteReference(fileId: string) {
     if (!confirm("Remove this reference?")) return;
     await fetch(`/api/art-briefs/files?id=${fileId}`, { method: "DELETE" });
-    setReferences(p => p.filter(r => r.id !== fileId));
+    setAllFiles(p => p.filter(r => r.id !== fileId));
     setChanged(true);
   }
 
-  const purposeLabel: Record<string, string> = {
-    tour: "Tour merch", event: "Event / one-off", brand_staple: "Brand staple",
-    drop: "Drop / capsule", corporate: "Corporate / promo", retail: "Retail",
-    other: "Other",
-  };
+  const heroMeta = hero ? KIND_META[hero.kind] : null;
+  const statusChip = STATE_LABELS[form.state] || { label: form.state, color: T.muted, bg: T.surface };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", justifyContent: "center", alignItems: "flex-start", paddingTop: 40 }}
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", justifyContent: "center", alignItems: "flex-start", paddingTop: 24 }}
       onClick={e => { if (e.target === e.currentTarget) onClose(changed); }}>
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, width: "90vw", maxWidth: 900, maxHeight: "90vh", overflow: "auto", fontFamily: font }}>
-        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{form.title || "Untitled Brief"}</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{context}{brief.items?.name ? ` · ${brief.items.name}` : ""}</div>
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, width: "94vw", maxWidth: 1180, maxHeight: "94vh", display: "flex", flexDirection: "column", fontFamily: font, overflow: "hidden" }}>
+        {/* ── Header ── */}
+        <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {form.title || "Untitled Brief"}
+              </div>
+              {/* Status chip — read-only, rectangle w/ small radius per plan */}
+              <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 8px", borderRadius: 4, background: statusChip.bg, color: statusChip.color, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>
+                {statusChip.label}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {context}{brief.items?.name ? ` · ${brief.items.name}` : ""}
+              {" · "}
+              <span style={{ color: T.text, fontWeight: 600 }}>{resolution.activity}</span>
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button onClick={copyIntakeLink}
-              style={{ padding: "5px 10px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
-              {linkCopied ? "✓ Copied" : "Copy Link"}
-            </button>
-            <button onClick={emailIntakeToClient} disabled={sendingIntake}
-              style={{ padding: "5px 12px", background: "transparent", color: T.accent, border: `1px solid ${T.accent}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: sendingIntake ? 0.5 : 1 }}>
-              {sendingIntake ? "Sending..." : "Email to Client"}
-            </button>
-            {intakeEmailResult && <span style={{ fontSize: 10, color: intakeEmailResult.startsWith("Error") ? T.red : T.green, fontWeight: 600 }}>{intakeEmailResult}</span>}
-            <button onClick={() => setShowSendModal(true)}
-              style={{ padding: "5px 12px", background: sentAt ? T.greenDim : T.accent, color: sentAt ? T.green : "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
-              {sentAt ? "✓ Sent to Designer" : "Send to Designer"}
-            </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            {/* Primary action (only when HPD owns next + action is not "open") */}
+            {resolution.section === "your_move" && resolution.primary && resolution.primary.action !== "open" && (
+              <button onClick={() => runPrimaryAction(resolution.primary!.action)}
+                disabled={actionPending !== null}
+                style={{ padding: "6px 14px", background: T.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: font, opacity: actionPending ? 0.6 : 1 }}>
+                {actionPending ? "Working…" : resolution.primary.label}
+              </button>
+            )}
+            {/* Send to Designer — only visible when not yet sent */}
+            {!sentAt && (
+              <button onClick={() => setShowSendModal(true)}
+                style={{ padding: "6px 14px", background: T.text, color: T.bg, border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                Send to Designer
+              </button>
+            )}
+            {sentAt && (
+              <span style={{ fontSize: 10, padding: "4px 10px", background: T.greenDim, color: T.green, borderRadius: 4, fontWeight: 600 }}>
+                ✓ Designer
+              </span>
+            )}
             {sendResult && <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>{sendResult}</span>}
             {savedIndicator && !sendResult && <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>Saved</span>}
-            {saving && <span style={{ fontSize: 10, color: T.muted }}>Saving...</span>}
-            <button onClick={handleDelete} style={{ background: "none", border: `1px solid ${T.border}`, color: T.red, fontSize: 10, padding: "3px 10px", borderRadius: 6, cursor: "pointer", fontFamily: font }}>Delete</button>
+
+            {/* Admin gear — state override, delete, intake-send, etc */}
+            <div style={{ position: "relative" }}>
+              <button onClick={() => setAdminOpen(v => !v)}
+                style={{ padding: "6px 10px", background: adminOpen ? T.surface : "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 12, cursor: "pointer", fontFamily: font }}>
+                ⚙
+              </button>
+              {adminOpen && (
+                <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12, width: 280, zIndex: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.08)" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Admin</div>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={label}>State override</label>
+                    <select value={form.state}
+                      onChange={e => { const v = e.target.value; setForm(p => ({ ...p, state: v })); save({ state: v }); }}
+                      style={{ ...ic, cursor: "pointer" }}>
+                      {Object.entries(STATE_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                    <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>
+                      For unsticking edge cases only. Day-to-day transitions happen automatically.
+                    </div>
+                  </div>
+                  <button onClick={copyIntakeLink}
+                    style={{ width: "100%", padding: "6px 10px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font, marginBottom: 10 }}>
+                    {linkCopied ? "✓ Copied" : "Copy portal link"}
+                  </button>
+                  <button onClick={handleArchive}
+                    style={{ width: "100%", padding: "6px 10px", background: "transparent", color: T.red, border: `1px solid ${T.red}55`, borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                    Archive brief
+                  </button>
+                </div>
+              )}
+            </div>
             <button onClick={() => onClose(changed)} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 18, padding: "0 4px" }}>×</button>
           </div>
         </div>
 
-        <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* CLIENT INTAKE SECTION */}
-          <div style={{ padding: 14, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Client Intake</div>
-              {intakeData.submitted ? (
-                <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 10px", borderRadius: 99, background: T.greenDim, color: T.green }}>
-                  Submitted {new Date(intakeData.submitted).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                </span>
-              ) : (
-                <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 10px", borderRadius: 99, background: T.amberDim, color: T.amber }}>
-                  Awaiting client
-                </span>
+        {/* What's next — orients HPD on who's blocking + surfaces the
+            single most useful action for the current state. */}
+        {(() => {
+          const next = hpdNextStep(form.state);
+          if (!next) return null;
+          const tone = next.tone;
+          const bg = tone === "action" ? T.amberDim : tone === "done" ? T.greenDim : T.blueDim;
+          const border = tone === "action" ? T.amber + "55" : tone === "done" ? T.green + "55" : T.blue + "55";
+          const textColor = tone === "action" ? T.amber : tone === "done" ? T.green : T.blue;
+          return (
+            <div style={{ padding: "10px 18px", background: bg, borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+              <div style={{ flex: 1, fontSize: 12, color: textColor, fontWeight: 600 }}>
+                {next.text}
+              </div>
+              {next.action && (
+                <button
+                  onClick={next.action.kind === "upload_print_ready"
+                    ? () => printInputRef.current?.click()
+                    : () => runPrimaryAction(next.action!.kind as PrimaryActionKind)}
+                  disabled={actionPending !== null}
+                  style={{ padding: "6px 14px", background: textColor, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: font, opacity: actionPending ? 0.6 : 1, whiteSpace: "nowrap" }}>
+                  {actionPending ? "Working…" : next.action.label}
+                </button>
               )}
             </div>
-            {/* Intake answers (client-submitted) */}
-            {intakeData.submitted ? (
-              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 14px", fontSize: 12, marginBottom: 14 }}>
-                <span style={{ color: T.muted, fontWeight: 600 }}>Purpose:</span>
-                <span style={{ color: T.text }}>{intakeData.purpose ? purposeLabel[intakeData.purpose] || intakeData.purpose : "—"}</span>
-                <span style={{ color: T.muted, fontWeight: 600 }}>Audience:</span>
-                <span style={{ color: T.text }}>{intakeData.audience || "—"}</span>
-                <span style={{ color: T.muted, fontWeight: 600 }}>Mood:</span>
-                <span style={{ color: T.text }}>
-                  {intakeData.mood_words.length > 0 ? intakeData.mood_words.map((w, i) => (
-                    <span key={i} style={{ display: "inline-block", background: T.card, border: `1px solid ${T.border}`, borderRadius: 99, padding: "2px 10px", fontSize: 11, marginRight: 4 }}>{w}</span>
-                  )) : "—"}
-                </span>
-                {intakeData.no_gos && <>
-                  <span style={{ color: T.red, fontWeight: 600 }}>Avoid:</span>
-                  <span style={{ color: T.text }}>{intakeData.no_gos}</span>
-                </>}
-              </div>
-            ) : (
-              <div style={{ fontSize: 12, color: T.faint, fontStyle: "italic", marginBottom: 14 }}>
-                Client hasn't submitted intake. Use <strong>Copy Link</strong> or <strong>Email to Client</strong> above to send it — their answers show here when they fill it out.
-              </div>
-            )}
+          );
+        })()}
 
-            {/* References (always visible, HPD can add more) */}
-            <div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  References {references.length > 0 && <span style={{ fontWeight: 400, color: T.faint }}>· {references.length}</span>}
-                </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  {uploadingRefs > 0 && (
-                    <span style={{ fontSize: 10, color: T.blue, fontWeight: 600 }}>Uploading… {uploadingRefs} left</span>
+        {/* ── Main body: hero+strip on left, chat on right ── */}
+        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 320px", gap: 0, overflow: "hidden", minHeight: 0 }}>
+          {/* ── Left: hero + strip ── */}
+          <div style={{ display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+            {/* Hero — fixed height container, never shifts, never crops.
+                clamp(480px, 60vh, 720px) = generous on any screen, capped. */}
+            <div style={{
+              height: "clamp(480px, 60vh, 720px)",
+              flexShrink: 0,
+              background: T.surface,
+              position: "relative",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              overflow: "hidden",
+            }}>
+              {hero ? (
+                <>
+                  <a href={hero.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ display: "contents" }}>
+                    <img
+                      src={hero.drive_file_id ? `https://drive.google.com/thumbnail?id=${hero.drive_file_id}&sz=w1200` : ""}
+                      referrerPolicy="no-referrer"
+                      alt=""
+                      style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                      onError={e => (e.target as HTMLImageElement).style.display = "none"}
+                    />
+                  </a>
+                  {heroMeta && (
+                    <div style={{ position: "absolute", top: 12, left: 12, padding: "3px 9px", borderRadius: 4, background: heroMeta.bg, color: heroMeta.fg, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em" }}>
+                      {heroMeta.short}{hero.version ? ` · v${hero.version}` : ""}
+                    </div>
                   )}
-                  {refUploadError && (
-                    <span style={{ fontSize: 10, color: T.red, fontWeight: 600 }}>{refUploadError}</span>
+                  {hero.file_name && (
+                    <div style={{ position: "absolute", bottom: 12, left: 12, padding: "3px 9px", borderRadius: 4, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 10, fontFamily: mono }}>
+                      {hero.file_name}
+                    </div>
                   )}
-                  <button
-                    onClick={() => refInputRef.current?.click()}
-                    disabled={uploadingRefs > 0}
-                    style={{ padding: "4px 10px", background: T.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.5 : 1 }}
-                  >
-                    + Add references
-                  </button>
-                  <input
-                    ref={refInputRef}
-                    type="file"
-                    multiple
-                    style={{ display: "none" }}
-                    onChange={e => {
-                      const files = Array.from(e.target.files || []);
-                      uploadReferences(files);
-                      if (refInputRef.current) refInputRef.current.value = "";
-                    }}
-                  />
+                </>
+              ) : (
+                <div style={{ textAlign: "center", color: T.faint, fontSize: 12 }}>
+                  No files yet — client or designer will upload as the brief moves forward
                 </div>
-              </div>
+              )}
+            </div>
 
-              {references.length === 0 ? (
+            {/* Strip + upload — takes remaining space, scrolls internally.
+                Hero is fixed above; this absorbs the overflow. */}
+            <div style={{ background: T.surface, borderTop: `1px solid ${T.border}`, padding: "10px 12px", flex: 1, overflowY: "auto", minHeight: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  All files {stripFiles.length > 0 && <span style={{ fontWeight: 400, color: T.faint }}>· {stripFiles.length}</span>}
+                </div>
+                <div style={{ flex: 1 }} />
+                {uploadingRefs > 0 && <span style={{ fontSize: 10, color: T.blue, fontWeight: 600 }}>Uploading… {uploadingRefs} left</span>}
+                {refUploadError && <span style={{ fontSize: 10, color: T.red, fontWeight: 600 }}>{refUploadError}</span>}
+                <button onClick={() => refInputRef.current?.click()} disabled={uploadingRefs > 0}
+                  style={{ padding: "4px 10px", background: T.card, color: T.text, border: `1px solid ${T.border}`, borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.5 : 1 }}>
+                  + Reference
+                </button>
+                <button onClick={() => printInputRef.current?.click()} disabled={uploadingRefs > 0}
+                  title="Upload production-ready file (separations, CMYK) — flips brief to production_ready"
+                  style={{ padding: "4px 10px", background: T.green, color: "#fff", border: "none", borderRadius: 4, fontSize: 10, fontWeight: 700, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.5 : 1 }}>
+                  + Print-Ready
+                </button>
+                <input ref={refInputRef} type="file" multiple style={{ display: "none" }}
+                  onChange={e => {
+                    const files = Array.from(e.target.files || []);
+                    uploadFiles(files, "reference");
+                    if (refInputRef.current) refInputRef.current.value = "";
+                  }} />
+                <input ref={printInputRef} type="file" style={{ display: "none" }}
+                  onChange={e => {
+                    const files = Array.from(e.target.files || []);
+                    uploadFiles(files, "print_ready");
+                    if (printInputRef.current) printInputRef.current.value = "";
+                  }} />
+              </div>
+              {/* Optional note — lands as HPD's annotation on uploaded refs */}
+              <div style={{ marginBottom: 8 }}>
+                <textarea value={uploadNote} onChange={e => setUploadNote(e.target.value)}
+                  {...bulletHandlers(uploadNote, setUploadNote)}
+                  placeholder="• Note for the next reference (optional)"
+                  rows={2}
+                  style={{ width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 4, fontSize: 11, fontFamily: font, outline: "none", background: T.card, color: T.text, lineHeight: 1.4, resize: "vertical", boxSizing: "border-box" }} />
+              </div>
+              {stripFiles.length === 0 ? (
                 <div
                   onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.borderColor = T.accent; }}
                   onDragLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = T.border; }}
-                  onDrop={e => {
-                    e.preventDefault();
-                    (e.currentTarget as HTMLElement).style.borderColor = T.border;
-                    uploadReferences(Array.from(e.dataTransfer.files || []));
-                  }}
+                  onDrop={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.borderColor = T.border; uploadFiles(Array.from(e.dataTransfer.files || []), "reference"); }}
                   onClick={() => refInputRef.current?.click()}
-                  style={{
-                    padding: 20, border: `2px dashed ${T.border}`, borderRadius: 8,
-                    textAlign: "center", fontSize: 11, color: T.faint, cursor: "pointer",
-                    background: T.card,
-                  }}
-                >
-                  No references yet — drop files here or click <strong>+ Add references</strong>
+                  style={{ padding: 14, border: `2px dashed ${T.border}`, borderRadius: 6, textAlign: "center", fontSize: 11, color: T.faint, cursor: "pointer", background: T.card }}>
+                  Drop reference images here or click <strong>+ Reference</strong>
                 </div>
               ) : (
                 <div
-                  onDragOver={e => { e.preventDefault(); }}
-                  onDrop={e => {
-                    e.preventDefault();
-                    uploadReferences(Array.from(e.dataTransfer.files || []));
-                  }}
-                  style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}
-                >
-                  {references.map(r => (
-                    <div key={r.id} style={{ background: T.card, borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden", position: "relative" }}>
-                      <button
-                        onClick={() => deleteReference(r.id)}
-                        style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.55)", color: "#fff", border: "none", borderRadius: 4, width: 20, height: 20, cursor: "pointer", fontSize: 12, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1 }}
-                        title="Remove"
-                      >
-                        ×
-                      </button>
-                      <a href={r.drive_link} target="_blank" rel="noopener noreferrer">
-                        <div style={{ width: "100%", aspectRatio: "5/4", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: `1px solid ${T.border}` }}>
-                          <img
-                            src={r.drive_file_id ? `https://drive.google.com/thumbnail?id=${r.drive_file_id}&sz=w400` : (r.drive_link?.replace("/view", "/preview") || "")}
-                            referrerPolicy="no-referrer"
-                            alt=""
-                            style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-                            onError={e => (e.target as HTMLImageElement).style.display = "none"}
-                          />
-                        </div>
-                      </a>
-                      <div style={{ padding: 8 }}>
-                        {r.client_annotation && <div style={{ fontSize: 10, color: T.muted, fontStyle: "italic", marginBottom: 4 }}>"{r.client_annotation}"</div>}
-                        <input
-                          defaultValue={r.hpd_annotation || ""}
-                          onBlur={e => saveHpdAnnotation(r.id, e.target.value)}
-                          placeholder="HPD note to designer..."
-                          style={{ width: "100%", fontSize: 10, padding: "4px 6px", border: `1px solid ${T.amber}44`, borderRadius: 4, background: T.amberDim + "33", color: T.amber, fontFamily: font, outline: "none", boxSizing: "border-box" }}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); uploadFiles(Array.from(e.dataTransfer.files || []), "reference"); }}
+                  style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
+                  {stripFiles.map(f => {
+                    const meta = KIND_META[f.kind] || KIND_META.reference;
+                    const isHero = hero?.id === f.id;
+                    return (
+                      <div key={f.id}
+                        onClick={() => setHeroId(f.id)}
+                        title={`${meta.short}${f.version ? ` v${f.version}` : ""} — ${f.file_name || ""}`}
+                        style={{
+                          width: 72, height: 72, flexShrink: 0,
+                          background: "#fff", borderRadius: 4,
+                          border: `2px solid ${isHero ? T.accent : T.border}`,
+                          boxShadow: isHero ? `0 0 0 2px ${T.accent}44` : "none",
+                          overflow: "hidden", position: "relative", cursor: "pointer",
+                        }}>
+                        <img
+                          src={f.drive_file_id ? `https://drive.google.com/thumbnail?id=${f.drive_file_id}&sz=w200` : ""}
+                          referrerPolicy="no-referrer"
+                          alt=""
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          onError={e => (e.target as HTMLImageElement).style.display = "none"}
                         />
+                        <div style={{ position: "absolute", top: 2, left: 2, padding: "1px 4px", borderRadius: 2, background: meta.bg, color: meta.fg, fontSize: 8, fontWeight: 700 }}>
+                          {meta.short}
+                        </div>
+                        {f.kind === "reference" && (
+                          <button onClick={e => { e.stopPropagation(); deleteReference(f.id); }}
+                            style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, background: "rgba(0,0,0,0.55)", color: "#fff", border: "none", borderRadius: 3, cursor: "pointer", fontSize: 10, lineHeight: 1, padding: 0 }}>
+                            ×
+                          </button>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Promote final → print-ready (HPD's current mechanism) */}
+              {hero?.kind === "final" && brief.item_id && (
+                <div style={{ marginTop: 10 }}>
+                  <button onClick={() => promoteFinalToPrintReady(hero.id)} disabled={promoting === hero.id}
+                    style={{ padding: "6px 14px", background: T.accent, color: "#fff", border: "none", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: promoting === hero.id ? 0.5 : 1 }}>
+                    {promoting === hero.id ? "Promoting…" : "→ Print-Ready"}
+                  </button>
                 </div>
               )}
             </div>
           </div>
 
-          {/* HPD TRANSLATION SECTION */}
-          <div style={{ padding: 14, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>HPD Brief → Designer</div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* ── Right: Brief (editable top) + Notes on hero (flex middle) ── */}
+          <div style={{ borderLeft: `1px solid ${T.border}`, background: T.card, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+            {/* Brief — editable, scrolls if long */}
+            <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12, flexShrink: 0, maxHeight: "50%", overflowY: "auto", borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Brief
+              </div>
               <div>
                 <label style={label}>Title</label>
                 <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} onBlur={() => handleBlur("title")} style={ic} />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <label style={label}>State</label>
-                  <select value={form.state} onChange={e => { const v = e.target.value; setForm(p => ({ ...p, state: v })); save({ state: v }); }} style={{ ...ic, cursor: "pointer" }}>
-                    {Object.entries(STATE_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                  </select>
-                </div>
+              <div>
+                <label style={label}>Concept (for designer)</label>
+                <textarea rows={3} value={form.concept} onChange={e => setForm(p => ({ ...p, concept: e.target.value }))} onBlur={() => handleBlur("concept")}
+                  {...bulletHandlers(form.concept, (v) => setForm(p => ({ ...p, concept: v })))}
+                  style={{ ...ic, resize: "vertical", lineHeight: 1.4 }} placeholder="• Creative direction" />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 <div>
                   <label style={label}>Deadline</label>
                   <input type="date" value={form.deadline || ""} onChange={e => setForm(p => ({ ...p, deadline: e.target.value }))} onBlur={() => handleBlur("deadline")} style={ic} />
                 </div>
-              </div>
-              <div>
-                <label style={label}>Concept (for designer)</label>
-                <textarea rows={3} value={form.concept} onChange={e => setForm(p => ({ ...p, concept: e.target.value }))} onBlur={() => handleBlur("concept")} style={{ ...ic, resize: "vertical", lineHeight: 1.4 }} placeholder="Translate client's intake into a clear creative direction..." />
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
                   <label style={label}>Placement</label>
-                  <input value={form.placement} onChange={e => setForm(p => ({ ...p, placement: e.target.value }))} onBlur={() => handleBlur("placement")} style={ic} placeholder="e.g. Full back, 12×14" />
-                </div>
-                <div>
-                  <label style={label}>Colors</label>
-                  <input value={form.colors} onChange={e => setForm(p => ({ ...p, colors: e.target.value }))} onBlur={() => handleBlur("colors")} style={ic} placeholder="e.g. 2c screen — white, red" />
+                  <input value={form.placement} onChange={e => setForm(p => ({ ...p, placement: e.target.value }))} onBlur={() => handleBlur("placement")} style={ic} placeholder="Full back" />
                 </div>
               </div>
               <div>
-                <label style={{ ...label, color: T.amber }}>Internal Notes (HPD only, designer doesn't see)</label>
-                <textarea rows={2} value={form.internal_notes} onChange={e => setForm(p => ({ ...p, internal_notes: e.target.value }))} onBlur={() => handleBlur("internal_notes")} style={{ ...ic, resize: "vertical", lineHeight: 1.4, borderColor: T.amber + "44" }} placeholder="Scratch pad, private..." />
+                <label style={label}>Colors</label>
+                <input value={form.colors} onChange={e => setForm(p => ({ ...p, colors: e.target.value }))} onBlur={() => handleBlur("colors")} style={ic} placeholder="2c — white, red" />
+              </div>
+              <div>
+                <label style={{ ...label, color: T.amber }}>Internal Notes (HPD only)</label>
+                <textarea rows={2} value={form.internal_notes} onChange={e => setForm(p => ({ ...p, internal_notes: e.target.value }))} onBlur={() => handleBlur("internal_notes")}
+                  {...bulletHandlers(form.internal_notes, (v) => setForm(p => ({ ...p, internal_notes: v })))}
+                  style={{ ...ic, resize: "vertical", lineHeight: 1.4, borderColor: T.amber + "44" }} placeholder="• Scratch pad, private" />
               </div>
             </div>
-          </div>
 
-          {sentAt && (
-            <div style={{ padding: 10, background: T.greenDim, borderRadius: 6, border: `1px solid ${T.green}44`, fontSize: 11, color: T.green, textAlign: "center" }}>
-              Sent to designer on {new Date(sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.
-              Their uploads, status changes, and messages appear below.
-            </div>
-          )}
-
-          {/* DESIGNER WORK FILES */}
-          {(wips.length > 0 || finals.length > 0) && (
-            <div style={{ padding: 14, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Designer Work</div>
-              {finals.length > 0 && (
-                <div style={{ marginBottom: wips.length > 0 ? 14 : 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: T.green, marginBottom: 8 }}>Final · {finals.length}</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {finals.map(f => (
-                      <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.greenDim, border: `1px solid ${T.green}33`, borderRadius: 6, fontSize: 12 }}>
-                        <span style={{ padding: "2px 8px", background: T.green, color: "#fff", borderRadius: 4, fontWeight: 700, fontSize: 10 }}>FINAL V{f.version}</span>
-                        <a href={f.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: font }}>{f.file_name}</a>
-                        <span style={{ fontSize: 10, color: T.muted }}>{new Date(f.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                        {brief.item_id && (
-                          <button
-                            onClick={() => promoteFinalToPrintReady(f.id)}
-                            disabled={promoting === f.id}
-                            style={{ padding: "4px 10px", background: T.accent, color: "#fff", border: "none", borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: promoting === f.id ? 0.5 : 1 }}
-                          >
-                            {promoting === f.id ? "..." : "→ Print-Ready"}
-                          </button>
-                        )}
-                      </div>
-                    ))}
+            {/* Notes on the current hero */}
+            <div style={{ padding: "14px 16px", flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Notes on this image
+              </div>
+              {!hero ? (
+                <div style={{ fontSize: 12, color: T.faint, fontStyle: "italic" }}>Pick a file to see + add notes.</div>
+              ) : (
+                <>
+                  {hero.client_annotation && (
+                    <div style={{ padding: "8px 12px", background: T.purpleDim, border: `1px solid ${T.purple}55`, borderRadius: 4 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: T.purple, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Client</div>
+                      <div style={{ fontSize: 12, color: T.text, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{hero.client_annotation}</div>
+                    </div>
+                  )}
+                  {hero.designer_annotation && (
+                    <div style={{ padding: "8px 12px", background: T.blueDim, border: `1px solid ${T.blue}55`, borderRadius: 4 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Designer</div>
+                      <div style={{ fontSize: 12, color: T.text, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{hero.designer_annotation}</div>
+                    </div>
+                  )}
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>HPD note</div>
+                    <textarea
+                      value={hpdNote}
+                      onChange={e => setHpdNote(e.target.value)}
+                      onBlur={() => saveHpdAnnotation(hero.id, hpdNote)}
+                      {...bulletHandlers(hpdNote, setHpdNote)}
+                      placeholder={hero.kind === "reference" ? "• HPD note to designer" : "• Internal note"}
+                      rows={4}
+                      style={{ width: "100%", padding: "8px 10px", border: `1px solid ${T.amber}55`, borderRadius: 4, background: T.amberDim + "33", color: T.text, fontFamily: font, outline: "none", fontSize: 12, lineHeight: 1.5, resize: "vertical", boxSizing: "border-box" }}
+                    />
                   </div>
-                </div>
-              )}
-              {wips.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: T.blue, marginBottom: 8 }}>WIPs · {wips.length}</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {wips.map(w => (
-                      <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", background: T.surface, borderRadius: 6, fontSize: 12 }}>
-                        <span style={{ padding: "2px 8px", background: T.blueDim, color: T.blue, borderRadius: 4, fontWeight: 700, fontSize: 10 }}>V{w.version}</span>
-                        <a href={w.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: font }}>{w.file_name}</a>
-                        <span style={{ fontSize: 10, color: T.muted }}>{new Date(w.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                </>
               )}
             </div>
-          )}
-
-          {/* MESSAGES */}
-          <div style={{ padding: 14, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8 }}>
-            <ArtBriefMessages briefId={brief.id} onSent={() => setChanged(true)} />
           </div>
         </div>
       </div>
 
-      {/* Send to Designer modal */}
+      {/* Send to Designer modal — unchanged */}
       {showSendModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}
           onClick={e => { if (e.target === e.currentTarget) setShowSendModal(false); }}>
@@ -920,6 +1405,7 @@ function NewRequestModal({
   const [clientId, setClientId] = useState("");
   const [jobId, setJobId] = useState("");
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [files, setFiles] = useState<StagedFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
@@ -971,6 +1457,7 @@ function NewRequestModal({
         title: finalTitle,
         client_id: clientId,
         job_id: jobId || null,
+        concept: description.trim() || null,
         state: "draft",
       }),
     });
@@ -1082,7 +1569,7 @@ function NewRequestModal({
             value={title}
             onChange={e => setTitle(e.target.value)}
             disabled={submitting}
-            placeholder="Request title (optional)"
+            placeholder="Working title (optional)"
             style={{
               padding: "9px 12px",
               fontSize: 13,
@@ -1093,6 +1580,53 @@ function NewRequestModal({
               outline: "none",
               fontFamily: font,
               boxSizing: "border-box",
+            }}
+          />
+        </div>
+
+        {/* Bullet notes — optional, auto-prefix • on each line */}
+        <div style={{ padding: "10px 20px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            onFocus={e => {
+              if (!e.target.value) {
+                const bullet = "• ";
+                setDescription(bullet);
+                // place caret after bullet
+                setTimeout(() => { e.target.setSelectionRange(bullet.length, bullet.length); }, 0);
+              }
+            }}
+            onKeyDown={e => {
+              // Auto-add "• " on Enter
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                const target = e.target as HTMLTextAreaElement;
+                const pos = target.selectionStart;
+                const before = description.slice(0, pos);
+                const after = description.slice(pos);
+                const insert = "\n• ";
+                const newVal = before + insert + after;
+                setDescription(newVal);
+                setTimeout(() => { target.setSelectionRange(pos + insert.length, pos + insert.length); }, 0);
+              }
+            }}
+            disabled={submitting}
+            placeholder="Notes (optional) — one bullet per line"
+            rows={3}
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              fontSize: 12,
+              borderRadius: 7,
+              border: `1px solid ${T.border}`,
+              background: T.card,
+              color: T.text,
+              outline: "none",
+              fontFamily: font,
+              resize: "vertical",
+              boxSizing: "border-box",
+              lineHeight: 1.5,
             }}
           />
         </div>
