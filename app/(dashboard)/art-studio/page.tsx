@@ -920,6 +920,7 @@ function NewRequestModal({
   const [clientId, setClientId] = useState("");
   const [jobId, setJobId] = useState("");
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [files, setFiles] = useState<StagedFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
@@ -971,6 +972,7 @@ function NewRequestModal({
         title: finalTitle,
         client_id: clientId,
         job_id: jobId || null,
+        concept: description.trim() || null,
         state: "draft",
       }),
     });
@@ -1082,7 +1084,7 @@ function NewRequestModal({
             value={title}
             onChange={e => setTitle(e.target.value)}
             disabled={submitting}
-            placeholder="Request title (optional)"
+            placeholder="Working title (optional)"
             style={{
               padding: "9px 12px",
               fontSize: 13,
@@ -1093,6 +1095,31 @@ function NewRequestModal({
               outline: "none",
               fontFamily: font,
               boxSizing: "border-box",
+            }}
+          />
+        </div>
+
+        {/* Short description — optional, free-form */}
+        <div style={{ padding: "10px 20px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            disabled={submitting}
+            placeholder="Short description (optional) — vibes, direction, must-haves, anything else the designer should know"
+            rows={2}
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              fontSize: 12,
+              borderRadius: 7,
+              border: `1px solid ${T.border}`,
+              background: T.card,
+              color: T.text,
+              outline: "none",
+              fontFamily: font,
+              resize: "vertical",
+              boxSizing: "border-box",
+              lineHeight: 1.5,
             }}
           />
         </div>
