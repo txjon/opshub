@@ -36,7 +36,12 @@ export async function GET(req: NextRequest) {
     if (clientId) query = query.eq("client_id", clientId);
 
     const { data, error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("[art-briefs GET] query error:", error);
+      return NextResponse.json({ error: error.message, code: error.code, hint: error.hint }, { status: 500 });
+    }
+
+    console.log(`[art-briefs GET] user=${user.id.slice(0,8)} returned ${data?.length || 0} briefs`);
 
     // Attach message counts + best thumbnail per brief in one extra fetch
     const briefs = data || [];
