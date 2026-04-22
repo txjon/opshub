@@ -29,12 +29,12 @@ export async function POST(req: NextRequest) {
       .single();
     if (!brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
 
-    const clientName = (brief as any).clients?.name || "Unknown";
+    const clientName = (brief as any).clients?.name || "Unassigned";
     const title = (brief as any).title || (brief as any).id;
-    const folderPath = `Art Brief References/${clientName}/${title}`;
 
+    // Nested: OpsHub Files / Art Studio / {Client} / {Brief}
     const { uploadUrl, folderId } = await createResumableUploadSession({
-      folderPath,
+      folderSegments: ["Art Studio", clientName, title],
       fileName: file_name,
       mimeType: mime_type || "application/octet-stream",
     });

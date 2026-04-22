@@ -64,3 +64,16 @@ export async function getReceivingFolderId(token: string, shipmentLabel: string)
   const shipmentFolder = await findOrCreateFolder(token, shipmentLabel, receivingFolder);
   return shipmentFolder;
 }
+
+// Creates (or finds) a nested folder tree under OpsHub Files root.
+// Pass ["Art Studio", "Client Name", "Brief Title"] → returns final folder id.
+// Sanitizes each segment (Drive doesn't like empty names).
+export async function getOrCreateNestedFolder(token: string, segments: string[]): Promise<string> {
+  const rootId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+  let parent = rootId;
+  for (const raw of segments) {
+    const name = (raw || "Untitled").trim().replace(/[\/\\]+/g, "-").slice(0, 120) || "Untitled";
+    parent = await findOrCreateFolder(token, name, parent);
+  }
+  return parent;
+}
