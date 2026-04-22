@@ -674,6 +674,48 @@ const KIND_META: Record<string, { short: string; bg: string; fg: string; rank: n
   print_ready: { short: "PRINT",  bg: T.green,    fg: "#fff",       rank: 5 },
 };
 
+// What HPD should know + do next, based on brief state. Surfaces the one
+// most useful action (when there is one) alongside plain-English status.
+function hpdNextStep(state: string): {
+  text: string;
+  tone: "info" | "action" | "done";
+  action?: { label: string; kind: "send_to_client" | "mark_production_ready" | "mark_delivered" | "upload_print_ready" };
+} | null {
+  if (state === "draft") {
+    return { text: "Fill in the brief, then Send to Designer when ready.", tone: "info" };
+  }
+  if (state === "sent" || state === "in_progress") {
+    return { text: "Designer is working. You'll see a WIP when they share.", tone: "info" };
+  }
+  if (state === "wip_review") {
+    return { text: "Designer shared a WIP — take a look. Everyone can see it.", tone: "info" };
+  }
+  if (state === "client_review") {
+    return { text: "Client is reviewing the draft. Wait for approve or revision request.", tone: "info" };
+  }
+  if (state === "revisions") {
+    return { text: "Client requested changes — designer is handling it.", tone: "info" };
+  }
+  if (state === "final_approved" || state === "pending_prep") {
+    return {
+      text: "Client approved. Upload the Print-Ready file when prep is done.",
+      tone: "action",
+      action: { label: "+ Upload Print-Ready", kind: "upload_print_ready" },
+    };
+  }
+  if (state === "production_ready") {
+    return {
+      text: "Print-Ready file is up. Ready to close this out.",
+      tone: "action",
+      action: { label: "Mark Delivered", kind: "mark_delivered" },
+    };
+  }
+  if (state === "delivered") {
+    return { text: "Complete.", tone: "done" };
+  }
+  return null;
+}
+
 // Bullet-auto helper for textareas — focus empty → "• ", Enter → "\n• ".
 // Mirrors the New Request modal input style so all note fields feel alike.
 function bulletHandlers(value: string, setValue: (v: string) => void) {
@@ -1056,6 +1098,34 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
             <button onClick={() => onClose(changed)} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 18, padding: "0 4px" }}>×</button>
           </div>
         </div>
+
+        {/* What's next — orients HPD on who's blocking + surfaces the
+            single most useful action for the current state. */}
+        {(() => {
+          const next = hpdNextStep(form.state);
+          if (!next) return null;
+          const tone = next.tone;
+          const bg = tone === "action" ? T.amberDim : tone === "done" ? T.greenDim : T.blueDim;
+          const border = tone === "action" ? T.amber + "55" : tone === "done" ? T.green + "55" : T.blue + "55";
+          const textColor = tone === "action" ? T.amber : tone === "done" ? T.green : T.blue;
+          return (
+            <div style={{ padding: "10px 18px", background: bg, borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+              <div style={{ flex: 1, fontSize: 12, color: textColor, fontWeight: 600 }}>
+                {next.text}
+              </div>
+              {next.action && (
+                <button
+                  onClick={next.action.kind === "upload_print_ready"
+                    ? () => printInputRef.current?.click()
+                    : () => runPrimaryAction(next.action!.kind as PrimaryActionKind)}
+                  disabled={actionPending !== null}
+                  style={{ padding: "6px 14px", background: textColor, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: font, opacity: actionPending ? 0.6 : 1, whiteSpace: "nowrap" }}>
+                  {actionPending ? "Working…" : next.action.label}
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── Main body: hero+strip on left, chat on right ── */}
         <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 320px", gap: 0, overflow: "hidden", minHeight: 0 }}>

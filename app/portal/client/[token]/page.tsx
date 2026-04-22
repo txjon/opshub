@@ -359,6 +359,30 @@ function bulletHandlers(value: string, setValue: (v: string) => void) {
   };
 }
 
+// Plain-English "what's happening" for the client, keyed by brief state.
+// Keeps them oriented without needing to interpret status chips.
+function clientNextStep(state: string): { text: string; tone: "info" | "action" | "done" } | null {
+  if (state === "draft" || state === "sent") {
+    return { text: "Your designer is getting started. First look coming soon.", tone: "info" };
+  }
+  if (state === "in_progress" || state === "wip_review") {
+    return { text: "Designer is exploring directions. First draft on the way.", tone: "info" };
+  }
+  if (state === "client_review") {
+    return { text: "Your designer shared a draft — review it below and approve or request changes.", tone: "action" };
+  }
+  if (state === "revisions") {
+    return { text: "Your designer is working on your revisions. Updated version coming.", tone: "info" };
+  }
+  if (state === "final_approved" || state === "pending_prep" || state === "production_ready") {
+    return { text: "Your design is approved! HPD is prepping the production file.", tone: "done" };
+  }
+  if (state === "delivered") {
+    return { text: "Complete. Thanks for working with us.", tone: "done" };
+  }
+  return null;
+}
+
 function pickClientHero(state: string, files: DetailFile[]): DetailFile | null {
   if (!files.length) return null;
   const pref: Record<string, string[]> = {
@@ -527,6 +551,19 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
           </button>
           <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
         </div>
+
+        {/* What's next — tells client what's happening + what they owe */}
+        {(() => {
+          const next = clientNextStep(brief.state);
+          if (!next) return null;
+          return (
+            <div style={{ padding: "10px 22px", background: next.tone === "action" ? C.amberBg : next.tone === "done" ? C.greenBg : C.blueBg, borderBottom: `1px solid ${next.tone === "action" ? C.amberBorder : next.tone === "done" ? C.greenBorder : C.blueBorder}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+              <div style={{ flex: 1, fontSize: 12, color: next.tone === "action" ? C.amber : next.tone === "done" ? C.green : C.blue, fontWeight: 600 }}>
+                {next.text}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Main body — hero + strip on left, brief info on right */}
         <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 320px", minHeight: 0, overflow: "hidden" }}>

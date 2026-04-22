@@ -372,6 +372,27 @@ const UPLOAD_LABELS: Record<UploadKind, string> = {
   final: "Final",
 };
 
+// What the designer should know/do next, based on brief state.
+// Keeps everyone oriented — no blank slate after uploads.
+function designerNextStep(state: string): { text: string; tone: "info" | "action" | "done" } | null {
+  if (state === "sent" || state === "in_progress") {
+    return { text: "Upload a WIP to share direction — or jump straight to 1st Draft when ready.", tone: "info" };
+  }
+  if (state === "wip_review") {
+    return { text: "WIP shared with the team. Upload 1st Draft when you're ready for formal client review.", tone: "info" };
+  }
+  if (state === "client_review") {
+    return { text: "Client is reviewing your draft. You'll hear back soon — either approval or revision notes.", tone: "info" };
+  }
+  if (state === "revisions") {
+    return { text: "Client requested changes — see their note on the latest file. Upload Revision when you've addressed it.", tone: "action" };
+  }
+  if (["final_approved", "pending_prep", "production_ready", "delivered"].includes(state)) {
+    return { text: "Your part is complete. HPD is handling production prep.", tone: "done" };
+  }
+  return null;
+}
+
 // Auto-bullet helper — focus empty → "• ", Enter → "\n• ". Matches HPD + client.
 function bulletHandlers(value: string, setValue: (v: string) => void) {
   return {
@@ -507,6 +528,19 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
         </div>
         <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
       </div>
+
+      {/* What's next — tells designer what they + everyone else is waiting on */}
+      {!isClientAborted && (() => {
+        const next = designerNextStep(brief.state);
+        if (!next) return null;
+        return (
+          <div style={{ padding: "10px 22px", background: next.tone === "action" ? C.amberBg : next.tone === "done" ? C.greenBg : C.blueBg, borderBottom: `1px solid ${next.tone === "action" ? C.amberBorder : next.tone === "done" ? C.greenBorder : C.blueBorder}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            <div style={{ flex: 1, fontSize: 12, color: next.tone === "action" ? C.amber : next.tone === "done" ? C.green : C.blue, fontWeight: 600 }}>
+              {next.text}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Client-aborted banner — read-only mode */}
       {isClientAborted && (
