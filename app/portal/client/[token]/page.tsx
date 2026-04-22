@@ -430,7 +430,7 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
                 <div style={{ color: C.faint, fontSize: 12 }}>Loading…</div>
               ) : (detail?.messages || []).length === 0 ? (
                 <div style={{ color: C.faint, fontSize: 12, fontStyle: "italic", padding: "8px 0", textAlign: "center" }}>
-                  No messages yet. Drop a note below and the designer + HPD will see it.
+                  Drop a note for the design team
                 </div>
               ) : (
                 detail!.messages.map(m => (
