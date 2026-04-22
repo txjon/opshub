@@ -812,6 +812,24 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     else alert("Archive failed");
   }
 
+  async function handleRecall() {
+    if (!window.confirm("Recall this brief from the designer? It'll disappear from their portal and you'll need to re-send (to the same or a different designer). Blocked if they've already uploaded work.")) return;
+    const res = await fetch(`/api/art-briefs/${brief.id}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "recall" }),
+    });
+    if (res.ok) {
+      setSentAt(null);
+      setAssignedDesignerId(null);
+      setForm(p => ({ ...p, state: "draft" }));
+      setChanged(true);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || "Recall failed");
+    }
+  }
+
   const ic = { width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, boxSizing: "border-box" as const };
   const label = { fontSize: 10, fontWeight: 600 as const, color: T.muted, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 4, display: "block" };
 
@@ -1117,6 +1135,12 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
                     style={{ width: "100%", padding: "6px 10px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font, marginBottom: 10 }}>
                     {linkCopied ? "✓ Copied" : "Copy portal link"}
                   </button>
+                  {sentAt && (
+                    <button onClick={handleRecall}
+                      style={{ width: "100%", padding: "6px 10px", background: "transparent", color: T.amber, border: `1px solid ${T.amber}55`, borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font, marginBottom: 10 }}>
+                      Recall from designer
+                    </button>
+                  )}
                   <button onClick={handleArchive}
                     style={{ width: "100%", padding: "6px 10px", background: "transparent", color: T.red, border: `1px solid ${T.red}55`, borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
                     Archive brief

@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // performs the correct state transition and fires notifications. No other
 // route should duplicate these transitions — all HPD-initiated moves go here.
 
-type ActionKind = "send_to_client" | "mark_production_ready" | "mark_delivered" | "repurpose" | "archive";
+type ActionKind = "send_to_client" | "mark_production_ready" | "mark_delivered" | "repurpose" | "archive" | "recall";
 
 const TRANSITIONS: Record<Exclude<ActionKind, "repurpose">, {
   from: string[];
@@ -57,10 +57,41 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const db = admin();
     const { data: brief, error: loadErr } = await db
       .from("art_briefs")
-      .select("id, state, title, client_id, job_id, client_aborted_at, clients(name)")
+      .select("id, state, title, client_id, job_id, client_aborted_at, sent_to_designer_at, assigned_designer_id, clients(name)")
       .eq("id", params.id)
       .single();
     if (loadErr || !brief) return NextResponse.json({ error: loadErr?.message || "Not found" }, { status: 404 });
+
+    // Recall: pull the brief back from the designer. Reverts to draft.
+    // Blocked if designer has already uploaded work (protects their effort).
+    if (action === "recall") {
+      if (!brief.sent_to_designer_at) {
+        return NextResponse.json({ error: "Brief hasn't been sent to a designer" }, { status: 409 });
+      }
+      const { count: designerUploads } = await db
+        .from("art_brief_files")
+        .select("id", { count: "exact", head: true })
+        .eq("brief_id", params.id)
+        .eq("uploader_role", "designer");
+      if ((designerUploads || 0) > 0) {
+        return NextResponse.json({
+          error: "Designer has already uploaded work on this brief. Recall blocked to protect their files.",
+        }, { status: 409 });
+      }
+      const { data: updated, error: updErr } = await db
+        .from("art_briefs")
+        .update({
+          state: "draft",
+          sent_to_designer_at: null,
+          assigned_designer_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", params.id)
+        .select("*")
+        .single();
+      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+      return NextResponse.json({ brief: updated, action });
+    }
 
     // Repurpose: restore an archived brief (client-aborted OR hpd-archived).
     // Clears both the timestamp and the archived_by role.
