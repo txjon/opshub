@@ -112,17 +112,20 @@ export async function POST(req: NextRequest) {
     const { item_id, job_id, client_id, title, concept, placement, colors, reference_urls, deadline, internal_notes, state, assigned_to, assigned_designer_id } = body;
 
     // Default designer: if the caller didn't specify one AND there's exactly one
-    // active designer in the system, auto-assign to them. Jon's setup today has
-    // a single contracted designer (GraphX Source) — this keeps it frictionless
-    // until more designers are loaded.
+    // active designer in the system, auto-assign AND auto-send. Jon's setup
+    // today has a single contracted designer (GraphX Source) — keeps it
+    // frictionless until more designers load.
     let finalDesignerId: string | null = assigned_designer_id || null;
+    let autoSent = false;
     if (!finalDesignerId) {
       const { data: activeDesigners } = await supabase.from("designers").select("id").eq("active", true);
       if (activeDesigners && activeDesigners.length === 1) {
         finalDesignerId = activeDesigners[0].id;
+        autoSent = true;
       }
     }
 
+    const now = new Date().toISOString();
     const { data, error } = await supabase.from("art_briefs").insert({
       item_id: item_id || null,
       job_id: job_id || null,
@@ -131,7 +134,11 @@ export async function POST(req: NextRequest) {
       reference_urls: reference_urls || [],
       deadline, internal_notes, assigned_to,
       assigned_designer_id: finalDesignerId,
-      state: state || "draft",
+      // Single-designer setup: mark as sent immediately so the brief
+      // appears in the designer portal right away. Multi-designer: state stays
+      // 'draft' until HPD explicitly sends it.
+      state: state || (autoSent ? "sent" : "draft"),
+      sent_to_designer_at: autoSent ? now : null,
       created_by: user.id,
     }).select("*").single();
 
