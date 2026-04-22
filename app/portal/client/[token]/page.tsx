@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
 // ── Document-style theme (matches designer + vendor portals) ──
@@ -166,9 +166,22 @@ export default function ClientPortal({ params }: { params: { token: string } }) 
         )}
       </div>
 
-      {openBrief && <BriefDetailModal brief={openBrief} meta={clientStateFor(openBrief)} onClose={() => setOpenBrief(null)} />}
+      {openBrief && (
+        <BriefDetailModal
+          token={params.token}
+          brief={openBrief}
+          meta={clientStateFor(openBrief)}
+          onClose={() => { setOpenBrief(null); loadPortal(); }}
+        />
+      )}
     </div>
   );
+
+  async function loadPortal() {
+    const res = await fetch(`/api/portal/client/${params.token}`);
+    const body = await res.json();
+    if (res.ok) setData(body);
+  }
 }
 
 function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
@@ -235,20 +248,106 @@ function BriefTile({ brief, meta, token, onOpen }: { brief: Brief; meta: ReturnT
   return <div onClick={onOpen}>{content}</div>;
 }
 
-function BriefDetailModal({ brief, meta, onClose }: { brief: Brief; meta: ReturnType<typeof clientStateFor>; onClose: () => void }) {
+type DetailFile = {
+  id: string; file_name: string; drive_link: string | null; drive_file_id: string | null;
+  kind: string; version: number; hpd_annotation: string | null; uploader_role: string; created_at: string;
+};
+type DetailMessage = {
+  id: string; sender_role: string; sender_name: string | null; message: string; created_at: string;
+};
+type DetailData = {
+  brief: any;
+  client: { name: string };
+  files: DetailFile[];
+  messages: DetailMessage[];
+};
+
+function BriefDetailModal({ token, brief, meta, onClose }: {
+  token: string;
+  brief: Brief;
+  meta: ReturnType<typeof clientStateFor>;
+  onClose: () => void;
+}) {
+  const [detail, setDetail] = useState<DetailData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [msgInput, setMsgInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  useEffect(() => { load(); }, [brief.id]);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/portal/client/${token}/briefs/${brief.id}`);
+      const data = await res.json();
+      if (res.ok) setDetail(data);
+    } catch {}
+    setLoading(false);
+  }
+
+  async function sendMessage() {
+    if (!msgInput.trim() || sending) return;
+    setSending(true);
+    try {
+      await fetch(`/api/portal/client/${token}/briefs/${brief.id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msgInput.trim() }),
+      });
+      setMsgInput("");
+      await load();
+    } catch {}
+    setSending(false);
+  }
+
+  async function uploadFile(file: File) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await fetch(`/api/portal/client/${token}/briefs/${brief.id}/files`, {
+        method: "POST",
+        body: fd,
+      });
+      await load();
+    } catch {}
+    setUploading(false);
+  }
+
+  // Group files by kind for display. Client sees all kinds except hpd-internal.
+  const allFiles = detail?.files || [];
+  const clientKindLabel = (kind: string) => ({
+    reference: "Reference",
+    wip: "WIP",
+    first_draft: "1st Draft",
+    revision: "Revision",
+    final: "Final",
+    client_intake: "Intake",
+  }[kind] || kind);
+  const kindColor = (kind: string) => ({
+    reference: { bg: C.surface, fg: C.muted },
+    wip: { bg: C.blueBg, fg: C.blue },
+    first_draft: { bg: C.purpleBg, fg: C.purple },
+    revision: { bg: C.amberBg, fg: C.amber },
+    final: { bg: C.greenBg, fg: C.green },
+    client_intake: { bg: C.surface, fg: C.muted },
+  }[kind] || { bg: C.surface, fg: C.muted });
+
   return (
     <div onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div onClick={e => e.stopPropagation()}
-        style={{ background: C.card, borderRadius: 14, maxWidth: 900, width: "100%", maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        style={{ background: C.card, borderRadius: 14, maxWidth: 1100, width: "100%", maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         {/* Header */}
-        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 18, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{brief.title || "Untitled design"}</div>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 2, display: "flex", gap: 8, alignItems: "center" }}>
@@ -262,43 +361,103 @@ function BriefDetailModal({ brief, meta, onClose }: { brief: Brief; meta: Return
           <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: 24, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
         </div>
 
-        {/* Body */}
-        <div style={{ overflow: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Images */}
-          {brief.thumbs.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
-              {brief.thumbs.map((t, i) => {
-                const fullUrl = t.drive_file_id ? `/api/files/thumbnail?id=${t.drive_file_id}` : null;
-                const thumbMed = t.drive_file_id ? `/api/files/thumbnail?id=${t.drive_file_id}&thumb=1` : null;
-                return (
-                  <a key={i} href={fullUrl || "#"} target="_blank" rel="noopener noreferrer"
-                    style={{ display: "block", aspectRatio: "1", background: "#000", borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}` }}>
-                    {thumbMed && (
-                      <img src={thumbMed} alt="" loading="lazy"
-                        style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                        onError={(e: any) => { e.target.style.display = "none"; }} />
-                    )}
-                  </a>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Notes */}
-          {brief.concept && (
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Notes</div>
-              <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 14px" }}>
-                {brief.concept}
+        {/* Two-col body */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 0, flex: 1, overflow: "hidden" }}>
+          {/* Left — images + notes */}
+          <div style={{ overflow: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+            {detail?.brief?.concept && (
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Notes from HPD</div>
+                <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 14px" }}>
+                  {detail.brief.concept}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {!brief.concept && brief.thumbs.length === 0 && (
-            <div style={{ color: C.faint, fontSize: 13, fontStyle: "italic", padding: "20px 0", textAlign: "center" }}>
-              HPD is still setting this up — more details coming soon.
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  Images {allFiles.length > 0 && `(${allFiles.length})`}
+                </div>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  style={{ padding: "6px 12px", background: C.text, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: C.font }}>
+                  {uploading ? "Uploading…" : "+ Add reference"}
+                </button>
+                <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
+              </div>
+
+              {loading ? (
+                <div style={{ color: C.faint, fontSize: 12, padding: 20, textAlign: "center" }}>Loading…</div>
+              ) : allFiles.length === 0 ? (
+                <div style={{ color: C.faint, fontSize: 12, padding: 20, textAlign: "center", fontStyle: "italic" }}>No images yet — add references above or ask HPD.</div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
+                  {allFiles.map(f => {
+                    const kc = kindColor(f.kind);
+                    const fullUrl = f.drive_file_id ? `/api/files/thumbnail?id=${f.drive_file_id}` : null;
+                    const thumb = f.drive_file_id ? `/api/files/thumbnail?id=${f.drive_file_id}&thumb=1` : null;
+                    return (
+                      <a key={f.id} href={fullUrl || "#"} target="_blank" rel="noopener noreferrer"
+                        style={{ display: "block", background: "#000", borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, textDecoration: "none", position: "relative" }}>
+                        <div style={{ aspectRatio: "1" }}>
+                          {thumb && (
+                            <img src={thumb} alt="" loading="lazy"
+                              style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                              onError={(e: any) => { e.target.style.display = "none"; }} />
+                          )}
+                        </div>
+                        <div style={{ position: "absolute", top: 8, left: 8, padding: "2px 8px", borderRadius: 99, background: kc.bg, color: kc.fg, fontSize: 9, fontWeight: 700, border: `1px solid ${C.border}` }}>
+                          {clientKindLabel(f.kind)}{f.version > 1 ? ` v${f.version}` : ""}
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
+          </div>
+
+          {/* Right — thread */}
+          <div style={{ display: "flex", flexDirection: "column", borderLeft: `1px solid ${C.border}`, background: C.surface }}>
+            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              Conversation
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {loading ? (
+                <div style={{ color: C.faint, fontSize: 12 }}>Loading…</div>
+              ) : (detail?.messages || []).length === 0 ? (
+                <div style={{ color: C.faint, fontSize: 12, fontStyle: "italic", padding: "8px 0", textAlign: "center" }}>
+                  No messages yet. Drop a note below and the designer + HPD will see it.
+                </div>
+              ) : (
+                detail!.messages.map(m => (
+                  <div key={m.id} style={{
+                    background: m.sender_role === "client" ? C.purpleBg : m.sender_role === "designer" ? C.blueBg : C.card,
+                    borderRadius: 8, padding: "8px 10px", fontSize: 12,
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
+                      <span>{m.sender_role === "client" ? "You" : m.sender_role === "designer" ? "Designer" : "HPD"}</span>
+                      <span style={{ color: C.faint, fontWeight: 400, textTransform: "none" }}>{new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                    </div>
+                    <div style={{ lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{m.message}</div>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ padding: "10px 12px", borderTop: `1px solid ${C.border}`, background: C.card, display: "flex", gap: 6 }}>
+              <input value={msgInput} onChange={e => setMsgInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                placeholder="Type a note…"
+                style={{ flex: 1, padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontFamily: C.font, outline: "none" }} />
+              <button onClick={sendMessage} disabled={!msgInput.trim() || sending}
+                style={{ padding: "8px 14px", background: C.text, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font }}>
+                {sending ? "…" : "Send"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
