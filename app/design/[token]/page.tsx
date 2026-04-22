@@ -64,7 +64,9 @@ const daysUntil = (iso: string | null) => {
   return { text: `${diff}d`, color: C.muted };
 };
 
-const thumbUrl = (id: string | null | undefined) => id ? `https://drive.google.com/thumbnail?id=${id}&sz=w600` : null;
+// Proxied via /api/files/thumbnail?thumb=1 — returns Drive's pre-sized
+// thumbnailLink (small, fast) instead of the full file, cached 24h.
+const thumbUrl = (id: string | null | undefined) => id ? `/api/files/thumbnail?id=${id}&thumb=1` : null;
 
 export default function DesignerPortal({ params }: { params: { token: string } }) {
   const [loading, setLoading] = useState(true);
