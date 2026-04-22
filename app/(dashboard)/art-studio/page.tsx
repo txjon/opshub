@@ -368,9 +368,11 @@ export default function ArtStudioPage() {
         <NewRequestModal
           clients={clients}
           onClose={() => setShowNewRequest(false)}
-          onCreated={(brief) => {
+          onCreated={() => {
+            // Refresh the board so the new card appears. Don't open the
+            // brief detail — user opens it later if they want to add
+            // placement/colors/deadline/internal_notes.
             loadBriefs();
-            if (brief) setSelectedBrief(brief);
           }}
         />
       )}
