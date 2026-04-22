@@ -13,6 +13,7 @@ import {
   type FilterKey,
   type PrimaryActionKind,
 } from "@/lib/art-studio-v2";
+import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
 
 // Kept for BriefDetailModal's (legacy) state dropdown. When the modal is
 // rebuilt (Phase 2), this map goes with it.
@@ -982,7 +983,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     const noteForBatch = uploadNote.trim();
     for (const file of files) {
       try {
-        // 1. Request a resumable upload session (server mints a Drive URL)
+        // 1. Get a Drive upload session (server mints the URL)
         const sessionRes = await fetch("/api/art-briefs/upload-session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -999,14 +1000,8 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
         }
         const { uploadUrl } = await sessionRes.json();
 
-        // 2. PUT bytes directly to Drive — bypasses Vercel body limit
-        const putRes = await fetch(uploadUrl, {
-          method: "PUT",
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-          body: file,
-        });
-        if (!putRes.ok) throw new Error("Drive upload failed");
-        const driveFile = await putRes.json();
+        // 2. Upload bytes — tries direct-to-Drive, falls back to chunked proxy
+        const { drive_file_id } = await uploadFileToDriveSession(uploadUrl, file);
 
         // 3. Register in OpsHub
         const completeRes = await fetch("/api/art-briefs/upload-session/complete", {
@@ -1014,7 +1009,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             brief_id: brief.id,
-            drive_file_id: driveFile.id,
+            drive_file_id,
             file_name: file.name,
             mime_type: file.type || "application/octet-stream",
             file_size: file.size,
