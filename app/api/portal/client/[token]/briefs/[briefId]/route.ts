@@ -35,10 +35,15 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       .order("created_at"),
   ]);
 
+  // Client sees everything the designer + HPD produce EXCEPT print-ready.
+  // Print-ready is HPD's internal production file (CMYK, separations) —
+  // client's view ends at Final.
+  const visibleFiles = (filesRes.data || []).filter((f: any) => f.kind !== "print_ready");
+
   return NextResponse.json({
     brief: ctx.brief,
     client: { name: ctx.client.name },
-    files: filesRes.data || [],
+    files: visibleFiles,
     messages: msgsRes.data || [],
   });
 }

@@ -32,6 +32,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
   const formData = await req.formData();
   const file = formData.get("file") as File;
+  // Optional caption from the client — saves as client_annotation on the
+  // new reference so designer + HPD see it alongside the image.
+  const note = ((formData.get("note") as string) || "").trim() || null;
   if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
 
   // Upload to Drive
@@ -70,6 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     kind: "reference",
     version: 1,
     uploader_role: "client",
+    client_annotation: note,
   }).select("*").single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -97,7 +101,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
   if (!file || file.brief_id !== ctx.brief.id) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const { error } = await ctx.db.from("art_brief_files")
-    .update({ client_annotation: client_annotation?.trim() || null })
+    .update({
+      client_annotation: client_annotation?.trim() || null,
+      annotation_updated_at: new Date().toISOString(),
+    })
     .eq("id", fileId);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

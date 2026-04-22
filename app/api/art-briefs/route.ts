@@ -36,7 +36,13 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    let query = supabase.from("art_briefs").select(`*, ${ITEMS_EMBED}, jobs(title, job_number, job_type), clients(name)`).order("created_at", { ascending: false });
+    // Hide aborted briefs older than the 60-day repurpose window — HPD can
+    // still access fresh abortions for reuse.
+    const abortCutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    let query = supabase.from("art_briefs")
+      .select(`*, ${ITEMS_EMBED}, jobs(title, job_number, job_type), clients(name)`)
+      .or(`client_aborted_at.is.null,client_aborted_at.gte.${abortCutoff}`)
+      .order("created_at", { ascending: false });
     if (itemId) query = query.eq("item_id", itemId);
     if (jobId) query = query.eq("job_id", jobId);
     if (clientId) query = query.eq("client_id", clientId);
@@ -49,13 +55,15 @@ export async function GET(req: NextRequest) {
 
     console.log(`[art-briefs GET] user=${user.id.slice(0,8)} returned ${data?.length || 0} briefs`);
 
-    // Attach message counts + best thumbnail per brief in one extra fetch
+    // Attach message counts, best thumbnail, and last-activity-per-role.
+    // last_*_activity tells downstream UIs "who's been radio silent" so we can
+    // flag unread client activity on HPD/designer tiles.
     const briefs = data || [];
     if (briefs.length > 0) {
       const ids = briefs.map((b: any) => b.id);
       const [msgsRes, filesRes] = await Promise.all([
-        supabase.from("art_brief_messages").select("brief_id, sender_role").in("brief_id", ids),
-        supabase.from("art_brief_files").select("brief_id, drive_file_id, drive_link, kind, created_at").in("brief_id", ids).order("created_at", { ascending: false }),
+        supabase.from("art_brief_messages").select("brief_id, sender_role, created_at").in("brief_id", ids),
+        supabase.from("art_brief_files").select("brief_id, drive_file_id, drive_link, kind, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation").in("brief_id", ids).order("created_at", { ascending: false }),
       ]);
 
       // Message counts
@@ -66,26 +74,59 @@ export async function GET(req: NextRequest) {
         if (m.sender_role === "designer") c.designer++;
       });
 
+      // Last activity per role, combining messages + file uploads. "kind" of
+      // activity is tracked so UIs can render "Client added reference" vs
+      // "Client posted" without a second fetch.
+      type Activity = { at: string; type: "message" | "file" };
+      const lastByRole: Record<string, { client?: Activity; designer?: Activity; hpd?: Activity }> = {};
+      const bump = (bid: string, role: string | null | undefined, at: string, type: "message" | "file") => {
+        const r = role === "client" ? "client" : role === "designer" ? "designer" : "hpd";
+        const slot = (lastByRole[bid] ||= {});
+        const cur = (slot as any)[r] as Activity | undefined;
+        if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type };
+      };
+      (msgsRes.data || []).forEach((m: any) => bump(m.brief_id, m.sender_role, m.created_at, "message"));
+      // Files: upload event attributed to uploader. Annotation edits are also
+      // events — each role's note-edit bumps THEIR timestamp, not the
+      // uploader's, so "whose turn" stays accurate.
+      (filesRes.data || []).forEach((f: any) => {
+        bump(f.brief_id, f.uploader_role, f.created_at, "file");
+        if (f.annotation_updated_at) {
+          // Can't cheaply tell WHICH role annotated without per-field
+          // timestamps, so bump the most-recent-editor inference by file
+          // activity only. Downstream clients use this as "someone touched
+          // a note on this file at that time".
+          if (f.hpd_annotation) bump(f.brief_id, "hpd", f.annotation_updated_at, "file");
+          if (f.designer_annotation) bump(f.brief_id, "designer", f.annotation_updated_at, "file");
+          if (f.client_annotation) bump(f.brief_id, "client", f.annotation_updated_at, "file");
+        }
+      });
+
       // Up to 4 thumbnails per brief for the image-first card mosaic.
-      // Priority: final > wip > reference > client_intake, newest first within kind.
-      const rank: Record<string, number> = { final: 4, wip: 3, reference: 2, client_intake: 1 };
-      const perBrief: Record<string, Array<{ drive_file_id: string; drive_link: string | null; kind: string; created_at: string }>> = {};
+      // Sort by "last touched" — upload OR annotation edit — so notes-only
+      // activity bumps the tile preview.
+      const lastTouched = (f: any) => {
+        const c = f.created_at || "";
+        const a = f.annotation_updated_at || "";
+        return c > a ? c : a;
+      };
+      const perBrief: Record<string, any[]> = {};
       (filesRes.data || []).forEach((f: any) => {
         if (!f.drive_file_id) return;
         (perBrief[f.brief_id] ||= []).push(f);
       });
       Object.keys(perBrief).forEach(bid => {
-        perBrief[bid].sort((a, b) => {
-          const r = (rank[b.kind] || 0) - (rank[a.kind] || 0);
-          if (r !== 0) return r;
-          return (b.created_at || "").localeCompare(a.created_at || "");
-        });
+        perBrief[bid].sort((a, b) => lastTouched(b).localeCompare(lastTouched(a)));
       });
 
       briefs.forEach((b: any) => {
         const c = counts[b.id] || { total: 0, designer: 0 };
         b.message_count = c.total;
         b.designer_message_count = c.designer;
+        const la = lastByRole[b.id] || {};
+        b.last_client_activity = la.client || null;
+        b.last_designer_activity = la.designer || null;
+        b.last_hpd_activity = la.hpd || null;
         const all = perBrief[b.id] || [];
         b.thumbs = all.slice(0, 4).map(f => ({ drive_file_id: f.drive_file_id, drive_link: f.drive_link }));
         b.thumb_total = all.length;

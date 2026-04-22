@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
 
     if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
     if (!briefId) return NextResponse.json({ error: "brief_id required" }, { status: 400 });
-    if (!["reference", "wip", "final", "client_intake"].includes(kind)) {
+    if (!["reference", "wip", "final", "client_intake", "print_ready"].includes(kind)) {
       return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
     }
 
@@ -91,6 +91,16 @@ export async function POST(req: NextRequest) {
     if (kind === "wip" || kind === "final") {
       await supabase.from("art_briefs").update({
         version_count: version,
+        updated_at: new Date().toISOString(),
+      }).eq("id", briefId);
+    }
+
+    // Print-Ready upload = HPD has prepped production file → auto-flip to
+    // production_ready. This is the true end-of-line state; designer's Final
+    // came before.
+    if (kind === "print_ready") {
+      await supabase.from("art_briefs").update({
+        state: "production_ready",
         updated_at: new Date().toISOString(),
       }).eq("id", briefId);
     }

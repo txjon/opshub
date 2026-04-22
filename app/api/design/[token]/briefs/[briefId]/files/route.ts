@@ -25,6 +25,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const file = formData.get("file") as File;
   // wip → 1st_draft → revision → final  (four-stage designer flow)
   const kind = (formData.get("kind") as string) || "wip";
+  // Optional note attached at upload time — lands as the uploader's
+  // annotation on the new file (the per-image "caption" for this role).
+  const note = ((formData.get("note") as string) || "").trim() || null;
   if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
   if (!["wip", "first_draft", "revision", "final"].includes(kind)) return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
 
@@ -69,6 +72,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     kind,
     version,
     uploader_role: "designer",
+    designer_annotation: note,
   }).select("*").single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -105,6 +109,30 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   if (ctx.brief.job_id) await logJobActivityServer(ctx.brief.job_id, activityMsg);
 
   return NextResponse.json({ file: data, state: newState });
+}
+
+// PATCH — designer updates their per-image annotation. Only designer_annotation
+// is mutable from this surface; client + HPD annotations are edited on their
+// own surfaces. File must belong to this brief.
+export async function PATCH(req: NextRequest, { params }: { params: { token: string; briefId: string } }) {
+  const ctx = await verifyAccess(params.token, params.briefId);
+  if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const { fileId, designer_annotation } = await req.json();
+  if (!fileId) return NextResponse.json({ error: "fileId required" }, { status: 400 });
+
+  const { data: file } = await ctx.db.from("art_brief_files").select("id, brief_id").eq("id", fileId).single();
+  if (!file || file.brief_id !== ctx.brief.id) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const { error } = await ctx.db.from("art_brief_files")
+    .update({
+      designer_annotation: designer_annotation?.trim() || null,
+      annotation_updated_at: new Date().toISOString(),
+    })
+    .eq("id", fileId);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ success: true });
 }
 
 // DELETE — designer removes their own upload

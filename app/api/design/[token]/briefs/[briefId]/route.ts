@@ -20,12 +20,12 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const { data: brief } = await ctx.db.from("art_briefs")
-    .select("id, title, concept, placement, colors, mood_words, deadline, state, version_count, sent_to_designer_at, clients(name)")
+    .select("id, title, concept, placement, colors, mood_words, deadline, state, version_count, sent_to_designer_at, client_aborted_at, archived_by, clients(name)")
     .eq("id", params.briefId)
     .single();
 
   const { data: files } = await ctx.db.from("art_brief_files")
-    .select("id, file_name, drive_file_id, drive_link, mime_type, file_size, version, kind, hpd_annotation, uploader_role, created_at")
+    .select("id, file_name, drive_file_id, drive_link, mime_type, file_size, version, kind, hpd_annotation, client_annotation, designer_annotation, shared_with_client_at, uploader_role, created_at")
     .eq("brief_id", params.briefId)
     .order("created_at");
 
