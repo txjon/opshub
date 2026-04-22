@@ -109,7 +109,19 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
-    const { item_id, job_id, client_id, title, concept, placement, colors, reference_urls, deadline, internal_notes, state, assigned_to } = body;
+    const { item_id, job_id, client_id, title, concept, placement, colors, reference_urls, deadline, internal_notes, state, assigned_to, assigned_designer_id } = body;
+
+    // Default designer: if the caller didn't specify one AND there's exactly one
+    // active designer in the system, auto-assign to them. Jon's setup today has
+    // a single contracted designer (GraphX Source) — this keeps it frictionless
+    // until more designers are loaded.
+    let finalDesignerId: string | null = assigned_designer_id || null;
+    if (!finalDesignerId) {
+      const { data: activeDesigners } = await supabase.from("designers").select("id").eq("active", true);
+      if (activeDesigners && activeDesigners.length === 1) {
+        finalDesignerId = activeDesigners[0].id;
+      }
+    }
 
     const { data, error } = await supabase.from("art_briefs").insert({
       item_id: item_id || null,
@@ -118,6 +130,7 @@ export async function POST(req: NextRequest) {
       title, concept, placement, colors,
       reference_urls: reference_urls || [],
       deadline, internal_notes, assigned_to,
+      assigned_designer_id: finalDesignerId,
       state: state || "draft",
       created_by: user.id,
     }).select("*").single();
