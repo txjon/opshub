@@ -1,18 +1,12 @@
 #!/usr/bin/env node
 /**
  * One-time migration: move every art_brief_files row in Drive from the
- * old flat folder (/Receiving/Art Brief References-{Client}-{Brief}/ or
- * /Receiving/Art Brief Work-{Brief}/) into the new nested hierarchy:
+ * old flat folder into the new nested hierarchy:
  *   OpsHub Files / Art Studio / {Client Name} / {Brief Title} /
  *
  * Usage:
- *   node scripts/migrate-art-files-to-nested.js              # dry-run (safe)
- *   node scripts/migrate-art-files-to-nested.js --commit     # actually moves
- *
- * Idempotent-ish: if a file is already under the target folder, it's
- * skipped. If destination folder doesn't exist, it gets created.
- *
- * Does NOT delete old folders — do that manually after verifying.
+ *   node scripts/migrate-art-files-to-nested.js              # dry-run
+ *   node scripts/migrate-art-files-to-nested.js --commit     # moves files
  */
 
 const { createClient } = require("@supabase/supabase-js");
@@ -31,7 +25,11 @@ const log = (...a) => console.log(...a);
 const err = (...a) => console.error("❌", ...a);
 const ok = (...a) => console.log("✓", ...a);
 
-async function getDriveClient() {
+// Raw fetch against Drive REST API — matches lib/drive-token.ts pattern.
+// The googleapis client library was returning phantom 404s in batch loops
+// for reasons I couldn't pin down. Raw fetch is rock-solid.
+
+async function getToken() {
   let key;
   if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
     key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
@@ -44,72 +42,100 @@ async function getDriveClient() {
     scopes: ["https://www.googleapis.com/auth/drive"],
     clientOptions: { subject: "jon@housepartydistro.com" },
   });
-  const authClient = await auth.getClient();
-  return google.drive({ version: "v3", auth: authClient });
+  const client = await auth.getClient();
+  const token = await client.getAccessToken();
+  return token.token;
 }
 
-// Folder cache so we don't thrash Drive with dupe lookups
-const folderCache = new Map();
+async function driveGet(token, fileId) {
+  const r = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,parents`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!r.ok) throw new Error(`GET ${fileId} → ${r.status} ${await r.text()}`);
+  return r.json();
+}
 
-async function findOrCreateFolder(drive, name, parentId) {
+async function driveListFolders(token, name, parentId) {
+  const q = encodeURIComponent(
+    `name='${name.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`
+  );
+  const r = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!r.ok) throw new Error(`LIST → ${r.status} ${await r.text()}`);
+  return (await r.json()).files || [];
+}
+
+async function driveCreateFolder(token, name, parentId) {
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files?fields=id`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name, mimeType: "application/vnd.google-apps.folder", parents: [parentId],
+    }),
+  });
+  if (!r.ok) throw new Error(`CREATE → ${r.status} ${await r.text()}`);
+  return (await r.json()).id;
+}
+
+async function driveMove(token, fileId, addParent, removeParents) {
+  const qs = `addParents=${addParent}&removeParents=${removeParents}&fields=id,parents`;
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?${qs}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (!r.ok) throw new Error(`MOVE → ${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+// Folder cache
+const folderCache = new Map();
+async function findOrCreateFolder(token, name, parentId) {
   const key = `${parentId}::${name}`;
   if (folderCache.has(key)) return folderCache.get(key);
-
-  const q = `name='${name.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
-  const search = await drive.files.list({
-    q, fields: "files(id)", spaces: "drive",
-  });
-  if (search.data.files && search.data.files.length > 0) {
-    folderCache.set(key, search.data.files[0].id);
-    return search.data.files[0].id;
+  const existing = await driveListFolders(token, name, parentId);
+  if (existing.length > 0) {
+    folderCache.set(key, existing[0].id);
+    return existing[0].id;
   }
   if (!COMMIT) {
     log(`  [dry] would create folder "${name}" under ${parentId}`);
     folderCache.set(key, "DRY_RUN_PLACEHOLDER");
     return "DRY_RUN_PLACEHOLDER";
   }
-  const created = await drive.files.create({
-    requestBody: {
-      name,
-      mimeType: "application/vnd.google-apps.folder",
-      parents: [parentId],
-    },
-    fields: "id",
-  });
-  folderCache.set(key, created.data.id);
-  return created.data.id;
+  const newId = await driveCreateFolder(token, name, parentId);
+  folderCache.set(key, newId);
+  return newId;
 }
 
-async function getOrCreateNestedFolder(drive, segments) {
+async function getOrCreateNested(token, segments) {
   let parent = ROOT_ID;
   for (const raw of segments) {
     const name = (raw || "Untitled").trim().replace(/[\/\\]+/g, "-").slice(0, 120) || "Untitled";
-    parent = await findOrCreateFolder(drive, name, parent);
+    parent = await findOrCreateFolder(token, name, parent);
+    if (parent === "DRY_RUN_PLACEHOLDER") return parent;
   }
   return parent;
 }
 
 async function main() {
-  if (!ROOT_ID) {
-    err("Missing GOOGLE_DRIVE_ROOT_FOLDER_ID env var");
-    process.exit(1);
-  }
-  log(`Mode: ${COMMIT ? "COMMIT (files will move)" : "DRY-RUN (no changes)"}`);
+  if (!ROOT_ID) { err("Missing GOOGLE_DRIVE_ROOT_FOLDER_ID"); process.exit(1); }
+  log(`Mode: ${COMMIT ? "COMMIT" : "DRY-RUN"}`);
   log(`Drive root: ${ROOT_ID}\n`);
 
-  const drive = await getDriveClient();
+  const token = await getToken();
+  log("✓ Got Drive token\n");
 
-  // Pull every art_brief_file with a drive_file_id + its brief + client name
   const { data: files, error } = await sb
     .from("art_brief_files")
     .select("id, drive_file_id, file_name, kind, brief_id, art_briefs(title, clients(name))")
     .not("drive_file_id", "is", null);
 
-  if (error) {
-    err("Supabase query failed:", error.message);
-    process.exit(1);
-  }
-  log(`Found ${files.length} files with Drive IDs to check\n`);
+  if (error) { err("Supabase error:", error.message); process.exit(1); }
+  log(`Found ${files.length} files with Drive IDs\n`);
 
   let moved = 0, skipped = 0, errored = 0;
 
@@ -118,19 +144,16 @@ async function main() {
     const clientName = f.art_briefs?.clients?.name || "Unassigned";
     const segments = ["Art Studio", clientName, briefTitle];
     const label = `[${f.kind}] ${f.file_name}  (${clientName} / ${briefTitle})`;
+    const fileId = String(f.drive_file_id).trim();
 
     try {
-      // Look up current parents so we know what to remove
-      const current = await drive.files.get({
-        fileId: f.drive_file_id,
-        fields: "id, parents, name",
-      });
-      const currentParents = current.data.parents || [];
+      const current = await driveGet(token, fileId);
+      const currentParents = current.parents || [];
 
-      // Compute target folder
-      const targetId = await getOrCreateNestedFolder(drive, segments);
+      const targetId = await getOrCreateNested(token, segments);
+
       if (targetId === "DRY_RUN_PLACEHOLDER") {
-        log(`[dry] ${label} → would move`);
+        log(`[dry] ${label}  →  would move (current: ${currentParents[0] || "?"})`);
         moved++;
         continue;
       }
@@ -141,18 +164,13 @@ async function main() {
       }
 
       if (!COMMIT) {
-        log(`[dry] ${label} → would move from ${currentParents.join(",")} to ${targetId}`);
+        log(`[dry] ${label}  →  would move from ${currentParents[0]} to ${targetId}`);
         moved++;
         continue;
       }
 
-      await drive.files.update({
-        fileId: f.drive_file_id,
-        addParents: targetId,
-        removeParents: currentParents.join(","),
-        fields: "id, parents",
-      });
-      ok(`${label} → moved`);
+      await driveMove(token, fileId, targetId, currentParents.join(","));
+      ok(`${label}  →  moved`);
       moved++;
     } catch (e) {
       err(`${label} — ${e.message}`);
@@ -162,9 +180,9 @@ async function main() {
 
   log(`\n── Summary ──`);
   log(`Moved:   ${moved}`);
-  log(`Skipped: ${skipped} (already in target)`);
+  log(`Skipped: ${skipped}`);
   log(`Errors:  ${errored}`);
-  if (!COMMIT) log(`\nRun with --commit to actually move the files.`);
+  if (!COMMIT) log(`\nRun with --commit to actually move.`);
 }
 
 main().catch(e => { err(e); process.exit(1); });
