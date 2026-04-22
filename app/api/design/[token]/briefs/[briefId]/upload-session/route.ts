@@ -13,7 +13,10 @@ async function verifyAccess(token: string, briefId: string) {
   const db = admin();
   const { data: designer } = await db.from("designers").select("id, active, name").eq("portal_token", token).single();
   if (!designer || !designer.active) return null;
-  const { data: brief } = await db.from("art_briefs").select("id, title, assigned_designer_id").eq("id", briefId).single();
+  const { data: brief } = await db.from("art_briefs")
+    .select("id, title, assigned_designer_id, client_id, clients(name)")
+    .eq("id", briefId)
+    .single();
   if (!brief || brief.assigned_designer_id !== designer.id) return null;
   return { db, designer, brief };
 }
@@ -30,11 +33,12 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const k = (kind || "wip").toLowerCase();
     if (!DESIGNER_KINDS.includes(k)) return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
 
+    const clientName = (ctx.brief as any).clients?.name || "Unassigned";
     const title = (ctx.brief as any).title || params.briefId;
-    const folderPath = `Art Brief Work/${title}`;
 
+    // Nested: OpsHub Files / Art Studio / {Client} / {Brief}
     const { uploadUrl, folderId } = await createResumableUploadSession({
-      folderPath,
+      folderSegments: ["Art Studio", clientName, title],
       fileName: file_name,
       mimeType: mime_type || "application/octet-stream",
     });

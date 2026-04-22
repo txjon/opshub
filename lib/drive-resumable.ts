@@ -1,4 +1,4 @@
-import { getDriveToken, getReceivingFolderId } from "@/lib/drive-token";
+import { getDriveToken, getOrCreateNestedFolder } from "@/lib/drive-token";
 
 // Shared helpers for Drive's resumable upload flow. The server mints an
 // upload session URL + folder; the client PUTs the file bytes directly to
@@ -6,16 +6,16 @@ import { getDriveToken, getReceivingFolderId } from "@/lib/drive-token";
 // the client POSTs the drive_file_id back to register metadata in DB.
 
 export async function createResumableUploadSession({
-  folderPath,
+  folderSegments,
   fileName,
   mimeType,
 }: {
-  folderPath: string;
+  folderSegments: string[];
   fileName: string;
   mimeType: string;
 }): Promise<{ uploadUrl: string; folderId: string }> {
   const token = await getDriveToken();
-  const folderId = await getReceivingFolderId(token, folderPath);
+  const folderId = await getOrCreateNestedFolder(token, folderSegments);
 
   const res = await fetch(
     "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",

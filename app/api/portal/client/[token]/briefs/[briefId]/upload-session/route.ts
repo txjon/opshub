@@ -18,7 +18,7 @@ async function verifyAccess(token: string, briefId: string) {
     .eq("id", briefId)
     .single();
   if (!brief || brief.client_id !== client.id) return null;
-  return { db, client, brief };
+  return { db, client, brief };  // client name available on ctx.client.name
 }
 
 export async function POST(req: NextRequest, { params }: { params: { token: string; briefId: string } }) {
@@ -29,11 +29,12 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const { file_name, mime_type } = await req.json();
     if (!file_name) return NextResponse.json({ error: "file_name required" }, { status: 400 });
 
+    const clientName = (ctx.client as any).name || "Unassigned";
     const title = (ctx.brief as any).title || params.briefId;
-    const folderPath = `Art Brief Work/${title}`;
 
+    // Nested: OpsHub Files / Art Studio / {Client} / {Brief}
     const { uploadUrl, folderId } = await createResumableUploadSession({
-      folderPath,
+      folderSegments: ["Art Studio", clientName, title],
       fileName: file_name,
       mimeType: mime_type || "application/octet-stream",
     });
