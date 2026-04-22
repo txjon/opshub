@@ -1190,41 +1190,6 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
                 </div>
               )}
 
-              {/* Per-image notes — three-way, same file carries one note per party */}
-              {hero && (
-                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-                  {hero.client_annotation && (
-                    <div style={{ padding: "6px 10px", background: T.purpleDim, border: `1px solid ${T.purple}55`, borderRadius: 4 }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: T.purple, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Client</div>
-                      <div style={{ fontSize: 12, color: T.text, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{hero.client_annotation}</div>
-                    </div>
-                  )}
-                  {hero.designer_annotation && (
-                    <div style={{ padding: "6px 10px", background: T.blueDim, border: `1px solid ${T.blue}55`, borderRadius: 4 }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Designer</div>
-                      <div style={{ fontSize: 12, color: T.text, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{hero.designer_annotation}</div>
-                    </div>
-                  )}
-                  <div>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>
-                      HPD note
-                    </div>
-                    <textarea
-                      value={hpdNote}
-                      onChange={e => setHpdNote(e.target.value)}
-                      onBlur={() => saveHpdAnnotation(hero.id, hpdNote)}
-                      {...bulletHandlers(hpdNote, setHpdNote)}
-                      placeholder={hero.kind === "reference"
-                        ? "• HPD note to designer…"
-                        : "• Internal note…"}
-                      rows={2}
-                      style={{ width: "100%", padding: "6px 10px", border: `1px solid ${T.amber}55`, borderRadius: 4, background: T.amberDim + "33", color: T.text, fontFamily: font, outline: "none", fontSize: 12, lineHeight: 1.4, resize: "vertical", boxSizing: "border-box" }}
-                    />
-                  </div>
-                </div>
-              )}
-
-
               {/* Promote final → print-ready (HPD's current mechanism) */}
               {hero?.kind === "final" && brief.item_id && (
                 <div style={{ marginTop: 10 }}>
@@ -1237,38 +1202,80 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
             </div>
           </div>
 
-          {/* ── Right: editable Brief (replaces thread + drawer) ── */}
-          <div style={{ borderLeft: `1px solid ${T.border}`, background: T.card, display: "flex", flexDirection: "column", minHeight: 0, overflow: "auto", padding: "14px 16px", gap: 12 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              Brief
+          {/* ── Right: Brief (editable top) + Notes on hero (flex middle) ── */}
+          <div style={{ borderLeft: `1px solid ${T.border}`, background: T.card, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+            {/* Brief — editable, scrolls if long */}
+            <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12, flexShrink: 0, maxHeight: "50%", overflowY: "auto", borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Brief
+              </div>
+              <div>
+                <label style={label}>Title</label>
+                <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} onBlur={() => handleBlur("title")} style={ic} />
+              </div>
+              <div>
+                <label style={label}>Concept (for designer)</label>
+                <textarea rows={3} value={form.concept} onChange={e => setForm(p => ({ ...p, concept: e.target.value }))} onBlur={() => handleBlur("concept")}
+                  {...bulletHandlers(form.concept, (v) => setForm(p => ({ ...p, concept: v })))}
+                  style={{ ...ic, resize: "vertical", lineHeight: 1.4 }} placeholder="• Creative direction" />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div>
+                  <label style={label}>Deadline</label>
+                  <input type="date" value={form.deadline || ""} onChange={e => setForm(p => ({ ...p, deadline: e.target.value }))} onBlur={() => handleBlur("deadline")} style={ic} />
+                </div>
+                <div>
+                  <label style={label}>Placement</label>
+                  <input value={form.placement} onChange={e => setForm(p => ({ ...p, placement: e.target.value }))} onBlur={() => handleBlur("placement")} style={ic} placeholder="Full back" />
+                </div>
+              </div>
+              <div>
+                <label style={label}>Colors</label>
+                <input value={form.colors} onChange={e => setForm(p => ({ ...p, colors: e.target.value }))} onBlur={() => handleBlur("colors")} style={ic} placeholder="2c — white, red" />
+              </div>
+              <div>
+                <label style={{ ...label, color: T.amber }}>Internal Notes (HPD only)</label>
+                <textarea rows={2} value={form.internal_notes} onChange={e => setForm(p => ({ ...p, internal_notes: e.target.value }))} onBlur={() => handleBlur("internal_notes")}
+                  {...bulletHandlers(form.internal_notes, (v) => setForm(p => ({ ...p, internal_notes: v })))}
+                  style={{ ...ic, resize: "vertical", lineHeight: 1.4, borderColor: T.amber + "44" }} placeholder="• Scratch pad, private" />
+              </div>
             </div>
-            <div>
-              <label style={label}>Title</label>
-              <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} onBlur={() => handleBlur("title")} style={ic} />
-            </div>
-            <div>
-              <label style={label}>Concept (for designer)</label>
-              <textarea rows={4} value={form.concept} onChange={e => setForm(p => ({ ...p, concept: e.target.value }))} onBlur={() => handleBlur("concept")}
-                {...bulletHandlers(form.concept, (v) => setForm(p => ({ ...p, concept: v })))}
-                style={{ ...ic, resize: "vertical", lineHeight: 1.4 }} placeholder="• Creative direction" />
-            </div>
-            <div>
-              <label style={label}>Deadline</label>
-              <input type="date" value={form.deadline || ""} onChange={e => setForm(p => ({ ...p, deadline: e.target.value }))} onBlur={() => handleBlur("deadline")} style={ic} />
-            </div>
-            <div>
-              <label style={label}>Placement</label>
-              <input value={form.placement} onChange={e => setForm(p => ({ ...p, placement: e.target.value }))} onBlur={() => handleBlur("placement")} style={ic} placeholder="Full back, 12×14" />
-            </div>
-            <div>
-              <label style={label}>Colors</label>
-              <input value={form.colors} onChange={e => setForm(p => ({ ...p, colors: e.target.value }))} onBlur={() => handleBlur("colors")} style={ic} placeholder="2c screen — white, red" />
-            </div>
-            <div>
-              <label style={{ ...label, color: T.amber }}>Internal Notes (HPD only)</label>
-              <textarea rows={3} value={form.internal_notes} onChange={e => setForm(p => ({ ...p, internal_notes: e.target.value }))} onBlur={() => handleBlur("internal_notes")}
-                {...bulletHandlers(form.internal_notes, (v) => setForm(p => ({ ...p, internal_notes: v })))}
-                style={{ ...ic, resize: "vertical", lineHeight: 1.4, borderColor: T.amber + "44" }} placeholder="• Scratch pad, private" />
+
+            {/* Notes on the current hero */}
+            <div style={{ padding: "14px 16px", flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Notes on this image
+              </div>
+              {!hero ? (
+                <div style={{ fontSize: 12, color: T.faint, fontStyle: "italic" }}>Pick a file to see + add notes.</div>
+              ) : (
+                <>
+                  {hero.client_annotation && (
+                    <div style={{ padding: "8px 12px", background: T.purpleDim, border: `1px solid ${T.purple}55`, borderRadius: 4 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: T.purple, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Client</div>
+                      <div style={{ fontSize: 12, color: T.text, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{hero.client_annotation}</div>
+                    </div>
+                  )}
+                  {hero.designer_annotation && (
+                    <div style={{ padding: "8px 12px", background: T.blueDim, border: `1px solid ${T.blue}55`, borderRadius: 4 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Designer</div>
+                      <div style={{ fontSize: 12, color: T.text, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{hero.designer_annotation}</div>
+                    </div>
+                  )}
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>HPD note</div>
+                    <textarea
+                      value={hpdNote}
+                      onChange={e => setHpdNote(e.target.value)}
+                      onBlur={() => saveHpdAnnotation(hero.id, hpdNote)}
+                      {...bulletHandlers(hpdNote, setHpdNote)}
+                      placeholder={hero.kind === "reference" ? "• HPD note to designer" : "• Internal note"}
+                      rows={4}
+                      style={{ width: "100%", padding: "8px 10px", border: `1px solid ${T.amber}55`, borderRadius: 4, background: T.amberDim + "33", color: T.text, fontFamily: font, outline: "none", fontSize: 12, lineHeight: 1.5, resize: "vertical", boxSizing: "border-box" }}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

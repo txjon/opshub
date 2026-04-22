@@ -658,45 +658,13 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
               </div>
             )}
 
-            {/* Per-image notes — three-way, same file carries one note per party */}
-            {hero && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
-                {hero.client_annotation && (
-                  <div style={{ padding: "6px 10px", background: C.purpleBg, border: `1px solid ${C.purpleBorder}`, borderRadius: 6 }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: C.purple, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Client</div>
-                    <div style={{ fontSize: 12, color: C.text, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{hero.client_annotation}</div>
-                  </div>
-                )}
-                {hero.hpd_annotation && (
-                  <div style={{ padding: "6px 10px", background: C.amberBg, border: `1px solid ${C.amberBorder}`, borderRadius: 6 }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>HPD</div>
-                    <div style={{ fontSize: 12, color: C.text, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{hero.hpd_annotation}</div>
-                  </div>
-                )}
-                <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>
-                    Your note
-                  </div>
-                  <textarea
-                    value={designerNote}
-                    onChange={e => setDesignerNote(e.target.value)}
-                    onBlur={() => saveDesignerNote(hero.id, designerNote)}
-                    {...bulletHandlers(designerNote, setDesignerNote)}
-                    placeholder="• Design notes, caveats, open questions"
-                    rows={2}
-                    style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.blueBorder}`, borderRadius: 6, fontSize: 12, fontFamily: C.font, outline: "none", background: C.blueBg, color: C.text, lineHeight: 1.45, resize: "vertical", boxSizing: "border-box" }}
-                  />
-                </div>
-              </div>
-            )}
-
           </div>
         </div>
 
-        {/* RIGHT — Brief (top) + upload area (bottom) */}
+        {/* RIGHT — Brief (top, compact) + Notes (middle, flex) + Upload (bottom, pinned) */}
         <div style={{ borderLeft: `1px solid ${C.border}`, background: C.card, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-          {/* Brief (scrolls) */}
-          <div style={{ flex: 1, overflow: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 14, minHeight: 0 }}>
+          {/* Brief — compact top */}
+          <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10, flexShrink: 0, maxHeight: "35%", overflowY: "auto", borderBottom: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
               Brief from HPD
             </div>
@@ -711,6 +679,43 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
               {brief.mood_words?.length > 0 && <div><span style={{ color: C.faint, fontWeight: 600 }}>Mood: </span>{brief.mood_words.join(" · ")}</div>}
               {brief.deadline && <div><span style={{ color: C.faint, fontWeight: 600 }}>Due: </span>{new Date(brief.deadline).toLocaleDateString("en-US", { month: "long", day: "numeric" })}</div>}
             </div>
+          </div>
+
+          {/* Notes on the current hero — conversation lives here */}
+          <div style={{ padding: "14px 16px", flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 10, borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              Notes on this image
+            </div>
+            {!hero ? (
+              <div style={{ fontSize: 12, color: C.faint, fontStyle: "italic" }}>Pick a file to see + add notes.</div>
+            ) : (
+              <>
+                {hero.client_annotation && (
+                  <div style={{ padding: "8px 12px", background: C.purpleBg, border: `1px solid ${C.purpleBorder}`, borderRadius: 6 }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.purple, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Client</div>
+                    <div style={{ fontSize: 12, color: C.text, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{hero.client_annotation}</div>
+                  </div>
+                )}
+                {hero.hpd_annotation && (
+                  <div style={{ padding: "8px 12px", background: C.amberBg, border: `1px solid ${C.amberBorder}`, borderRadius: 6 }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>HPD</div>
+                    <div style={{ fontSize: 12, color: C.text, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{hero.hpd_annotation}</div>
+                  </div>
+                )}
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Your note</div>
+                  <textarea
+                    value={designerNote}
+                    onChange={e => setDesignerNote(e.target.value)}
+                    onBlur={() => saveDesignerNote(hero.id, designerNote)}
+                    {...bulletHandlers(designerNote, setDesignerNote)}
+                    placeholder="• Design notes, caveats, open questions"
+                    rows={4}
+                    style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.blueBorder}`, borderRadius: 6, fontSize: 12, fontFamily: C.font, outline: "none", background: C.blueBg, color: C.text, lineHeight: 1.5, resize: "vertical", boxSizing: "border-box" }}
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Upload (pinned to bottom of right column) */}

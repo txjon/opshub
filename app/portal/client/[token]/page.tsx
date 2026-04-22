@@ -666,43 +666,6 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
                 </div>
               )}
 
-              {/* Per-image notes — three-way, same file carries one note per party */}
-              {hero && (
-                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-                  {/* Designer's note — read-only */}
-                  {hero.designer_annotation && (
-                    <div style={{ padding: "6px 10px", background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: 6 }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Designer</div>
-                      <div style={{ fontSize: 12, color: C.text, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{hero.designer_annotation}</div>
-                    </div>
-                  )}
-                  {/* HPD's note — read-only */}
-                  {hero.hpd_annotation && (
-                    <div style={{ padding: "6px 10px", background: C.amberBg, border: `1px solid ${C.amberBorder}`, borderRadius: 6 }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>HPD</div>
-                      <div style={{ fontSize: 12, color: C.text, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{hero.hpd_annotation}</div>
-                    </div>
-                  )}
-                  {/* Client's own note — editable */}
-                  <div>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: C.purple, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>
-                      Your note
-                    </div>
-                    <textarea
-                      value={clientNote}
-                      onChange={e => setClientNote(e.target.value)}
-                      onBlur={() => saveClientNote(hero.id, clientNote)}
-                      {...bulletHandlers(clientNote, setClientNote)}
-                      placeholder={hero.kind === "reference"
-                        ? "• love the color palette"
-                        : "• thoughts on this image"}
-                      rows={2}
-                      style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.purpleBorder}`, borderRadius: 6, fontSize: 12, fontFamily: C.font, outline: "none", background: C.purpleBg, color: C.text, lineHeight: 1.45, resize: "vertical", boxSizing: "border-box" }}
-                    />
-                  </div>
-                </div>
-              )}
-
               {/* Approve / Request-changes CTAs — scoped to the current hero
                   when brief is awaiting client review. Request-changes
                   writes the note directly to the hero file's client note. */}
@@ -746,36 +709,62 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
             </div>
           </div>
 
-          {/* RIGHT — brief info (replaces thread) */}
-          <div style={{ display: "flex", flexDirection: "column", borderLeft: `1px solid ${C.border}`, background: C.card, minHeight: 0, overflow: "auto", padding: "14px 16px", gap: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              Brief
+          {/* RIGHT — Brief (compact top) + Notes (fills remaining space) */}
+          <div style={{ display: "flex", flexDirection: "column", borderLeft: `1px solid ${C.border}`, background: C.card, minHeight: 0, overflow: "hidden" }}>
+            {/* Brief — compact, scrolls if long */}
+            <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10, flexShrink: 0, maxHeight: "40%", overflowY: "auto", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Brief
+              </div>
+              {detail?.brief?.concept ? (
+                <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", color: C.text }}>{detail.brief.concept}</div>
+              ) : !loading ? (
+                <div style={{ fontSize: 12, color: C.faint, fontStyle: "italic" }}>HPD hasn't written a brief yet.</div>
+              ) : null}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
+                {(detail?.brief as any)?.placement && <div><span style={{ color: C.faint, fontWeight: 600 }}>Placement: </span>{(detail!.brief as any).placement}</div>}
+                {(detail?.brief as any)?.colors && <div><span style={{ color: C.faint, fontWeight: 600 }}>Colors: </span>{(detail!.brief as any).colors}</div>}
+                {(detail?.brief as any)?.mood_words?.length > 0 && (
+                  <div><span style={{ color: C.faint, fontWeight: 600 }}>Mood: </span>{((detail!.brief as any).mood_words as string[]).join(" · ")}</div>
+                )}
+                {brief.deadline && <div><span style={{ color: C.faint, fontWeight: 600 }}>Due: </span>{new Date(brief.deadline).toLocaleDateString("en-US", { month: "long", day: "numeric" })}</div>}
+              </div>
             </div>
-            {detail?.brief?.concept && (
-              <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", color: C.text }}>
-                {detail.brief.concept}
+
+            {/* Notes on the current hero — conversation lives here */}
+            <div style={{ padding: "14px 16px", flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Notes on this image
               </div>
-            )}
-            {!detail?.brief?.concept && !loading && (
-              <div style={{ fontSize: 12, color: C.faint, fontStyle: "italic" }}>
-                HPD hasn't written a brief yet.
-              </div>
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12 }}>
-              {(detail?.brief as any)?.placement && (
-                <div><span style={{ color: C.faint, fontWeight: 600 }}>Placement: </span>{(detail!.brief as any).placement}</div>
-              )}
-              {(detail?.brief as any)?.colors && (
-                <div><span style={{ color: C.faint, fontWeight: 600 }}>Colors: </span>{(detail!.brief as any).colors}</div>
-              )}
-              {(detail?.brief as any)?.mood_words?.length > 0 && (
-                <div>
-                  <span style={{ color: C.faint, fontWeight: 600 }}>Mood: </span>
-                  {((detail!.brief as any).mood_words as string[]).join(" · ")}
-                </div>
-              )}
-              {brief.deadline && (
-                <div><span style={{ color: C.faint, fontWeight: 600 }}>Due: </span>{new Date(brief.deadline).toLocaleDateString("en-US", { month: "long", day: "numeric" })}</div>
+              {!hero ? (
+                <div style={{ fontSize: 12, color: C.faint, fontStyle: "italic" }}>Pick a file to see + add notes.</div>
+              ) : (
+                <>
+                  {hero.designer_annotation && (
+                    <div style={{ padding: "8px 12px", background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: 6 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Designer</div>
+                      <div style={{ fontSize: 12, color: C.text, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{hero.designer_annotation}</div>
+                    </div>
+                  )}
+                  {hero.hpd_annotation && (
+                    <div style={{ padding: "8px 12px", background: C.amberBg, border: `1px solid ${C.amberBorder}`, borderRadius: 6 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>HPD</div>
+                      <div style={{ fontSize: 12, color: C.text, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{hero.hpd_annotation}</div>
+                    </div>
+                  )}
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.purple, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Your note</div>
+                    <textarea
+                      value={clientNote}
+                      onChange={e => setClientNote(e.target.value)}
+                      onBlur={() => saveClientNote(hero.id, clientNote)}
+                      {...bulletHandlers(clientNote, setClientNote)}
+                      placeholder={hero.kind === "reference" ? "• love the color palette" : "• thoughts on this image"}
+                      rows={4}
+                      style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.purpleBorder}`, borderRadius: 6, fontSize: 12, fontFamily: C.font, outline: "none", background: C.purpleBg, color: C.text, lineHeight: 1.5, resize: "vertical", boxSizing: "border-box" }}
+                    />
+                  </div>
+                </>
               )}
             </div>
           </div>
