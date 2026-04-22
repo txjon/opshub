@@ -83,7 +83,15 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const enriched = (briefs || []).map((b: any) => {
       const files = filesByBrief[b.id] || [];
       // Tile thumb = most recently touched file (upload OR note edit)
-      const latest = [...files].sort((a: any, b: any) => lastTouched(b).localeCompare(lastTouched(a)))[0] || null;
+      const sorted = [...files].sort((a: any, b: any) => lastTouched(b).localeCompare(lastTouched(a)));
+      const latest = sorted[0] || null;
+      // Mosaic of up to 4 most-recently-touched files, same pattern as
+      // OpsHub Art Studio tiles.
+      const thumbs = sorted.slice(0, 4).map((f: any) => ({
+        drive_file_id: f.drive_file_id,
+        drive_link: f.drive_link,
+        kind: f.kind,
+      }));
       const counts = { wip: 0, first_draft: 0, revision: 0, final: 0, reference: 0 };
       for (const f of files) {
         if (counts[f.kind as keyof typeof counts] !== undefined) counts[f.kind as keyof typeof counts]++;
@@ -104,6 +112,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         ...b,
         clients: b.client_id ? (clientsById[b.client_id] || null) : null,
         latest_thumb: latest ? { drive_file_id: latest.drive_file_id, drive_link: latest.drive_link, kind: latest.kind } : null,
+        thumbs,
+        thumb_total: files.length,
         file_counts: counts,
         last_client_activity: la.client || null,
         last_designer_activity: la.designer || null,

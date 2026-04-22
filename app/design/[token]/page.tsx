@@ -15,12 +15,15 @@ const C = {
   mono: "'SF Mono', 'IBM Plex Mono', Menlo, monospace",
 };
 
+type ThumbLite = { drive_file_id: string | null; drive_link: string | null; kind?: string };
 type Brief = {
   id: string; title: string | null; state: string; deadline: string | null;
   concept: string | null; placement: string | null; colors: string | null;
   mood_words: string[]; sent_to_designer_at: string | null; updated_at: string;
   version_count: number; clients?: { name: string } | null;
   latest_thumb: { drive_file_id: string; drive_link: string; kind: string } | null;
+  thumbs?: ThumbLite[];
+  thumb_total?: number;
   file_counts: { wip: number; first_draft: number; revision: number; final: number; reference: number };
   last_activity_at?: string | null;
   has_unread_external?: boolean;
@@ -231,10 +234,59 @@ export default function DesignerPortal({ params }: { params: { token: string } }
   );
 }
 
+// 4-up mosaic — matches the OpsHub Art Studio tile pattern. Renders 1/2/3/4
+// thumbs in a smart grid. Overflow (>4) shown as "+N" on the last cell.
+function TileMosaic({ thumbs, total }: { thumbs: ThumbLite[]; total: number }) {
+  const count = Math.min(thumbs.length, 4);
+  const overflow = Math.max(0, total - 4);
+  if (count === 0) {
+    return (
+      <div style={{ width: "100%", height: "100%", background: "#f4f4f7", display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 12 }}>
+        No work yet
+      </div>
+    );
+  }
+  let gridTemplate = "1fr", rows = "1fr";
+  if (count === 2) { gridTemplate = "1fr 1fr"; rows = "1fr"; }
+  if (count === 3) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
+  if (count === 4) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
+  return (
+    <div style={{
+      width: "100%", height: "100%", background: "#f4f4f7",
+      display: "grid", gridTemplateColumns: gridTemplate, gridTemplateRows: rows,
+      gap: 2, overflow: "hidden",
+    }}>
+      {thumbs.slice(0, count).map((t, i) => {
+        const spanLeft = count === 3 && i === 0;
+        const isLast = i === count - 1;
+        const thumb = t.drive_file_id ? `/api/files/thumbnail?id=${t.drive_file_id}&thumb=1` : null;
+        return (
+          <div key={i} style={{
+            position: "relative", background: "#fff",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            overflow: "hidden", padding: 6,
+            ...(spanLeft ? { gridRow: "1 / span 2" } : {}),
+          }}>
+            {thumb && (
+              <img src={thumb} alt="" loading="lazy"
+                style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                onError={(e: any) => { e.target.style.display = "none"; }} />
+            )}
+            {isLast && overflow > 0 && (
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 14, fontWeight: 700 }}>
+                +{overflow}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: () => void }) {
   const meta = STATE_META[brief.state] || STATE_META.draft;
   const due = daysUntil(brief.deadline);
-  const thumb = thumbUrl(brief.latest_thumb?.drive_file_id);
   const kindLabel = brief.latest_thumb?.kind === "first_draft" ? "1st Draft"
     : brief.latest_thumb?.kind === "revision" ? "Revision"
     : brief.latest_thumb?.kind === "final" ? "Final"
@@ -279,23 +331,15 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: () => void }) {
         }}>CLIENT ABORTED</div>
       )}
 
-      {/* Thumb */}
-      <div style={{ aspectRatio: "1", background: "#f4f4f7", position: "relative", overflow: "hidden", padding: 10, opacity: isClientAborted ? 0.45 : 1 }}>
-        {thumb && !noWorkYet ? (
-          <img src={thumb} alt="" loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff", borderRadius: 4 }}
-            onError={(e: any) => { e.target.style.display = "none"; }} />
-        ) : (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 12 }}>
-            No work yet
-          </div>
-        )}
+      {/* Thumb — mosaic of up to 4 most-recent files */}
+      <div style={{ aspectRatio: "1", position: "relative", overflow: "hidden", opacity: isClientAborted ? 0.45 : 1 }}>
+        <TileMosaic thumbs={brief.thumbs || []} total={brief.thumb_total ?? (brief.thumbs?.length || 0)} />
         {/* Status dot */}
         <div title={meta.label}
-          style={{ position: "absolute", top: 10, right: 10, width: 10, height: 10, borderRadius: 99, background: meta.color, boxShadow: "0 0 0 2px #fff" }} />
+          style={{ position: "absolute", top: 10, right: 10, width: 10, height: 10, borderRadius: 99, background: meta.color, boxShadow: "0 0 0 2px #fff", zIndex: 2 }} />
         {kindLabel && !noWorkYet && (
-          <div style={{ position: "absolute", bottom: 14, right: 14, padding: "1px 6px", borderRadius: 3, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 9, fontWeight: 700, fontFamily: C.mono }}>
-            {kindLabel}{brief.latest_thumb && brief.file_counts[brief.latest_thumb.kind as keyof typeof brief.file_counts] > 1 ? ` v${brief.file_counts[brief.latest_thumb.kind as keyof typeof brief.file_counts]}` : ""}
+          <div style={{ position: "absolute", bottom: 10, right: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 9, fontWeight: 700, fontFamily: C.mono, zIndex: 2 }}>
+            {kindLabel}
           </div>
         )}
       </div>

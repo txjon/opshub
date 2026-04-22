@@ -237,9 +237,56 @@ export default function ClientPortal({ params }: { params: { token: string } }) 
   async function loadPortal() { fetchPortal(false); }
 }
 
+// 4-up mosaic — matches OpsHub Art Studio + designer portal tile pattern.
+function TileMosaic({ thumbs, total }: { thumbs: Thumb[]; total: number }) {
+  const count = Math.min(thumbs.length, 4);
+  const overflow = Math.max(0, total - 4);
+  if (count === 0) {
+    return (
+      <div style={{ width: "100%", height: "100%", background: "#f4f4f7", display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 12 }}>
+        No preview yet
+      </div>
+    );
+  }
+  let gridTemplate = "1fr", rows = "1fr";
+  if (count === 2) { gridTemplate = "1fr 1fr"; rows = "1fr"; }
+  if (count === 3) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
+  if (count === 4) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
+  return (
+    <div style={{
+      width: "100%", height: "100%", background: "#f4f4f7",
+      display: "grid", gridTemplateColumns: gridTemplate, gridTemplateRows: rows,
+      gap: 2, overflow: "hidden",
+    }}>
+      {thumbs.slice(0, count).map((t, i) => {
+        const spanLeft = count === 3 && i === 0;
+        const isLast = i === count - 1;
+        const src = t.drive_file_id ? `/api/files/thumbnail?id=${t.drive_file_id}&thumb=1` : null;
+        return (
+          <div key={i} style={{
+            position: "relative", background: "#fff",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            overflow: "hidden", padding: 6,
+            ...(spanLeft ? { gridRow: "1 / span 2" } : {}),
+          }}>
+            {src && (
+              <img src={src} alt="" loading="lazy"
+                style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+                onError={(e: any) => { e.target.style.display = "none"; }} />
+            )}
+            {isLast && overflow > 0 && (
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 14, fontWeight: 700 }}>
+                +{overflow}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function BriefTile({ brief, meta, token, onOpen }: { brief: Brief; meta: ReturnType<typeof clientStateFor>; token: string; onOpen: () => void }) {
-  const firstThumb = brief.thumbs[0]?.drive_file_id || null;
-  const thumb = thumbUrl(firstThumb);
   const due = daysUntil(brief.deadline);
 
   const content = (
@@ -266,24 +313,10 @@ function BriefTile({ brief, meta, token, onOpen }: { brief: Brief; meta: ReturnT
         }}>NEW</div>
       )}
 
-      <div style={{ aspectRatio: "1", background: "#f4f4f7", position: "relative", overflow: "hidden", padding: 10 }}>
-        {thumb ? (
-          <img src={thumb} alt="" loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff", borderRadius: 4 }}
-            onError={(e: any) => { e.target.style.display = "none"; }} />
-        ) : (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 12 }}>
-            No preview yet
-          </div>
-        )}
-        {/* Small status dot, tooltip reveals label */}
+      <div style={{ aspectRatio: "1", position: "relative", overflow: "hidden" }}>
+        <TileMosaic thumbs={brief.thumbs || []} total={brief.thumb_total ?? (brief.thumbs?.length || 0)} />
         <div title={meta.label}
-          style={{ position: "absolute", top: 10, right: 10, width: 10, height: 10, borderRadius: 99, background: meta.color, boxShadow: "0 0 0 2px #fff" }} />
-        {brief.thumb_total > 1 && (
-          <div style={{ position: "absolute", bottom: 14, right: 14, padding: "1px 6px", borderRadius: 3, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 9, fontWeight: 700, fontFamily: C.mono }}>
-            +{brief.thumb_total - 1}
-          </div>
-        )}
+          style={{ position: "absolute", top: 10, right: 10, width: 10, height: 10, borderRadius: 99, background: meta.color, boxShadow: "0 0 0 2px #fff", zIndex: 2 }} />
       </div>
 
       <div style={{ padding: "10px 14px 12px", display: "flex", flexDirection: "column", gap: 2 }}>
