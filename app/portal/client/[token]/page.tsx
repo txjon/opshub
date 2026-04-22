@@ -59,12 +59,9 @@ function clientStateFor(b: Brief): { label: string; bucket: string; color: strin
   return { label: s, bucket: "progress", color: C.muted, bg: C.surface, border: C.border };
 }
 
-const FILTERS: { key: string; label: string; buckets: string[] }[] = [
-  { key: "all", label: "All", buckets: [] },
-  { key: "action", label: "Needs you", buckets: ["action"] },
-  { key: "progress", label: "In progress", buckets: ["progress"] },
-  { key: "done", label: "Done", buckets: ["done"] },
-];
+// Filters collapsed — the unread counter at the top is the only control now.
+// State-based filtering lost its purpose when every brief became a live
+// conversation instead of a stage in a pipeline.
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const daysUntil = (iso: string | null) => {
@@ -146,11 +143,12 @@ export default function ClientPortal({ params }: { params: { token: string } }) 
 
   const briefs = data.briefs;
   const withBucket = briefs.map(b => ({ b, meta: clientStateFor(b) }));
-  const activeBuckets = FILTERS.find(f => f.key === filter)?.buckets || [];
-  const filtered = activeBuckets.length === 0 ? withBucket : withBucket.filter(x => activeBuckets.includes(x.meta.bucket));
-
   // One number that matters: how many items need you?
   const unreadCount = briefs.filter(b => b.has_unread_external).length;
+  // Filter is either "all" or "unread" — driven by clicking the counter.
+  const filtered = filter === "unread"
+    ? withBucket.filter(x => x.b.has_unread_external)
+    : withBucket;
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
@@ -185,31 +183,22 @@ export default function ClientPortal({ params }: { params: { token: string } }) 
       </div>
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 24px 60px" }}>
-        {/* Unread counter — the only stat that actually matters */}
-        <div style={{ marginBottom: 18, fontSize: 15, color: unreadCount > 0 ? C.red : C.muted, fontWeight: 700 }}>
-          {unreadCount > 0
-            ? <>{unreadCount} new update{unreadCount === 1 ? "" : "s"} · scroll down to see what's new</>
-            : <>All caught up.</>}
-        </div>
-
-        {/* Filter pills */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-          {FILTERS.map(f => {
-            const count = f.buckets.length === 0 ? briefs.length : withBucket.filter(x => f.buckets.includes(x.meta.bucket)).length;
-            const isActive = filter === f.key;
-            return (
-              <button key={f.key} onClick={() => setFilter(f.key)}
-                style={{
-                  padding: "6px 14px", borderRadius: 99, fontSize: 12, fontWeight: 600,
-                  cursor: "pointer", fontFamily: C.font,
-                  background: isActive ? C.text : C.card,
-                  color: isActive ? C.card : C.muted,
-                  border: `1px solid ${isActive ? C.text : C.border}`,
-                }}>
-                {f.label} <span style={{ opacity: 0.6, marginLeft: 4 }}>{count}</span>
-              </button>
-            );
-          })}
+        {/* Unread counter — clickable to filter. "All caught up" is static. */}
+        <div style={{ marginBottom: 18, display: "flex", alignItems: "baseline", gap: 12 }}>
+          {unreadCount > 0 ? (
+            <button onClick={() => setFilter(filter === "unread" ? "all" : "unread")}
+              style={{ background: filter === "unread" ? C.red : "transparent", color: filter === "unread" ? "#fff" : C.red, border: `1px solid ${C.red}`, borderRadius: 6, padding: "6px 14px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: C.font }}>
+              {unreadCount} new update{unreadCount === 1 ? "" : "s"}{filter === "unread" ? " · showing" : " · tap to filter"}
+            </button>
+          ) : (
+            <span style={{ fontSize: 14, color: C.muted, fontWeight: 700 }}>All caught up.</span>
+          )}
+          {filter === "unread" && (
+            <button onClick={() => setFilter("all")}
+              style={{ background: "transparent", color: C.muted, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font, textDecoration: "underline" }}>
+              Show all
+            </button>
+          )}
         </div>
 
         {/* Tile grid */}

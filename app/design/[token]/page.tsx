@@ -53,14 +53,8 @@ const STATE_META: Record<string, { label: string; color: string; bg: string; bor
   draft:            { label: "Draft",               color: C.faint,  bg: C.surface,  border: C.border,       group: "done" },
 };
 
-// ── Filter pill buckets ──
-const FILTERS: { key: string; label: string; states: string[] }[] = [
-  { key: "all",     label: "All",              states: [] },
-  { key: "action",  label: "Action needed",    states: ["sent", "revisions"] },
-  { key: "progress",label: "In progress",      states: ["in_progress"] },
-  { key: "review",  label: "Awaiting review",  states: ["wip_review", "client_review"] },
-  { key: "done",    label: "Done",             states: ["final_approved", "pending_prep", "production_ready", "delivered"] },
-];
+// Filters collapsed — state-based pills don't help with the new messaging
+// model. Unread counter at top is the only control.
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const daysUntil = (iso: string | null) => {
@@ -150,8 +144,7 @@ export default function DesignerPortal({ params }: { params: { token: string } }
   if (loading) return <CenterMsg msg="Loading…" />;
   if (error) return <CenterMsg msg={error} err />;
 
-  const activeStates = FILTERS.find(f => f.key === filter)?.states || [];
-  const filtered = activeStates.length === 0 ? briefs : briefs.filter(b => activeStates.includes(b.state));
+  const filtered = filter === "unread" ? briefs.filter(b => b.has_unread_external) : briefs;
 
   // One number: how many briefs have activity you haven't seen?
   const unreadCount = briefs.filter(b => b.has_unread_external).length;
@@ -188,38 +181,27 @@ export default function DesignerPortal({ params }: { params: { token: string } }
       </div>
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 24px 60px" }}>
-        {/* Unread counter — what actually needs your eyeballs */}
-        <div style={{ marginBottom: 18, fontSize: 15, fontWeight: 700, display: "flex", gap: 18, alignItems: "baseline" }}>
-          <span style={{ color: unreadCount > 0 ? C.red : C.muted }}>
-            {unreadCount > 0
-              ? <>{unreadCount} new update{unreadCount === 1 ? "" : "s"}</>
-              : <>All caught up.</>}
-          </span>
+        {/* Unread counter — clickable to filter */}
+        <div style={{ marginBottom: 18, display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+          {unreadCount > 0 ? (
+            <button onClick={() => setFilter(filter === "unread" ? "all" : "unread")}
+              style={{ background: filter === "unread" ? C.red : "transparent", color: filter === "unread" ? "#fff" : C.red, border: `1px solid ${C.red}`, borderRadius: 6, padding: "6px 14px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: C.font }}>
+              {unreadCount} new update{unreadCount === 1 ? "" : "s"}{filter === "unread" ? " · showing" : " · tap to filter"}
+            </button>
+          ) : (
+            <span style={{ fontSize: 14, color: C.muted, fontWeight: 700 }}>All caught up.</span>
+          )}
+          {filter === "unread" && (
+            <button onClick={() => setFilter("all")}
+              style={{ background: "transparent", color: C.muted, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font, textDecoration: "underline" }}>
+              Show all
+            </button>
+          )}
           {overdueCount > 0 && (
-            <span style={{ color: C.red, fontSize: 13, fontWeight: 700 }}>
-              · {overdueCount} overdue
+            <span style={{ color: C.red, fontSize: 13, fontWeight: 700, marginLeft: "auto" }}>
+              {overdueCount} overdue
             </span>
           )}
-        </div>
-
-        {/* Filter pills */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-          {FILTERS.map(f => {
-            const count = f.states.length === 0 ? briefs.length : briefs.filter(b => f.states.includes(b.state)).length;
-            const isActive = filter === f.key;
-            return (
-              <button key={f.key} onClick={() => setFilter(f.key)}
-                style={{
-                  padding: "6px 14px", borderRadius: 99, fontSize: 12, fontWeight: 600,
-                  cursor: "pointer", fontFamily: C.font,
-                  background: isActive ? C.text : C.card,
-                  color: isActive ? C.card : C.muted,
-                  border: `1px solid ${isActive ? C.text : C.border}`,
-                }}>
-                {f.label} <span style={{ opacity: 0.6, marginLeft: 4 }}>{count}</span>
-              </button>
-            );
-          })}
         </div>
 
         {/* Image-first brief grid */}
