@@ -147,7 +147,20 @@ export default function DesignerPortal({ params }: { params: { token: string } }
   if (loading) return <CenterMsg msg="Loading…" />;
   if (error) return <CenterMsg msg={error} err />;
 
-  const filtered = filter === "unread" ? briefs.filter(b => b.has_unread_external) : briefs;
+  // "Done" from designer's POV = Final is uploaded, their part is over.
+  // Brief drops out of the active feed unless someone else acted on it
+  // (has_unread_external = true re-surfaces it automatically).
+  const DONE_STATES = ["pending_prep", "final_approved", "production_ready", "delivered"];
+  const isDoneForDesigner = (b: Brief) =>
+    DONE_STATES.includes(b.state) && !b.has_unread_external;
+
+  const doneCount = briefs.filter(isDoneForDesigner).length;
+
+  const filtered = filter === "unread"
+    ? briefs.filter(b => b.has_unread_external)
+    : filter === "done"
+      ? briefs.filter(isDoneForDesigner)
+      : briefs.filter(b => !isDoneForDesigner(b)); // "all" = active only
 
   // One number: how many briefs have activity you haven't seen?
   const unreadCount = briefs.filter(b => b.has_unread_external).length;
@@ -194,10 +207,16 @@ export default function DesignerPortal({ params }: { params: { token: string } }
           ) : (
             <span style={{ fontSize: 14, color: C.muted, fontWeight: 700 }}>All caught up.</span>
           )}
-          {filter === "unread" && (
+          {filter !== "all" && (
             <button onClick={() => setFilter("all")}
               style={{ background: "transparent", color: C.muted, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font, textDecoration: "underline" }}>
-              Show all
+              Show active
+            </button>
+          )}
+          {doneCount > 0 && filter !== "done" && (
+            <button onClick={() => setFilter("done")}
+              style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font }}>
+              Done · {doneCount}
             </button>
           )}
           {overdueCount > 0 && (

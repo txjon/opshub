@@ -143,12 +143,20 @@ export default function ClientPortal({ params }: { params: { token: string } }) 
 
   const briefs = data.briefs;
   const withBucket = briefs.map(b => ({ b, meta: clientStateFor(b) }));
-  // One number that matters: how many items need you?
   const unreadCount = briefs.filter(b => b.has_unread_external).length;
-  // Filter is either "all" or "unread" — driven by clicking the counter.
+
+  // "Done" from client's POV = they've already approved the design.
+  // Auto-hides from the active feed; re-surfaces if HPD or designer acts.
+  const DONE_STATES = ["final_approved", "pending_prep", "production_ready", "delivered"];
+  const isDoneForClient = (b: Brief) =>
+    DONE_STATES.includes(b.state) && !b.has_unread_external;
+  const doneCount = briefs.filter(isDoneForClient).length;
+
   const filtered = filter === "unread"
     ? withBucket.filter(x => x.b.has_unread_external)
-    : withBucket;
+    : filter === "done"
+      ? withBucket.filter(x => isDoneForClient(x.b))
+      : withBucket.filter(x => !isDoneForClient(x.b)); // "all" = active only
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
@@ -193,10 +201,16 @@ export default function ClientPortal({ params }: { params: { token: string } }) 
           ) : (
             <span style={{ fontSize: 14, color: C.muted, fontWeight: 700 }}>All caught up.</span>
           )}
-          {filter === "unread" && (
+          {filter !== "all" && (
             <button onClick={() => setFilter("all")}
               style={{ background: "transparent", color: C.muted, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font, textDecoration: "underline" }}>
-              Show all
+              Show active
+            </button>
+          )}
+          {doneCount > 0 && filter !== "done" && (
+            <button onClick={() => setFilter("done")}
+              style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font }}>
+              Done · {doneCount}
             </button>
           )}
         </div>
