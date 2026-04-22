@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import crypto from "crypto";
 import { renderBrandedEmail } from "@/lib/email-template";
+import { appBaseUrl } from "@/lib/public-url";
 
 // POST — email the client intake link to the client's contacts.
 // Body: { brief_id, to_emails?: string[], note?: string }
@@ -66,8 +67,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No client contacts with email on file — add one first, or supply to_emails" }, { status: 400 });
     }
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_VERCEL_URL || "https://opshub-umber.vercel.app";
-    const base = siteUrl.startsWith("http") ? siteUrl : "https://" + siteUrl;
+    const base = appBaseUrl();
     // Prefer the client-wide portal URL — covers every open brief they have.
     // Fall back to the per-brief intake URL if the client somehow has no portal token.
     const portalUrl = clientPortalToken ? `${base}/portal/client/${clientPortalToken}` : `${base}/art-intake/${briefToken}`;

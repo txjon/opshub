@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { getAccessToken } from "@/lib/quickbooks";
 import { createHmac } from "crypto";
 import { sendClientNotification } from "@/lib/auto-email";
+import { appBaseUrl } from "@/lib/public-url";
 
 const QB_BASE_URL = "https://quickbooks.api.intuit.com";
 
@@ -214,9 +215,9 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
           return;
         }
 
-        // Fetch PAID-stamped invoice PDF
-        const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-        const pdfRes = await fetch(`${baseUrl}/api/pdf/invoice/${job.id}?paid=true&paidDate=${encodeURIComponent(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))}`, {
+        // Fetch PAID-stamped invoice PDF — self-fetch uses internal URL
+        const internalBase = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+        const pdfRes = await fetch(`${internalBase}/api/pdf/invoice/${job.id}?paid=true&paidDate=${encodeURIComponent(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))}`, {
           headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY! },
         });
         if (!pdfRes.ok) {
@@ -226,9 +227,9 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
         }
         const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
 
-        // Get portal URL
+        // Get portal URL — user-facing, use branded domain
         const { data: jobFull } = await supabase.from("jobs").select("portal_token, job_number").eq("id", job.id).single();
-        const portalUrl = jobFull?.portal_token ? `${baseUrl}/portal/${jobFull.portal_token}` : "";
+        const portalUrl = jobFull?.portal_token ? `${appBaseUrl()}/portal/${jobFull.portal_token}` : "";
         const portalButton = portalUrl ? `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#f3f3f5;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px;border:1px solid #dcdce0">View in Portal</a></p>` : "";
         const invoiceNum = (job.type_meta as any)?.qb_invoice_number || jobFull?.job_number || "";
 
