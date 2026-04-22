@@ -1,12 +1,12 @@
 // Client-side Drive upload helper.
 //
-// Strategy: try a direct browser → Drive PUT first (single round-trip, fast).
-// If that fails for any reason (usually CORS on service-account sessions),
-// fall back to chunked uploads via /api/upload-chunk which streams each
-// chunk through our server.
+// Always uses the chunked proxy path via /api/upload-chunk. Direct browser
+// → Drive PUT was tried first historically, but it always fails CORS on
+// service-account-impersonated session URLs (even after preflight passes).
+// Skipping it cleans up the console and saves a round trip.
 //
-// Either path ends with the drive_file_id being passed to the surface's
-// upload-session/complete endpoint to register metadata.
+// Each 4MB chunk streams through our server to Drive using Content-Range
+// resumable semantics. Returns drive_file_id once Drive finalizes.
 
 export type UploadResult = { drive_file_id: string; web_view_link?: string | null };
 
@@ -18,25 +18,6 @@ export async function uploadFileToDriveSession(
   onProgress?: (done: number, total: number) => void
 ): Promise<UploadResult> {
   const mime = file.type || "application/octet-stream";
-
-  // Try direct PUT first — fastest path when CORS works
-  try {
-    const direct = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": mime },
-      body: file,
-    });
-    if (direct.ok) {
-      const data = await direct.json();
-      if (onProgress) onProgress(file.size, file.size);
-      return { drive_file_id: data.id, web_view_link: data.webViewLink || null };
-    }
-    // fall through to chunked proxy
-  } catch {
-    // Most likely CORS or network. Fall through to proxy.
-  }
-
-  // Chunked fallback via /api/upload-chunk
   return await uploadChunked(uploadUrl, file, mime, onProgress);
 }
 
