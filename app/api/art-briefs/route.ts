@@ -85,17 +85,26 @@ export async function GET(req: NextRequest) {
         if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type, kind };
       };
       (msgsRes.data || []).forEach((m: any) => bump(m.brief_id, m.sender_role, m.created_at, "message"));
-      // Files: upload event attributed to uploader. Annotation edits attributed
-      // to whichever role's annotation is populated (we can't tell which role
-      // edited without per-field timestamps — but the presence of their note
-      // is a good heuristic).
+      // Files: upload event attributed to uploader. Annotation edits use
+      // smart inference since we share one annotation_updated_at across all
+      // three roles: if the role matches the file's uploader, assume the
+      // annotation was set at upload (use created_at). Otherwise it was
+      // PATCHed later (use shared). This prevents HPD's PATCH time from
+      // being attributed to the designer's upload-time note, which broke
+      // unread-badge math.
       (filesRes.data || []).forEach((f: any) => {
         bump(f.brief_id, f.uploader_role, f.created_at, "upload", f.kind);
-        if (f.annotation_updated_at) {
-          if (f.hpd_annotation) bump(f.brief_id, "hpd", f.annotation_updated_at, "note", f.kind);
-          if (f.designer_annotation) bump(f.brief_id, "designer", f.annotation_updated_at, "note", f.kind);
-          if (f.client_annotation) bump(f.brief_id, "client", f.annotation_updated_at, "note", f.kind);
-        }
+        const inferAt = (role: "hpd" | "designer" | "client", has: boolean) => {
+          if (!has) return null;
+          if (f.uploader_role === role) return f.created_at;
+          return f.annotation_updated_at || null;
+        };
+        const hpdAt = inferAt("hpd", !!f.hpd_annotation);
+        const designerAt = inferAt("designer", !!f.designer_annotation);
+        const clientAt = inferAt("client", !!f.client_annotation);
+        if (hpdAt) bump(f.brief_id, "hpd", hpdAt, "note", f.kind);
+        if (designerAt) bump(f.brief_id, "designer", designerAt, "note", f.kind);
+        if (clientAt) bump(f.brief_id, "client", clientAt, "note", f.kind);
       });
 
       // Up to 4 thumbnails per brief for the image-first card mosaic.
