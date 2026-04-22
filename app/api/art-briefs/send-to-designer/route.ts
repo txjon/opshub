@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { renderBrandedEmail } from "@/lib/email-template";
+import { appBaseUrl } from "@/lib/public-url";
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,8 +31,7 @@ export async function POST(req: NextRequest) {
     }).eq("id", brief_id);
 
     // Email designer if they have an address + Resend is configured
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://app.housepartydistro.com";
-    const portalUrl = `${siteUrl}/design/${designer.portal_token}`;
+    const portalUrl = `${appBaseUrl()}/design/${designer.portal_token}`;
     let emailed = false;
 
     if (designer.email && process.env.RESEND_API_KEY) {

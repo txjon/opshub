@@ -6,6 +6,7 @@
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 import { renderBrandedEmail } from "@/lib/email-template";
+import { appBaseUrl } from "@/lib/public-url";
 
 const admin = () =>
   createClient(
@@ -87,9 +88,7 @@ export async function sendClientNotification(params: NotifyParams) {
       .map((c: any) => c.email);
 
     // Build portal URL
-    const baseUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+    const baseUrl = appBaseUrl();
     const portalUrl = job.portal_token
       ? `${baseUrl}/portal/${job.portal_token}`
       : null;
@@ -169,9 +168,7 @@ export async function getPortalUrl(jobId: string): Promise<string | null> {
       .single();
     if (!job?.portal_token) return null;
 
-    const baseUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+    const baseUrl = appBaseUrl();
     return `${baseUrl}/portal/${job.portal_token}`;
   } catch {
     return null;
@@ -192,9 +189,7 @@ export async function getVendorPortalUrl(vendorName: string): Promise<string | n
       .single();
     if (!dec?.external_token) return null;
 
-    const baseUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+    const baseUrl = appBaseUrl();
     return `${baseUrl}/portal/vendor/${dec.external_token}`;
   } catch {
     return null;

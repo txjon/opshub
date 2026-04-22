@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
+import { appBaseUrl } from "@/lib/public-url";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
 
   const resend = new Resend(process.env.RESEND_API_KEY);
   const from = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
-  const appBase = process.env.NEXT_PUBLIC_APP_URL || "https://opshub-umber.vercel.app";
+  const appBase = appBaseUrl();
 
   let sent = 0;
   const errors: string[] = [];

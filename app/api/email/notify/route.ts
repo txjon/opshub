@@ -23,9 +23,14 @@ type ShipNotificationRecord = {
   resend: boolean;
 };
 
+// Internal self-fetch URL (for hitting our own /api/pdf routes). Uses
+// VERCEL_URL so the server can talk to itself on the same deployment.
 const BASE_URL = () =>
   process.env.NEXT_PUBLIC_SITE_URL ||
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+
+// User-facing URL — shows up in the email body. Branded, never a Vercel URL.
+import { appBaseUrl } from "@/lib/public-url";
 
 const FROM_ADDR = () => process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
 
@@ -93,7 +98,7 @@ export async function POST(req: NextRequest) {
 
       const invoiceNum = typeMeta.qb_invoice_number || (job as any).job_number || "";
       const portalToken = (job as any).portal_token;
-      const portalUrl = portalToken ? `${BASE_URL()}/portal/${portalToken}` : null;
+      const portalUrl = portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null;
       const projectTitle = (job as any).title || "your order";
 
       let subject = "";
@@ -184,7 +189,7 @@ export async function POST(req: NextRequest) {
 
       const invoiceNum = typeMeta.qb_invoice_number || (job as any).job_number || "";
       const portalToken = (job as any).portal_token;
-      const portalUrl = portalToken ? `${BASE_URL()}/portal/${portalToken}` : null;
+      const portalUrl = portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null;
       const projectTitle = (job as any).title || "your order";
 
       const html = renderBrandedEmail({
@@ -238,7 +243,7 @@ export async function POST(req: NextRequest) {
       const invoiceNum = typeMeta.qb_invoice_number || (job as any).job_number || "";
       const qbPaymentLink = typeMeta.qb_payment_link || "";
       const portalToken = (job as any).portal_token;
-      const portalUrl = portalToken ? `${BASE_URL()}/portal/${portalToken}` : null;
+      const portalUrl = portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null;
       const projectTitle = (job as any).title || "";
 
       const html = renderBrandedEmail({

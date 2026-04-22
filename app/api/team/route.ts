@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { appBaseUrl } from "@/lib/public-url";
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,9 +29,8 @@ export async function POST(req: NextRequest) {
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     // Invite user via Supabase auth
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://app.housepartydistro.com");
     const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${siteUrl}/auth/callback`,
+      redirectTo: `${appBaseUrl()}/auth/callback`,
     });
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 });
 
