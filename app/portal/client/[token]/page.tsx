@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
 
 // ── Document-style theme (matches designer + vendor portals) ──
 const C = {
@@ -533,21 +534,15 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
       if (!sessionRes.ok) throw new Error("Could not start upload");
       const { uploadUrl } = await sessionRes.json();
 
-      // 2. PUT bytes directly to Drive
-      const putRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error("Drive upload failed");
-      const driveFile = await putRes.json();
+      // 2. Upload bytes — direct-to-Drive, falls back to chunked proxy
+      const { drive_file_id } = await uploadFileToDriveSession(uploadUrl, file);
 
       // 3. Register in OpsHub
       await fetch(`/api/portal/client/${token}/briefs/${brief.id}/upload-session/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          drive_file_id: driveFile.id,
+          drive_file_id,
           file_name: file.name,
           mime_type: file.type || "application/octet-stream",
           file_size: file.size,
