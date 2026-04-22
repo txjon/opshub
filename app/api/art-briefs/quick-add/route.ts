@@ -31,26 +31,22 @@ export async function POST(req: NextRequest) {
     const { data: client } = await supabase.from("clients").select("name").eq("id", clientId).single();
     const clientName = (client as any)?.name || "Unknown";
 
-    // Default designer: single-designer setup auto-assigns + auto-sends. Same
-    // rule as /api/art-briefs POST — keeps the two insert paths consistent.
+    // Default designer: pre-assign to sole active designer for convenience.
+    // Doesn't auto-send — HPD clicks "Send to Designer" when brief is ready.
     let finalDesignerId: string | null = null;
-    let autoSent = false;
     const { data: activeDesigners } = await supabase.from("designers").select("id").eq("active", true);
     if (activeDesigners && activeDesigners.length === 1) {
       finalDesignerId = activeDesigners[0].id;
-      autoSent = true;
     }
 
-    const now = new Date().toISOString();
     // Create draft brief first
     const { data: brief, error: briefErr } = await supabase.from("art_briefs").insert({
       client_id: clientId,
       job_id: jobId,
       item_id: itemId,
       title,
-      state: autoSent ? "sent" : "draft",
+      state: "draft",
       assigned_designer_id: finalDesignerId,
-      sent_to_designer_at: autoSent ? now : null,
       created_by: user.id,
     }).select("*").single();
 
