@@ -16,9 +16,15 @@ export async function GET(req: NextRequest) {
     const id = req.nextUrl.searchParams.get("id");
     const all = req.nextUrl.searchParams.get("all");
 
+    // Note on the items embed: migration 029 added items.design_id → art_briefs(id),
+    // creating a second FK between the two tables. Without the !fkey hint PostgREST
+    // throws PGRST201 (ambiguous embed). We want the legacy 1:1 "this brief is for
+    // this item" relationship, so force the item_id FK explicitly.
+    const ITEMS_EMBED = "items!art_briefs_item_id_fkey(name)";
+
     if (id) {
       const [briefRes, filesRes, msgsRes] = await Promise.all([
-        supabase.from("art_briefs").select("*, items(name), jobs(title, job_number), clients(name)").eq("id", id).single(),
+        supabase.from("art_briefs").select(`*, ${ITEMS_EMBED}, jobs(title, job_number), clients(name)`).eq("id", id).single(),
         supabase.from("art_brief_files").select("*").eq("brief_id", id).order("created_at"),
         supabase.from("art_brief_messages").select("*").eq("brief_id", id).order("created_at"),
       ]);
@@ -30,7 +36,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    let query = supabase.from("art_briefs").select("*, items(name), jobs(title, job_number, job_type), clients(name)").order("created_at", { ascending: false });
+    let query = supabase.from("art_briefs").select(`*, ${ITEMS_EMBED}, jobs(title, job_number, job_type), clients(name)`).order("created_at", { ascending: false });
     if (itemId) query = query.eq("item_id", itemId);
     if (jobId) query = query.eq("job_id", jobId);
     if (clientId) query = query.eq("client_id", clientId);
