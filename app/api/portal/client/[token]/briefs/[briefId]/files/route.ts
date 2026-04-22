@@ -82,3 +82,24 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
   return NextResponse.json({ file: data });
 }
+
+// PATCH — client updates their per-reference annotation (what they like/want
+// the designer to notice about this image).
+export async function PATCH(req: NextRequest, { params }: { params: { token: string; briefId: string } }) {
+  const ctx = await verifyAccess(params.token, params.briefId);
+  if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const { fileId, client_annotation } = await req.json();
+  if (!fileId) return NextResponse.json({ error: "fileId required" }, { status: 400 });
+
+  // Confirm the file actually belongs to this brief
+  const { data: file } = await ctx.db.from("art_brief_files").select("id, brief_id").eq("id", fileId).single();
+  if (!file || file.brief_id !== ctx.brief.id) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const { error } = await ctx.db.from("art_brief_files")
+    .update({ client_annotation: client_annotation?.trim() || null })
+    .eq("id", fileId);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ success: true });
+}

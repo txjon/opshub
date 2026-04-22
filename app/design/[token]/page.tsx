@@ -25,7 +25,7 @@ type Brief = {
 };
 type BriefFile = {
   id: string; file_name: string; drive_link: string | null; drive_file_id: string | null;
-  kind: string; version: number; hpd_annotation: string | null; uploader_role: string; created_at: string;
+  kind: string; version: number; hpd_annotation: string | null; client_annotation: string | null; uploader_role: string; created_at: string;
 };
 type Message = {
   id: string; sender_role: string; sender_name: string | null; message: string; created_at: string;
@@ -376,8 +376,15 @@ function BriefDetail({ token, briefId, onBack }: { token: string; briefId: strin
                             onError={(e: any) => { e.target.style.display = "none"; }} />
                         </div>
                       </a>
+                      {r.client_annotation && (
+                        <div style={{ padding: 8, fontSize: 11, lineHeight: 1.4, background: C.purpleBg, color: C.text, borderTop: `1px solid ${C.border}` }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: C.purple, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Client note</div>
+                          {r.client_annotation}
+                        </div>
+                      )}
                       {r.hpd_annotation && (
-                        <div style={{ padding: 8, fontSize: 11, lineHeight: 1.4, background: C.amberBg, color: C.text }}>
+                        <div style={{ padding: 8, fontSize: 11, lineHeight: 1.4, background: C.amberBg, color: C.text, borderTop: `1px solid ${C.border}` }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>HPD note</div>
                           {r.hpd_annotation}
                         </div>
                       )}

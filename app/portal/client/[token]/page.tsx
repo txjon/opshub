@@ -250,7 +250,9 @@ function BriefTile({ brief, meta, token, onOpen }: { brief: Brief; meta: ReturnT
 
 type DetailFile = {
   id: string; file_name: string; drive_link: string | null; drive_file_id: string | null;
-  kind: string; version: number; hpd_annotation: string | null; uploader_role: string; created_at: string;
+  kind: string; version: number;
+  hpd_annotation: string | null; client_annotation: string | null;
+  uploader_role: string; created_at: string;
 };
 type DetailMessage = {
   id: string; sender_role: string; sender_name: string | null; message: string; created_at: string;
@@ -261,6 +263,75 @@ type DetailData = {
   files: DetailFile[];
   messages: DetailMessage[];
 };
+
+function FileCard({
+  file, token, briefId, clientKindLabel, kindColor,
+}: {
+  file: DetailFile; token: string; briefId: string;
+  clientKindLabel: (k: string) => string; kindColor: (k: string) => { bg: string; fg: string };
+}) {
+  const [note, setNote] = useState(file.client_annotation || "");
+  const [savedNote, setSavedNote] = useState(file.client_annotation || "");
+  const [saving, setSaving] = useState(false);
+  const kc = kindColor(file.kind);
+  const fullUrl = file.drive_file_id ? `/api/files/thumbnail?id=${file.drive_file_id}` : null;
+  const thumb = file.drive_file_id ? `/api/files/thumbnail?id=${file.drive_file_id}&thumb=1` : null;
+  const isReference = file.kind === "reference";
+
+  async function saveAnnotation() {
+    if (note === savedNote) return;
+    setSaving(true);
+    try {
+      await fetch(`/api/portal/client/${token}/briefs/${briefId}/files`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId: file.id, client_annotation: note }),
+      });
+      setSavedNote(note);
+    } catch {}
+    setSaving(false);
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      <a href={fullUrl || "#"} target="_blank" rel="noopener noreferrer"
+        style={{ display: "block", background: "#000", borderRadius: "8px 8px 0 0", overflow: "hidden", border: `1px solid ${C.border}`, textDecoration: "none", position: "relative" }}>
+        <div style={{ aspectRatio: "1" }}>
+          {thumb && (
+            <img src={thumb} alt="" loading="lazy"
+              style={{ width: "100%", height: "100%", objectFit: "contain" }}
+              onError={(e: any) => { e.target.style.display = "none"; }} />
+          )}
+        </div>
+        <div style={{ position: "absolute", top: 8, left: 8, padding: "2px 8px", borderRadius: 99, background: kc.bg, color: kc.fg, fontSize: 9, fontWeight: 700, border: `1px solid ${C.border}` }}>
+          {clientKindLabel(file.kind)}{file.version > 1 ? ` v${file.version}` : ""}
+        </div>
+      </a>
+      {isReference ? (
+        <textarea
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          onBlur={saveAnnotation}
+          placeholder="What do you like about this one? (optional)"
+          rows={2}
+          style={{
+            width: "100%", padding: "6px 8px", boxSizing: "border-box",
+            border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 8px 8px",
+            background: saving ? C.surface : C.card, color: C.text,
+            fontSize: 11, fontFamily: C.font, lineHeight: 1.4, outline: "none",
+            resize: "vertical",
+          }}
+        />
+      ) : file.hpd_annotation ? (
+        <div style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 8px 8px", background: C.amberBg, fontSize: 11, color: C.text, lineHeight: 1.4 }}>
+          {file.hpd_annotation}
+        </div>
+      ) : (
+        <div style={{ height: 1, border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 8px 8px", background: C.card }} />
+      )}
+    </div>
+  );
+}
 
 function BriefDetailModal({ token, brief, meta, onClose }: {
   token: string;
@@ -394,27 +465,11 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
               ) : allFiles.length === 0 ? (
                 <div style={{ color: C.faint, fontSize: 12, padding: 20, textAlign: "center", fontStyle: "italic" }}>No images yet — add references above or ask HPD.</div>
               ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
-                  {allFiles.map(f => {
-                    const kc = kindColor(f.kind);
-                    const fullUrl = f.drive_file_id ? `/api/files/thumbnail?id=${f.drive_file_id}` : null;
-                    const thumb = f.drive_file_id ? `/api/files/thumbnail?id=${f.drive_file_id}&thumb=1` : null;
-                    return (
-                      <a key={f.id} href={fullUrl || "#"} target="_blank" rel="noopener noreferrer"
-                        style={{ display: "block", background: "#000", borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, textDecoration: "none", position: "relative" }}>
-                        <div style={{ aspectRatio: "1" }}>
-                          {thumb && (
-                            <img src={thumb} alt="" loading="lazy"
-                              style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                              onError={(e: any) => { e.target.style.display = "none"; }} />
-                          )}
-                        </div>
-                        <div style={{ position: "absolute", top: 8, left: 8, padding: "2px 8px", borderRadius: 99, background: kc.bg, color: kc.fg, fontSize: 9, fontWeight: 700, border: `1px solid ${C.border}` }}>
-                          {clientKindLabel(f.kind)}{f.version > 1 ? ` v${f.version}` : ""}
-                        </div>
-                      </a>
-                    );
-                  })}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+                  {allFiles.map(f => (
+                    <FileCard key={f.id} file={f} token={token} briefId={brief.id}
+                      clientKindLabel={clientKindLabel} kindColor={kindColor} />
+                  ))}
                 </div>
               )}
             </div>
