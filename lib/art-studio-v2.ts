@@ -31,7 +31,24 @@ export type Resolution = {
   isAborted?: boolean;
 };
 
-export type RoleActivity = { at: string; type: "message" | "file" } | null;
+export type RoleActivity = { at: string; type: "message" | "upload" | "note"; kind?: string } | null;
+
+// Human-friendly kind labels for preview strings
+const KIND_LABELS: Record<string, string> = {
+  reference: "a reference",
+  wip: "a WIP",
+  first_draft: "a 1st Draft",
+  revision: "a Revision",
+  final: "the Final",
+  print_ready: "Print-Ready",
+  client_intake: "intake",
+};
+function describeActivity(who: string, act: NonNullable<RoleActivity>): string {
+  if (act.type === "message") return `${who} posted`;
+  const label = KIND_LABELS[act.kind || ""] || "a file";
+  if (act.type === "upload") return `${who} uploaded ${label}`;
+  return `${who} added a note on ${label}`;
+}
 
 export type ResolvableBrief = {
   state: string;
@@ -115,13 +132,10 @@ export function resolveBrief(b: ResolvableBrief): Resolution {
   const hpdUnread = !!latestOtherAt && latestOtherAt > hpdAt;
   if (hpdUnread && latestOtherActivity) {
     const who = latestOtherRole === "client" ? "Client" : "Designer";
-    const isFile = latestOtherActivity.type === "file";
     return {
       section: "your_move",
       owner: "hpd",
-      activity: isFile
-        ? `${who} uploaded · ${ago(latestOtherAt)}`
-        : `${who} posted in thread · ${ago(latestOtherAt)}`,
+      activity: `${describeActivity(who, latestOtherActivity)} · ${ago(latestOtherAt)}`,
       primary: { label: "Open", action: "open" },
       urgency: "action",
       hasUnreadClient: true,

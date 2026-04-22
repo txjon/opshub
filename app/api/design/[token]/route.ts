@@ -37,7 +37,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
 
     let filesByBrief: Record<string, any[]> = {};
     let clientsById: Record<string, { name: string }> = {};
-    let lastByRole: Record<string, { client?: { at: string; type: "file" | "message" }; designer?: { at: string; type: "file" | "message" }; hpd?: { at: string; type: "file" | "message" } }> = {};
+    type Activity = { at: string; type: "message" | "upload" | "note"; kind?: string };
+    let lastByRole: Record<string, { client?: Activity; designer?: Activity; hpd?: Activity }> = {};
 
     if (briefIds.length > 0) {
       const [filesRes, msgsRes] = await Promise.all([
@@ -53,19 +54,19 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         if (!filesByBrief[f.brief_id]) filesByBrief[f.brief_id] = [];
         filesByBrief[f.brief_id].push(f);
       }
-      // Compute last activity per role (file uploads + thread messages)
-      const bump = (bid: string, role: string | null | undefined, at: string, type: "file" | "message") => {
+      // Compute last activity per role (uploads, notes, messages)
+      const bump = (bid: string, role: string | null | undefined, at: string, type: "message" | "upload" | "note", kind?: string) => {
         const r = role === "client" ? "client" : role === "designer" ? "designer" : "hpd";
         const slot = (lastByRole[bid] ||= {});
         const cur = (slot as any)[r];
-        if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type };
+        if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type, kind };
       };
       for (const f of (filesRes.data || [])) {
-        bump(f.brief_id, f.uploader_role, f.created_at, "file");
+        bump(f.brief_id, f.uploader_role, f.created_at, "upload", f.kind);
         if (f.annotation_updated_at) {
-          if (f.hpd_annotation) bump(f.brief_id, "hpd", f.annotation_updated_at, "file");
-          if (f.designer_annotation) bump(f.brief_id, "designer", f.annotation_updated_at, "file");
-          if (f.client_annotation) bump(f.brief_id, "client", f.annotation_updated_at, "file");
+          if (f.hpd_annotation) bump(f.brief_id, "hpd", f.annotation_updated_at, "note", f.kind);
+          if (f.designer_annotation) bump(f.brief_id, "designer", f.annotation_updated_at, "note", f.kind);
+          if (f.client_annotation) bump(f.brief_id, "client", f.annotation_updated_at, "note", f.kind);
         }
       }
       for (const m of (msgsRes.data || [])) bump(m.brief_id, m.sender_role, m.created_at, "message");
@@ -97,8 +98,6 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         if (counts[f.kind as keyof typeof counts] !== undefined) counts[f.kind as keyof typeof counts]++;
       }
       const la = lastByRole[b.id] || {};
-      // Designer-facing "new for you" flag: client OR HPD acted more
-      // recently than designer. Mirrors iMessage unread semantics.
       const clientAt = la.client?.at || "";
       const designerAt = la.designer?.at || "";
       const hpdAt = la.hpd?.at || "";
@@ -106,8 +105,23 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       const latestExternalRole: "client" | "hpd" = clientAt > hpdAt ? "client" : "hpd";
       const latestExternalActivity = latestExternalRole === "client" ? la.client : la.hpd;
       const hasUnreadExternal = !!latestExternal && latestExternal > designerAt;
-      // Latest of anyone — used to sort newest-first
       const latestAt = [clientAt, designerAt, hpdAt].filter(Boolean).sort().pop() || b.updated_at || "";
+
+      // Pre-compute the preview string server-side so the tile can render
+      // it directly (no client-side branching).
+      const KIND_LABEL: Record<string, string> = {
+        final: "the Final", revision: "a Revision", first_draft: "a 1st Draft",
+        wip: "a WIP", reference: "a reference", print_ready: "Print-Ready", client_intake: "intake",
+      };
+      let previewLine: string | null = null;
+      if (hasUnreadExternal && latestExternalActivity) {
+        const who = latestExternalRole === "client" ? "Client" : "HPD";
+        const label = KIND_LABEL[latestExternalActivity.kind || ""] || "a file";
+        if (latestExternalActivity.type === "upload") previewLine = `${who} uploaded ${label}`;
+        else if (latestExternalActivity.type === "note") previewLine = `${who} added a note on ${label}`;
+        else previewLine = `${who} posted`;
+      }
+
       return {
         ...b,
         clients: b.client_id ? (clientsById[b.client_id] || null) : null,
@@ -122,6 +136,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         has_unread_external: hasUnreadExternal,
         unread_by_role: hasUnreadExternal ? latestExternalRole : null,
         unread_type: hasUnreadExternal ? latestExternalActivity?.type || null : null,
+        preview_line: previewLine,
       };
     });
 

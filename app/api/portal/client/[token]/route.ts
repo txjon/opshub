@@ -36,7 +36,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const ids = briefList.map(b => b.id);
 
     let filesByBrief: Record<string, any[]> = {};
-    let lastByRole: Record<string, { client?: { at: string; type: "file" | "message"; kind?: string }; designer?: { at: string; type: "file" | "message"; kind?: string }; hpd?: { at: string; type: "file" | "message"; kind?: string } }> = {};
+    type Activity = { at: string; type: "message" | "upload" | "note"; kind?: string };
+    let lastByRole: Record<string, { client?: Activity; designer?: Activity; hpd?: Activity }> = {};
 
     if (ids.length > 0) {
       const [filesRes, msgsRes] = await Promise.all([
@@ -51,7 +52,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       const visibleFiles = (filesRes.data || []).filter((f: any) => f.kind !== "print_ready");
 
       // Per-role last activity — group-chat "unread" uses this
-      const bump = (bid: string, role: string | null | undefined, at: string, type: "file" | "message", kind?: string) => {
+      const bump = (bid: string, role: string | null | undefined, at: string, type: "message" | "upload" | "note", kind?: string) => {
         const r = role === "client" ? "client" : role === "designer" ? "designer" : "hpd";
         const slot = (lastByRole[bid] ||= {});
         const cur = (slot as any)[r];
@@ -64,11 +65,11 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         return c > a ? c : a;
       };
       for (const f of visibleFiles) {
-        bump(f.brief_id, f.uploader_role, f.created_at, "file", f.kind);
+        bump(f.brief_id, f.uploader_role, f.created_at, "upload", f.kind);
         if (f.annotation_updated_at) {
-          if (f.hpd_annotation) bump(f.brief_id, "hpd", f.annotation_updated_at, "file", f.kind);
-          if (f.designer_annotation) bump(f.brief_id, "designer", f.annotation_updated_at, "file", f.kind);
-          if (f.client_annotation) bump(f.brief_id, "client", f.annotation_updated_at, "file", f.kind);
+          if (f.hpd_annotation) bump(f.brief_id, "hpd", f.annotation_updated_at, "note", f.kind);
+          if (f.designer_annotation) bump(f.brief_id, "designer", f.annotation_updated_at, "note", f.kind);
+          if (f.client_annotation) bump(f.brief_id, "client", f.annotation_updated_at, "note", f.kind);
         }
       }
       for (const m of (msgsRes.data || [])) bump(m.brief_id, m.sender_role, m.created_at, "message");
@@ -83,8 +84,9 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     }
 
     const KIND_LABEL: Record<string, string> = {
-      final: "Final", revision: "Revision", first_draft: "1st Draft",
-      wip: "WIP", reference: "reference", client_intake: "intake",
+      final: "the Final", revision: "a Revision", first_draft: "a 1st Draft",
+      wip: "a WIP", reference: "a reference", client_intake: "intake",
+      print_ready: "Print-Ready",
     };
 
     const out = briefList.map(b => {
@@ -108,9 +110,11 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       let previewLine: string | null = null;
       if (hasUnreadExternal && externalActivity) {
         const who = lastExternalRole === "designer" ? "Designer" : "HPD";
-        if (externalActivity.type === "file") {
-          const label = KIND_LABEL[externalActivity.kind || ""] || "file";
+        const label = KIND_LABEL[externalActivity.kind || ""] || "a file";
+        if (externalActivity.type === "upload") {
           previewLine = `${who} uploaded ${label}`;
+        } else if (externalActivity.type === "note") {
+          previewLine = `${who} added a note on ${label}`;
         } else {
           previewLine = `${who} posted`;
         }

@@ -28,7 +28,8 @@ type Brief = {
   last_activity_at?: string | null;
   has_unread_external?: boolean;
   unread_by_role?: "client" | "hpd" | null;
-  unread_type?: "file" | "message" | null;
+  unread_type?: "upload" | "note" | "message" | null;
+  preview_line?: string | null;
   client_aborted_at?: string | null;
   archived_by?: "client" | "hpd" | null;
 };
@@ -114,13 +115,11 @@ export default function DesignerPortal({ params }: { params: { token: string } }
           const nextAt = b.last_activity_at || "";
           const prevAt = prev[b.id] || "";
           if (nextAt && nextAt > prevAt && b.has_unread_external) {
-            const who = b.unread_by_role === "client" ? "Client" : "HPD";
-            const what = b.unread_type === "file" ? "uploaded new" : "posted";
             newToasts.push({
               id: `${b.id}-${nextAt}`,
               briefId: b.id,
               title: b.title || "Untitled brief",
-              preview: `${who} ${what}`,
+              preview: b.preview_line || "New activity",
             });
           }
         }
@@ -313,10 +312,9 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: () => void }) {
     : null;
   const noWorkYet = !brief.latest_thumb;
 
-  const unreadWho = brief.unread_by_role === "client" ? "Client" : brief.unread_by_role === "hpd" ? "HPD" : null;
-  const unreadPreview = unreadWho
-    ? (brief.unread_type === "file" ? `${unreadWho} uploaded new` : `${unreadWho} posted in thread`)
-    : null;
+  // Preview line pre-computed server-side — "Client uploaded a reference",
+  // "HPD added a note on 1st Draft", etc.
+  const unreadPreview = brief.preview_line || null;
   const isClientAborted = brief.archived_by === "client" && !!brief.client_aborted_at;
   return (
     <div onClick={onOpen} style={{

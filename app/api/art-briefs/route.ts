@@ -74,31 +74,27 @@ export async function GET(req: NextRequest) {
         if (m.sender_role === "designer") c.designer++;
       });
 
-      // Last activity per role, combining messages + file uploads. "kind" of
-      // activity is tracked so UIs can render "Client added reference" vs
-      // "Client posted" without a second fetch.
-      type Activity = { at: string; type: "message" | "file" };
+      // Last activity per role — type distinguishes upload / note / message
+      // so downstream can render specific preview strings.
+      type Activity = { at: string; type: "message" | "upload" | "note"; kind?: string };
       const lastByRole: Record<string, { client?: Activity; designer?: Activity; hpd?: Activity }> = {};
-      const bump = (bid: string, role: string | null | undefined, at: string, type: "message" | "file") => {
+      const bump = (bid: string, role: string | null | undefined, at: string, type: "message" | "upload" | "note", kind?: string) => {
         const r = role === "client" ? "client" : role === "designer" ? "designer" : "hpd";
         const slot = (lastByRole[bid] ||= {});
         const cur = (slot as any)[r] as Activity | undefined;
-        if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type };
+        if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type, kind };
       };
       (msgsRes.data || []).forEach((m: any) => bump(m.brief_id, m.sender_role, m.created_at, "message"));
-      // Files: upload event attributed to uploader. Annotation edits are also
-      // events — each role's note-edit bumps THEIR timestamp, not the
-      // uploader's, so "whose turn" stays accurate.
+      // Files: upload event attributed to uploader. Annotation edits attributed
+      // to whichever role's annotation is populated (we can't tell which role
+      // edited without per-field timestamps — but the presence of their note
+      // is a good heuristic).
       (filesRes.data || []).forEach((f: any) => {
-        bump(f.brief_id, f.uploader_role, f.created_at, "file");
+        bump(f.brief_id, f.uploader_role, f.created_at, "upload", f.kind);
         if (f.annotation_updated_at) {
-          // Can't cheaply tell WHICH role annotated without per-field
-          // timestamps, so bump the most-recent-editor inference by file
-          // activity only. Downstream clients use this as "someone touched
-          // a note on this file at that time".
-          if (f.hpd_annotation) bump(f.brief_id, "hpd", f.annotation_updated_at, "file");
-          if (f.designer_annotation) bump(f.brief_id, "designer", f.annotation_updated_at, "file");
-          if (f.client_annotation) bump(f.brief_id, "client", f.annotation_updated_at, "file");
+          if (f.hpd_annotation) bump(f.brief_id, "hpd", f.annotation_updated_at, "note", f.kind);
+          if (f.designer_annotation) bump(f.brief_id, "designer", f.annotation_updated_at, "note", f.kind);
+          if (f.client_annotation) bump(f.brief_id, "client", f.annotation_updated_at, "note", f.kind);
         }
       });
 
