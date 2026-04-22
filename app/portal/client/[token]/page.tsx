@@ -210,28 +210,28 @@ function BriefTile({ brief, meta, token, onOpen }: { brief: Brief; meta: ReturnT
     onMouseEnter={(e: any) => { e.currentTarget.style.borderColor = C.text; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
     onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}>
 
-      <div style={{ aspectRatio: "4/3", background: thumb ? "#000" : C.surface, position: "relative", overflow: "hidden" }}>
+      <div style={{ aspectRatio: "1", background: "#f4f4f7", position: "relative", overflow: "hidden", padding: 10 }}>
         {thumb ? (
           <img src={thumb} alt="" loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff", borderRadius: 4 }}
             onError={(e: any) => { e.target.style.display = "none"; }} />
         ) : (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 12 }}>
             No preview yet
           </div>
         )}
-        <div style={{ position: "absolute", top: 10, left: 10, padding: "3px 10px", borderRadius: 99, background: meta.bg, color: meta.color, fontSize: 10, fontWeight: 700, border: `1px solid ${meta.border}` }}>
-          {meta.label}
-        </div>
+        {/* Small status dot, tooltip reveals label */}
+        <div title={meta.label}
+          style={{ position: "absolute", top: 10, right: 10, width: 10, height: 10, borderRadius: 99, background: meta.color, boxShadow: "0 0 0 2px #fff" }} />
         {brief.thumb_total > 1 && (
-          <div style={{ position: "absolute", bottom: 10, right: 10, padding: "2px 8px", borderRadius: 4, background: "rgba(0,0,0,0.7)", color: "#fff", fontSize: 10, fontWeight: 700, fontFamily: C.mono }}>
+          <div style={{ position: "absolute", bottom: 14, right: 14, padding: "1px 6px", borderRadius: 3, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 9, fontWeight: 700, fontFamily: C.mono }}>
             +{brief.thumb_total - 1}
           </div>
         )}
       </div>
 
-      <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <div style={{ padding: "10px 14px 12px", display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {brief.title || "Untitled design"}
         </div>
         <div style={{ fontSize: 11, color: C.muted, display: "flex", gap: 6, alignItems: "center" }}>

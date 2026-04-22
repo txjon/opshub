@@ -211,32 +211,29 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: () => void }) {
     onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}>
 
       {/* Thumb */}
-      <div style={{ aspectRatio: "4/3", background: noWorkYet ? C.surface : "#000", position: "relative", overflow: "hidden" }}>
-        {thumb && !noWorkYet && (
+      <div style={{ aspectRatio: "1", background: "#f4f4f7", position: "relative", overflow: "hidden", padding: 10 }}>
+        {thumb && !noWorkYet ? (
           <img src={thumb} alt="" loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            style={{ width: "100%", height: "100%", objectFit: "contain", background: "#fff", borderRadius: 4 }}
             onError={(e: any) => { e.target.style.display = "none"; }} />
-        )}
-        {noWorkYet && (
+        ) : (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 12 }}>
-            No work uploaded yet
+            No work yet
           </div>
         )}
-        {/* State pill overlay */}
-        <div style={{ position: "absolute", top: 10, left: 10, padding: "3px 10px", borderRadius: 99, background: meta.bg, color: meta.color, fontSize: 10, fontWeight: 700, border: `1px solid ${meta.border}` }}>
-          {meta.label}
-        </div>
-        {/* Kind badge overlay */}
-        {kindLabel && (
-          <div style={{ position: "absolute", bottom: 10, right: 10, padding: "3px 8px", borderRadius: 4, background: "rgba(0,0,0,0.7)", color: "#fff", fontSize: 10, fontWeight: 700, fontFamily: C.mono }}>
+        {/* Status dot */}
+        <div title={meta.label}
+          style={{ position: "absolute", top: 10, right: 10, width: 10, height: 10, borderRadius: 99, background: meta.color, boxShadow: "0 0 0 2px #fff" }} />
+        {kindLabel && !noWorkYet && (
+          <div style={{ position: "absolute", bottom: 14, right: 14, padding: "1px 6px", borderRadius: 3, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 9, fontWeight: 700, fontFamily: C.mono }}>
             {kindLabel}{brief.latest_thumb && brief.file_counts[brief.latest_thumb.kind as keyof typeof brief.file_counts] > 1 ? ` v${brief.file_counts[brief.latest_thumb.kind as keyof typeof brief.file_counts]}` : ""}
           </div>
         )}
       </div>
 
       {/* Body */}
-      <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <div style={{ padding: "10px 14px 12px", display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {brief.title || "Untitled brief"}
         </div>
         <div style={{ fontSize: 11, color: C.muted, display: "flex", gap: 6, alignItems: "center" }}>
