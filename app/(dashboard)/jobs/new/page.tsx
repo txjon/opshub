@@ -242,9 +242,9 @@ export default function NewJobPage() {
             <div>
               <label style={s.label}>Shipping route</label>
               <select value={form.shipping_route} onChange={e => set("shipping_route", e.target.value)} style={s.select}>
-                <option value="ship_through">Ship-through</option>
-                <option value="stage">Stage (fulfillment)</option>
-                <option value="drop_ship">Drop ship</option>
+                <option value="drop_ship">Drop ship (direct to client)</option>
+                <option value="ship_through">Ship-through (forward from HPD)</option>
+                <option value="stage">Stage (fulfillment from HPD)</option>
               </select>
             </div>
           </div>
