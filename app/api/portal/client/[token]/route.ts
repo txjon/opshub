@@ -23,7 +23,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const { data: briefs } = await db
       .from("art_briefs")
       .select(
-        "id, title, state, deadline, client_intake_token, client_intake_submitted_at, purpose, audience, mood_words, no_gos, created_at, updated_at, job_id, jobs(title, job_number)"
+        "id, title, concept, state, deadline, client_intake_token, client_intake_submitted_at, purpose, audience, mood_words, no_gos, sent_to_designer_at, created_at, updated_at, job_id, jobs(title, job_number)"
       )
       .eq("client_id", client.id)
       .not("state", "in", "(delivered)")
@@ -47,31 +47,36 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       });
     }
 
-    // Mint intake tokens for briefs that don't have one yet, so every link
-    // in the portal works without extra round-trips.
-    const needsToken = briefList.filter(b => !b.client_intake_token);
-    for (const b of needsToken) {
-      const t = crypto.randomBytes(16).toString("hex");
-      await db.from("art_briefs").update({ client_intake_token: t }).eq("id", b.id);
-      b.client_intake_token = t;
-    }
+    // Only mint a client_intake_token when HPD has explicitly asked the client
+    // for an intake (not every brief needs one — many are HPD-created from
+    // references already in hand). We track intake-required via the
+    // concept/purpose emptiness heuristic later. For now, don't auto-mint.
+    // Existing tokens are preserved.
 
     const out = briefList.map(b => {
       const files = filesByBrief[b.id] || [];
-      const thumbs = files.slice(0, 4).map(f => ({
+      const thumbs = files.slice(0, 8).map(f => ({
         drive_file_id: f.drive_file_id,
         drive_link: f.drive_link,
+        kind: f.kind,
       }));
+      // Intake is only "awaiting client" when HPD generated an intake token
+      // AND the client hasn't submitted it yet. HPD-created briefs with
+      // references already attached don't need intake.
+      const intakeRequested = !!b.client_intake_token && !b.client_intake_submitted_at;
       return {
         id: b.id,
         title: b.title || null,
+        concept: b.concept || null,
         state: b.state,
         deadline: b.deadline,
         job_title: b.jobs?.title || null,
         job_number: b.jobs?.job_number || null,
-        intake_token: b.client_intake_token,
+        intake_token: b.client_intake_token || null,
+        intake_requested: intakeRequested,
         submitted_at: b.client_intake_submitted_at,
         has_intake: !!b.client_intake_submitted_at,
+        sent_to_designer_at: b.sent_to_designer_at,
         thumbs,
         thumb_total: files.length,
         updated_at: b.updated_at,

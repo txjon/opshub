@@ -1101,14 +1101,36 @@ function NewRequestModal({
           />
         </div>
 
-        {/* Short description — optional, free-form */}
+        {/* Bullet notes — optional, auto-prefix • on each line */}
         <div style={{ padding: "10px 20px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
           <textarea
             value={description}
             onChange={e => setDescription(e.target.value)}
+            onFocus={e => {
+              if (!e.target.value) {
+                const bullet = "• ";
+                setDescription(bullet);
+                // place caret after bullet
+                setTimeout(() => { e.target.setSelectionRange(bullet.length, bullet.length); }, 0);
+              }
+            }}
+            onKeyDown={e => {
+              // Auto-add "• " on Enter
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                const target = e.target as HTMLTextAreaElement;
+                const pos = target.selectionStart;
+                const before = description.slice(0, pos);
+                const after = description.slice(pos);
+                const insert = "\n• ";
+                const newVal = before + insert + after;
+                setDescription(newVal);
+                setTimeout(() => { target.setSelectionRange(pos + insert.length, pos + insert.length); }, 0);
+              }
+            }}
             disabled={submitting}
-            placeholder="Short description (optional) — vibes, direction, must-haves, anything else the designer should know"
-            rows={2}
+            placeholder="Notes (optional) — one bullet per line"
+            rows={3}
             style={{
               width: "100%",
               padding: "8px 12px",

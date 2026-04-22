@@ -16,11 +16,12 @@ const C = {
   mono: "'SF Mono', 'IBM Plex Mono', Menlo, monospace",
 };
 
-type Thumb = { drive_file_id: string | null; drive_link: string | null };
+type Thumb = { drive_file_id: string | null; drive_link: string | null; kind?: string };
 type Brief = {
-  id: string; title: string | null; state: string; deadline: string | null;
+  id: string; title: string | null; concept: string | null; state: string; deadline: string | null;
   job_title: string | null; job_number: string | null;
-  intake_token: string; submitted_at: string | null; has_intake: boolean;
+  intake_token: string | null; intake_requested: boolean; submitted_at: string | null; has_intake: boolean;
+  sent_to_designer_at: string | null;
   thumbs: Thumb[]; thumb_total: number; updated_at: string;
 };
 type PortalData = { client: { name: string }; briefs: Brief[] };
@@ -28,11 +29,16 @@ type PortalData = { client: { name: string }; briefs: Brief[] };
 // Client-facing state labels (internal states collapsed — client doesn't need
 // to know about HPD review or pending-prep stages).
 function clientStateFor(b: Brief): { label: string; bucket: string; color: string; bg: string; border: string } {
-  if (!b.has_intake && b.state === "draft") {
+  // Only flag as "Needs your input" when HPD has explicitly sent an intake
+  // request to the client and they haven't filled it yet.
+  if (b.intake_requested) {
     return { label: "Needs your input", bucket: "action", color: C.amber, bg: C.amberBg, border: C.amberBorder };
   }
   const s = b.state;
-  if (s === "draft" || s === "sent" || s === "in_progress" || s === "wip_review") {
+  if (s === "draft") {
+    return { label: "Planning", bucket: "progress", color: C.muted, bg: C.surface, border: C.border };
+  }
+  if (s === "sent" || s === "in_progress" || s === "wip_review") {
     return { label: "In design", bucket: "progress", color: C.blue, bg: C.blueBg, border: C.blueBorder };
   }
   if (s === "client_review") {
@@ -74,6 +80,7 @@ export default function ClientPortal({ params }: { params: { token: string } }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("all");
+  const [openBrief, setOpenBrief] = useState<Brief | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -154,10 +161,12 @@ export default function ClientPortal({ params }: { params: { token: string } }) 
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
-            {filtered.map(({ b, meta }) => <BriefTile key={b.id} brief={b} meta={meta} />)}
+            {filtered.map(({ b, meta }) => <BriefTile key={b.id} brief={b} meta={meta} token={params.token} onOpen={() => setOpenBrief(b)} />)}
           </div>
         )}
       </div>
+
+      {openBrief && <BriefDetailModal brief={openBrief} meta={clientStateFor(openBrief)} onClose={() => setOpenBrief(null)} />}
     </div>
   );
 }
@@ -171,29 +180,23 @@ function StatCard({ label, value, color }: { label: string; value: number; color
   );
 }
 
-function BriefTile({ brief, meta }: { brief: Brief; meta: ReturnType<typeof clientStateFor> }) {
+function BriefTile({ brief, meta, token, onOpen }: { brief: Brief; meta: ReturnType<typeof clientStateFor>; token: string; onOpen: () => void }) {
   const firstThumb = brief.thumbs[0]?.drive_file_id || null;
   const thumb = thumbUrl(firstThumb);
   const due = daysUntil(brief.deadline);
-  const needsIntake = meta.bucket === "action" && !brief.has_intake;
-
-  // Intake briefs link to the intake form; everything else links to the brief detail
-  // (TODO wire up brief detail page with approve/revise — for now stubbed to the
-  // intake route which still works for info display).
-  const href = needsIntake
-    ? `/art-intake/${brief.intake_token}`
-    : `/portal/client/${brief.intake_token}`; // stub — brief detail page not built yet
+  // Intake pending → opens intake form. Otherwise → opens detail modal.
+  const goToIntake = brief.intake_requested && !!brief.intake_token;
 
   const content = (
     <div style={{
       background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
       overflow: "hidden", display: "flex", flexDirection: "column",
+      cursor: "pointer",
       transition: "border-color 0.15s, box-shadow 0.15s",
     }}
     onMouseEnter={(e: any) => { e.currentTarget.style.borderColor = C.text; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
     onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}>
 
-      {/* Thumb */}
       <div style={{ aspectRatio: "4/3", background: thumb ? "#000" : C.surface, position: "relative", overflow: "hidden" }}>
         {thumb ? (
           <img src={thumb} alt="" loading="lazy"
@@ -204,7 +207,6 @@ function BriefTile({ brief, meta }: { brief: Brief; meta: ReturnType<typeof clie
             No preview yet
           </div>
         )}
-        {/* State pill overlay */}
         <div style={{ position: "absolute", top: 10, left: 10, padding: "3px 10px", borderRadius: 99, background: meta.bg, color: meta.color, fontSize: 10, fontWeight: 700, border: `1px solid ${meta.border}` }}>
           {meta.label}
         </div>
@@ -215,7 +217,6 @@ function BriefTile({ brief, meta }: { brief: Brief; meta: ReturnType<typeof clie
         )}
       </div>
 
-      {/* Body */}
       <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {brief.title || "Untitled design"}
@@ -228,8 +229,80 @@ function BriefTile({ brief, meta }: { brief: Brief; meta: ReturnType<typeof clie
     </div>
   );
 
-  // Only wrap in a Link if the destination is a real working page
-  return needsIntake ? <Link href={href} style={{ textDecoration: "none" }}>{content}</Link> : content;
+  if (goToIntake) {
+    return <Link href={`/art-intake/${brief.intake_token}`} style={{ textDecoration: "none" }}>{content}</Link>;
+  }
+  return <div onClick={onOpen}>{content}</div>;
+}
+
+function BriefDetailModal({ brief, meta, onClose }: { brief: Brief; meta: ReturnType<typeof clientStateFor>; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: C.card, borderRadius: 14, maxWidth: 900, width: "100%", maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {/* Header */}
+        <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{brief.title || "Untitled design"}</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 2, display: "flex", gap: 8, alignItems: "center" }}>
+              {brief.job_title && <span>{brief.job_title}</span>}
+              {brief.deadline && <><span style={{ color: C.faint }}>·</span><span>Due {new Date(brief.deadline).toLocaleDateString("en-US", { month: "long", day: "numeric" })}</span></>}
+            </div>
+          </div>
+          <span style={{ padding: "4px 12px", borderRadius: 99, background: meta.bg, color: meta.color, fontSize: 11, fontWeight: 700, border: `1px solid ${meta.border}`, whiteSpace: "nowrap" }}>
+            {meta.label}
+          </span>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.muted, fontSize: 24, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ overflow: "auto", padding: 22, display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Images */}
+          {brief.thumbs.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+              {brief.thumbs.map((t, i) => {
+                const fullUrl = t.drive_file_id ? `/api/files/thumbnail?id=${t.drive_file_id}` : null;
+                const thumbMed = t.drive_file_id ? `/api/files/thumbnail?id=${t.drive_file_id}&thumb=1` : null;
+                return (
+                  <a key={i} href={fullUrl || "#"} target="_blank" rel="noopener noreferrer"
+                    style={{ display: "block", aspectRatio: "1", background: "#000", borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}` }}>
+                    {thumbMed && (
+                      <img src={thumbMed} alt="" loading="lazy"
+                        style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                        onError={(e: any) => { e.target.style.display = "none"; }} />
+                    )}
+                  </a>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Notes */}
+          {brief.concept && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Notes</div>
+              <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 14px" }}>
+                {brief.concept}
+              </div>
+            </div>
+          )}
+
+          {!brief.concept && brief.thumbs.length === 0 && (
+            <div style={{ color: C.faint, fontSize: 13, fontStyle: "italic", padding: "20px 0", textAlign: "center" }}>
+              HPD is still setting this up — more details coming soon.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CenterMsg({ msg, err }: { msg: string; err?: boolean }) {
