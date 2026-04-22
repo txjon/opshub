@@ -16,15 +16,25 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     db.from("designers").update({ last_active_at: new Date().toISOString() }).eq("id", designer.id).then(() => {});
 
     // Load briefs assigned to this designer, only those that have been sent
-    const { data: briefs } = await db.from("art_briefs")
-      .select("id, title, state, deadline, concept, placement, colors, mood_words, sent_to_designer_at, updated_at, version_count, job_id, item_id, clients(name)")
+    // No embedded join — fetch client names separately to avoid any PostgREST
+    // cache weirdness around embedded resources.
+    const { data: briefs, error: briefErr } = await db.from("art_briefs")
+      .select("id, title, state, deadline, concept, placement, colors, mood_words, sent_to_designer_at, updated_at, version_count, job_id, item_id, client_id")
       .eq("assigned_designer_id", designer.id)
       .not("sent_to_designer_at", "is", null)
       .order("updated_at", { ascending: false });
 
-    // Enrich with file counts + latest thumbnail per brief (for image-first UI)
+    if (briefErr) console.error("[design portal] brief query error:", briefErr);
+
+    // Enrich with file counts + latest thumbnail per brief + client names
+    // (clients fetched separately instead of embedded — embed silently returned
+    // zero rows in the Next.js runtime even with service role).
     const briefIds = (briefs || []).map((b: any) => b.id);
+    const clientIds = [...new Set((briefs || []).map((b: any) => b.client_id).filter(Boolean))];
+
     let filesByBrief: Record<string, any[]> = {};
+    let clientsById: Record<string, { name: string }> = {};
+
     if (briefIds.length > 0) {
       const { data: files } = await db.from("art_brief_files")
         .select("brief_id, kind, version, drive_file_id, drive_link, created_at")
@@ -34,6 +44,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         if (!filesByBrief[f.brief_id]) filesByBrief[f.brief_id] = [];
         filesByBrief[f.brief_id].push(f);
       }
+    }
+    if (clientIds.length > 0) {
+      const { data: clients } = await db.from("clients").select("id, name").in("id", clientIds);
+      for (const c of (clients || [])) clientsById[c.id] = { name: c.name };
     }
 
     const KIND_PRIORITY = ["final", "revision", "first_draft", "wip", "reference"];
@@ -51,6 +65,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       }
       return {
         ...b,
+        clients: b.client_id ? (clientsById[b.client_id] || null) : null,
         latest_thumb: latest ? { drive_file_id: latest.drive_file_id, drive_link: latest.drive_link, kind: latest.kind } : null,
         file_counts: counts,
       };
