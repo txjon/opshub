@@ -376,6 +376,39 @@ export async function createInvoice(
 }
 
 // ── Update existing invoice ──
+// Ensure a QB invoice has a current customer-facing payment link.
+// Returns the best link we can get without modifying invoice content.
+// Use cases: email send path (make sure the "Pay online" button works),
+// portal render (Orders tab pay button).
+//
+// QB's InvoiceLink is the customer-facing connect.intuit.com URL. It's
+// only minted when /invoice/{id}/send is called. Legacy invoices may
+// have stored the /app/invoices/pay admin URL (which 404s for customers
+// without QB login) — we detect that and force a re-mint.
+export async function refreshPaymentLink(invoiceId: string): Promise<string> {
+  const existing = await qbFetch(`/invoice/${invoiceId}`);
+  const invoice = existing?.Invoice;
+  if (!invoice) throw new Error("Invoice not found in QuickBooks");
+
+  const current: string = invoice.InvoiceLink || "";
+  const isLegacyAdminUrl = current.startsWith("https://app.qbo.intuit.com/app/invoices/pay");
+  if (current && !isLegacyAdminUrl) return current;
+
+  // Mint a fresh link by /send to internal address. Client never sees this
+  // mail — OpsHub sends its own branded invoice email separately.
+  const internalSendEmail = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
+  try {
+    const sendResult = await qbFetch(`/invoice/${invoiceId}/send?sendTo=${encodeURIComponent(internalSendEmail)}`, { method: "POST" });
+    const refreshed = sendResult?.Invoice?.InvoiceLink || "";
+    if (refreshed) return refreshed;
+    const retry = await qbFetch(`/invoice/${invoiceId}`);
+    return retry?.Invoice?.InvoiceLink || current;
+  } catch (e) {
+    console.log("[QB] refreshPaymentLink failed:", (e as any).message);
+    return current;
+  }
+}
+
 export async function updateInvoice(
   invoiceId: string,
   lineItems: QBLineItem[],
