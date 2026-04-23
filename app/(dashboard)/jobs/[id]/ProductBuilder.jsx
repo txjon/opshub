@@ -7,6 +7,7 @@ import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { DriveThumb } from "@/components/DriveThumb";
 import { parsePsd } from "./ProcessingTab";
+import MoveItemDialog from "@/components/MoveItemDialog";
 // ItemArtSection from ArtTab is no longer rendered — removed after workflow merge
 import {
   detectGarmentType, handleSizeToggle, distribute, DEFAULT_CURVE,
@@ -253,6 +254,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [showFavorites, setShowFavorites] = useState(false);
   const [showAddType, setShowAddType] = useState(null);
   const [assignBlankTo, setAssignBlankTo] = useState(null);
+  const [moveItemTarget, setMoveItemTarget] = useState(null); // { id, name } — opens MoveItemDialog
   const [favorites, setFavorites] = useState([]);
   const [fileSummary, setFileSummary] = useState({}); // { itemId: { printReady: bool, fileCount: number, hasProof: bool } }
   const [mockupMap, setMockupMap] = useState({}); // { itemId: drive_file_id } — preloaded so thumbnail renders instantly on switch
@@ -826,6 +828,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 setDistRow={setDistRow} distTotal={distTotal} setDistTotal={setDistTotal}
                 handleDist={handleDist} removeItem={removeItem} setAssignBlankTo={setAssignBlankTo}
                 setShowAddModal={setShowAddModal} onItemsChanged={onItemsChanged}
+                requestMove={(it) => setMoveItemTarget({ id: it.id, name: it.name || "" })}
                 onUpdateItem={(id, updates) => { updateLocal(workingItems.map(it => it.id === id ? {...it, ...updates} : it)); onUpdateItem(id, updates); }}
                 onFilesChanged={refreshFileSummary}
                 preloadedMockupId={mockupMap[item.id] || null}
@@ -856,6 +859,27 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           <div style={{ color: T.faint, fontSize: 13, marginBottom: 16 }}>No items yet — drop a PSD or add from catalog.</div>
         </div>
       )}
+
+      {moveItemTarget && (
+        <MoveItemDialog
+          itemId={moveItemTarget.id}
+          itemName={moveItemTarget.name}
+          open={true}
+          onClose={() => setMoveItemTarget(null)}
+          onMoved={(result) => {
+            // Remove the item from local state — server already updated
+            // items.job_id + costing_data on both jobs. Parent will
+            // re-query on refresh.
+            updateLocal(workingItems.filter(it => it.id !== moveItemTarget.id));
+            try { onItemsChanged?.(); } catch {}
+            try { onSaved?.(); } catch {}
+            // Navigate to the destination so the user sees the item land.
+            if (result?.to?.id && typeof window !== "undefined") {
+              window.location.href = `/jobs/${result.to.id}`;
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -863,7 +887,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 // ═══════════════════════════════════════════════════════════════
 // Expanded item body — manages its own file state per item
 // ═══════════════════════════════════════════════════════════════
-function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked }) {
+function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked, requestMove }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -1089,12 +1113,23 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
           </div>
           <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={e => { handleFileDrop(e.target.files); e.target.value = ""; }} />
       </div>
-      {/* Delete — bottom right corner */}
-      <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }}
-        style={{ position: "absolute", bottom: 14, right: 16, fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer" }}
-        onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>
-        Delete item
-      </button>
+      {/* Move + Delete — bottom right corner. Move only shown for saved
+          items (real UUID, not an in-session temp id). */}
+      <div style={{ position: "absolute", bottom: 14, right: 16, display: "flex", gap: 14, alignItems: "center" }}>
+        {typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && requestMove && (
+          <button onClick={e => { e.stopPropagation(); requestMove(item); }}
+            title="Move this item to another job for the same client"
+            style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer" }}
+            onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.faint}>
+            Move to another job
+          </button>
+        )}
+        <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }}
+          style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer" }}
+          onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>
+          Delete item
+        </button>
+      </div>
     </div>
   );
 }
