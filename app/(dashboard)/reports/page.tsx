@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
@@ -28,11 +29,21 @@ function exportCsv(filename: string, headers: string[], rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
+type ShipstationReport = {
+  id: string;
+  client_id: string;
+  period_label: string;
+  created_at: string;
+  totals: { qty: number; sales: number; profit: number } | null;
+  clients: { name: string } | null;
+};
+
 export default function ReportsPage() {
   const supabase = createClient();
   const isMobile = useIsMobile();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  const [shipReports, setShipReports] = useState<ShipstationReport[]>([]);
 
   useEffect(() => {
     supabase.from("jobs")
@@ -42,6 +53,11 @@ export default function ReportsPage() {
         setJobs((data || []) as Job[]);
         setLoading(false);
       });
+    supabase.from("shipstation_reports")
+      .select("id, client_id, period_label, created_at, totals, clients(name)")
+      .order("created_at", { ascending: false })
+      .limit(25)
+      .then(({ data }) => setShipReports((data || []) as any));
   }, []);
 
   // ── Revenue by month ──
@@ -154,7 +170,8 @@ export default function ReportsPage() {
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Reports</h1>
           <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>{jobs.length} total projects</div>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <Link href="/reports/shipstation/new" style={{ background: T.accent, border: "none", borderRadius: 6, color: "#0a0e1a", fontSize: 11, fontFamily: font, fontWeight: 700, padding: "6px 14px", cursor: "pointer", textDecoration: "none", display: "inline-block" }}>+ Create ShipStation Report</Link>
           <button onClick={exportProjects} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 12px", cursor: "pointer" }}>Export Projects CSV</button>
           <button onClick={exportClients} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 12px", cursor: "pointer" }}>Export Clients CSV</button>
           <button onClick={exportPayments} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 12px", cursor: "pointer" }}>Export Payments CSV</button>
@@ -276,6 +293,39 @@ export default function ReportsPage() {
         </table>
         </div>
       </div>
+
+      {/* ShipStation reports */}
+      {shipReports.length > 0 && (
+        <div style={card}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>ShipStation Sales Reports</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: isMobile ? 600 : "auto" }}>
+              <thead>
+                <tr>
+                  {["Client", "Period", "Generated", "Qty", "Sales", "Net Profit", ""].map(h => (
+                    <th key={h} style={{ ...thStyle, textAlign: ["Client", "Period"].includes(h) ? "left" : "right" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {shipReports.map(r => (
+                  <tr key={r.id}>
+                    <td style={{ ...tdStyle, fontWeight: 600 }}>{r.clients?.name || "—"}</td>
+                    <td style={tdStyle}>{r.period_label}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono }}>{(r.totals?.qty || 0).toLocaleString()}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono, color: T.accent }}>{fmtD(r.totals?.sales || 0)}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono, color: T.green }}>{fmtD(r.totals?.profit || 0)}</td>
+                    <td style={{ ...tdStyle, textAlign: "right" }}>
+                      <Link href={`/reports/shipstation/${r.id}`} style={{ color: T.accent, fontSize: 11, textDecoration: "none" }}>Open →</Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Margins by project */}
       <div style={card}>

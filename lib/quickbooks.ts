@@ -361,11 +361,25 @@ export async function createInvoice(
     try {
       const sendResult = await qbFetch(`/invoice/${invoice.Id}/send?sendTo=${encodeURIComponent(internalSendEmail)}`, { method: "POST" });
       paymentLink = sendResult?.Invoice?.InvoiceLink || "";
-      // QB occasionally returns the invoice from /send without InvoiceLink populated.
-      // One retry read covers that race.
+      // QB sometimes returns the invoice from /send without InvoiceLink
+      // populated — the link exists on their side but the object they
+      // echo back isn't filled. Retry the read a few times with small
+      // backoff; if it's still empty after that, call /send again.
       if (!paymentLink) {
-        const retry = await qbFetch(`/invoice/${invoice.Id}`);
-        paymentLink = retry?.Invoice?.InvoiceLink || "";
+        for (let i = 0; i < 4 && !paymentLink; i++) {
+          await new Promise(r => setTimeout(r, 400 * (i + 1)));
+          const retry = await qbFetch(`/invoice/${invoice.Id}`);
+          paymentLink = retry?.Invoice?.InvoiceLink || "";
+        }
+      }
+      if (!paymentLink) {
+        // Second /send as a last resort. Harmless — same internal address.
+        const retrySend = await qbFetch(`/invoice/${invoice.Id}/send?sendTo=${encodeURIComponent(internalSendEmail)}`, { method: "POST" });
+        paymentLink = retrySend?.Invoice?.InvoiceLink || "";
+        if (!paymentLink) {
+          const finalRead = await qbFetch(`/invoice/${invoice.Id}`);
+          paymentLink = finalRead?.Invoice?.InvoiceLink || "";
+        }
       }
       console.log("[QB] Invoice sent (internal), InvoiceLink:", paymentLink || "(still empty)");
     } catch (e) {
@@ -406,10 +420,15 @@ export async function refreshPaymentLink(invoiceId: string): Promise<string> {
   const internalSendEmail = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
   try {
     const sendResult = await qbFetch(`/invoice/${invoiceId}/send?sendTo=${encodeURIComponent(internalSendEmail)}`, { method: "POST" });
-    const refreshed = sendResult?.Invoice?.InvoiceLink || "";
-    if (refreshed) return refreshed;
-    const retry = await qbFetch(`/invoice/${invoiceId}`);
-    return retry?.Invoice?.InvoiceLink || current;
+    let refreshed = sendResult?.Invoice?.InvoiceLink || "";
+    // Same QB quirk: the /send response occasionally omits InvoiceLink
+    // even though the link is minted. Retry the read with small backoff.
+    for (let i = 0; i < 4 && !refreshed; i++) {
+      await new Promise(r => setTimeout(r, 400 * (i + 1)));
+      const retry = await qbFetch(`/invoice/${invoiceId}`);
+      refreshed = retry?.Invoice?.InvoiceLink || "";
+    }
+    return refreshed || current;
   } catch (e) {
     console.log("[QB] refreshPaymentLink failed:", (e as any).message);
     return current;
