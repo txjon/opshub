@@ -35,14 +35,25 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
     const { data: jobs } = await db
       .from("jobs")
-      .select("id, job_number, title, phase, created_at, target_ship_date")
+      .select("id, job_number, title, phase, created_at, target_ship_date, type_meta")
       .eq("client_id", clientId)
       .neq("id", item.job_id)
       .not("phase", "in", "(complete,cancelled)")
       .order("created_at", { ascending: false })
       .limit(50);
 
-    return NextResponse.json({ jobs: jobs || [] });
+    // Surface QB invoice # on the picker so Jon can tell apart same-named
+    // jobs at a glance. Strip the rest of type_meta — it's noisy.
+    const slim = (jobs || []).map((j: any) => ({
+      id: j.id,
+      job_number: j.job_number,
+      title: j.title,
+      phase: j.phase,
+      target_ship_date: j.target_ship_date,
+      qb_invoice_number: (j.type_meta as any)?.qb_invoice_number || null,
+    }));
+
+    return NextResponse.json({ jobs: slim });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
   }

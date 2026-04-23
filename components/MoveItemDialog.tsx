@@ -8,6 +8,7 @@ type Candidate = {
   title: string | null;
   phase: string;
   target_ship_date: string | null;
+  qb_invoice_number: string | null;
 };
 
 // MoveItemDialog — picker for moving a single item between jobs of the
@@ -68,7 +69,9 @@ export default function MoveItemDialog({
   const filtered = (candidates || []).filter(c => {
     if (!query.trim()) return true;
     const q = query.toLowerCase();
-    return (c.title || "").toLowerCase().includes(q) || (c.job_number || "").toLowerCase().includes(q);
+    return (c.title || "").toLowerCase().includes(q)
+      || (c.job_number || "").toLowerCase().includes(q)
+      || (c.qb_invoice_number || "").toLowerCase().includes(q);
   });
 
   async function doMove() {
@@ -114,9 +117,9 @@ export default function MoveItemDialog({
           display: "flex", alignItems: "baseline", gap: 10,
         }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>Move item</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Move item</div>
             <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-              <span style={{ color: "rgba(255,255,255,0.8)" }}>{itemName || "(unnamed)"}</span> — pick a destination job (same client only)
+              <span style={{ color: T.text }}>{itemName || "(unnamed)"}</span> — pick a destination job (same client only)
             </div>
           </div>
           <button onClick={onClose} disabled={moving}
@@ -127,12 +130,12 @@ export default function MoveItemDialog({
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search by title or job #"
+            placeholder="Search by title, job #, or invoice #"
             autoFocus
             style={{
               width: "100%", padding: "9px 12px", fontSize: 13,
               background: T.surface, border: `1px solid ${T.border}`,
-              color: "#fff", borderRadius: 6, outline: "none", fontFamily: font,
+              color: T.text, borderRadius: 6, outline: "none", fontFamily: font,
               boxSizing: "border-box",
             }} />
         </div>
@@ -158,27 +161,33 @@ export default function MoveItemDialog({
                 onClick={() => setSelectedId(c.id)}
                 style={{
                   display: "block", width: "100%", textAlign: "left",
-                  padding: "10px 18px", background: selected ? T.accentDim : "transparent",
+                  padding: "12px 18px",
+                  background: selected ? T.accentDim : "transparent",
                   border: "none", borderLeft: `3px solid ${selected ? T.accent : "transparent"}`,
                   cursor: "pointer", fontFamily: font,
                   transition: "background 0.1s",
                 }}
-                onMouseEnter={e => { if (!selected) e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
+                onMouseEnter={e => { if (!selected) e.currentTarget.style.background = T.surface; }}
                 onMouseLeave={e => { if (!selected) e.currentTarget.style.background = "transparent"; }}
               >
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {c.title || "(untitled)"}
-                  </div>
-                  {c.job_number && (
-                    <div style={{ fontSize: 10, color: T.muted, fontFamily: "SF Mono, monospace" }}>
-                      {c.job_number}
-                    </div>
-                  )}
+                <div style={{
+                  fontSize: 13, fontWeight: 600, color: T.text,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  {c.title || "(untitled)"}
                 </div>
-                <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                  {c.phase}
-                  {c.target_ship_date && <> · ship {new Date(c.target_ship_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</>}
+                <div style={{
+                  fontSize: 11, color: T.muted, marginTop: 3,
+                  display: "flex", gap: 10, flexWrap: "wrap",
+                  fontFamily: "SF Mono, monospace",
+                }}>
+                  {c.job_number && <span>{c.job_number}</span>}
+                  {c.qb_invoice_number && (
+                    <>
+                      <span style={{ color: T.faint }}>·</span>
+                      <span>Invoice #{c.qb_invoice_number}</span>
+                    </>
+                  )}
                 </div>
               </button>
             );
