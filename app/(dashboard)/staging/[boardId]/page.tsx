@@ -6,6 +6,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { appBaseUrl } from "@/lib/public-url";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   Pending: { bg: T.amberDim, text: T.amber },
@@ -204,7 +205,7 @@ export default function BoardDetailPage({ params }: { params: { boardId: string 
 
   function copyShareLink() {
     if (!board?.share_token) return;
-    navigator.clipboard.writeText(`${window.location.origin}/staging/share/${board.share_token}`);
+    navigator.clipboard.writeText(`${appBaseUrl()}/staging/share/${board.share_token}`);
   }
 
   async function updateBoardName(name: string) {

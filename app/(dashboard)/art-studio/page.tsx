@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { ProjectPicker } from "@/components/ProjectPicker";
+import { appBaseUrl } from "@/lib/public-url";
 import {
   resolveBrief,
   sortYourMove,
@@ -984,8 +985,8 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     const data = await res.json();
     // Prefer the client-wide portal URL; fall back to per-brief intake
     const url = data.client_portal_token
-      ? `${window.location.origin}/portal/client/${data.client_portal_token}`
-      : (data.token ? `${window.location.origin}/art-intake/${data.token}` : null);
+      ? `${appBaseUrl()}/portal/client/${data.client_portal_token}`
+      : (data.token ? `${appBaseUrl()}/art-intake/${data.token}` : null);
     if (url) {
       await navigator.clipboard.writeText(url);
       setLinkCopied(true);

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { appBaseUrl } from "@/lib/public-url";
 
 type PricingData = {
   qtys: number[];
@@ -532,13 +533,13 @@ export default function DecoratorsPage() {
                           <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                             <input
                               readOnly
-                              value={`${window.location.origin}/portal/vendor/${(d as any).external_token}`}
+                              value={`${appBaseUrl()}/portal/vendor/${(d as any).external_token}`}
                               style={{ flex:1, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, fontFamily:"monospace", fontSize:10, padding:"5px 8px", outline:"none" }}
                               onFocus={e=>e.target.select()}
                             />
                             <button
                               onClick={()=>{
-                                navigator.clipboard.writeText(`${window.location.origin}/portal/vendor/${(d as any).external_token}`);
+                                navigator.clipboard.writeText(`${appBaseUrl()}/portal/vendor/${(d as any).external_token}`);
                               }}
                               style={{ background:T.accent, border:"none", borderRadius:6, color:"#fff", fontSize:10, fontWeight:600, padding:"5px 10px", cursor:"pointer", whiteSpace:"nowrap" }}
                             >Copy</button>

@@ -18,6 +18,7 @@ import { ProjectProgress } from "@/components/ProjectProgress";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
 import { calculatePriority, businessDaysFromNow } from "@/lib/dates";
+import { appBaseUrl } from "@/lib/public-url";
 
 function JobSkeleton() {
   return (
@@ -469,8 +470,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             })()}
             {(job as any).portal_token && (
               <button onClick={()=>{
-                const base=window.location.origin;
-                navigator.clipboard.writeText(`${base}/portal/${(job as any).portal_token}`);
+                navigator.clipboard.writeText(`${appBaseUrl()}/portal/${(job as any).portal_token}`);
                 setPortalCopied(true);
                 setTimeout(()=>setPortalCopied(false),2000);
               }} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:10,fontWeight:600,color:portalCopied?T.green:T.muted}}>
