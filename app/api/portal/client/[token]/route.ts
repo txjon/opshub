@@ -158,9 +158,49 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // Sort briefs by latest activity across all roles, newest first — iMessage style
     out.sort((a, b) => (b.last_activity_at || "").localeCompare(a.last_activity_at || ""));
 
+    // Lightweight orders summary — drives the Overview tab's stat strip.
+    // Full order details come from /api/portal/client/[token]/orders.
+    // Statuses map: intake/pending/ready/production → "In Production",
+    // receiving/fulfillment → "Shipping", complete → "Delivered", on_hold → "Paused".
+    // Cancelled hidden.
+    const deliveredCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: jobs } = await db
+      .from("jobs")
+      .select("id, phase, target_ship_date, updated_at")
+      .eq("client_id", client.id)
+      .not("phase", "in", "(cancelled)");
+    const activeJobs = (jobs || []).filter((j: any) => j.phase !== "complete");
+    const deliveredRecent = (jobs || []).filter((j: any) =>
+      j.phase === "complete" && (j.updated_at || "") >= deliveredCutoff
+    );
+    const nextShipJob = activeJobs
+      .filter((j: any) => j.target_ship_date)
+      .sort((a: any, b: any) => (a.target_ship_date || "").localeCompare(b.target_ship_date || ""))[0];
+
+    const jobIds = activeJobs.map((j: any) => j.id);
+    let unpaidCount = 0;
+    if (jobIds.length > 0) {
+      const { data: pays } = await db
+        .from("payment_records")
+        .select("job_id, status")
+        .in("job_id", jobIds);
+      const unpaidByJob = new Set(
+        (pays || [])
+          .filter((p: any) => p.status && !["paid", "void"].includes(p.status))
+          .map((p: any) => p.job_id)
+      );
+      unpaidCount = unpaidByJob.size;
+    }
+
     return NextResponse.json({
       client: { name: client.name },
       briefs: out,
+      orders_summary: {
+        active_count: activeJobs.length,
+        delivered_recent_count: deliveredRecent.length,
+        unpaid_count: unpaidCount,
+        next_ship_date: nextShipJob?.target_ship_date || null,
+      },
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
