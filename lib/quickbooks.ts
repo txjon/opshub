@@ -159,6 +159,12 @@ export async function getAccessToken(): Promise<string> {
 
 // ── API calls ──
 
+// QB minor versions gate which fields appear in responses. 73 surfaces
+// InvoiceLink (the customer-facing connect.intuit.com URL) on invoice
+// reads. Without this, the field comes back undefined even when QB has
+// minted one — which is why OpsHub stored empty / legacy URLs.
+const QB_MINOR_VERSION = "73";
+
 async function qbFetch(
   endpoint: string,
   options: { method?: string; body?: any } = {}
@@ -166,7 +172,8 @@ async function qbFetch(
   const token = await getAccessToken();
   const tokens = await getTokens();
   const realmId = tokens?.realm_id || process.env.QB_REALM_ID;
-  const url = `${QB_BASE_URL}/v3/company/${realmId}${endpoint}`;
+  const sep = endpoint.includes("?") ? "&" : "?";
+  const url = `${QB_BASE_URL}/v3/company/${realmId}${endpoint}${sep}minorversion=${QB_MINOR_VERSION}`;
 
   const res = await fetch(url, {
     method: options.method || "GET",
