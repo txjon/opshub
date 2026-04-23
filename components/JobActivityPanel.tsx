@@ -61,21 +61,9 @@ export function JobActivityPanel({ jobId, currentUserId, profiles }: {
       metadata: mentions.length > 0 ? { mentions } : {},
     });
 
-    // Create notifications for @mentioned users
-    for (const mention of mentions) {
-      const userId = Object.entries(profiles).find(([_, name]) =>
-        name.toLowerCase().split(" ")[0] === mention.toLowerCase()
-      )?.[0];
-      if (userId && userId !== currentUserId) {
-        await supabase.from("notifications").insert({
-          user_id: userId,
-          type: "mention",
-          message: `${profiles[currentUserId] || "Someone"} mentioned you in a project`,
-          reference_id: jobId,
-          reference_type: "job",
-        });
-      }
-    }
+    // Notifications table deprecated — bell UI was removed. @mentions still
+    // render styled in the activity feed; restore this block if the bell
+    // comes back.
 
     setDraft("");
     setSending(false);
@@ -187,18 +175,15 @@ export async function logJobActivity(jobId: string, message: string, metadata?: 
   });
 }
 
-// Notify all team members of an important event
-export async function notifyTeam(message: string, type: "alert" | "approval" | "payment" | "production", referenceId?: string, referenceType?: string) {
-  const supabase = createClient();
-  const { data: profiles } = await supabase.from("profiles").select("id");
-  if (!profiles?.length) return;
-  await supabase.from("notifications").insert(
-    profiles.map((p: any) => ({
-      user_id: p.id,
-      type,
-      message,
-      reference_id: referenceId || null,
-      reference_type: referenceType || null,
-    }))
-  );
+// Disabled 2026-04-23. The in-app NotificationBell was removed — this
+// was fanning out one DB row per team member per event with no reader
+// anywhere. Kept as a no-op export so all callers stay compiling.
+// Restore the profiles fan-out if notifications come back as a feature.
+export async function notifyTeam(
+  _message: string,
+  _type: "alert" | "approval" | "payment" | "production",
+  _referenceId?: string,
+  _referenceType?: string,
+) {
+  return;
 }

@@ -359,16 +359,7 @@ export async function POST(
         const { data: c } = await sb.from("clients").select("name").eq("id", job.client_id).single();
         if (c) clientName = c.name;
       }
-      const { data: profiles } = await sb.from("profiles").select("id");
-      if (profiles?.length) {
-        await sb.from("notifications").insert(
-          profiles.map((p: any) => ({
-            user_id: p.id, type: "alert",
-            message: `Quote rejected — ${clientName} · ${job.title}`,
-            reference_id: job.id, reference_type: "job",
-          }))
-        );
-      }
+      // Notifications table deprecated — bell UI was removed.
 
       return NextResponse.json({ success: true });
     }
@@ -399,18 +390,7 @@ export async function POST(
         if (c) clientName = c.name;
       }
 
-      const { data: profiles } = await sb.from("profiles").select("id");
-      if (profiles?.length) {
-        await sb.from("notifications").insert(
-          profiles.map((p: any) => ({
-            user_id: p.id,
-            type: "approval",
-            message: `Quote approved — ${clientName} · ${job.title}`,
-            reference_id: job.id,
-            reference_type: "job",
-          }))
-        );
-      }
+      // Notifications table deprecated — bell UI was removed.
 
       return NextResponse.json({ success: true });
     }
@@ -480,19 +460,7 @@ export async function POST(
         message: `Proof approved by client via portal for ${itemName}`,
       });
 
-      // Notify team
-      const { data: profiles } = await sb.from("profiles").select("id");
-      if (profiles?.length) {
-        await sb.from("notifications").insert(
-          profiles.map((p: any) => ({
-            user_id: p.id,
-            type: "approval",
-            message: `Proof approved — ${itemName} · ${job.title}`,
-            reference_id: job.id,
-            reference_type: "job",
-          }))
-        );
-      }
+      // Notifications table deprecated — bell UI was removed.
 
       return NextResponse.json({ success: true });
     }
@@ -539,19 +507,7 @@ export async function POST(
         message: `Revision requested by client via portal for ${itemName}${noteText}`,
       });
 
-      // Notify team
-      const { data: profiles } = await sb.from("profiles").select("id");
-      if (profiles?.length) {
-        await sb.from("notifications").insert(
-          profiles.map((p: any) => ({
-            user_id: p.id,
-            type: "alert",
-            message: `Revision requested — ${itemName} · ${job.title}${noteText}`,
-            reference_id: job.id,
-            reference_type: "job",
-          }))
-        );
-      }
+      // Notifications table deprecated — bell UI was removed.
 
       return NextResponse.json({ success: true });
     }

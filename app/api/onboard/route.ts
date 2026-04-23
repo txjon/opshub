@@ -59,21 +59,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Notify team — create a job_activity entry on a system level
-    // and notify all managers/owners
-    const { data: profiles } = await sb.from("profiles").select("id, role");
-    const teamIds = (profiles || []).filter(p => p.role === "owner" || p.role === "manager" || p.role === "staff").map(p => p.id);
-    if (teamIds.length > 0) {
-      await sb.from("notifications").insert(
-        teamIds.map(uid => ({
-          user_id: uid,
-          type: "alert",
-          message: `New client onboarded: ${company.trim()} — ${contactName.trim()} (${email.trim()})`,
-          reference_id: client.id,
-          reference_type: "client",
-        }))
-      );
-    }
+    // Notifications table deprecated — bell UI was removed.
 
     return NextResponse.json({ success: true, clientId: client.id });
   } catch (e: any) {

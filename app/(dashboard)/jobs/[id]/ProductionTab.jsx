@@ -103,23 +103,11 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
     if (onRecalcPhase) onRecalcPhase();
   }
 
-  // Notify managers that the invoice can be updated with actual shipped qtys
-  async function createInvoiceReadyNotification(jobId, jobTitle, clientName) {
-    try {
-      const { data: profiles } = await supabase.from("profiles").select("id, role").in("role", ["owner", "manager", "staff"]);
-      if (!profiles?.length) return;
-      await supabase.from("notifications").insert(
-        profiles.map(p => ({
-          user_id: p.id,
-          type: "alert",
-          message: `Invoice ready to update — ${clientName || ""} · ${jobTitle} · review variance`,
-          reference_id: jobId,
-          reference_type: "job",
-        }))
-      );
-    } catch (e) {
-      console.error("[ProductionTab] createInvoiceReadyNotification failed:", e);
-    }
+  // Notifications table deprecated — bell UI was removed. No-op kept so
+  // existing callers compile. Variance review still surfaces in the PaymentTab
+  // "Pricing changed — click to update" banner.
+  async function createInvoiceReadyNotification(_jobId, _jobTitle, _clientName) {
+    return;
   }
 
   async function resendShipmentEmail(item) {

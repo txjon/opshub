@@ -152,32 +152,8 @@ export async function GET(req: NextRequest) {
 
     // ── Create notifications for each alert ──
     if (alerts.length > 0) {
-      const { data: profiles } = await sb.from("profiles").select("id");
-      if (profiles?.length) {
-        // Deduplicate: check for recent similar notifications (last 24h)
-        const yesterday = new Date(now.getTime() - 86400000).toISOString();
-        const { data: recentNotifs } = await sb
-          .from("notifications")
-          .select("message")
-          .gte("created_at", yesterday)
-          .eq("type", "alert");
-        const recentMessages = new Set((recentNotifs || []).map(n => n.message));
-
-        const newAlerts = alerts.filter(a => !recentMessages.has(a.message));
-
-        if (newAlerts.length > 0) {
-          const notifs = newAlerts.flatMap(alert =>
-            profiles.map((p: any) => ({
-              user_id: p.id,
-              type: "alert",
-              message: alert.message,
-              reference_id: alert.jobId,
-              reference_type: "job",
-            }))
-          );
-          await sb.from("notifications").insert(notifs);
-        }
-      }
+      // Notifications table deprecated — bell UI was removed.
+      // Alerts are still surfaced via the daily digest email below.
     }
 
     // ── Send daily digest email to owner ──
