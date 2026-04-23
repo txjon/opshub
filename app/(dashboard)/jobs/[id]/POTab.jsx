@@ -323,6 +323,10 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.blue:T.surface,border:"1px solid "+(ready?T.blue:T.border),borderRadius:8,color:ready?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
                 Send to Decorator
               </button>
+              <button onClick={()=>window.open(`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`,"_blank")}
+                style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,fontFamily:font,fontSize:12,fontWeight:600,padding:"8px 16px",cursor:"pointer",width:"100%"}}>
+                Preview PDF
+              </button>
             </div>
           </div>
         </div>
