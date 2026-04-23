@@ -68,6 +68,31 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       (itemsByJob[it.job_id] ||= []).push(it);
     }
 
+    // Pick the best thumbnail per item. Preference: mockup (rendered comp,
+    // most client-friendly) → proof → print_ready. Folder-level drive_link
+    // on items themselves isn't thumb-able.
+    const itemIds = (items || []).map((i: any) => i.id);
+    const thumbByItem: Record<string, string | null> = {};
+    if (itemIds.length > 0) {
+      const { data: files } = await db
+        .from("item_files")
+        .select("item_id, stage, drive_file_id, created_at")
+        .in("item_id", itemIds)
+        .in("stage", ["mockup", "proof", "print_ready"])
+        .is("superseded_at", null)
+        .not("drive_file_id", "is", null)
+        .order("created_at", { ascending: false });
+      const rank: Record<string, number> = { mockup: 3, proof: 2, print_ready: 1 };
+      const bestRank: Record<string, number> = {};
+      for (const f of (files || [])) {
+        const fRank = rank[f.stage] || 0;
+        if (fRank > (bestRank[f.item_id] || 0)) {
+          bestRank[f.item_id] = fRank;
+          thumbByItem[f.item_id] = f.drive_file_id;
+        }
+      }
+    }
+
     // Buy sheet lines for qty roll-up (since items.ship_qtys only populates
     // after the decorator ships). Using sum of lines.qty for the pre-ship total.
     const { data: bsLines } = await db
@@ -141,7 +166,10 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
           garment_type: it.garment_type,
           mockup_color: it.mockup_color,
           qty: qtyByItem[it.id] || 0,
+          // Drive folder link — for "open in Drive" side-nav, not thumbnail.
           drive_link: it.drive_link,
+          // Thumb-able file id (mockup > proof > print_ready). Null if none.
+          thumb_id: thumbByItem[it.id] || null,
         })),
         total_qty: totalQty,
         total,

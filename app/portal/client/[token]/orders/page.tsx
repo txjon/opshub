@@ -13,6 +13,7 @@ type OrderItem = {
   mockup_color: string | null;
   qty: number;
   drive_link: string | null;
+  thumb_id: string | null;
 };
 
 type Order = {
@@ -281,14 +282,11 @@ function OrderDetail({ order, token }: { order: Order; token: string }) {
                   display: "flex", alignItems: "center", justifyContent: "center",
                   overflow: "hidden",
                 }}>
-                  {it.drive_link ? (
-                    <a href={it.drive_link} target="_blank" rel="noopener noreferrer"
-                      style={{ display: "contents" }}>
-                      <img src={it.drive_link}
-                        alt="" referrerPolicy="no-referrer"
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        onError={(e: any) => { e.target.style.display = "none"; }} />
-                    </a>
+                  {it.thumb_id ? (
+                    <img src={`/api/files/thumbnail?id=${it.thumb_id}&thumb=1`}
+                      alt="" referrerPolicy="no-referrer" loading="lazy"
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      onError={(e: any) => { e.target.style.display = "none"; }} />
                   ) : (
                     <span style={{ fontSize: 9, color: C.faint }}>—</span>
                   )}
@@ -300,8 +298,17 @@ function OrderDetail({ order, token }: { order: Order; token: string }) {
                   }}>
                     {it.name || "Item"}
                   </div>
-                  <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-                    {[it.garment_type, it.mockup_color].filter(Boolean).join(" · ")}
+                  <div style={{
+                    fontSize: 11, color: C.muted, marginTop: 3,
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    {it.garment_type && <span>{it.garment_type}</span>}
+                    {it.mockup_color && (
+                      <>
+                        {it.garment_type && <span style={{ color: C.faint }}>·</span>}
+                        <ColorDot color={it.mockup_color} />
+                      </>
+                    )}
                   </div>
                 </div>
                 <div style={{ fontSize: 12, color: C.muted, fontFamily: C.mono, whiteSpace: "nowrap" }}>
@@ -384,6 +391,46 @@ function Line({ label, value, bold }: { label: string; value: string; bold?: boo
     </div>
   );
 }
+
+// Renders the item's garment color as a swatch + friendly name when the
+// stored value is a hex. Falls back to showing the raw string (e.g. "heather
+// grey") if it's already a name. Common hex → name mappings cover the
+// blanks we order frequently; anything else shows as a colored dot only.
+function ColorDot({ color }: { color: string }) {
+  const trimmed = (color || "").trim();
+  const isHex = /^#?[0-9a-f]{3,8}$/i.test(trimmed);
+  const hexNorm = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+  const name = isHex ? HEX_NAMES[hexNorm.toLowerCase()] : trimmed;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+      <span style={{
+        width: 10, height: 10, borderRadius: 99,
+        background: isHex ? hexNorm : trimmed,
+        border: `1px solid ${C.border}`,
+        display: "inline-block",
+      }} />
+      {name && <span>{name}</span>}
+    </span>
+  );
+}
+
+// Known hex → readable-name map. Extend as we add colors to the catalog.
+const HEX_NAMES: Record<string, string> = {
+  "#ffffff": "White",
+  "#000000": "Black",
+  "#d9d9d9": "Ash",
+  "#b5b5b5": "Sport Grey",
+  "#808080": "Charcoal",
+  "#1a1a1a": "Pitch Black",
+  "#eeeeee": "Natural",
+  "#f5f5dc": "Cream",
+  "#8b0000": "Cardinal",
+  "#b22222": "Red",
+  "#000080": "Navy",
+  "#228b22": "Forest",
+  "#4682b4": "Royal",
+  "#d2b48c": "Sand",
+};
 
 function paymentPillFor(status: Order["payment_status"], hasInvoice: boolean): { label: string; color: string; bg: string } {
   if (status === "paid") return { label: "Paid", color: C.green, bg: C.greenBg };
