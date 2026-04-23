@@ -161,13 +161,12 @@ export async function POST(req: NextRequest) {
       // UI knows the "pricing changed" staleness check is no longer meaningful
       // (post-variance, qb total reflects shipped qtys, not costing grossRev).
       //
-      // If updateInvoice returned a regenerated payment link (invoice
-      // previously had none, or the legacy broken /app/invoices/pay URL was
-      // stored), overwrite qb_payment_link. Otherwise leave the stored value
-      // alone.
+      // Always take the freshest payment link QB gives us back. Revisions
+      // can change the InvoiceLink, and any stored link that starts with
+      // /app/invoices/pay is the legacy admin URL (404s for customers).
+      // Only fall back to the previous link if QB returned nothing.
       const prevLink: string = (job.type_meta as any)?.qb_payment_link || "";
-      const linkBroken = prevLink.startsWith("https://app.qbo.intuit.com/app/invoices/pay");
-      const healedLink = updated.paymentLink && (linkBroken || !prevLink) ? updated.paymentLink : prevLink;
+      const healedLink = updated.paymentLink || prevLink;
 
       await admin.from("jobs").update({
         type_meta: {

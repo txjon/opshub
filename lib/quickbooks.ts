@@ -323,9 +323,11 @@ export async function createInvoice(
     body.CustomerMemo = { value: options.memo };
   }
 
-  if (options.email) {
-    body.BillEmail = { Address: options.email };
-  }
+  // Deliberately do NOT set BillEmail on the invoice. With no invoice-level
+  // email, QB has nowhere to send payment confirmation receipts — OpsHub
+  // sends its own "payment received" email when a payment is recorded.
+  // The payment link itself does not depend on BillEmail; /send is targeted
+  // at an internal address below to generate the link.
 
   const data = await qbFetch("/invoice", { method: "POST", body });
   const invoice = data.Invoice;
@@ -345,8 +347,7 @@ export async function createInvoice(
   // /send is what tells QB to mint an InvoiceLink, but it also emails the
   // invoice to the sendTo address. Always target an internal address so
   // clients never receive a QB-side invoice email — OpsHub sends its own
-  // branded invoice email. BillEmail on the invoice stays set to the
-  // client's address (above), so QB payment receipts still reach them.
+  // branded invoice email.
   let paymentLink = fullInvoice.InvoiceLink || "";
   if (!paymentLink) {
     const internalSendEmail = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
@@ -436,24 +437,33 @@ export async function updateInvoice(
   const readBack = await qbFetch(`/invoice/${invoiceId}`);
   const full = readBack.Invoice || updated;
 
-  // Self-heal missing payment link. If the invoice doesn't have an
-  // InvoiceLink yet (invoice was never sent, or was created before the
-  // internal-send fix), trigger QB to mint one by /send to an internal
-  // address. Client never receives anything — OpsHub ships its own
-  // branded invoice email.
-  let paymentLink: string = full.InvoiceLink || "";
-  if (!paymentLink) {
+  // Re-mint the payment link on every update. The stored InvoiceLink on QB
+  // can go stale after a revision — the old link may point at pre-revision
+  // content, or (historically) may have been the legacy /app/invoices/pay
+  // admin URL that 404s for customers. Calling /send here forces QB to
+  // return a current customer-facing connect.intuit.com URL.
+  // sendTo points at an internal address — customers never get this mail;
+  // OpsHub ships its own branded invoice email separately.
+  const current: string = full.InvoiceLink || "";
+  const isLegacyAdminUrl = current.startsWith("https://app.qbo.intuit.com/app/invoices/pay");
+  let paymentLink: string = current;
+  const shouldRefresh = !paymentLink || isLegacyAdminUrl;
+  if (shouldRefresh) {
     const internalSendEmail = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
     try {
       const sendResult = await qbFetch(`/invoice/${invoiceId}/send?sendTo=${encodeURIComponent(internalSendEmail)}`, { method: "POST" });
-      paymentLink = sendResult?.Invoice?.InvoiceLink || "";
-      if (!paymentLink) {
+      const refreshed = sendResult?.Invoice?.InvoiceLink || "";
+      if (refreshed) {
+        paymentLink = refreshed;
+      } else {
         const retry = await qbFetch(`/invoice/${invoiceId}`);
-        paymentLink = retry?.Invoice?.InvoiceLink || "";
+        paymentLink = retry?.Invoice?.InvoiceLink || current;
       }
-      console.log("[QB] Invoice update — regenerated InvoiceLink:", paymentLink || "(still empty)");
+      console.log("[QB] Invoice update — refreshed InvoiceLink:", paymentLink || "(still empty)");
     } catch (e) {
-      console.log("[QB] Update: could not regenerate payment link:", (e as any).message);
+      console.log("[QB] Update: could not refresh payment link:", (e as any).message);
+      // Keep whatever was there — at least send a stable (if stale) URL.
+      paymentLink = current;
     }
   }
 
