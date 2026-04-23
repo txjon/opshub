@@ -337,24 +337,32 @@ export async function createInvoice(
   const taxAmount = fullInvoice.TxnTaxDetail?.TotalTax || 0;
   const totalWithTax = (fullInvoice.TotalAmt || 0);
 
-  // Get realm from DB for payment link
-  const tokens = await getTokens();
-  const realm = tokens?.realm_id || process.env.QB_REALM_ID;
-
-  // Send invoice via QB to generate payment link (requires BillEmail on invoice)
+  // Payment link must come from InvoiceLink (customer-facing connect.intuit.com
+  // portal URL). Do NOT fabricate a fallback — the old /app/invoices/pay?txnId=
+  // URL is the logged-in admin screen and 404s for customers. Missing link
+  // returns empty string; callers/UI hide the "Pay Online" CTA.
+  //
+  // /send is what tells QB to mint an InvoiceLink, but it also emails the
+  // invoice to the sendTo address. Always target an internal address so
+  // clients never receive a QB-side invoice email — OpsHub sends its own
+  // branded invoice email. BillEmail on the invoice stays set to the
+  // client's address (above), so QB payment receipts still reach them.
   let paymentLink = fullInvoice.InvoiceLink || "";
-  if (!paymentLink && options.email) {
+  if (!paymentLink) {
+    const internalSendEmail = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
     try {
-      const sendResult = await qbFetch(`/invoice/${invoice.Id}/send?sendTo=${encodeURIComponent(options.email)}`, { method: "POST" });
-      const sentInvoice = sendResult?.Invoice;
-      paymentLink = sentInvoice?.InvoiceLink || "";
-      console.log("[QB] Invoice sent, InvoiceLink:", paymentLink);
+      const sendResult = await qbFetch(`/invoice/${invoice.Id}/send?sendTo=${encodeURIComponent(internalSendEmail)}`, { method: "POST" });
+      paymentLink = sendResult?.Invoice?.InvoiceLink || "";
+      // QB occasionally returns the invoice from /send without InvoiceLink populated.
+      // One retry read covers that race.
+      if (!paymentLink) {
+        const retry = await qbFetch(`/invoice/${invoice.Id}`);
+        paymentLink = retry?.Invoice?.InvoiceLink || "";
+      }
+      console.log("[QB] Invoice sent (internal), InvoiceLink:", paymentLink || "(still empty)");
     } catch (e) {
       console.log("[QB] Could not send invoice for payment link:", (e as any).message);
     }
-  }
-  if (!paymentLink) {
-    paymentLink = `https://app.qbo.intuit.com/app/invoices/pay?txnId=${invoice.Id}&companyId=${realm}`;
   }
 
   return {
@@ -371,7 +379,7 @@ export async function updateInvoice(
   invoiceId: string,
   lineItems: QBLineItem[],
   options: { memo?: string; shipAddress?: string } = {}
-): Promise<{ taxAmount: number; totalWithTax: number }> {
+): Promise<{ taxAmount: number; totalWithTax: number; paymentLink: string }> {
   // Fetch existing invoice to get SyncToken (required for updates)
   const existing = await qbFetch(`/invoice/${invoiceId}`);
   const invoice = existing.Invoice;
@@ -428,10 +436,32 @@ export async function updateInvoice(
   const readBack = await qbFetch(`/invoice/${invoiceId}`);
   const full = readBack.Invoice || updated;
 
+  // Self-heal missing payment link. If the invoice doesn't have an
+  // InvoiceLink yet (invoice was never sent, or was created before the
+  // internal-send fix), trigger QB to mint one by /send to an internal
+  // address. Client never receives anything — OpsHub ships its own
+  // branded invoice email.
+  let paymentLink: string = full.InvoiceLink || "";
+  if (!paymentLink) {
+    const internalSendEmail = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
+    try {
+      const sendResult = await qbFetch(`/invoice/${invoiceId}/send?sendTo=${encodeURIComponent(internalSendEmail)}`, { method: "POST" });
+      paymentLink = sendResult?.Invoice?.InvoiceLink || "";
+      if (!paymentLink) {
+        const retry = await qbFetch(`/invoice/${invoiceId}`);
+        paymentLink = retry?.Invoice?.InvoiceLink || "";
+      }
+      console.log("[QB] Invoice update — regenerated InvoiceLink:", paymentLink || "(still empty)");
+    } catch (e) {
+      console.log("[QB] Update: could not regenerate payment link:", (e as any).message);
+    }
+  }
+
   console.log("[QB] Invoice updated:", invoiceId);
   return {
     taxAmount: full.TxnTaxDetail?.TotalTax || 0,
     totalWithTax: full.TotalAmt || 0,
+    paymentLink,
   };
 }
 

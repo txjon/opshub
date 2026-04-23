@@ -160,12 +160,22 @@ export async function POST(req: NextRequest) {
       // when this update came from the shipped-qty variance review flow, so the
       // UI knows the "pricing changed" staleness check is no longer meaningful
       // (post-variance, qb total reflects shipped qtys, not costing grossRev).
+      //
+      // If updateInvoice returned a regenerated payment link (invoice
+      // previously had none, or the legacy broken /app/invoices/pay URL was
+      // stored), overwrite qb_payment_link. Otherwise leave the stored value
+      // alone.
+      const prevLink: string = (job.type_meta as any)?.qb_payment_link || "";
+      const linkBroken = prevLink.startsWith("https://app.qbo.intuit.com/app/invoices/pay");
+      const healedLink = updated.paymentLink && (linkBroken || !prevLink) ? updated.paymentLink : prevLink;
+
       await admin.from("jobs").update({
         type_meta: {
           ...(job.type_meta || {}),
           qb_tax_amount: updated.taxAmount,
           qb_total_with_tax: updated.totalWithTax,
           qb_invoice_updated_at: new Date().toISOString(),
+          ...(healedLink !== prevLink ? { qb_payment_link: healedLink } : {}),
           ...(useShippedQtys ? {
             qb_variance_pushed_at: new Date().toISOString(),
             qb_variance_total: updated.totalWithTax,
@@ -196,7 +206,7 @@ export async function POST(req: NextRequest) {
         updated: true,
         invoiceId: existingInvoiceId,
         invoiceNumber: job.type_meta?.qb_invoice_number,
-        paymentLink: job.type_meta?.qb_payment_link,
+        paymentLink: healedLink,
       });
     }
 
