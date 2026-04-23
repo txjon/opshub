@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getPortalUrl, getVendorPortalUrl } from "@/lib/auto-email";
 import { renderBrandedEmail } from "@/lib/email-template";
+import { refreshPaymentLink } from "@/lib/quickbooks";
 
 export async function POST(req: NextRequest) {
   try {
@@ -75,12 +76,29 @@ export async function POST(req: NextRequest) {
 
     const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
 
-    // Get QB payment link if available (for invoice emails)
+    // Get QB payment link. If missing or the stale admin URL, ask QB to mint
+    // a fresh customer-facing one before sending — otherwise the email ships
+    // with no "Pay online" button.
     let qbPaymentLink = "";
     if (type === "invoice" && jobId) {
       const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
       const { data: jobData } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
       qbPaymentLink = jobData?.type_meta?.qb_payment_link || "";
+      const invoiceId = (jobData?.type_meta as any)?.qb_invoice_id;
+      const isLegacy = qbPaymentLink.startsWith("https://app.qbo.intuit.com/app/invoices/pay");
+      if (invoiceId && (!qbPaymentLink || isLegacy)) {
+        try {
+          const fresh = await refreshPaymentLink(String(invoiceId));
+          if (fresh && fresh !== qbPaymentLink) {
+            qbPaymentLink = fresh;
+            await adminClient.from("jobs").update({
+              type_meta: { ...(jobData?.type_meta || {}), qb_payment_link: fresh },
+            }).eq("id", jobId);
+          }
+        } catch (e) {
+          console.error("[email/send] refreshPaymentLink failed:", (e as any).message);
+        }
+      }
     }
 
     const portalUrl = type !== "po" ? await getPortalUrl(jobId) : null;
