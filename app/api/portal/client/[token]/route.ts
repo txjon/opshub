@@ -192,6 +192,17 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       unpaidCount = unpaidByJob.size;
     }
 
+    // Also fold in ShipStation fulfillment invoices the client owes money
+    // on. Reports with qb_invoice_id are surfaced as invoices in the portal;
+    // the QB webhook (/api/qb/webhook2) flips paid_at when the client
+    // pays via the Pay Online link — paid ones drop off this count.
+    const { data: shipReports } = await db
+      .from("shipstation_reports")
+      .select("id, paid_at")
+      .eq("client_id", client.id)
+      .not("qb_invoice_id", "is", null);
+    unpaidCount += (shipReports || []).filter((r: any) => !r.paid_at).length;
+
     return NextResponse.json({
       client: { name: client.name },
       briefs: out,

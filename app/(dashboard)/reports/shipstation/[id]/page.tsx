@@ -27,6 +27,8 @@ type Report = {
   qb_invoice_updated_at: string | null;
   sent_at: string | null;
   sent_to: string[] | null;
+  paid_at: string | null;
+  paid_amount: number | null;
 };
 
 type Contact = { email: string | null; name: string | null; role_label: string | null; is_primary: boolean };
@@ -190,7 +192,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
 
       {/* QB invoice summary */}
       {hasQB && (
-        <div style={{ ...card, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+        <div style={{ ...card, display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
           <div>
             <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>QB Invoice</div>
             <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono, color: T.accent }}>#{report.qb_invoice_number}</div>
@@ -198,6 +200,17 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
           <div>
             <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Billed</div>
             <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono }}>{fmtD(Number(report.qb_total_with_tax ?? report.totals.fee))}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Status</div>
+            {report.paid_at ? (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ Paid</div>
+                <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{new Date(report.paid_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" })} · {fmtD(Number(report.paid_amount) || 0)}</div>
+              </>
+            ) : (
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.amber }}>Unpaid</div>
+            )}
           </div>
           <div>
             <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Pay Link</div>

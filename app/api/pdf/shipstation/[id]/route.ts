@@ -155,13 +155,37 @@ function escapeHtml(s: string): string {
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const internal = req.headers.get("x-internal-key") === process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!internal) {
+  const portalToken = req.nextUrl.searchParams.get("portal");
+
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+  // Portal-token auth: client portal uses ?portal=TOKEN. We match the
+  // token to a client and verify the report belongs to that client — so
+  // a FOG token can only download FOG's reports.
+  let portalAuth = false;
+  if (!internal && portalToken) {
+    const { data: tokenClient } = await supabase
+      .from("clients")
+      .select("id")
+      .eq("portal_token", portalToken)
+      .single();
+    if (tokenClient) {
+      const { data: r } = await supabase
+        .from("shipstation_reports")
+        .select("id")
+        .eq("id", params.id)
+        .eq("client_id", tokenClient.id)
+        .single();
+      portalAuth = !!r;
+    }
+  }
+
+  if (!internal && !portalAuth) {
     const authClient = await createAuthClient();
     const { data: { user } } = await authClient.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   try {
     const { data: report, error } = await supabase
       .from("shipstation_reports")

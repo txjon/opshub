@@ -139,7 +139,11 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     }
 
     if (!jobs?.length) {
-      console.error("[QB Webhook2] NO JOB FOUND for QB invoice:", qbInvoiceId);
+      // Not a job invoice — try matching to a ShipStation sales report
+      // (fulfillment fee invoice pushed from /reports/shipstation/...).
+      const handled = await tryMatchShipstationReport(supabase, qbInvoiceId, amount);
+      if (handled) continue;
+      console.error("[QB Webhook2] NO JOB OR REPORT FOUND for QB invoice:", qbInvoiceId);
       continue;
     }
 
@@ -239,4 +243,80 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
 
     console.log(`[QB Webhook2] SUCCESS — $${amount} recorded for "${job.title}" (${job.id})`);
   }
+}
+
+// Match a QB invoice ID (or doc number) against shipstation_reports and
+// record the payment there. Returns true if handled so the caller can
+// skip the "no job found" error.
+async function tryMatchShipstationReport(supabase: any, qbInvoiceId: string, amount: number): Promise<boolean> {
+  let { data: reports } = await supabase
+    .from("shipstation_reports")
+    .select("id, client_id, period_label, qb_invoice_number, qb_total_with_tax, totals, paid_at, paid_amount, clients(name)")
+    .eq("qb_invoice_id", qbInvoiceId);
+
+  if (!reports?.length) {
+    const { data: fallback } = await supabase
+      .from("shipstation_reports")
+      .select("id, client_id, period_label, qb_invoice_number, qb_total_with_tax, totals, paid_at, paid_amount, clients(name)")
+      .eq("qb_invoice_number", String(qbInvoiceId));
+    if (fallback?.length) reports = fallback;
+  }
+
+  if (!reports?.length) return false;
+
+  const report = reports[0];
+  console.log("[QB Webhook2] Matched ShipStation report:", report.id, report.period_label);
+
+  // Idempotency — if already marked paid for this amount, skip.
+  const alreadyPaid = Number(report.paid_amount) || 0;
+  if (report.paid_at && Math.abs(alreadyPaid - amount) < 0.01) {
+    console.log("[QB Webhook2] Report payment already recorded");
+    return true;
+  }
+
+  const { error: updErr } = await supabase.from("shipstation_reports").update({
+    paid_at: new Date().toISOString(),
+    paid_amount: amount,
+  }).eq("id", report.id);
+
+  if (updErr) {
+    console.error("[QB Webhook2] Report update failed:", updErr.message);
+    return true; // we did match it — don't let caller log "not found"
+  }
+
+  // Email the client a paid-receipt for the report. Best-effort — fire
+  // and forget so a Resend outage doesn't break the webhook response.
+  (async () => {
+    try {
+      const { data: contacts } = await supabase
+        .from("contacts")
+        .select("email, name, is_primary")
+        .eq("client_id", report.client_id);
+      const primary = contacts?.find((c: any) => c.is_primary)?.email;
+      const anyEmail = contacts?.map((c: any) => c.email).find(Boolean);
+      const clientEmail = primary || anyEmail;
+      if (!clientEmail) {
+        console.error("[QB Webhook2] No client email for ShipStation report:", report.id);
+        return;
+      }
+
+      const { Resend } = await import("resend");
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const clientName = (report.clients as any)?.name || "";
+      const invoiceNum = report.qb_invoice_number || "";
+      const { error: sendErr } = await resend.emails.send({
+        from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",
+        to: clientEmail,
+        subject: `Payment received — ${clientName}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""} · ${report.period_label}`,
+        html: `<p>Hi,</p><p>Payment of <strong>$${amount.toLocaleString()}</strong> received for <strong>${report.period_label} Product Sales Report${invoiceNum ? ` (Invoice #${invoiceNum})` : ""}</strong>. Thanks for your business.</p><p>Welcome to the party,<br/>House Party Distro</p>`,
+      });
+      if (sendErr) console.error("[QB Webhook2] Report paid email Resend error:", sendErr);
+      else console.log(`[QB Webhook2] Report paid email sent to ${clientEmail}`);
+    } catch (e) {
+      console.error("[QB Webhook2] Report paid email exception:", e);
+    }
+  })();
+
+  console.log(`[QB Webhook2] SUCCESS — $${amount} recorded for ShipStation report ${report.id}`);
+  return true;
 }
