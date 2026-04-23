@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 // dates — milestones removed, ship date is set manually
 
 function fmtD(n) {
@@ -161,7 +162,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const defaultShipTo = shippingRoute === "drop_ship" ? clientAddress : HPD_WAREHOUSE;
   const [itemFields,setItemFields] = useState({});
   const [saving,setSaving] = useState({});
-  const [showPreview,setShowPreview] = useState(false);
+  const [showPreview,setShowPreview] = useState(false); // unused legacy, kept to minimize diff
+  const [previewingPO, setPreviewingPO] = useState(false); // opens PdfPreviewModal for the active vendor's PO
   const [showSendEmail,setShowSendEmail] = useState(false);
 
   useEffect(()=>{
@@ -323,7 +325,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.blue:T.surface,border:"1px solid "+(ready?T.blue:T.border),borderRadius:8,color:ready?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
                 Send to Decorator
               </button>
-              <button onClick={()=>window.open(`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`,"_blank")}
+              <button onClick={()=>setPreviewingPO(true)}
                 style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,fontFamily:font,fontSize:12,fontWeight:600,padding:"8px 16px",cursor:"pointer",width:"100%"}}>
                 Preview PDF
               </button>
@@ -331,6 +333,14 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
           </div>
         </div>
       </div>
+      {previewingPO && (
+        <PdfPreviewModal
+          src={`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`}
+          title={`PO${active?` · ${active}`:""}`}
+          downloadHref={`/api/pdf/po/${project.id}?download=1${active?`&vendor=${encodeURIComponent(active)}`:""}`}
+          onClose={()=>setPreviewingPO(false)}
+        />
+      )}
       {showSendEmail&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowSendEmail(false)}>
         <div style={{background:T.card,borderRadius:12,width:"95vw",maxWidth:600,maxHeight:"90vh",overflow:"auto",padding:0}} onClick={e=>e.stopPropagation()}>
