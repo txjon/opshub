@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { ArtBriefMessages } from "@/components/ArtBriefMessages";
+import { DriveFileLink } from "@/components/DriveFileLink";
 
 const STATE_LABELS = {
   draft: { label: "Draft", color: T.muted, bg: T.surface },
@@ -248,7 +249,8 @@ function BriefEditor({ brief, onBack, onUpdated }) {
                 {finals.map(f => (
                   <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.greenDim, borderRadius: 6, fontSize: 11, marginBottom: 4 }}>
                     <span style={{ padding: "2px 6px", background: T.green, color: "#fff", borderRadius: 4, fontWeight: 700, fontSize: 9 }}>V{f.version}</span>
-                    <a href={f.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: font }}>{f.file_name}</a>
+                    <DriveFileLink driveFileId={f.drive_file_id} fileName={f.file_name} mimeType={f.mime_type}
+                      style={{ flex: 1, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: font, minWidth: 0 }}>{f.file_name}</DriveFileLink>
                     <button onClick={() => promoteFinal(f.id)} disabled={promoting === f.id}
                       style={{ padding: "3px 8px", background: T.accent, color: "#fff", border: "none", borderRadius: 4, fontSize: 9, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: promoting === f.id ? 0.5 : 1 }}>
                       {promoting === f.id ? "..." : "→ Print-Ready"}
@@ -263,7 +265,8 @@ function BriefEditor({ brief, onBack, onUpdated }) {
                 {wips.map(w => (
                   <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 10px", background: T.surface, borderRadius: 6, fontSize: 11, marginBottom: 3 }}>
                     <span style={{ padding: "2px 6px", background: T.blueDim, color: T.blue, borderRadius: 4, fontWeight: 700, fontSize: 9 }}>V{w.version}</span>
-                    <a href={w.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: font }}>{w.file_name}</a>
+                    <DriveFileLink driveFileId={w.drive_file_id} fileName={w.file_name} mimeType={w.mime_type}
+                      style={{ flex: 1, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: font, minWidth: 0 }}>{w.file_name}</DriveFileLink>
                   </div>
                 ))}
               </div>

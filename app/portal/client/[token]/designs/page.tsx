@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
+import { DriveFileLink } from "@/components/DriveFileLink";
 import { useClientPortal } from "../_shared/context";
 import { C, daysUntil, thumbUrl } from "../_shared/theme";
 import { clientStateFor, isDoneForClient } from "../_shared/state-labels";
@@ -598,7 +599,8 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
               }}>
               {hero ? (
                 <>
-                  <a href={hero.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ display: "contents" }}>
+                  <DriveFileLink driveFileId={hero.drive_file_id} fileName={hero.file_name} mimeType={(hero as any).mime_type}
+                    style={{ display: "block", width: "100%", height: "100%" }}>
                     <img
                       src={hero.drive_file_id ? `https://drive.google.com/thumbnail?id=${hero.drive_file_id}&sz=w1600` : ""}
                       referrerPolicy="no-referrer"
@@ -606,7 +608,7 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
                       style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
                       onError={(e: any) => { e.target.style.display = "none"; }}
                     />
-                  </a>
+                  </DriveFileLink>
                   {heroMeta && (
                     <div style={{ position: "absolute", top: 12, left: 12, padding: "3px 9px", borderRadius: 4, background: heroMeta.bg, color: heroMeta.fg, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em" }}>
                       {heroMeta.short}{hero.version > 1 ? ` · v${hero.version}` : ""}

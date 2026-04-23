@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { DriveFileLink } from "@/components/DriveFileLink";
 
 const PURPOSES = [
   { value: "tour", label: "Tour merch", desc: "Sold at shows, for fans" },
@@ -165,9 +166,16 @@ export default function ArtIntakePage({ params }: { params: { token: string } })
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {refs.map(r => (
               <div key={r.id} style={{ display: "flex", gap: 12, padding: 10, background: "#fafafa", borderRadius: 8, border: "1px solid #eee" }}>
-                <a href={r.drive_link} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0 }}>
-                  <div style={{ width: 72, height: 72, background: "#eee", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 10 }}>Image</div>
-                </a>
+                <DriveFileLink driveFileId={r.drive_file_id} fileName={r.file_name} mimeType={r.mime_type}
+                  style={{ flexShrink: 0 }}>
+                  <div style={{ width: 72, height: 72, background: "#eee", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 10, overflow: "hidden" }}>
+                    {r.drive_file_id ? (
+                      <img src={`/api/files/thumbnail?id=${r.drive_file_id}&thumb=1`} alt="" referrerPolicy="no-referrer"
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        onError={(e: any) => { e.target.style.display = "none"; }} />
+                    ) : "Image"}
+                  </div>
+                </DriveFileLink>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, color: "#222", marginBottom: 4, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.file_name}</div>
                   <input

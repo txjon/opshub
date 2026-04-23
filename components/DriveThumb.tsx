@@ -127,7 +127,10 @@ function Lightbox({
     };
   }, [onClose]);
 
-  const hasHeader = !!(title || driveLink);
+  // driveLink prop retained on the signature for backwards compatibility,
+  // but we no longer render an external link out — all Drive viewing stays
+  // in-app per product direction. DriveFileLink is the more general wrapper.
+  const hasHeader = !!title;
 
   return (
     <div
@@ -145,15 +148,6 @@ function Lightbox({
         {hasHeader && (
           <div style={{ display: "flex", alignItems: "center", gap: 16, color: "#fff", fontSize: 12 }}>
             {title && <span style={{ fontWeight: 600, letterSpacing: "-0.01em" }}>{title}</span>}
-            {driveLink && (
-              <a
-                href={driveLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                style={{ color: "#7fc7ff", textDecoration: "underline", fontSize: 11 }}
-              >Open in Drive ↗</a>
-            )}
           </div>
         )}
         <img

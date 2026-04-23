@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
 import { PdfPreviewModal } from "@/components/PdfPreviewModal";
+import { DriveFileLink } from "@/components/DriveFileLink";
 
 const STAGE_ORDER = ["client_art", "vector", "mockup", "proof", "print_ready"];
 const STAGE_LABELS = {
@@ -269,13 +270,9 @@ function FileCard({ file, itemName, stage }) {
               {approval.replace(/_/g, " ")}
             </span>
           )}
-          {file.drive_link && (
-            <a
-              href={file.drive_link}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ fontSize: 9, color: T.accent, textDecoration: "none", marginLeft: "auto" }}
-            >Drive ↗</a>
+          {file.drive_file_id && (
+            <DriveFileLink driveFileId={file.drive_file_id} fileName={file.file_name} mimeType={file.mime_type}
+              style={{ fontSize: 9, color: T.accent, marginLeft: "auto" }}>Preview ↗</DriveFileLink>
           )}
         </div>
       </div>
