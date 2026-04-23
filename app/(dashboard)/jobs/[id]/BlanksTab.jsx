@@ -7,8 +7,18 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
+// Items that aren't actual garment blanks. Matches lib/pricing.ts NON_GARMENT.
+// Any of these are priced via custom-cost lines (PO Total) only — they must
+// be excluded from the Blanks tab entirely.
+const NON_GARMENT = new Set([
+  "accessory","patch","sticker","poster","pin","koozie","banner","flag",
+  "lighter","towel","water_bottle","samples","custom","key_chain",
+  "woven_labels","bandana","socks","tote","custom_bag","pillow","rug",
+  "pens","napkins","balloons","stencils",
+]);
+
 export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick, selectedItemId }) {
-  const items = useMemo(() => allItems.filter(it => it.garment_type !== "accessory"), [allItems]);
+  const items = useMemo(() => allItems.filter(it => !NON_GARMENT.has(it.garment_type)), [allItems]);
   const supabase = createClient();
   const [localFields, setLocalFields] = useState({});
   const [proofStatus, setProofStatus] = useState({});
