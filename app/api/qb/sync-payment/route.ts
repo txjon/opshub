@@ -160,16 +160,7 @@ export async function POST(req: NextRequest) {
         message: `Payment received — $${amount.toLocaleString()} via QuickBooks (manual sync)`,
       });
 
-      const { data: profiles } = await admin.from("profiles").select("id");
-      if (profiles?.length) {
-        await admin.from("notifications").insert(
-          profiles.map((p: any) => ({
-            user_id: p.id, type: "payment",
-            message: `Payment received — $${amount.toLocaleString()} · ${(job.clients as any)?.name || ""} · ${job.title}`,
-            reference_id: job.id, reference_type: "job",
-          }))
-        );
-      }
+      // Notifications table deprecated — bell UI was removed.
 
       results.push({ qbInvoiceId, jobId: job.id, jobTitle: job.title, status: "recorded", amount });
     }

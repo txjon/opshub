@@ -391,20 +391,9 @@ export async function POST(
     const body = await req.json();
     const { action, itemId, jobId, tracking, carrier, note, shipQtys } = body;
 
-    // Helper: notify team
-    async function notify(message: string, type: string, refId: string) {
-      const { data: profiles } = await sb.from("profiles").select("id");
-      if (profiles?.length) {
-        await sb.from("notifications").insert(
-          profiles.map((p: any) => ({
-            user_id: p.id,
-            type,
-            message,
-            reference_id: refId,
-            reference_type: "job",
-          }))
-        );
-      }
+    // Notifications table deprecated — bell UI was removed. Helper is a no-op.
+    async function notify(_message: string, _type: string, _refId: string) {
+      return;
     }
 
     // Helper: get item + job info

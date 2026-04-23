@@ -101,19 +101,7 @@ export async function POST(req: NextRequest) {
       message: `Email received from ${fromName || fromEmail}: "${subject || "(no subject)"}"`,
     });
 
-    // Notify team
-    const { data: profiles } = await sb.from("profiles").select("id");
-    if (profiles?.length) {
-      await sb.from("notifications").insert(
-        profiles.map((p: any) => ({
-          user_id: p.id,
-          type: "alert",
-          message: `Email reply — ${fromName || fromEmail} · ${job.title}: "${(subject || "").slice(0, 50)}"`,
-          reference_id: jobId,
-          reference_type: "job",
-        }))
-      );
-    }
+    // Notifications table deprecated — bell UI was removed.
 
     return NextResponse.json({ received: true, routed: true });
   } catch (e: any) {

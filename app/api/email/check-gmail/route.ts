@@ -138,16 +138,7 @@ async function saveAndNotify(sb: any, params: {
     message: `${label} received from ${params.fromName || params.fromEmail}: "${params.subject || "(no subject)"}"`,
   });
 
-  const { data: profiles } = await sb.from("profiles").select("id");
-  if (profiles?.length) {
-    await sb.from("notifications").insert(
-      profiles.map((p: any) => ({
-        user_id: p.id, type: "alert",
-        message: `${label} reply — ${params.fromName || params.fromEmail} · ${params.jobTitle}: "${(params.subject || "").slice(0, 50)}"`,
-        reference_id: params.jobId, reference_type: "job",
-      }))
-    );
-  }
+  // Notifications table deprecated — bell UI was removed.
   return true;
 }
 

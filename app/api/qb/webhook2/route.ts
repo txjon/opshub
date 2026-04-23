@@ -184,20 +184,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
       message: `Payment received — $${amount.toLocaleString()} via QuickBooks`,
     });
 
-    // Notify team
-    const { data: profiles } = await supabase.from("profiles").select("id");
-    if (profiles?.length) {
-      const { error: notifyErr } = await supabase.from("notifications").insert(
-        profiles.map((p: any) => ({
-          user_id: p.id,
-          type: "payment",
-          message: `Payment received — $${amount.toLocaleString()} · ${(job.clients as any)?.name || ""} · ${job.title}`,
-          reference_id: job.id,
-          reference_type: "job",
-        }))
-      );
-      if (notifyErr) console.error("[QB Webhook2] Notify insert FAILED:", notifyErr.message, notifyErr.details);
-    }
+    // Notifications table deprecated — bell UI was removed.
 
     // Auto-email client with PAID-stamped invoice PDF
     (async () => {

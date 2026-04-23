@@ -10,30 +10,18 @@ function admin() {
   return _admin;
 }
 
-// Server-side version of notifyTeam (for API routes, including token-auth ones).
-// Fans out one notification per profile row, fire-and-forget safe.
+// Disabled 2026-04-23. The in-app notifications UI (NotificationBell) was
+// removed — this function was generating one DB row per team member per
+// event with no reader anywhere. Pure disk-IO waste.
+// Kept as a no-op export so every caller stays compiling without edits.
+// If you bring notifications back, restore the fan-out insert here.
 export async function notifyTeamServer(
-  message: string,
-  type: NotifyType,
-  referenceId?: string,
-  referenceType?: string
+  _message: string,
+  _type: NotifyType,
+  _referenceId?: string,
+  _referenceType?: string
 ) {
-  try {
-    const db = admin();
-    const { data: profiles } = await db.from("profiles").select("id");
-    if (!profiles?.length) return;
-    await db.from("notifications").insert(
-      profiles.map((p: any) => ({
-        user_id: p.id,
-        type,
-        message,
-        reference_id: referenceId || null,
-        reference_type: referenceType || null,
-      }))
-    );
-  } catch {
-    // swallow — notifications are best-effort
-  }
+  return;
 }
 
 export async function logJobActivityServer(jobId: string, message: string, metadata?: any) {
