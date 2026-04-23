@@ -194,6 +194,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         updated: true,
+        invoiceId: existingInvoiceId,
         invoiceNumber: job.type_meta?.qb_invoice_number,
         paymentLink: job.type_meta?.qb_payment_link,
       });
@@ -228,6 +229,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      invoiceId: result.invoiceId,
       invoiceNumber: result.invoiceNumber,
       paymentLink: result.paymentLink,
     });

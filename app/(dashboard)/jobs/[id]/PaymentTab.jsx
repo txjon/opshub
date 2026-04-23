@@ -66,6 +66,10 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
       } else {
         logJobActivity(job.id, `Invoice #${data.invoiceNumber} created in QuickBooks`);
       }
+      // Re-read job from DB so every tab has fresh type_meta — prevents
+      // later writes to type_meta (lock pricing, PO sent, etc.) from
+      // clobbering qb_invoice_id with stale local state.
+      if (onReload) onReload();
       return data;
     } catch (err) {
       setQbError(err.message);
