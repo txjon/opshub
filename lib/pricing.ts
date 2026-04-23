@@ -40,11 +40,16 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
   const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
   const isNonGarment = NON_GARMENT.includes(p.garment_type);
 
-  // Blank cost buffer: LA Apparel 10%, all others 5%
+  // Blank cost buffer: LA Apparel 10%, all others 5%. Non-garment items
+  // (accessory, tote, patch, sticker, etc.) never carry a blank cost —
+  // their cost comes entirely from the custom-cost lines (PO Total).
+  // Historical note: items moved between jobs or legacy rows can end up
+  // with stale blank_costs. For non-garment types we zero them defensively
+  // so a mis-populated blankCosts can never wreck the margin math.
   const vendor = (p.blank_vendor || p.blankVendor || "");
   const is10pct = vendor.startsWith("LA Apparel") || vendor.startsWith("Cotton Collective");
   const blankBuffer = is10pct ? 1.10 : 1.05;
-  const blankCost = (() => {
+  const blankCost = isNonGarment ? 0 : (() => {
     if (p.blankCosts && Object.keys(p.blankCosts).length > 0) {
       let total = 0;
       Object.entries(p.blankCosts).forEach(([sz, cost]: [string, any]) => { total += (cost || 0) * (p.qtys?.[sz] || 0) * blankBuffer; });
@@ -53,7 +58,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
     return (p.blankCostPerUnit || 0) * qty * blankBuffer;
   })();
 
-  // Non-garment items: only blank costs + custom costs (no print/finishing/setup)
+  // Non-garment items: only custom costs + shipping (no blank, print, finishing, or setup).
   if (isNonGarment) {
     const customTotal = (p.customCosts || []).reduce((a: number, c: any) => {
       const v = parseFloat(c.perUnit || c.amount) || 0;
@@ -64,7 +69,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
     const SHIP_RATES: Record<string, number> = { bandana:0.25,banner:1.5,beanie:0.3,crewneck:1.5,flag:0.4,hat:0.6,hoodie:1.5,jacket:1.5,koozie:0.1,lighter:0.15,longsleeve:0.8,pants:0.8,patch:0.10,pin:0.25,poster:0.1,shorts:0.5,socks:0.5,sticker:0.1,tee:0.65,tote:0.75,towel:0.75,water_bottle:0.75 };
     const shipRate = SHIP_RATES[p.garment_type || ""] ?? 0;
     const shipping = inclShip && shipRate > 0 ? qty * shipRate : 0;
-    const totalCost = blankCost + poTotal + shipping;
+    const totalCost = poTotal + shipping;  // blankCost is 0 for non-garment
     const marginPct = (parseFloat((margin || "30%").replace("%", "")) / 100) || 0.30;
     const ccRate = inclCC ? 0.03 : 0;
     const divisor = 1 - marginPct - ccRate;
@@ -75,7 +80,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
     const totalCostWithCC = totalCost + ccFees;
     const netProfit = grossRevFinal - totalCostWithCC;
     return {
-      qty, blankCost, printTotal: 0, finTotal: 0, specTotal: 0, setupTotal: 0,
+      qty, blankCost: 0, printTotal: 0, finTotal: 0, specTotal: 0, setupTotal: 0,
       poTotal, shipping, ccFees, grossRev: grossRevFinal, totalCost: totalCostWithCC,
       netProfit, sellPerUnit: sellPerUnitFinal,
       margin_pct: grossRevFinal > 0 ? netProfit / grossRevFinal : 0,

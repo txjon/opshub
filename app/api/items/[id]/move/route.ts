@@ -96,9 +96,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (migratedIdx >= 0) {
       migratedCostProd = sourceCostProds[migratedIdx];
       sourceCostProds.splice(migratedIdx, 1);
-      // Force the costProd's id to match the item's id (normalizes legacy data
-      // so the destination job's costing lookup finds it).
-      destCostProds.push({ ...migratedCostProd, id: item.id });
+      // Carry the costProd forward, but reset fields that are tied to the
+      // source job's specific blank/decorator assignment. The destination
+      // CostingTab will rebuild these from the item row + catalog on first
+      // open. Custom costs, specialties, and print locations survive — those
+      // are authored on the item itself, not derived from the job.
+      // Strip source-specific blank costs so the destination CostingTab
+      // pulls fresh from items.blank_costs (source of truth on the item row).
+      // Without this, a tote bag moved from a shirt job inherits $51/unit
+      // phantom blanks and wrecks the margin math.
+      // printVendor + customCosts + specialties + printLocations stay —
+      // those are item-authored and usually apply post-move.
+      const cleaned = {
+        ...migratedCostProd,
+        id: item.id,
+        blankCosts: {},
+        blankCostPerUnit: 0,
+      };
+      destCostProds.push(cleaned);
     }
 
     // 5. Calculate next sort_order in destination (append to end, gap-friendly).
