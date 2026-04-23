@@ -51,9 +51,8 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     });
 
     const jobIds = jobs.map((j: any) => j.id);
-    if (jobIds.length === 0) {
-      return NextResponse.json({ client: { name: client.name }, orders: [] });
-    }
+    // Don't early-return when there are no jobs — we still want to surface
+    // fulfillment invoices (below) for clients who are fulfillment-only.
 
     // Items — just the fields we need for the row preview. Detail view does
     // a second fetch for sizes/tracking if needed.
@@ -114,6 +113,50 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       (paysByJob[p.job_id] ||= []).push(p);
     }
 
+    // ── ShipStation fulfillment invoices ──
+    // Pulled in alongside project orders so the client sees every invoice
+    // they might owe money on in one place. We only surface reports that
+    // made it to QB (have qb_invoice_id) — drafts are noise.
+    const { data: shipReports } = await db
+      .from("shipstation_reports")
+      .select("id, period_label, totals, qb_invoice_id, qb_invoice_number, qb_payment_link, sent_at, created_at, paid_at, paid_amount")
+      .eq("client_id", client.id)
+      .not("qb_invoice_id", "is", null);
+
+    const fulfillmentOrders = (shipReports || []).map((r: any) => {
+      const totals = r.totals || {};
+      const total = Number(totals.fee) || 0;
+      // paid_at + paid_amount are set by the QB webhook when the client
+      // pays via the Pay Online link (see /api/qb/webhook2).
+      const paidAmount = Number(r.paid_amount) || 0;
+      const balance = Math.max(0, total - paidAmount);
+      const payment_status: "paid" | "unpaid" | "partial" | "deposit" | "none" =
+        balance <= 0.01 && paidAmount > 0 ? "paid"
+        : paidAmount > 0 ? "partial"
+        : "unpaid";
+      return {
+        id: r.id,
+        kind: "fulfillment" as const,
+        job_number: null,
+        title: `Product Sales Report — ${r.period_label}`,
+        phase: "fulfillment_invoice",
+        target_ship_date: null,
+        created_at: r.created_at,
+        updated_at: r.sent_at || r.created_at,
+        items: [],
+        total_qty: Number(totals.qty) || 0,
+        total,
+        paid_amount: paidAmount,
+        balance,
+        payment_status,
+        qb_invoice_number: r.qb_invoice_number || null,
+        qb_payment_link: r.qb_payment_link || null,
+        has_invoice: true,
+        period_label: r.period_label,
+        products_count: Array.isArray(r.totals) ? 0 : undefined, // informational; UI recomputes if needed
+      };
+    });
+
     const orders = jobs.map((j: any) => {
       const jobItems = itemsByJob[j.id] || [];
       const jobPays = paysByJob[j.id] || [];
@@ -154,6 +197,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
 
       return {
         id: j.id,
+        kind: "project" as const,
         job_number: j.job_number,
         title: j.title,
         phase: j.phase,
@@ -182,9 +226,14 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       };
     });
 
+    // Merge fulfillment invoices with project orders, newest first.
+    const combined = [...orders, ...fulfillmentOrders].sort((a, b) =>
+      (b.updated_at || "").localeCompare(a.updated_at || "")
+    );
+
     return NextResponse.json({
       client: { name: client.name },
-      orders,
+      orders: combined,
       archive,
     });
   } catch (e: any) {

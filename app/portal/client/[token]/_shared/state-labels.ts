@@ -46,5 +46,7 @@ export function clientPhaseFor(phase: string): { label: string; color: string; b
   if (phase === "complete") return { label: "Delivered", color: C.green, bg: C.greenBg };
   if (phase === "receiving" || phase === "fulfillment") return { label: "Shipping", color: C.amber, bg: C.amberBg };
   if (phase === "on_hold") return { label: "Paused", color: C.muted, bg: C.surface };
+  // Synthetic phase used by ShipStation sales reports surfaced as invoices.
+  if (phase === "fulfillment_invoice") return { label: "Fulfillment", color: C.purple, bg: C.purpleBg };
   return { label: "In Production", color: C.blue, bg: C.blueBg };
 }

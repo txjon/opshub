@@ -18,6 +18,7 @@ type OrderItem = {
 
 type Order = {
   id: string;
+  kind?: "project" | "fulfillment";
   job_number: string | null;
   title: string | null;
   phase: string;
@@ -33,6 +34,7 @@ type Order = {
   qb_invoice_number: string | null;
   qb_payment_link: string | null;
   has_invoice: boolean;
+  period_label?: string;
 };
 
 export default function OrdersPage() {
@@ -203,8 +205,17 @@ function OrderRow({ order, expanded, onToggle, token }: {
             fontSize: 11, color: C.muted, marginTop: 3,
             display: "flex", gap: 10, flexWrap: "wrap",
           }}>
-            <span>{order.total_qty} {order.total_qty === 1 ? "pc" : "pcs"}</span>
-            {order.target_ship_date && <span>· Ships {fmtDate(order.target_ship_date)}</span>}
+            {order.kind === "fulfillment" ? (
+              <>
+                <span>{order.total_qty.toLocaleString()} units sold</span>
+                {order.qb_invoice_number && <span>· Invoice #{order.qb_invoice_number}</span>}
+              </>
+            ) : (
+              <>
+                <span>{order.total_qty} {order.total_qty === 1 ? "pc" : "pcs"}</span>
+                {order.target_ship_date && <span>· Ships {fmtDate(order.target_ship_date)}</span>}
+              </>
+            )}
           </div>
         </div>
 
@@ -259,17 +270,43 @@ function OrderDetail({ order, token }: { order: Order; token: string }) {
         }
       `}</style>
       <div className="order-detail-grid" style={{ display: "grid", gap: 14, gridTemplateColumns: "1fr" }}>
-        {/* LEFT — items */}
+        {/* LEFT — items (projects) or summary + report link (fulfillment) */}
         <div>
           <div style={{
             fontSize: 10, fontWeight: 700, color: C.faint,
             textTransform: "uppercase", letterSpacing: "0.08em",
             marginBottom: 10,
           }}>
-            Items
+            {order.kind === "fulfillment" ? "Report" : "Items"}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {order.items.map(it => (
+            {order.kind === "fulfillment" && (
+              <div style={{
+                background: C.card, border: `1px solid ${C.border}`,
+                borderRadius: 8, padding: "14px 16px",
+                display: "flex", flexDirection: "column", gap: 10,
+              }}>
+                <div style={{ fontSize: 13, color: C.text, lineHeight: 1.6 }}>
+                  Fulfillment fee for <strong>{order.period_label}</strong> covering{" "}
+                  <strong>{order.total_qty.toLocaleString()} units</strong> shipped through HPD.
+                </div>
+                <a
+                  href={`/api/pdf/shipstation/${order.id}?portal=${token}`}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{
+                    alignSelf: "flex-start",
+                    padding: "8px 14px",
+                    background: "transparent",
+                    color: C.text,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 6, fontSize: 12, fontWeight: 600,
+                    textDecoration: "none", fontFamily: C.font,
+                  }}>
+                  Download full report →
+                </a>
+              </div>
+            )}
+            {order.kind !== "fulfillment" && order.items.map(it => (
               <div key={it.id} style={{
                 display: "grid", gridTemplateColumns: "48px 1fr auto",
                 gap: 12, alignItems: "center",
@@ -316,7 +353,7 @@ function OrderDetail({ order, token }: { order: Order; token: string }) {
                 </div>
               </div>
             ))}
-            {order.items.length === 0 && (
+            {order.kind !== "fulfillment" && order.items.length === 0 && (
               <div style={{ fontSize: 12, color: C.faint, fontStyle: "italic", padding: "8px 12px" }}>
                 Item list not ready yet.
               </div>
