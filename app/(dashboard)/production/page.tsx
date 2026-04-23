@@ -775,10 +775,6 @@ export default function ProductionPage() {
                     </button>
                   </>
                 )}
-                <a href={viewingSlips.files[viewingSlips.index].drive_link} target="_blank" rel="noopener noreferrer"
-                  style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.border}`, background: "none", color: T.accent, cursor: "pointer", fontSize: 11, textDecoration: "none" }}>
-                  Open in Drive
-                </a>
                 <button onClick={() => setViewingSlips(null)}
                   style={{ padding: "4px 10px", borderRadius: 4, border: "none", background: T.surface, color: T.muted, cursor: "pointer", fontSize: 12 }}>
                   Close

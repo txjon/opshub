@@ -9,6 +9,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { ArtBriefPanel } from "./ArtBriefPanel";
 import { DriveThumb } from "@/components/DriveThumb";
+import { DriveFileLink } from "@/components/DriveFileLink";
 
 // Recursively collect files from drag-and-drop (handles folders)
 export async function collectFiles(dataTransferItems) {
@@ -71,10 +72,10 @@ export function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabe
           {stageLabel && (
             <span style={{ fontSize: 8, fontWeight: 700, color: stageColor || T.muted, textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0, width: 55 }}>{stageLabel}</span>
           )}
-          <a href={file.drive_link} target="_blank" rel="noopener noreferrer"
-            style={{ fontSize: 11, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <DriveFileLink driveFileId={file.drive_file_id} fileName={file.file_name} mimeType={file.mime_type}
+            style={{ fontSize: 11, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flex: 1 }}>
             {file.file_name}
-          </a>
+          </DriveFileLink>
           {formatSize(file.file_size) && (
             <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, flexShrink: 0 }}>{formatSize(file.file_size)}</span>
           )}

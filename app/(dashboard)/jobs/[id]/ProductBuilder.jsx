@@ -8,6 +8,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { DriveThumb } from "@/components/DriveThumb";
 import { parsePsd } from "./ProcessingTab";
 import MoveItemDialog from "@/components/MoveItemDialog";
+import { DriveFileLink } from "@/components/DriveFileLink";
 // ItemArtSection from ArtTab is no longer rendered — removed after workflow merge
 import {
   detectGarmentType, handleSizeToggle, distribute, DEFAULT_CURVE,
@@ -1097,7 +1098,8 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                   onMouseEnter={e => e.currentTarget.style.background = T.surface}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                   <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0, color: STAGE_COLORS[f.stage] || T.muted }}>{STAGE_LABELS[f.stage] || f.stage}</span>
-                  <a href={f.drive_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: T.text, textDecoration: "none", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
+                  <DriveFileLink driveFileId={f.drive_file_id} fileName={f.file_name} mimeType={f.mime_type}
+                    style={{ fontSize: 11, color: T.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{f.file_name}</DriveFileLink>
                   <span style={{ fontSize: 9, color: T.faint, flexShrink: 0 }}>{new Date(f.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
                   <button onClick={() => deleteFile(f)} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, flexShrink: 0 }} onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>×</button>
                 </div>

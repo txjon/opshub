@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
+import { DriveFileLink } from "@/components/DriveFileLink";
 
 // ── Document-style theme — matches vendor portal (light, professional) ──
 const C = {
@@ -693,7 +694,8 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
           >
             {hero ? (
               <>
-                <a href={hero.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ display: "contents" }}>
+                <DriveFileLink driveFileId={hero.drive_file_id} fileName={(hero as any).file_name} mimeType={(hero as any).mime_type}
+                  style={{ display: "block", width: "100%", height: "100%" }}>
                   <img
                     src={hero.drive_file_id ? `https://drive.google.com/thumbnail?id=${hero.drive_file_id}&sz=w1600` : ""}
                     referrerPolicy="no-referrer"
@@ -701,7 +703,7 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
                     style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
                     onError={(e: any) => { e.target.style.display = "none"; }}
                   />
-                </a>
+                </DriveFileLink>
                 {heroMeta && (
                   <div style={{ position: "absolute", top: 12, left: 12, padding: "3px 9px", borderRadius: 4, background: heroMeta.bg, color: heroMeta.fg, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em" }}>
                     {heroMeta.short}{hero.version ? ` · v${hero.version}` : ""}

@@ -15,6 +15,7 @@ import {
   type PrimaryActionKind,
 } from "@/lib/art-studio-v2";
 import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
+import { DriveFileLink } from "@/components/DriveFileLink";
 
 // Kept for BriefDetailModal's (legacy) state dropdown. When the modal is
 // rebuilt (Phase 2), this map goes with it.
@@ -1218,7 +1219,8 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
             }}>
               {hero ? (
                 <>
-                  <a href={hero.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{ display: "contents" }}>
+                  <DriveFileLink driveFileId={hero.drive_file_id} fileName={hero.file_name} mimeType={hero.mime_type}
+                    style={{ display: "block", width: "100%", height: "100%" }}>
                     <img
                       src={hero.drive_file_id ? `https://drive.google.com/thumbnail?id=${hero.drive_file_id}&sz=w1200` : ""}
                       referrerPolicy="no-referrer"
@@ -1226,7 +1228,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
                       style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
                       onError={e => (e.target as HTMLImageElement).style.display = "none"}
                     />
-                  </a>
+                  </DriveFileLink>
                   {heroMeta && (
                     <div style={{ position: "absolute", top: 12, left: 12, padding: "3px 9px", borderRadius: 4, background: heroMeta.bg, color: heroMeta.fg, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em" }}>
                       {heroMeta.short}{hero.version ? ` · v${hero.version}` : ""}

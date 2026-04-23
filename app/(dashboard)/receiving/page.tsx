@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { useWarehouse, tQty } from "@/lib/use-warehouse";
 import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
+import { DriveFileLink } from "@/components/DriveFileLink";
 
 type OutsideShipment = {
   id: string;
@@ -36,8 +37,8 @@ export default function ReceivingPage() {
   const [tab, setTab] = useState<"production" | "outside">("production");
   const [conditionNote, setConditionNote] = useState<Record<string, string>>({});
   const [itemCondition, setItemCondition] = useState<Record<string, string>>({});
-  const [packingSlips, setPackingSlips] = useState<Record<string, { file_name: string; drive_link: string }[]>>({});
-  const [receivingPhotos, setReceivingPhotos] = useState<Record<string, { file_name: string; drive_link: string }[]>>({});
+  const [packingSlips, setPackingSlips] = useState<Record<string, { file_name: string; drive_link: string; drive_file_id: string | null; mime_type: string | null }[]>>({});
+  const [receivingPhotos, setReceivingPhotos] = useState<Record<string, { file_name: string; drive_link: string; drive_file_id: string | null; mime_type: string | null }[]>>({});
   const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
   const [viewingSlips, setViewingSlips] = useState<{ files: { file_name: string; drive_link: string }[]; index: number; title: string } | null>(null);
   const photoInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -52,16 +53,17 @@ export default function ReceivingPage() {
     if (incoming.length === 0) return;
     const itemIds = incoming.flatMap(j => j.items.map(it => it.id));
     if (itemIds.length === 0) return;
-    supabase.from("item_files").select("item_id, file_name, drive_link, stage")
+    supabase.from("item_files").select("item_id, file_name, drive_link, drive_file_id, mime_type, stage")
       .in("stage", ["packing_slip", "receiving_photo"])
       .in("item_id", itemIds)
       .then(({ data }) => {
-        const slips: Record<string, { file_name: string; drive_link: string }[]> = {};
-        const photos: Record<string, { file_name: string; drive_link: string }[]> = {};
+        type F = { file_name: string; drive_link: string; drive_file_id: string | null; mime_type: string | null };
+        const slips: Record<string, F[]> = {};
+        const photos: Record<string, F[]> = {};
         for (const f of (data || [])) {
           const target = f.stage === "packing_slip" ? slips : photos;
           if (!target[f.item_id]) target[f.item_id] = [];
-          target[f.item_id].push({ file_name: f.file_name, drive_link: f.drive_link });
+          target[f.item_id].push({ file_name: f.file_name, drive_link: f.drive_link, drive_file_id: f.drive_file_id, mime_type: f.mime_type });
         }
         setPackingSlips(slips);
         setReceivingPhotos(photos);
@@ -157,7 +159,7 @@ export default function ReceivingPage() {
       });
       setReceivingPhotos(prev => ({
         ...prev,
-        [item.id]: [...(prev[item.id] || []), { file_name: file.name, drive_link: result.webViewLink }],
+        [item.id]: [...(prev[item.id] || []), { file_name: file.name, drive_link: result.webViewLink, drive_file_id: result.fileId, mime_type: file.type }],
       }));
     } catch (err) {
       console.error("Photo upload error:", err);
@@ -305,10 +307,10 @@ export default function ReceivingPage() {
                             <div style={{ fontSize: 10, color: T.faint, fontWeight: 400 }}>{[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ")}</div>
                             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 3, alignItems: "center" }}>
                               {(receivingPhotos[item.id] || []).map((p, pi) => (
-                                <a key={pi} href={p.drive_link} target="_blank" rel="noopener noreferrer"
-                                  style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: T.surface, color: T.muted, textDecoration: "none" }}>
+                                <DriveFileLink key={pi} driveFileId={p.drive_file_id} fileName={p.file_name} mimeType={p.mime_type}
+                                  style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: T.surface, color: T.muted }}>
                                   {p.file_name}
-                                </a>
+                                </DriveFileLink>
                               ))}
                               {uploadingPhoto === item.id ? (
                                 <span style={{ fontSize: 9, color: T.accent }}>Uploading...</span>
@@ -533,17 +535,11 @@ export default function ReceivingPage() {
                     {s.files?.length > 0 && (
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
                         {s.files.map((f, i) => (
-                          <a key={i} href={f.driveLink} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.accentDim, color: T.accent, textDecoration: "none" }}>
+                          <DriveFileLink key={i} driveFileId={f.driveFileId} fileName={f.name}
+                            style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.accentDim, color: T.accent }}>
                             {f.name}
-                          </a>
+                          </DriveFileLink>
                         ))}
-                        {s.drive_folder_link && (
-                          <a href={s.drive_folder_link} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.surface, color: T.muted, textDecoration: "none" }}>
-                            Open folder
-                          </a>
-                        )}
                       </div>
                     )}
                     <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
@@ -608,8 +604,6 @@ export default function ReceivingPage() {
                       style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.border}`, background: "none", color: viewingSlips.index === viewingSlips.files.length - 1 ? T.faint : T.text, cursor: "pointer", fontSize: 12 }}>Next</button>
                   </>
                 )}
-                <a href={viewingSlips.files[viewingSlips.index].drive_link} target="_blank" rel="noopener noreferrer"
-                  style={{ padding: "4px 10px", borderRadius: 4, border: `1px solid ${T.border}`, background: "none", color: T.accent, cursor: "pointer", fontSize: 11, textDecoration: "none" }}>Open in Drive</a>
                 <button onClick={() => setViewingSlips(null)}
                   style={{ padding: "4px 10px", borderRadius: 4, border: "none", background: T.surface, color: T.muted, cursor: "pointer", fontSize: 12 }}>Close</button>
               </div>
