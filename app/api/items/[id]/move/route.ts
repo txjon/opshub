@@ -115,9 +115,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     //    succeeds but a side-effect fails, the move is still functionally
     //    complete (the item belongs to the dest job, files follow via FK).
     //    The side-effects are cleanup that can be re-run safely.
+    // NOTE: items table has no updated_at column — don't set it here.
     const { error: moveErr } = await db
       .from("items")
-      .update({ job_id: to_job_id, sort_order: nextSort, updated_at: new Date().toISOString() })
+      .update({ job_id: to_job_id, sort_order: nextSort })
       .eq("id", item.id);
     if (moveErr) return NextResponse.json({ error: moveErr.message }, { status: 500 });
 

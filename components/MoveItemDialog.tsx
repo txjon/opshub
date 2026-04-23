@@ -140,21 +140,28 @@ export default function MoveItemDialog({
             }} />
         </div>
 
+        {/* Error banner — non-blocking so user can retry after a failed move */}
+        {err && (
+          <div style={{
+            padding: "10px 18px", fontSize: 12, color: T.red,
+            background: "#fdf2f2", borderBottom: `1px solid ${T.border}`,
+          }}>
+            {err}
+          </div>
+        )}
+
         <div style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
           {loading && (
             <div style={{ padding: "20px 18px", fontSize: 12, color: T.muted, textAlign: "center" }}>Loading…</div>
           )}
-          {!loading && err && (
-            <div style={{ padding: "14px 18px", fontSize: 12, color: T.red }}>{err}</div>
-          )}
-          {!loading && !err && filtered.length === 0 && (
+          {!loading && filtered.length === 0 && (
             <div style={{ padding: "20px 18px", fontSize: 12, color: T.muted, textAlign: "center" }}>
               {candidates?.length === 0
                 ? "No other active jobs for this client. Create one first."
                 : "No jobs match that search."}
             </div>
           )}
-          {!loading && !err && filtered.map(c => {
+          {!loading && filtered.map(c => {
             const selected = selectedId === c.id;
             return (
               <button key={c.id}
