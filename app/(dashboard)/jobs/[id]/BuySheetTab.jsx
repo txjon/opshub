@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
+import MoveItemDialog from "@/components/MoveItemDialog";
 export const DEFAULT_CURVE = {S:5.13,M:20.57,L:38.14,XL:25.90,"2XL":7.69,"3XL":2.56};
 
 // Auto-detect QB garment_type from supplier category + item name
@@ -1314,6 +1315,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
   const [showAddModal, setShowAddModal] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [assignBlankTo, setAssignBlankTo] = useState(null); // item id to assign blank to
+  const [moveItemTarget, setMoveItemTarget] = useState(null); // { id, name } for the move dialog
   const [favorites, setFavorites] = useState([]);
   useEffect(() => {
     createClient().from("favorites").select("*").order("style_name").then(({ data }) => setFavorites(data || []));
@@ -1666,6 +1668,14 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
                             style={{ flexShrink:0, background:"none", border:"none", cursor:"pointer", color:"rgba(255,255,255,0.4)", fontSize:13, lineHeight:1, padding:"1px 2px", borderRadius:3 }}
                             onMouseEnter={e => e.currentTarget.style.color=T.red}
                             onMouseLeave={e => e.currentTarget.style.color="rgba(255,255,255,0.4)"}>✕</button>
+                          {/* Move to another job — only for saved items (real UUID, not a local temp id). */}
+                          {typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && (
+                            <button onClick={e => { e.stopPropagation(); setMoveItemTarget({ id: item.id, name: item.name || "" }); }}
+                              title="Move to another job (same client)"
+                              style={{ flexShrink:0, background:"none", border:"none", cursor:"pointer", color:"rgba(255,255,255,0.4)", fontSize:11, lineHeight:1, padding:"1px 2px", borderRadius:3 }}
+                              onMouseEnter={e => e.currentTarget.style.color=T.accent}
+                              onMouseLeave={e => e.currentTarget.style.color="rgba(255,255,255,0.4)"}>↗</button>
+                          )}
                           <div>
                             <input
                               value={item.name}
@@ -1795,6 +1805,25 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
             </table>
           </div>
         </>
+      )}
+
+      {moveItemTarget && (
+        <MoveItemDialog
+          itemId={moveItemTarget.id}
+          itemName={moveItemTarget.name}
+          open={true}
+          onClose={() => setMoveItemTarget(null)}
+          onMoved={(result) => {
+            // Drop the item from local state. Parent list refetches on save/reload.
+            updateLocal((workingItems || []).filter(it => it.id !== moveItemTarget.id));
+            // Trigger onSaved so the parent can refresh job data (phase, costing, etc.)
+            try { onSaved?.(); } catch {}
+            // Navigate to the destination job so the user sees the moved item there.
+            if (result?.to?.id && typeof window !== "undefined") {
+              window.location.href = `/jobs/${result.to.id}`;
+            }
+          }}
+        />
       )}
     </div>
   );
