@@ -471,12 +471,20 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,cursor:"pointer",padding:"0 8px",fontSize:11}}>✕</button>
                             </div>
                           ):(
-                            <select value={p.supplier||""} onChange={e=>e.target.value==="New"?updateProd(i,{...p,supplier:"New",_newSupplier:true,_newSupplierVal:""}):updateProd(i,{...p,supplier:e.target.value})}
-                              style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:p.supplier?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",width:"100%",cursor:"pointer"}}>
-                              <option value="">— select supplier —</option>
-                              {["S&S","AS Colour","Sanmar","LA Apparel","Otto"].map(s=><option key={s}>{s}</option>)}
-                              <option value="New">＋ New supplier…</option>
-                            </select>
+                            (() => {
+                              const defaults=["S&S","AS Colour","Sanmar","LA Apparel","Otto"];
+                              const fromOthers=(costProds||[]).map(x=>x?.supplier).filter(s=>s&&s!=="New"&&!defaults.includes(s));
+                              const customs=Array.from(new Set([...fromOthers, ...(p.supplier&&p.supplier!=="New"&&!defaults.includes(p.supplier)?[p.supplier]:[])]));
+                              return (
+                                <select value={p.supplier||""} onChange={e=>e.target.value==="New"?updateProd(i,{...p,supplier:"New",_newSupplier:true,_newSupplierVal:""}):updateProd(i,{...p,supplier:e.target.value})}
+                                  style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:p.supplier?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",width:"100%",cursor:"pointer"}}>
+                                  <option value="">— select supplier —</option>
+                                  {defaults.map(s=><option key={s}>{s}</option>)}
+                                  {customs.map(s=><option key={s}>{s}</option>)}
+                                  <option value="New">＋ New supplier…</option>
+                                </select>
+                              );
+                            })()
                           )}
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
