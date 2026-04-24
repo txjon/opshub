@@ -218,9 +218,13 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
         }
         const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
 
-        // Get portal URL — user-facing, use branded domain
-        const { data: jobFull } = await supabase.from("jobs").select("portal_token, job_number").eq("id", job.id).single();
-        const portalUrl = jobFull?.portal_token ? `${appBaseUrl()}/portal/${jobFull.portal_token}` : "";
+        // Get portal URL — Client Hub when the client is flagged, else
+        // legacy per-job portal.
+        const { data: jobFull } = await supabase.from("jobs").select("id, portal_token, job_number, clients(portal_token, client_hub_enabled)").eq("id", job.id).single();
+        const jobClient = (jobFull as any)?.clients;
+        const portalUrl = jobClient?.client_hub_enabled && jobClient?.portal_token
+          ? `${appBaseUrl()}/portal/client/${jobClient.portal_token}/orders/${(jobFull as any).id}`
+          : (jobFull?.portal_token ? `${appBaseUrl()}/portal/${jobFull.portal_token}` : "");
         const portalButton = portalUrl ? `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#f3f3f5;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px;border:1px solid #dcdce0">View in Portal</a></p>` : "";
         const invoiceNum = (job.type_meta as any)?.qb_invoice_number || jobFull?.job_number || "";
 
