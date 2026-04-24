@@ -14,6 +14,7 @@ import { useClientPortal } from "./context";
 const TABS = [
   { label: "Overview", path: "" },
   { label: "Designs", path: "/designs" },
+  { label: "Items", path: "/items" },
   { label: "Orders", path: "/orders" },
   { label: "Staging", path: "/staging" },
 ];
