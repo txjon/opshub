@@ -47,6 +47,9 @@ export async function POST(_req: NextRequest, { params }: { params: { token: str
       item.garment_type ? `Garment: ${item.garment_type}${item.mockup_color ? ` · ${item.mockup_color}` : ""}` : null,
     ].filter(Boolean).join("\n");
 
+    // Link the new brief back to the original item via item_id so HPD can
+    // see "re-order of X" in context. design_id lives on items, not on
+    // art_briefs — the item_id hop preserves that relationship.
     const { data: brief, error } = await db
       .from("art_briefs")
       .insert({
@@ -55,7 +58,7 @@ export async function POST(_req: NextRequest, { params }: { params: { token: str
         concept,
         state: "draft",
         source: "client",
-        design_id: item.design_id || null,
+        item_id: item.id,
       })
       .select("id")
       .single();
