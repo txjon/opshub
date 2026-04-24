@@ -538,13 +538,27 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           </div>
         </div>
         {/* KPI strip — compact */}
+        {/* When the job has been intentionally priced (costing saved OR
+            any item.sell_per_unit set) trust totalRev even if it's 0 —
+            don't fake a "~1.43× cost" estimate. The estimate is only for
+            jobs that haven't been priced yet (no costing_summary, all
+            sell_per_unit null). */}
+        {(() => { const displayRev = totalRev; return null; })()}
         <div style={{display:"flex",gap:6,marginTop:8}}>
-          {[
-            {label:"Revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():totalCost>0?"$"+Math.round(totalCost*1.43).toLocaleString():"—",color:T.text},
-            {label:"Cost",value:totalCost>0?"$"+Math.round(totalCost).toLocaleString():"—"},
-            {label:"Profit",value:totalCost>0?"$"+Math.round((totalRev||totalCost*1.43)-totalCost).toLocaleString():"—",color:T.green},
-            {label:"Margin",value:totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100).toFixed(1)+"%":"—",color:(()=>{const m=totalCost>0?(((totalRev||totalCost*1.43)-totalCost)/(totalRev||totalCost*1.43)*100):0;return m>=30?T.green:m>=20?T.amber:T.red;})()},
-          ].map(s=>(
+          {(() => {
+            const pricingKnown = !!cs || items.some((it:any) => it.sell_per_unit != null);
+            const estRev = !pricingKnown && totalCost > 0 ? totalCost * 1.43 : null;
+            const effRev = totalRev > 0 ? totalRev : (estRev ?? totalRev);
+            const showRev = totalRev > 0 || pricingKnown || estRev != null;
+            const profit = totalCost > 0 ? effRev - totalCost : 0;
+            const marginPct = effRev > 0 ? (profit / effRev * 100) : 0;
+            return [
+              { label: "Revenue", value: showRev ? "$" + Math.round(effRev).toLocaleString() : "—", color: T.text },
+              { label: "Cost", value: totalCost > 0 ? "$" + Math.round(totalCost).toLocaleString() : "—" },
+              { label: "Profit", value: totalCost > 0 ? "$" + Math.round(profit).toLocaleString() : "—", color: profit >= 0 ? T.green : T.red },
+              { label: "Margin", value: totalCost > 0 && effRev > 0 ? marginPct.toFixed(1) + "%" : "—", color: marginPct >= 30 ? T.green : marginPct >= 20 ? T.amber : T.red },
+            ];
+          })().map(s=>(
             <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 12px",flex:1}}>
               <div style={{fontSize:9,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em"}}>{s.label}</div>
               <div style={{fontSize:14,fontWeight:700,color:(s as any).color||T.text,fontFamily:mono}}>{s.value}</div>

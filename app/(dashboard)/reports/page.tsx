@@ -54,7 +54,7 @@ export default function ReportsPage() {
         setLoading(false);
       });
     supabase.from("shipstation_reports")
-      .select("id, client_id, period_label, created_at, totals, clients(name)")
+      .select("id, client_id, report_type, period_label, created_at, totals, clients(name)")
       .order("created_at", { ascending: false })
       .limit(25)
       .then(({ data }) => setShipReports((data || []) as any));
@@ -297,30 +297,41 @@ export default function ReportsPage() {
       {/* ShipStation reports */}
       {shipReports.length > 0 && (
         <div style={card}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>ShipStation Sales Reports</div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>ShipStation Reports</div>
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: isMobile ? 600 : "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: isMobile ? 680 : "auto" }}>
               <thead>
                 <tr>
-                  {["Client", "Period", "Generated", "Qty", "Sales", "Net Profit", ""].map(h => (
-                    <th key={h} style={{ ...thStyle, textAlign: ["Client", "Period"].includes(h) ? "left" : "right" }}>{h}</th>
+                  {["Type", "Client", "Period", "Generated", "Volume", "Revenue", "Result", ""].map(h => (
+                    <th key={h} style={{ ...thStyle, textAlign: ["Type", "Client", "Period"].includes(h) ? "left" : "right" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {shipReports.map(r => (
-                  <tr key={r.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>{r.clients?.name || "—"}</td>
-                    <td style={tdStyle}>{r.period_label}</td>
-                    <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono }}>{(r.totals?.qty || 0).toLocaleString()}</td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono, color: T.accent }}>{fmtD(r.totals?.sales || 0)}</td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono, color: T.green }}>{fmtD(r.totals?.profit || 0)}</td>
-                    <td style={{ ...tdStyle, textAlign: "right" }}>
-                      <Link href={`/reports/shipstation/${r.id}`} style={{ color: T.accent, fontSize: 11, textDecoration: "none" }}>Open →</Link>
-                    </td>
-                  </tr>
-                ))}
+                {shipReports.map((r: any) => {
+                  const isPostage = r.report_type === "postage";
+                  const totals = r.totals || {};
+                  const volume = isPostage
+                    ? `${(totals.shipments || 0).toLocaleString()} ship`
+                    : (totals.qty || 0).toLocaleString();
+                  const revenue = isPostage ? (totals.paid || 0) : (totals.sales || 0);
+                  const result = isPostage ? (totals.margin || 0) : (totals.profit || 0);
+                  const resultColor = isPostage && result < 0 ? T.red : T.green;
+                  return (
+                    <tr key={r.id}>
+                      <td style={{ ...tdStyle, textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 10, color: isPostage ? T.amber : T.accent, fontWeight: 700 }}>{isPostage ? "Postage" : "Sales"}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600 }}>{r.clients?.name || "—"}</td>
+                      <td style={tdStyle}>{r.period_label}</td>
+                      <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
+                      <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono }}>{volume}</td>
+                      <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono, color: T.accent }}>{fmtD(revenue)}</td>
+                      <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono, color: resultColor }}>{fmtD(result)}</td>
+                      <td style={{ ...tdStyle, textAlign: "right" }}>
+                        <Link href={`/reports/shipstation/${r.id}`} style={{ color: T.accent, fontSize: 11, textDecoration: "none" }}>Open →</Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

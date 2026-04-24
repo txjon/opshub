@@ -177,30 +177,55 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       .filter((j: any) => j.target_ship_date)
       .sort((a: any, b: any) => (a.target_ship_date || "").localeCompare(b.target_ship_date || ""))[0];
 
-    const jobIds = activeJobs.map((j: any) => j.id);
+    // Unpaid count must match what the Orders tab marks as "Unpaid" —
+    // i.e., has an invoice (payment_records row issued OR qb_invoice_number
+    // set in type_meta) AND balance > 0 after applied payments. Earlier
+    // version only checked payment_records statuses, missing jobs that
+    // have a QB invoice pushed but no OpsHub payment row yet.
+    // Scope: every non-cancelled job for the client (not just active) so a
+    // completed-but-unpaid job still shows up as owed.
+    const { data: scopeJobs } = await db
+      .from("jobs")
+      .select("id, type_meta, costing_summary")
+      .eq("client_id", client.id)
+      .not("phase", "in", "(cancelled)");
+    const scopeJobIds = (scopeJobs || []).map((j: any) => j.id);
+
     let unpaidCount = 0;
-    if (jobIds.length > 0) {
+    if (scopeJobIds.length > 0) {
       const { data: pays } = await db
         .from("payment_records")
-        .select("job_id, status")
-        .in("job_id", jobIds);
-      const unpaidByJob = new Set(
-        (pays || [])
-          .filter((p: any) => p.status && !["paid", "void"].includes(p.status))
-          .map((p: any) => p.job_id)
-      );
-      unpaidCount = unpaidByJob.size;
+        .select("job_id, status, amount")
+        .in("job_id", scopeJobIds);
+      const paysByJob = new Map<string, any[]>();
+      for (const p of pays || []) {
+        const arr = paysByJob.get(p.job_id) || [];
+        arr.push(p);
+        paysByJob.set(p.job_id, arr);
+      }
+      for (const j of scopeJobs || []) {
+        const typeMeta = (j.type_meta || {}) as any;
+        const costingSummary = (j.costing_summary || {}) as any;
+        const jobPays = paysByJob.get(j.id) || [];
+        const hasIssued = jobPays.some((p: any) => p.status && !["draft", "void"].includes(p.status));
+        const typeMetaHasQB = !!typeMeta.qb_invoice_number;
+        const isInvoiced = hasIssued || typeMetaHasQB;
+        if (!isInvoiced) continue;
+        // Total — prefer QB total_with_tax, fall back to costing grossRev.
+        const total = Number(typeMeta.qb_total_with_tax) || Number(costingSummary.grossRev) || 0;
+        const paidAmount = jobPays.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+        const balance = total - paidAmount;
+        if (balance > 0.01) unpaidCount++;
+      }
     }
 
-    // Also fold in ShipStation fulfillment invoices the client owes money
-    // on. Reports with qb_invoice_id are surfaced as invoices in the portal;
-    // the QB webhook (/api/qb/webhook2) flips paid_at when the client
-    // pays via the Pay Online link — paid ones drop off this count.
+    // Fold in ShipStation fulfillment invoices — same rule as Orders tab:
+    // has any invoice number (pushed or manually entered) AND not yet paid.
     const { data: shipReports } = await db
       .from("shipstation_reports")
       .select("id, paid_at")
       .eq("client_id", client.id)
-      .not("qb_invoice_id", "is", null);
+      .not("qb_invoice_number", "is", null);
     unpaidCount += (shipReports || []).filter((r: any) => !r.paid_at).length;
 
     return NextResponse.json({

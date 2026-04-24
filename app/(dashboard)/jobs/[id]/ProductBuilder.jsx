@@ -132,7 +132,20 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         if (item.blank_sku) dbUpdates.blank_sku = item.blank_sku;
         dbUpdates.sort_order = current.indexOf(item);
         await supabase.from("items").update(dbUpdates).eq("id", item.id);
-        if (JSON.stringify(item.qtys) !== JSON.stringify(prev?.qtys)) {
+        if (JSON.stringify(item.qtys) !== JSON.stringify(prev?.qtys) || JSON.stringify(item.sizes) !== JSON.stringify(prev?.sizes)) {
+          // Prune stale sizes — when a one-size item gets reassigned to
+          // per-size (or vice versa), the old rows would otherwise hang
+          // around in buy_sheet_lines and double-count into the item
+          // total. Delete rows whose size no longer appears on the item,
+          // then upsert the current set. We use targeted deletes (not
+          // "delete all + reinsert") so ship / receive counters on
+          // already-tracked sizes aren't wiped.
+          const currentSizes = new Set(Object.keys(item.qtys || {}));
+          const { data: existing } = await supabase.from("buy_sheet_lines").select("size").eq("item_id", item.id);
+          const staleSizes = (existing || []).map(r => r.size).filter(s => !currentSizes.has(s));
+          if (staleSizes.length > 0) {
+            await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id).in("size", staleSizes);
+          }
           for (const [size, qty] of Object.entries(item.qtys || {})) {
             await supabase.from("buy_sheet_lines").upsert({ item_id: item.id, size, qty_ordered: qty }, { onConflict: "item_id,size" });
           }
@@ -256,6 +269,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [showAddType, setShowAddType] = useState(null);
   const [assignBlankTo, setAssignBlankTo] = useState(null);
   const [moveItemTarget, setMoveItemTarget] = useState(null); // { id, name } — opens MoveItemDialog
+  const [copyItemTarget, setCopyItemTarget] = useState(null); // { id, name } — opens MoveItemDialog in copy mode
   const [favorites, setFavorites] = useState([]);
   const [fileSummary, setFileSummary] = useState({}); // { itemId: { printReady: bool, fileCount: number, hasProof: bool } }
   const [mockupMap, setMockupMap] = useState({}); // { itemId: drive_file_id } — preloaded so thumbnail renders instantly on switch
@@ -801,13 +815,62 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               <span style={{ width: 22, height: 22, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
                 {String.fromCharCode(65 + idx)}
               </span>
-              <div style={{ flex: 1, minWidth: 0 }} onDoubleClick={e => { e.stopPropagation(); const input = e.currentTarget.querySelector("input"); if (input) { input.style.display = "block"; input.focus(); } }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{item.name || "Untitled"}</span>
-                <input value={item.name || ""} onChange={e => { e.stopPropagation(); onUpdateItem(item.id, { name: e.target.value }); }}
-                  onClick={e => e.stopPropagation()} onFocus={e => e.target.select()}
-                  onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
-                  onBlur={e => { e.target.style.display = "none"; }}
-                  style={{ display: "none", fontSize: 13, fontWeight: 600, color: T.text, background: T.surface, border: `1px solid ${T.accent}`, outline: "none", width: "100%", padding: "2px 6px", borderRadius: 4, marginTop: 2 }} />
+              <style dangerouslySetInnerHTML={{ __html: `
+                .pb-name-wrap:hover .pb-rename-btn { opacity: 1 !important; }
+                .pb-rename-btn:hover { color: ${T.accent} !important; background: ${T.accentDim} !important; }
+              ` }} />
+              <div
+                className="pb-name-wrap"
+                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name || "Untitled"}</span>
+                {/* Hover-only rename button. Clicking it swaps the text
+                    for an input (visibility toggled via a sibling data
+                    attribute) without bubbling the click to the row —
+                    so the row doesn't expand/collapse on rename. */}
+                <button
+                  type="button"
+                  className="pb-rename-btn"
+                  title="Rename item"
+                  onClick={e => {
+                    e.stopPropagation();
+                    const wrap = e.currentTarget.parentElement;
+                    if (!wrap) return;
+                    const span = wrap.querySelector("span");
+                    const input = wrap.querySelector("input");
+                    if (span) span.style.display = "none";
+                    if (input) { input.style.display = "block"; input.focus(); input.select(); }
+                  }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: T.faint, padding: "2px 4px", fontSize: 12, lineHeight: 1, borderRadius: 4, opacity: 0, transition: "opacity 0.12s" }}
+                >
+                  ✎
+                </button>
+                <input
+                  value={item.name || ""}
+                  onChange={e => {
+                    e.stopPropagation();
+                    const next = e.target.value;
+                    // Route through updateLocal so ProductBuilder's autosave
+                    // picks up the name change. Calling onUpdateItem alone
+                    // only mutates parent page state, which resets
+                    // savedSnapshot and skips the DB write.
+                    updateLocal((workingItems || []).map(it => it.id === item.id ? { ...it, name: next } : it));
+                    if (onUpdateItem) onUpdateItem(item.id, { name: next });
+                  }}
+                  onClick={e => e.stopPropagation()}
+                  onFocus={e => e.target.select()}
+                  onKeyDown={e => {
+                    e.stopPropagation();
+                    if (e.key === "Enter" || e.key === "Escape") e.target.blur();
+                  }}
+                  onBlur={e => {
+                    e.target.style.display = "none";
+                    const wrap = e.target.parentElement;
+                    const span = wrap?.querySelector("span");
+                    if (span) span.style.display = "";
+                  }}
+                  style={{ display: "none", flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: T.text, background: T.surface, border: `1px solid ${T.accent}`, outline: "none", padding: "2px 6px", borderRadius: 4 }}
+                />
               </div>
               {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}</span>}
               {!hasBlank && item.garment_type !== "accessory" && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
@@ -830,6 +893,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 handleDist={handleDist} removeItem={removeItem} setAssignBlankTo={setAssignBlankTo}
                 setShowAddModal={setShowAddModal} onItemsChanged={onItemsChanged}
                 requestMove={(it) => setMoveItemTarget({ id: it.id, name: it.name || "" })}
+                requestCopy={(it) => setCopyItemTarget({ id: it.id, name: it.name || "" })}
                 onUpdateItem={(id, updates) => { updateLocal(workingItems.map(it => it.id === id ? {...it, ...updates} : it)); onUpdateItem(id, updates); }}
                 onFilesChanged={refreshFileSummary}
                 preloadedMockupId={mockupMap[item.id] || null}
@@ -881,6 +945,23 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           }}
         />
       )}
+
+      {copyItemTarget && (
+        <MoveItemDialog
+          mode="copy"
+          itemId={copyItemTarget.id}
+          itemName={copyItemTarget.name}
+          open={true}
+          onClose={() => setCopyItemTarget(null)}
+          onMoved={(result) => {
+            // Source item stays put — nothing to remove from local state.
+            // Just navigate to the destination so user sees the copy.
+            if (result?.to?.id && typeof window !== "undefined") {
+              window.location.href = `/jobs/${result.to.id}`;
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -888,7 +969,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 // ═══════════════════════════════════════════════════════════════
 // Expanded item body — manages its own file state per item
 // ═══════════════════════════════════════════════════════════════
-function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked, requestMove }) {
+function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked, requestMove, requestCopy }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -1118,6 +1199,14 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
       {/* Move + Delete — bottom right corner. Move only shown for saved
           items (real UUID, not an in-session temp id). */}
       <div style={{ position: "absolute", bottom: 14, right: 16, display: "flex", gap: 14, alignItems: "center" }}>
+        {typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && requestCopy && (
+          <button onClick={e => { e.stopPropagation(); requestCopy(item); }}
+            title="Copy this item into another job (same client). The original stays."
+            style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer" }}
+            onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.faint}>
+            Copy to another job
+          </button>
+        )}
         {typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && requestMove && (
           <button onClick={e => { e.stopPropagation(); requestMove(item); }}
             title="Move this item to another job for the same client"

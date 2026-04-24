@@ -13,18 +13,21 @@ type Job = {
   items?: { id: string; pipeline_stage: string|null }[];
 };
 
-const PHASE_COLORS: Record<string,{bg:string,text:string,label:string}> = {
-  intake:        { bg:T.accentDim, text:T.accent, label:"Intake" },
-  pending:       { bg:T.amberDim, text:"#a07008", label:"Pending" },
-  ready:         { bg:T.amberDim, text:"#a07008", label:"Ready" },
-  pre_production:{ bg:T.blueDim, text:"#3a8a9e", label:"Pre-Production" },
-  production:    { bg:T.blueDim, text:"#3a8a9e", label:"Production" },
-  receiving:     { bg:T.blueDim, text:"#3a8a9e", label:"Receiving" },
-  shipping:      { bg:T.blueDim, text:"#3a8a9e", label:"Shipping" },
-  fulfillment:   { bg:T.purpleDim, text:"#c4207a", label:"Fulfillment" },
-  complete:      { bg:T.greenDim, text:"#2a9e5c", label:"Complete" },
-  on_hold:       { bg:T.redDim, text:T.red, label:"On Hold" },
-  cancelled:     { bg:T.accentDim, text:T.muted, label:"Cancelled" },
+// Phase labels only — no background colors. List rows use plain
+// uppercase text for the label and leave color for actual signal
+// (overdue ship dates, Hot/Rush priority).
+const PHASE_LABELS: Record<string, string> = {
+  intake: "Intake",
+  pending: "Pending",
+  ready: "Ready",
+  pre_production: "Pre-Production",
+  production: "Production",
+  receiving: "Receiving",
+  shipping: "Shipping",
+  fulfillment: "Fulfillment",
+  complete: "Complete",
+  on_hold: "On Hold",
+  cancelled: "Cancelled",
 };
 
 function getItemProgress(job: any): string {
@@ -75,17 +78,6 @@ export default function JobsPage() {
   };
 
   const getInHandsDate = (job: Job) => job.target_ship_date || job.type_meta?.in_hands_date || job.type_meta?.show_date || null;
-
-  const getFlags = (job: Job) => {
-    const flags: { label: string; color: string }[] = [];
-    const ih = getInHandsDate(job);
-    if (ih && new Date(ih) < now && !["complete","cancelled"].includes(job.phase)) {
-      flags.push({ label: "Overdue", color: T.red });
-    }
-    if (job.priority === "hot") flags.push({ label: "Hot", color: T.red });
-    if (job.priority === "rush") flags.push({ label: "Rush", color: T.amber });
-    return flags;
-  };
 
   const phaseCounts = useMemo(() => ({
     intake: jobs.filter(j => j.phase === "intake").length,
@@ -229,72 +221,56 @@ export default function JobsPage() {
           </div>
         )}
         {sorted.map(job => {
-          const phase = PHASE_COLORS[job.phase] || PHASE_COLORS.intake;
-          const flags = getFlags(job);
-          const pct = getJobPct(job);
+          const phaseLabel = PHASE_LABELS[job.phase] || "—";
           const ih = getInHandsDate(job);
           const daysLeft = ih ? Math.ceil((new Date(ih).getTime() - now.getTime()) / (1000*60*60*24)) : null;
-          const itemCount = job.items?.length || 0;
-
-          const priorityStyle: Record<string,{bg:string,text:string,label:string}> = {
-            hot:    { bg:T.purpleDim, text:"#c4207a", label:"Hot" },
-            rush:   { bg:T.amberDim, text:"#a07008", label:"Rush" },
-            normal: { bg:T.accentDim, text:T.accent, label:"Normal" },
-          };
-          const pri = priorityStyle[job.priority] || priorityStyle.normal;
-          const borderColor = job.priority==="hot" ? T.red+"44" : job.priority==="rush" ? T.amber+"44" : daysLeft!==null&&daysLeft<0 ? T.red+"44" : T.border;
           const totalUnits = (job.items||[]).reduce((a:number,it:any) =>
             a + (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0), 0);
-          const totalRevenue = effectiveRevenue(job as any) ||
-            (job.items||[]).reduce((a:number,it:any) => {
-              const qty = (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0);
-              return a + (it.sell_per_unit||0) * qty;
-            }, 0);
 
           const invNum = job.type_meta?.qb_invoice_number;
           const progress = getItemProgress(job);
 
           const paid = (job as any).payment_records?.some((p:any) => p.status === "paid");
-          const statusChip = paid
-            ? { label:"Paid", bg:T.greenDim, color:"#2a9e5c" }
-            : invNum
-            ? { label:"Invoice Sent", bg:T.blueDim, color:"#3a8a9e" }
-            : (job as any).quote_approved
-            ? { label:"Quote Approved", bg:T.greenDim, color:"#2a9e5c" }
+          // Plain uppercase labels, only color for real signal (green when paid).
+          const status: { label: string; green: boolean } | null = paid
+            ? { label: "Paid", green: true }
+            : invNum ? { label: "Invoice Sent", green: false }
+            : (job as any).quote_approved ? { label: "Quote Approved", green: false }
             : null;
+
+          // Priority only shown for non-normal. Red for hot, amber for rush.
+          const pri: { label: string; color: string } | null =
+            job.priority === "hot" ? { label: "HOT", color: T.red } :
+            job.priority === "rush" ? { label: "RUSH", color: T.amber } : null;
+
+          const dateColor = daysLeft === null ? T.muted : daysLeft < 0 ? T.red : daysLeft <= 3 ? T.amber : T.muted;
 
           if (isMobile) {
             return (
               <div key={job.id} onClick={() => router.push(`/jobs/${job.id}`)}
-                style={{ background:T.card, border:`1px solid ${borderColor}`, borderRadius:10, cursor:"pointer", padding:"10px 12px", display:"flex", flexDirection:"column", gap:6 }}>
-                {/* Row 1: Client + priority pill */}
-                <div style={{ display:"flex", alignItems:"flex-start", gap:8, justifyContent:"space-between" }}>
+                style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, cursor:"pointer", padding:"10px 12px", display:"flex", flexDirection:"column", gap:6 }}>
+                <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
                   <div style={{ fontSize:14, fontWeight:700, color:T.text, wordBreak:"break-word", lineHeight:1.25, flex:1, minWidth:0 }}>
                     {job.clients?.name||"No client"}
                   </div>
-                  {job.priority !== "normal" && (
-                    <span style={{ padding:"2px 8px", borderRadius:99, fontSize:10, fontWeight:700, background:pri.bg, color:pri.text, whiteSpace:"nowrap", flexShrink:0 }}>{pri.label}</span>
-                  )}
+                  {pri && <span style={{ fontSize:10, fontWeight:700, color:pri.color, letterSpacing:"0.08em", whiteSpace:"nowrap" }}>{pri.label}</span>}
                 </div>
-                {/* Row 2: Title · Job # */}
                 <div style={{ fontSize:12, color:T.faint, wordBreak:"break-word", lineHeight:1.35 }}>
                   {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{invNum || job.job_number}</span>
                 </div>
-                {/* Row 3: phase + progress + units + status */}
-                <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginTop:2 }}>
-                  <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:99, background:phase.bg, color:phase.text, whiteSpace:"nowrap" }}>{phase.label}</span>
-                  {progress && <span style={{ fontSize:10, color:T.muted, fontFamily:mono, whiteSpace:"nowrap" }}>{progress}</span>}
-                  {totalUnits > 0 && <span style={{ fontSize:10, color:T.muted, fontFamily:mono, whiteSpace:"nowrap" }}>{totalUnits.toLocaleString()} units</span>}
-                  {statusChip && (
-                    <span style={{ fontSize:9, fontWeight:600, padding:"2px 7px", borderRadius:99, background:statusChip.bg, color:statusChip.color, whiteSpace:"nowrap" }}>
-                      {statusChip.label}
+                <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginTop:2, fontSize:11 }}>
+                  <span style={{ color:T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em" }}>{phaseLabel}</span>
+                  {progress && <span style={{ color:T.faint, fontFamily:mono }}>{progress}</span>}
+                  {totalUnits > 0 && <span style={{ color:T.muted, fontFamily:mono }}>{totalUnits.toLocaleString()} units</span>}
+                  {status && (
+                    <span style={{ color:status.green ? T.green : T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", fontSize:10 }}>
+                      {status.label}
                     </span>
                   )}
                 </div>
-                {/* Row 4: ship date */}
                 {daysLeft !== null && (
                   <div style={{ display:"flex", alignItems:"baseline", gap:6, fontFamily:mono }}>
-                    <span style={{ fontSize:12, fontWeight:700, color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.muted }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:dateColor }}>
                       {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Ships today":daysLeft+"d to ship"}
                     </span>
                     <span style={{ fontSize:10, color:T.faint }}>
@@ -308,51 +284,54 @@ export default function JobsPage() {
 
           return (
             <div key={job.id} onClick={() => router.push(`/jobs/${job.id}`)}
-              style={{ background:T.card, border:`1px solid ${borderColor}`, borderRadius:10, cursor:"pointer", transition:"background 0.1s", display:"flex", alignItems:"center", gap:14, padding:"10px 14px", height:56 }}
+              style={{
+                background:T.card, border:`1px solid ${T.border}`, borderRadius:10,
+                cursor:"pointer", transition:"background 0.1s",
+                display:"grid", gridTemplateColumns:"52px 1fr 130px 130px 200px 90px",
+                alignItems:"center", gap:14, padding:"12px 18px", minHeight:56,
+              }}
               onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = T.surface}
               onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = T.card}>
 
-              {/* Priority indicator */}
-              {job.priority !== "normal" ? (
-                <span style={{ padding:"2px 8px", borderRadius:99, fontSize:10, fontWeight:700, background:pri.bg, color:pri.text, whiteSpace:"nowrap", flexShrink:0 }}>{pri.label}</span>
-              ) : (
-                <span style={{ width:36, flexShrink:0 }}/>
-              )}
+              {/* Priority — only rendered when non-normal, otherwise empty column */}
+              <span style={{ fontSize:10, fontWeight:800, color:pri?.color || "transparent", letterSpacing:"0.1em", whiteSpace:"nowrap" }}>
+                {pri?.label || ""}
+              </span>
 
-              {/* Client + memo */}
-              <div style={{ width:360, flexShrink:0 }}>
-                <div style={{ fontSize:13, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+              {/* Client + title */}
+              <div style={{ minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
                   {job.clients?.name||"No client"}
                 </div>
                 <div style={{ fontSize:12, color:T.faint, marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                  {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{invNum || job.job_number}</span>{invNum && <span style={{ color:T.faint, marginLeft:4, fontSize:10 }}>{job.job_number}</span>}
+                  {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{invNum || job.job_number}</span>{invNum && <span style={{ color:T.faint, marginLeft:6, fontSize:10 }}>{job.job_number}</span>}
                 </div>
               </div>
 
-              {/* Status — show the single most relevant state */}
-              <div style={{ display:"flex", gap:4, alignItems:"center", flex:1 }}>
-                {statusChip && <span style={{ fontSize:9, fontWeight:600, padding:"3px 8px", borderRadius:99, background:statusChip.bg, color:statusChip.color, whiteSpace:"nowrap" }}>{statusChip.label}</span>}
+              {/* Status */}
+              <div style={{ fontSize:10, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", color: status?.green ? T.green : T.muted, whiteSpace:"nowrap" }}>
+                {status?.label || ""}
               </div>
 
               {/* Units */}
-              <span style={{ fontSize:13, fontWeight:600, color:T.text, fontFamily:mono }}>{totalUnits>0?totalUnits.toLocaleString():"—"} <span style={{ fontSize:11, fontWeight:400, color:T.muted }}>units</span></span>
+              <div style={{ fontSize:13, fontWeight:600, color:T.text, fontFamily:mono, whiteSpace:"nowrap" }}>
+                {totalUnits>0?totalUnits.toLocaleString():"—"} <span style={{ fontSize:11, fontWeight:400, color:T.muted }}>units</span>
+              </div>
 
-              {/* Phase */}
-              <div style={{ width:280, flexShrink:0 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:99, background:phase.bg, color:phase.text, whiteSpace:"nowrap" }}>{phase.label}</span>
-                  {progress && <span style={{ fontSize:10, color:T.muted, fontFamily:mono, whiteSpace:"nowrap" }}>{progress}</span>}
-                </div>
+              {/* Phase + progress */}
+              <div style={{ display:"flex", flexDirection:"column", gap:2, minWidth:0 }}>
+                <span style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.08em", whiteSpace:"nowrap" }}>{phaseLabel}</span>
+                {progress && <span style={{ fontSize:10, color:T.faint, fontFamily:mono, whiteSpace:"nowrap" }}>{progress}</span>}
               </div>
 
               {/* Ship date */}
-              <div style={{ textAlign:"right", minWidth:56, flexShrink:0 }}>
+              <div style={{ textAlign:"right", minWidth:0 }}>
                 {daysLeft !== null ? (
                   <>
-                    <div style={{ fontSize:13, fontWeight:700, color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.muted, fontFamily:mono }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:dateColor, fontFamily:mono, whiteSpace:"nowrap" }}>
                       {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Today":daysLeft+"d"}
                     </div>
-                    <div style={{ fontSize:10, color:T.faint }}>
+                    <div style={{ fontSize:10, color:T.faint, whiteSpace:"nowrap" }}>
                       {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
                     </div>
                   </>
