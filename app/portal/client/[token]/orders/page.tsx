@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
 import { clientPhaseFor } from "../_shared/state-labels";
@@ -149,8 +149,16 @@ function FilterPill({ active, onClick, children }: { active: boolean; onClick: (
 function OrderRow({ order, expanded, onToggle, token }: {
   order: Order; expanded: boolean; onToggle: () => void; token: string;
 }) {
+  const router = useRouter();
   const phase = clientPhaseFor(order.phase);
   const payPill = paymentPillFor(order.payment_status, order.has_invoice);
+  // Project orders navigate to the per-order detail page (full old-portal
+  // experience inside Client Hub). Fulfillment invoices keep expanding
+  // inline since they have no deep detail surface — just summary + PDF.
+  const navigatesToDetail = order.kind !== "fulfillment";
+  const handleRowClick = navigatesToDetail
+    ? () => router.push(`/portal/client/${token}/orders/${order.id}`)
+    : onToggle;
 
   return (
     <div style={{
@@ -161,7 +169,7 @@ function OrderRow({ order, expanded, onToggle, token }: {
     }}>
       {/* Row header — clickable to expand. On desktop: 3-col. On mobile:
           title row (with chevron), then pills + total wrap below. */}
-      <button onClick={onToggle}
+      <button onClick={handleRowClick}
         className="order-row-header"
         style={{
           width: "100%", background: "transparent", border: "none",
@@ -240,7 +248,7 @@ function OrderRow({ order, expanded, onToggle, token }: {
           <div style={{ fontSize: 13, fontWeight: 700, color: C.text, fontFamily: C.mono }}>
             ${order.total.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
           </div>
-          <div style={{ fontSize: 14, color: C.muted, transform: expanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>
+          <div style={{ fontSize: 14, color: C.muted, transform: (navigatesToDetail ? false : expanded) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>
             ›
           </div>
         </div>

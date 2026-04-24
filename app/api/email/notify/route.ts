@@ -35,7 +35,7 @@ import { appBaseUrl } from "@/lib/public-url";
 const FROM_ADDR = () => process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
 
 async function loadJobAndClientEmail(sb: any, jobId: string) {
-  const { data: job } = await sb.from("jobs").select("*, clients(name)").eq("id", jobId).single();
+  const { data: job } = await sb.from("jobs").select("*, clients(name, portal_token, client_hub_enabled)").eq("id", jobId).single();
   if (!job) return { job: null, clientEmail: null, clientName: "" };
   const { data: contacts } = await sb
     .from("job_contacts")
@@ -98,7 +98,12 @@ export async function POST(req: NextRequest) {
 
       const invoiceNum = typeMeta.qb_invoice_number || (job as any).job_number || "";
       const portalToken = (job as any).portal_token;
-      const portalUrl = portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null;
+      const hubClient = (job as any).clients;
+      // Client Hub URL when the client is flagged in; legacy per-job
+      // portal URL otherwise.
+      const portalUrl = hubClient?.client_hub_enabled && hubClient?.portal_token
+        ? `${appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
+        : (portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null);
       const projectTitle = (job as any).title || "your order";
 
       let subject = "";
@@ -189,7 +194,12 @@ export async function POST(req: NextRequest) {
 
       const invoiceNum = typeMeta.qb_invoice_number || (job as any).job_number || "";
       const portalToken = (job as any).portal_token;
-      const portalUrl = portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null;
+      const hubClient = (job as any).clients;
+      // Client Hub URL when the client is flagged in; legacy per-job
+      // portal URL otherwise.
+      const portalUrl = hubClient?.client_hub_enabled && hubClient?.portal_token
+        ? `${appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
+        : (portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null);
       const projectTitle = (job as any).title || "your order";
 
       const html = renderBrandedEmail({
@@ -243,7 +253,12 @@ export async function POST(req: NextRequest) {
       const invoiceNum = typeMeta.qb_invoice_number || (job as any).job_number || "";
       const qbPaymentLink = typeMeta.qb_payment_link || "";
       const portalToken = (job as any).portal_token;
-      const portalUrl = portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null;
+      const hubClient = (job as any).clients;
+      // Client Hub URL when the client is flagged in; legacy per-job
+      // portal URL otherwise.
+      const portalUrl = hubClient?.client_hub_enabled && hubClient?.portal_token
+        ? `${appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
+        : (portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null);
       const projectTitle = (job as any).title || "";
 
       const html = renderBrandedEmail({

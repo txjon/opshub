@@ -157,18 +157,30 @@ export async function sendClientNotification(params: NotifyParams) {
 
 /**
  * Get the portal URL for a job. Used by email routes to append portal link.
+ *
+ * Clients with `clients.client_hub_enabled = true` get the Client Hub
+ * per-order URL (the new tabbed hub with fulfillment, staging, designs,
+ * etc.); everyone else keeps the legacy /portal/{job_token} link. When
+ * you flip a client to Client Hub, their subsequent emails route there
+ * automatically — no per-email config needed.
  */
 export async function getPortalUrl(jobId: string): Promise<string | null> {
   try {
     const sb = admin();
     const { data: job } = await sb
       .from("jobs")
-      .select("portal_token")
+      .select("id, portal_token, client_id, clients(portal_token, client_hub_enabled)")
       .eq("id", jobId)
       .single();
-    if (!job?.portal_token) return null;
+    if (!job) return null;
 
+    const client = (job as any).clients;
     const baseUrl = appBaseUrl();
+
+    if (client?.client_hub_enabled && client?.portal_token) {
+      return `${baseUrl}/portal/client/${client.portal_token}/orders/${job.id}`;
+    }
+    if (!job.portal_token) return null;
     return `${baseUrl}/portal/${job.portal_token}`;
   } catch {
     return null;
