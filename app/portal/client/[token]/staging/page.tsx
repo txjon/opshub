@@ -205,14 +205,8 @@ export default function StagingPage() {
         )}
       </div>
 
-      {/* Two-column layout: pool (left) + releases (right). Stacks on mobile. */}
-      <div className="staging-layout" style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr" }}>
-        <style>{`
-          @media (min-width: 900px) {
-            .staging-layout { grid-template-columns: 340px 1fr !important; }
-          }
-        `}</style>
-
+      {/* Pool on top (full-width visual grid) + releases stacked below. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {/* Pool */}
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
@@ -223,35 +217,33 @@ export default function StagingPage() {
               All items are in a release.
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <ItemGrid>
               {pool.map(it => (
-                <ItemChip key={it.id} item={it}
+                <ItemCard key={it.id} item={it}
                   onAssign={releases.length > 0 ? () => setAssigning(it) : undefined}
-                  assignDisabledReason={releases.length === 0 ? "Create a release first" : undefined}
+                  assignDisabled={releases.length === 0}
                 />
               ))}
-            </div>
+            </ItemGrid>
           )}
         </div>
 
         {/* Releases */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {releases.length === 0 ? (
-            <div style={{ background: C.card, border: `1px dashed ${C.border}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.muted, fontSize: 13 }}>
-              No releases yet. Create one above to start planning.
-            </div>
-          ) : (
-            releases.map(r => (
-              <ReleaseColumn key={r.id} release={r}
-                items={r.item_ids.map(id => itemById[id]).filter(Boolean)}
-                onRename={() => renameRelease(r)}
-                onSetDate={() => setReleaseDate(r)}
-                onDelete={() => deleteRelease(r)}
-                onRemoveItem={(itemId) => removeItem(itemId, r.id)}
-              />
-            ))
-          )}
-        </div>
+        {releases.length === 0 ? (
+          <div style={{ background: C.card, border: `1px dashed ${C.border}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.muted, fontSize: 13 }}>
+            No releases yet. Create one above to start planning.
+          </div>
+        ) : (
+          releases.map(r => (
+            <ReleaseColumn key={r.id} release={r}
+              items={r.item_ids.map(id => itemById[id]).filter(Boolean)}
+              onRename={() => renameRelease(r)}
+              onSetDate={() => setReleaseDate(r)}
+              onDelete={() => deleteRelease(r)}
+              onRemoveItem={(itemId) => removeItem(itemId, r.id)}
+            />
+          ))
+        )}
       </div>
 
       {/* Assign modal — pick which release to put an item in */}
@@ -267,24 +259,57 @@ export default function StagingPage() {
   );
 }
 
-// ── Item chip used in both pool and release columns ─────────────────
-function ItemChip({ item, onAssign, onRemove, assignDisabledReason }: {
+// ── Image-first grid of item tiles ──────────────────────────────────
+// Responsive: 100px-min cells on phones grow up to 160px on desktop.
+// Image-only with the name as a caption; no status / qty / metadata —
+// Staging is an organizing surface, not a detail surface (that lives on
+// the Items tab).
+function ItemGrid({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))",
+      gap: 10,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function ItemCard({ item, onAssign, onRemove, assignDisabled }: {
   item: Item;
   onAssign?: () => void;
   onRemove?: () => void;
-  assignDisabledReason?: string;
+  assignDisabled?: boolean;
 }) {
-  const status = STATUS_META[item.status];
+  // Pool card (onAssign): click anywhere = add. It's the only action, and
+  // safe to undo (pick the wrong release → × to put it back).
+  // Release card (onRemove): ONLY the × button removes — body click is
+  // a no-op. Accidental removal feels bad; require the explicit target.
+  const action = onAssign
+    ? { label: "+", title: assignDisabled ? "Create a release first" : "Add to release", onClick: onAssign, bg: C.text, color: "#fff" }
+    : onRemove
+      ? { label: "×", title: "Remove from release", onClick: onRemove, bg: "rgba(0,0,0,0.7)", color: "#fff" }
+      : null;
+  const cardClick = onAssign ? onAssign : undefined;
+
   return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 10,
-      padding: "8px 10px",
-      background: C.surface, border: `1px solid ${C.border}`,
-      borderRadius: 8,
-    }}>
+    <div
+      onClick={cardClick}
+      style={{
+        position: "relative",
+        background: C.card, border: `1px solid ${C.border}`,
+        borderRadius: 8, overflow: "hidden",
+        cursor: cardClick ? "pointer" : "default",
+        display: "flex", flexDirection: "column",
+        transition: "border-color 0.15s, transform 0.08s",
+      }}
+      onMouseEnter={e => { if (action) e.currentTarget.style.borderColor = C.text; }}
+      onMouseLeave={e => { if (action) e.currentTarget.style.borderColor = C.border; }}
+    >
       <div style={{
-        width: 44, height: 44, minWidth: 44,
-        background: "#fff", borderRadius: 4, overflow: "hidden",
+        aspectRatio: "1", background: "#f4f4f7",
+        overflow: "hidden",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
         {item.thumb_id ? (
@@ -293,38 +318,35 @@ function ItemChip({ item, onAssign, onRemove, assignDisabledReason }: {
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
             onError={(e: any) => { e.target.style.display = "none"; }} />
         ) : (
-          <span style={{ fontSize: 8, color: C.faint }}>—</span>
+          <span style={{ fontSize: 10, color: C.faint }}>No preview</span>
+        )}
+        {action && (
+          <button
+            onClick={(e) => { e.stopPropagation(); action.onClick(); }}
+            title={action.title}
+            disabled={assignDisabled}
+            style={{
+              position: "absolute", top: 6, right: 6,
+              width: 24, height: 24, borderRadius: "50%",
+              background: action.bg, color: action.color,
+              border: "none", fontSize: 15, fontWeight: 700, lineHeight: 1,
+              cursor: assignDisabled ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+              opacity: assignDisabled ? 0.4 : 1,
+            }}
+          >
+            {action.label}
+          </button>
         )}
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {item.name}
-        </div>
-        <div style={{ fontSize: 10, color: C.muted, display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-          <span style={{
-            padding: "1px 6px", borderRadius: 99,
-            background: status.bg, color: status.color,
-            fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase",
-          }}>
-            {status.label}
-          </span>
-          {item.qty > 0 && <span>{item.qty} pcs</span>}
-        </div>
+      <div style={{
+        padding: "6px 8px",
+        fontSize: 11, fontWeight: 600, color: C.text,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>
+        {item.name}
       </div>
-      {onAssign && (
-        <button onClick={onAssign}
-          title={assignDisabledReason}
-          style={{ padding: "5px 10px", fontSize: 10, fontWeight: 700, background: C.text, color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontFamily: C.font }}>
-          Add to…
-        </button>
-      )}
-      {onRemove && (
-        <button onClick={onRemove}
-          title="Remove from release"
-          style={{ padding: "3px 7px", fontSize: 14, color: C.muted, background: "transparent", border: "none", cursor: "pointer", lineHeight: 1 }}>
-          ×
-        </button>
-      )}
     </div>
   );
 }
@@ -367,14 +389,14 @@ function ReleaseColumn({ release, items, onRename, onSetDate, onDelete, onRemove
       </div>
       {items.length === 0 ? (
         <div style={{ fontSize: 12, color: C.faint, fontStyle: "italic", padding: "8px 0" }}>
-          Empty — add items from the pool using the "Add to…" button.
+          Empty — add items from the pool above.
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <ItemGrid>
           {items.map(it => (
-            <ItemChip key={it.id} item={it} onRemove={() => onRemoveItem(it.id)} />
+            <ItemCard key={it.id} item={it} onRemove={() => onRemoveItem(it.id)} />
           ))}
-        </div>
+        </ItemGrid>
       )}
     </div>
   );
