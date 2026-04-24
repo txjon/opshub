@@ -40,35 +40,92 @@ function renderSalesReportHTML(data: {
 }): string {
   const font = `'Helvetica Neue', Arial, sans-serif`;
 
-  // Collapse size variants into one row per product. Sizes appear as a
-  // compact subtitle under the product name so the detail stays visible
-  // without blowing the report up to 4 pages.
+  // Stacked per-item blocks. Each block owns the full page width so
+  // long descriptions and size breakdowns never wrap inside a narrow
+  // column. Three tiers per item:
+  //   1. Identity row   — SKU · item name · Qty
+  //   2. Sizes row      — inline, muted, only when multiple variants
+  //   3. Money chip row — 6-column mini KPI strip matching the
+  //                       document-level chips at the top of the report
+  // Document-level KPI strip — rendered identically at the top of the
+  // report (running header) and at the bottom (running footer). Having
+  // it in both places means a multi-page report always has totals
+  // visible on the page the reader lands on.
+  const totalsStrip = `
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);border-top:0.5px solid #e5e7eb;border-bottom:0.5px solid #e5e7eb;font-family:${font}">
+      ${[
+        ["Qty Sold", fmtN(data.totals.qty)],
+        ["Product Sales", fmtD(data.totals.sales)],
+        ["Total Cost", fmtD(data.totals.cost)],
+        ["Product Net", fmtD(data.totals.net)],
+        [`HPD Fee (${(data.feePct * 100).toFixed(1)}%)`, fmtD(data.totals.fee)],
+        ["Net Profit", fmtD(data.totals.profit)],
+      ].map(([k, v], i, arr) =>
+        `<div style="padding:12px 14px;${i < arr.length - 1 ? "border-right:0.5px solid #e5e7eb" : ""}">
+          <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:3px">${k}</div>
+          <div style="font-size:13px;font-weight:700;color:#1a1a1a;font-family:monospace">${v}</div>
+        </div>`
+      ).join("")}
+    </div>`;
+
   const groups = groupLineItems(data.lines);
+  // Borderless numeric cell — all 6 per-item values render on an
+  // aligned 6-column grid so the client can scan any column vertically
+  // across items (Sales by item, Profit by item, etc.) without the
+  // chrome of chip borders. Label + value both center-aligned inside
+  // their column so the title sits visually over the dollar figure,
+  // matching the top KPI strip's tile rhythm. Profit gets heavier
+  // weight as the takeaway.
+  const numCell = (label: string, value: string, opts: { bold?: boolean } = {}) => `
+    <div style="padding:0;white-space:nowrap;text-align:center">
+      <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:3px">${escapeHtml(label)}</div>
+      <div style="font-size:${opts.bold ? 12 : 11}px;font-weight:${opts.bold ? 800 : 600};color:#1a1a1a;font-family:monospace">${escapeHtml(value)}</div>
+    </div>`;
   const rows = groups.map(g => {
     const totalCost = g.unit_cost * g.qty_sold;
     const net = g.product_sales - totalCost;
     const fee = net * data.feePct;
     const profit = net - fee;
-    const sizesLine = g.variants.length > 1
+    const hasSizes = g.variants.length > 1 && g.variants.some(v => v.qty_sold > 0);
+    const sizesLine = hasSizes
       ? g.variants
           .filter(v => v.qty_sold > 0)
-          .map(v => `<span style="white-space:nowrap">${escapeHtml(v.size || v.sku)}: ${fmtN(v.qty_sold)}</span>`)
-          .join(" &nbsp;·&nbsp; ")
+          .map(v => `<span style="white-space:nowrap"><span style="color:#aaa;font-weight:600;margin-right:3px">${escapeHtml(v.size || v.sku)}</span>${fmtN(v.qty_sold)}</span>`)
+          .join(`<span style="color:#ccc;margin:0 9px">·</span>`)
       : "";
-    return `<tr style="border-bottom:0.5px solid #eeeeee;vertical-align:top">
-      <td style="padding:10px 6px;font-family:monospace;font-size:10px;color:#888;font-weight:600;vertical-align:top">${escapeHtml(g.root_sku || "—")}</td>
-      <td style="padding:10px 6px;font-size:11px;color:#1a1a1a;vertical-align:top">
-        <div style="font-weight:600">${escapeHtml(g.root_description || "—")}</div>
-        ${sizesLine ? `<div style="margin-top:3px;font-size:9.5px;color:#888;line-height:1.6">${sizesLine}</div>` : ""}
-      </td>
-      <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:10.5px;color:#1a1a1a;vertical-align:top">${fmtN(g.qty_sold)}</td>
-      <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:10.5px;color:#1a1a1a;vertical-align:top">${fmtD(g.product_sales)}</td>
-      <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:10.5px;color:#666;vertical-align:top">${fmtD(g.unit_cost)}</td>
-      <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:10.5px;color:#666;vertical-align:top">${fmtD(totalCost)}</td>
-      <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:10.5px;color:#1a1a1a;vertical-align:top">${fmtD(net)}</td>
-      <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:10.5px;color:#666;vertical-align:top">${fmtD(fee)}</td>
-      <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:10.5px;color:#1a1a1a;font-weight:700;vertical-align:top">${fmtD(profit)}</td>
-    </tr>`;
+    return `
+    <div style="padding:10px 0 14px;border-bottom:0.5px solid #eeeeee;font-family:${font};page-break-inside:avoid;break-inside:avoid">
+
+      <!-- Identity row: name · sku · Qty. Uses the same 6-column grid
+           as the KPI row below so Qty centers directly above Profit. -->
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:0 10px;align-items:baseline">
+        <div style="grid-column:1 / 6;min-width:0;white-space:nowrap;overflow:visible">
+          <span style="font-size:13px;font-weight:700;color:#1a1a1a;letter-spacing:-0.005em">${escapeHtml(g.root_description || "—")}</span>
+          <span style="font-family:monospace;font-size:9px;color:#aaa;font-weight:500;margin-left:8px">${escapeHtml(g.root_sku || "—")}</span>
+        </div>
+        <div style="grid-column:6;text-align:center;white-space:nowrap">
+          <span style="color:#999;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;font-size:9px;margin-right:6px">Qty</span>
+          <span style="color:#1a1a1a;font-weight:700;font-family:monospace;font-size:13px">${fmtN(g.qty_sold)}</span>
+        </div>
+      </div>
+
+      ${hasSizes ? `
+      <!-- Sizes row -->
+      <div style="margin-top:4px;font-family:monospace;font-size:10px;color:#666;line-height:1.5;white-space:nowrap;overflow:visible">
+        ${sizesLine}
+      </div>` : ""}
+
+      <!-- Borderless numeric grid — aligns vertically across items -->
+      <div style="margin-top:16px;display:grid;grid-template-columns:repeat(6,1fr);gap:0 10px">
+        ${numCell("Sales", fmtD(g.product_sales))}
+        ${numCell("Unit Cost", fmtD(g.unit_cost))}
+        ${numCell("Total Cost", fmtD(totalCost))}
+        ${numCell("Net", fmtD(net))}
+        ${numCell("HPD Fee", fmtD(fee))}
+        ${numCell("Profit", fmtD(profit), { bold: true })}
+      </div>
+
+    </div>`;
   }).join("");
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
@@ -102,54 +159,15 @@ function renderSalesReportHTML(data: {
     </div>
   </div>
 
-  <!-- Totals strip -->
-  <div style="display:grid;grid-template-columns:repeat(6,1fr);border-bottom:0.5px solid #e5e7eb;font-family:${font}">
-    ${[
-      ["Qty Sold", fmtN(data.totals.qty)],
-      ["Product Sales", fmtD(data.totals.sales)],
-      ["Total Cost", fmtD(data.totals.cost)],
-      ["Product Net", fmtD(data.totals.net)],
-      [`HPD Fee (${(data.feePct * 100).toFixed(1)}%)`, fmtD(data.totals.fee)],
-      ["Net Profit", fmtD(data.totals.profit)],
-    ].map(([k, v], i, arr) =>
-      `<div style="padding:12px 14px;${i < arr.length - 1 ? "border-right:0.5px solid #e5e7eb" : ""}">
-        <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:3px">${k}</div>
-        <div style="font-size:13px;font-weight:700;color:#1a1a1a;font-family:monospace">${v}</div>
-      </div>`
-    ).join("")}
+  ${totalsStrip}
+
+  <!-- Per-item stacked blocks -->
+  <div style="padding:8px 32px 20px">
+    <div style="font-size:7.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#bbb;padding:10px 0 2px">Line Items</div>
+    ${rows}
   </div>
 
-  <!-- Items table -->
-  <div style="padding:20px 32px">
-    <table style="width:100%;border-collapse:collapse;font-family:${font}">
-      <thead>
-        <tr style="border-bottom:1.5px solid #1a1a1a">
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.08em;text-align:left;padding:8px 6px">SKU</th>
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.08em;text-align:left;padding:8px 6px">Description</th>
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.08em;text-align:right;padding:8px 6px">Qty Sold</th>
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.08em;text-align:right;padding:8px 6px">Product Sales</th>
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.08em;text-align:right;padding:8px 6px">Unit Cost</th>
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.08em;text-align:right;padding:8px 6px">Total Cost</th>
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.08em;text-align:right;padding:8px 6px">Product Net</th>
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.08em;text-align:right;padding:8px 6px">HPD Fee</th>
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.08em;text-align:right;padding:8px 6px">Net Profit</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-      <tfoot>
-        <tr style="border-top:1.5px solid #1a1a1a">
-          <td colspan="2" style="padding:10px 6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#1a1a1a">Totals</td>
-          <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:11px;font-weight:700">${fmtN(data.totals.qty)}</td>
-          <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:11px;font-weight:700">${fmtD(data.totals.sales)}</td>
-          <td style="padding:10px 6px"></td>
-          <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:11px;font-weight:700">${fmtD(data.totals.cost)}</td>
-          <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:11px;font-weight:700">${fmtD(data.totals.net)}</td>
-          <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:11px;font-weight:700">${fmtD(data.totals.fee)}</td>
-          <td style="padding:10px 6px;text-align:right;font-family:monospace;font-size:11px;font-weight:800;color:#1a1a1a">${fmtD(data.totals.profit)}</td>
-        </tr>
-      </tfoot>
-    </table>
-  </div>
+  ${totalsStrip}
 
   <!-- Footer -->
   <div style="padding:18px 32px;border-top:0.5px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-end;font-family:${font}">
