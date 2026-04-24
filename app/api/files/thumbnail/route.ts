@@ -49,14 +49,19 @@ export async function GET(req: NextRequest) {
     const buf = Buffer.from(await res.arrayBuffer());
     const contentType = res.headers.get("content-type") || mimeType;
 
+    // RFC 5987 filename encoding — Drive filenames coming from macOS
+    // screenshots contain U+202F (narrow no-break space) and other
+    // high-Unicode chars that break a naked `filename="..."` header.
+    const asciiName = fileName.replace(/[^\x20-\x7E]/g, "_");
     return new NextResponse(buf, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${fileName}"`,
+        "Content-Disposition": `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
         "Cache-Control": "public, max-age=3600, s-maxage=3600",
       },
     });
-  } catch {
+  } catch (err: any) {
+    console.error("[thumbnail] failed for", fileId, err?.message || err);
     return new NextResponse("Failed", { status: 500 });
   }
 }

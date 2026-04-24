@@ -24,13 +24,18 @@ export default function MoveItemDialog({
   open,
   onClose,
   onMoved,
+  mode = "move",
 }: {
   itemId: string;
   itemName: string;
   open: boolean;
   onClose: () => void;
   onMoved: (result: { from: any; to: any; costing_migrated: boolean }) => void;
+  /** "move" = item changes job_id; "copy" = original stays, duplicate on dest. */
+  mode?: "move" | "copy";
 }) {
+  const verb = mode === "copy" ? "Copy" : "Move";
+  const endpointPath = mode === "copy" ? "copy" : "move";
   const [loading, setLoading] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [err, setErr] = useState<string>("");
@@ -79,7 +84,7 @@ export default function MoveItemDialog({
     setMoving(true);
     setErr("");
     try {
-      const res = await fetch(`/api/items/${itemId}/move`, {
+      const res = await fetch(`/api/items/${itemId}/${endpointPath}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to_job_id: selectedId }),
@@ -117,7 +122,7 @@ export default function MoveItemDialog({
           display: "flex", alignItems: "baseline", gap: 10,
         }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Move item</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{verb} item</div>
             <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
               <span style={{ color: T.text }}>{itemName || "(unnamed)"}</span> — pick a destination job (same client only)
             </div>
@@ -205,7 +210,7 @@ export default function MoveItemDialog({
           padding: "12px 18px", borderTop: `1px solid ${T.border}`,
           display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center",
         }}>
-          {moving && <span style={{ fontSize: 11, color: T.muted, marginRight: "auto" }}>Moving…</span>}
+          {moving && <span style={{ fontSize: 11, color: T.muted, marginRight: "auto" }}>{verb === "Copy" ? "Copying…" : "Moving…"}</span>}
           <button onClick={onClose} disabled={moving}
             style={{ padding: "8px 14px", background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 12, fontWeight: 600, cursor: moving ? "not-allowed" : "pointer", fontFamily: font }}>
             Cancel
@@ -219,7 +224,7 @@ export default function MoveItemDialog({
               fontFamily: font,
               opacity: selectedId ? 1 : 0.6,
             }}>
-            Move item →
+            {verb} item →
           </button>
         </div>
       </div>

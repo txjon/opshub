@@ -74,7 +74,18 @@ const PHASE_STEPS = [
   { key: "complete", label: "Complete" },
 ];
 
+// Default export = the standalone /portal/client/[token]/orders/[jobId]
+// route. Wraps the shared view component so deep links / bookmarks keep
+// working. The Orders tab uses OrderDetailView directly in a modal.
 export default function ClientHubOrderDetail({ params }: { params: { token: string; jobId: string } }) {
+  return <OrderDetailView token={params.token} jobId={params.jobId} />;
+}
+
+// Reusable view — used by the standalone route AND by the Orders tab
+// modal. Pass `onClose` to render as a modal (Close button top-right, no
+// back link); omit it to render as the standalone page (back link at
+// top-left).
+export function OrderDetailView({ token, jobId, onClose }: { token: string; jobId: string; onClose?: () => void }) {
   const [data, setData] = useState<PortalData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -90,12 +101,12 @@ export default function ClientHubOrderDetail({ params }: { params: { token: stri
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.token, params.jobId]);
+  }, [token, jobId]);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/portal/client/${params.token}/orders/${params.jobId}`);
+      const res = await fetch(`/api/portal/client/${token}/orders/${jobId}`);
       if (!res.ok) {
         setError("This link is no longer valid.");
         return;
@@ -113,7 +124,7 @@ export default function ClientHubOrderDetail({ params }: { params: { token: stri
     const key = action + (extra?.fileId || "");
     setActionLoading(key);
     try {
-      const res = await fetch(`/api/portal/client/${params.token}/orders/${params.jobId}`, {
+      const res = await fetch(`/api/portal/client/${token}/orders/${jobId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extra }),
@@ -135,9 +146,15 @@ export default function ClientHubOrderDetail({ params }: { params: { token: stri
       <div style={{ padding: 40, fontFamily: C.font, textAlign: "center" }}>
         <div style={{ fontSize: 36, opacity: 0.3 }}>🔒</div>
         <div style={{ color: C.text, fontSize: 16, fontWeight: 600, marginTop: 10 }}>{error || "Not found"}</div>
-        <Link href={`/portal/client/${params.token}/orders`} style={{ display: "inline-block", marginTop: 16, color: C.accent, fontSize: 13, textDecoration: "underline" }}>
-          ← Back to Orders
-        </Link>
+        {onClose ? (
+          <button onClick={onClose} style={{ display: "inline-block", marginTop: 16, color: C.accent, fontSize: 13, textDecoration: "underline", background: "none", border: "none", cursor: "pointer", fontFamily: C.font }}>
+            Close
+          </button>
+        ) : (
+          <Link href={`/portal/client/${token}/orders`} style={{ display: "inline-block", marginTop: 16, color: C.accent, fontSize: 13, textDecoration: "underline" }}>
+            ← Back to Orders
+          </Link>
+        )}
       </div>
     );
   }
@@ -165,13 +182,29 @@ export default function ClientHubOrderDetail({ params }: { params: { token: stri
 
   return (
     <div style={{ fontFamily: C.font, color: C.text, maxWidth: 800 }}>
-      {/* ── Back link ── */}
-      <Link href={`/portal/client/${params.token}/orders`} style={{
-        display: "inline-flex", alignItems: "center", gap: 6,
-        fontSize: 12, color: C.muted, textDecoration: "none", marginBottom: 16,
-      }}>
-        ← All orders
-      </Link>
+      {/* Top bar: Back link when standalone, Close button when modal.
+          Close style matches the proof modal's Close button so there's
+          one consistent control pattern across all modals. */}
+      {onClose ? (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+          <button
+            onClick={onClose}
+            style={{
+              background: C.surface, border: `1px solid ${C.border}`,
+              borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.text,
+              cursor: "pointer", padding: "8px 20px", fontFamily: C.font,
+            }}>
+            Close
+          </button>
+        </div>
+      ) : (
+        <Link href={`/portal/client/${token}/orders`} style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          fontSize: 12, color: C.muted, textDecoration: "none", marginBottom: 16,
+        }}>
+          ← All orders
+        </Link>
+      )}
 
       {/* ── Project Header ── */}
       <div style={{ marginBottom: 24 }}>

@@ -24,6 +24,10 @@ export type RawLine = {
   qty_sold: number;
   product_sales: number;
   unit_cost: number;
+  /** Stable per-row identifier so callers can map back to the source
+   *  row even when SKU is blank or duplicated. Optional — grouping
+   *  works without it. */
+  idx?: number;
 };
 
 export type Variant = {
@@ -32,6 +36,7 @@ export type Variant = {
   qty_sold: number;
   product_sales: number;
   unit_cost: number;
+  idx?: number;
 };
 
 export type Group = {
@@ -109,6 +114,7 @@ export function groupLineItems(items: RawLine[]): Group[] {
       qty_sold: item.qty_sold,
       product_sales: item.product_sales,
       unit_cost: item.unit_cost,
+      idx: item.idx,
     };
     g.variants.push(variant);
     g.qty_sold += item.qty_sold;

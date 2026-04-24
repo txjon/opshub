@@ -262,7 +262,10 @@ export async function GET(
         total: typeMeta.qb_total_with_tax || quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0),
       },
       invoiceStale: (() => {
-        if (!typeMeta.qb_invoice_number) return false;
+        // Only "stale" when OpsHub actually pushed an invoice to QB.
+        // Manually-entered invoice numbers have no OpsHub-side QB totals
+        // to compare against, so the staleness check would always fire.
+        if (!typeMeta.qb_invoice_id) return false;
         const quoteSubtotal = quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0);
         const qbSubtotal = (typeMeta.qb_total_with_tax || 0) - (typeMeta.qb_tax_amount || 0);
         return Math.abs(quoteSubtotal - qbSubtotal) > 0.01;

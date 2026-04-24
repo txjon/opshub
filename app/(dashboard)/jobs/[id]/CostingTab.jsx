@@ -341,8 +341,17 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 </div>
                                 <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
                                   <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
-                                  <input type="text" inputMode="decimal" value={cc.perUnit||cc.amount||""} placeholder="0"
-                                    onChange={e=>{const raw=e.target.value;if(raw===""||/^[0-9]*\.?[0-9]*$/.test(raw)){const c=[...p.customCosts];c[ci]={...c[ci],perUnit:raw===""?0:raw.endsWith(".")?raw:parseFloat(raw)||0};updateProd(i,{...p,customCosts:c});}}}
+                                  <input type="text" inputMode="decimal" value={cc.perUnit===0?"":(cc.perUnit??cc.amount??"")} placeholder="0"
+                                    onChange={e=>{
+                                      const raw=e.target.value;
+                                      if(raw!==""&&!/^[0-9]*\.?[0-9]*$/.test(raw)) return;
+                                      // Keep the raw string during edit so "16." and "16.0"
+                                      // survive without parseFloat eating trailing zeros or
+                                      // the decimal point itself. onBlur normalizes to a number.
+                                      const c=[...p.customCosts];
+                                      c[ci]={...c[ci],perUnit:raw};
+                                      updateProd(i,{...p,customCosts:c});
+                                    }}
                                     onBlur={e=>{const c=[...p.customCosts];c[ci]={...c[ci],perUnit:parseFloat(e.target.value)||0};updateProd(i,{...p,customCosts:c});}}
                                     onFocus={e=>e.target.select()}
                                     style={{width:50,background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,fontFamily:mono,textAlign:"center",outline:"none",padding:"3px 4px"}}/>

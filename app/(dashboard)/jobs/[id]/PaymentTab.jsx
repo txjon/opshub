@@ -34,11 +34,16 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
   // Detect stale QB invoice — current pricing doesn't match QB total.
   // Suppressed once variance was pushed, because the QB total then reflects
   // shipped qtys (not the costing grossRev quote total), so the comparison
-  // is no longer meaningful.
+  // is no longer meaningful. Also suppressed when the invoice # was
+  // entered manually (qb_invoice_number set but qb_invoice_id missing) —
+  // there's no QB invoice on our side to compare against, and "click to
+  // update" would create a DUPLICATE in QB.
   const variancePushedAt = job.type_meta?.qb_variance_pushed_at || null;
   const currentSubtotal = (job.costing_summary?.grossRev || 0);
   const qbSubtotal = (job.type_meta?.qb_total_with_tax || 0) - (job.type_meta?.qb_tax_amount || 0);
-  const invoiceStale = !variancePushedAt && qbInvoiceNumber && Math.abs(currentSubtotal - qbSubtotal) > 0.01;
+  const qbInvoiceId = job.type_meta?.qb_invoice_id;
+  const isManualInvoice = !!qbInvoiceNumber && !qbInvoiceId;
+  const invoiceStale = !!qbInvoiceId && !variancePushedAt && Math.abs(currentSubtotal - qbSubtotal) > 0.01;
 
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" };
   const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
@@ -85,18 +90,20 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
 
       {/* ── Action Buttons ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-        <button onClick={pushToQB} disabled={pushingToQB}
+        <button onClick={pushToQB} disabled={pushingToQB || isManualInvoice}
           style={{ flex: 1, minWidth: 100, height: 60, borderRadius: 8,
             border: invoiceStale ? `2px solid ${T.red}` : qbInvoiceNumber ? `2px solid ${T.green}` : "none",
-            cursor: pushingToQB ? "default" : "pointer",
+            cursor: pushingToQB ? "default" : isManualInvoice ? "default" : "pointer",
             background: invoiceStale ? T.redDim : qbInvoiceNumber ? T.greenDim : T.blue,
             color: invoiceStale ? T.red : qbInvoiceNumber ? T.green : "#fff",
             fontSize: 11, fontWeight: 700, fontFamily: font,
             opacity: pushingToQB ? 0.6 : 1, transition: "opacity 0.15s", textAlign: "center",
             display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 8, gap: 2 }}
-          onMouseEnter={e => { if (!pushingToQB) e.currentTarget.style.opacity = "0.85"; }}
+          onMouseEnter={e => { if (!pushingToQB && !isManualInvoice) e.currentTarget.style.opacity = "0.85"; }}
           onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
-          {pushingToQB ? (qbInvoiceNumber ? "Updating..." : "Creating...") : invoiceStale ? (
+          {pushingToQB ? (qbInvoiceNumber ? "Updating..." : "Creating...") : isManualInvoice ? (
+            <><span>✓ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500, opacity: 0.8 }}>Invoice # added manually</span></>
+          ) : invoiceStale ? (
             <><span>⚠ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500 }}>Pricing changed — click to update</span></>
           ) : qbInvoiceNumber ? (
             <><span>✓ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500, opacity: 0.8 }}>Click to update</span></>

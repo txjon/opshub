@@ -117,15 +117,26 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     // Pulled in alongside project orders so the client sees every invoice
     // they might owe money on in one place. We only surface reports that
     // made it to QB (have qb_invoice_id) — drafts are noise.
+    // Show any report that has an invoice number — either pushed to QB
+    // (qb_invoice_id set) or entered manually (qb_invoice_number set
+    // without qb_invoice_id, for historical invoices or bundled ones
+    // created outside OpsHub).
     const { data: shipReports } = await db
       .from("shipstation_reports")
-      .select("id, period_label, totals, qb_invoice_id, qb_invoice_number, qb_payment_link, sent_at, created_at, paid_at, paid_amount")
+      .select("id, report_type, period_label, totals, qb_invoice_id, qb_invoice_number, qb_payment_link, sent_at, created_at, paid_at, paid_amount")
       .eq("client_id", client.id)
-      .not("qb_invoice_id", "is", null);
+      .not("qb_invoice_number", "is", null);
 
     const fulfillmentOrders = (shipReports || []).map((r: any) => {
       const totals = r.totals || {};
-      const total = Number(totals.fee) || 0;
+      const isPostage = r.report_type === "postage";
+      // Sales → totals.fee is what we bill. Postage → totals.billed.
+      const total = isPostage
+        ? (Number(totals.billed) || 0)
+        : (Number(totals.fee) || 0);
+      const totalQty = isPostage
+        ? (Number(totals.shipments) || 0)
+        : (Number(totals.qty) || 0);
       // paid_at + paid_amount are set by the QB webhook when the client
       // pays via the Pay Online link (see /api/qb/webhook2).
       const paidAmount = Number(r.paid_amount) || 0;
@@ -138,22 +149,23 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         id: r.id,
         kind: "fulfillment" as const,
         job_number: null,
-        title: `Product Sales Report — ${r.period_label}`,
+        title: `${isPostage ? "Postage Report" : "Product Sales Report"} — ${r.period_label}`,
         phase: "fulfillment_invoice",
         target_ship_date: null,
         created_at: r.created_at,
         updated_at: r.sent_at || r.created_at,
         items: [],
-        total_qty: Number(totals.qty) || 0,
+        total_qty: totalQty,
         total,
         paid_amount: paidAmount,
         balance,
         payment_status,
+        paid_at: r.paid_at || null,
         qb_invoice_number: r.qb_invoice_number || null,
         qb_payment_link: r.qb_payment_link || null,
         has_invoice: true,
         period_label: r.period_label,
-        products_count: Array.isArray(r.totals) ? 0 : undefined, // informational; UI recomputes if needed
+        report_type: r.report_type || "sales",
       };
     });
 
@@ -177,9 +189,14 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       // Paid amount — sum of paid payments. Only count invoices that have
       // actually been issued ("sent" onwards) toward the unpaid/partial state;
       // drafts don't put the client "on the hook" yet.
-      const paidAmount = jobPays
-        .filter((p: any) => p.status === "paid")
-        .reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      const paidPays = jobPays.filter((p: any) => p.status === "paid");
+      const paidAmount = paidPays.reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      // Most recent paid date — used as the "Paid · {date}" stamp on the row.
+      const paidAt = paidPays
+        .map((p: any) => p.paid_date)
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0] || null;
       const hasIssued = jobPays.some((p: any) =>
         p.status && !["draft", "void"].includes(p.status)
       );
@@ -188,7 +205,10 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       const isInvoiced = hasIssued || typeMetaHasQB;
 
       let paymentStatus: "paid" | "unpaid" | "partial" | "deposit" | "none" = "none";
-      if (paidAmount > 0 && balance <= 0.01) paymentStatus = "paid";
+      // Zero-total orders (voided, migrated history, etc.) carry no
+      // payment status — nothing to pay, so "Unpaid · $0" is noise.
+      if (total <= 0.01) paymentStatus = "none";
+      else if (paidAmount > 0 && balance <= 0.01) paymentStatus = "paid";
       else if (paidAmount > 0) paymentStatus = "partial";
       else if (isInvoiced) paymentStatus = "unpaid";
 
@@ -220,6 +240,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         paid_amount: paidAmount,
         balance,
         payment_status: paymentStatus,
+        paid_at: paidAt,
         qb_invoice_number: typeMeta.qb_invoice_number || null,
         qb_payment_link: typeMeta.qb_payment_link || null,
         has_invoice: isInvoiced,

@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
-import { clientPhaseFor } from "../_shared/state-labels";
+import { OrderDetailView } from "./[jobId]/page";
 
 
 type OrderItem = {
@@ -31,6 +31,7 @@ type Order = {
   paid_amount: number;
   balance: number;
   payment_status: "paid" | "unpaid" | "partial" | "deposit" | "none";
+  paid_at?: string | null;
   qb_invoice_number: string | null;
   qb_payment_link: string | null;
   has_invoice: boolean;
@@ -40,12 +41,15 @@ type Order = {
 export default function OrdersPage() {
   const { token } = useClientPortal();
   const search = useSearchParams();
-  const filterParam = (search?.get("filter") as "all" | "unpaid" | "shipping" | null) || "all";
+  const filterParam = (search?.get("filter") as "all" | "unpaid" | "paid" | null) || "all";
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [archive, setArchive] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "unpaid" | "shipping">(filterParam === "unpaid" || filterParam === "shipping" ? filterParam : "all");
+  const [filter, setFilter] = useState<"all" | "unpaid" | "paid">(filterParam === "unpaid" || filterParam === "paid" ? filterParam : "all");
+  // Project orders open a full-page modal using the shared OrderDetailView
+  // instead of navigating. Keeps scroll position + filter state intact.
+  const [modalJobId, setModalJobId] = useState<string | null>(null);
 
   useEffect(() => {
     load();
@@ -64,9 +68,12 @@ export default function OrdersPage() {
 
   const filtered = (orders || []).filter(o => {
     if (filter === "unpaid") return o.payment_status === "unpaid" || o.payment_status === "partial";
-    if (filter === "shipping") return o.phase === "receiving" || o.phase === "fulfillment";
+    if (filter === "paid") return o.payment_status === "paid";
     return true;
   });
+
+  const unpaidTotal = (orders || []).filter(o => o.payment_status === "unpaid" || o.payment_status === "partial").length;
+  const paidTotal = (orders || []).filter(o => o.payment_status === "paid").length;
 
   return (
     <div>
@@ -78,11 +85,11 @@ export default function OrdersPage() {
         <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
           All {orders && `· ${orders.length}`}
         </FilterPill>
-        <FilterPill active={filter === "shipping"} onClick={() => setFilter("shipping")}>
-          Shipping
-        </FilterPill>
         <FilterPill active={filter === "unpaid"} onClick={() => setFilter("unpaid")}>
-          Unpaid
+          Unpaid{orders ? ` · ${unpaidTotal}` : ""}
+        </FilterPill>
+        <FilterPill active={filter === "paid"} onClick={() => setFilter("paid")}>
+          Paid{orders ? ` · ${paidTotal}` : ""}
         </FilterPill>
         <div style={{ flex: 1 }} />
         <button onClick={() => setArchive(a => !a)}
@@ -121,9 +128,43 @@ export default function OrdersPage() {
             <OrderRow key={o.id} order={o}
               expanded={expanded === o.id}
               onToggle={() => setExpanded(expanded === o.id ? null : o.id)}
+              onOpenModal={(id) => setModalJobId(id)}
               token={token}
             />
           ))}
+        </div>
+      )}
+
+      {/* Full-page modal for per-order detail. Uses the shared
+          OrderDetailView so deep links (/orders/[jobId]) and this modal
+          render identical content. Close button lives inside the view
+          itself (matches the proof modal pattern) so nested modals
+          don't end up with two X's fighting for the same corner. */}
+      {modalJobId && (
+        <div
+          onClick={() => setModalJobId(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 10000,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "flex-start", justifyContent: "center",
+            overflowY: "auto",
+          }}>
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: "relative",
+              background: C.bg,
+              width: "min(920px, 96vw)",
+              minHeight: "100%",
+              padding: "28px 28px 60px",
+              boxSizing: "border-box",
+            }}>
+            <OrderDetailView
+              token={token}
+              jobId={modalJobId}
+              onClose={() => setModalJobId(null)}
+            />
+          </div>
         </div>
       )}
     </div>
@@ -146,18 +187,15 @@ function FilterPill({ active, onClick, children }: { active: boolean; onClick: (
   );
 }
 
-function OrderRow({ order, expanded, onToggle, token }: {
-  order: Order; expanded: boolean; onToggle: () => void; token: string;
+function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
+  order: Order; expanded: boolean; onToggle: () => void; onOpenModal: (id: string) => void; token: string;
 }) {
-  const router = useRouter();
-  const phase = clientPhaseFor(order.phase);
-  const payPill = paymentPillFor(order.payment_status, order.has_invoice);
-  // Project orders navigate to the per-order detail page (full old-portal
-  // experience inside Client Hub). Fulfillment invoices keep expanding
-  // inline since they have no deep detail surface — just summary + PDF.
+  // Project orders open the full detail in a modal (stays on the Orders
+  // tab, no navigation round-trip). Fulfillment invoices keep expanding
+  // inline — no deep detail surface, just summary + PDF.
   const navigatesToDetail = order.kind !== "fulfillment";
   const handleRowClick = navigatesToDetail
-    ? () => router.push(`/portal/client/${token}/orders/${order.id}`)
+    ? () => onOpenModal(order.id)
     : onToggle;
 
   return (
@@ -221,32 +259,42 @@ function OrderRow({ order, expanded, onToggle, token }: {
             ) : (
               <>
                 <span>{order.total_qty} {order.total_qty === 1 ? "pc" : "pcs"}</span>
-                {order.target_ship_date && <span>· Ships {fmtDate(order.target_ship_date)}</span>}
+                {order.qb_invoice_number
+                  ? <span>· Invoice #{order.qb_invoice_number}</span>
+                  : order.job_number ? <span>· {order.job_number}</span> : null}
               </>
             )}
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span style={{
-            padding: "3px 8px", borderRadius: 99,
-            background: phase.bg, color: phase.color,
-            fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-          }}>
-            {phase.label}
-          </span>
-          <span style={{
-            padding: "3px 8px", borderRadius: 99,
-            background: payPill.bg, color: payPill.color,
-            fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-          }}>
-            {payPill.label}
-          </span>
+          {/* Status the client cares about: paid or unpaid. Rows without
+              an invoice yet (status "none") show nothing — no invoice
+              means nothing to pay, so "Unpaid" would be misleading. */}
+          {(() => {
+            // No status when there's nothing to pay — either the order
+            // was never invoiced OR its total is zero (voided / migrated
+            // history record). Prevents "Unpaid · $0.00" from showing
+            // next to zero-dollar invoices.
+            if (order.payment_status === "none") return null;
+            if ((order.total || 0) <= 0.01) return null;
+            const paid = order.payment_status === "paid";
+            const paidStamp = order.paid_at ? fmtDate(order.paid_at) : null;
+            return (
+              <span style={{
+                fontSize: 10, fontWeight: 600, color: paid ? C.green : C.muted,
+                textTransform: "uppercase", letterSpacing: "0.06em",
+                whiteSpace: "nowrap",
+              }}>
+                {paid ? (paidStamp ? `Paid · ${paidStamp}` : "Paid") : "Unpaid"}
+              </span>
+            );
+          })()}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.text, fontFamily: C.mono }}>
-            ${order.total.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+            ${order.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div style={{ fontSize: 14, color: C.muted, transform: (navigatesToDetail ? false : expanded) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>
             ›
@@ -404,7 +452,10 @@ function OrderDetail({ order, token }: { order: Order; token: string }) {
               </a>
             )}
             {order.has_invoice && (
-              <a href={`/api/pdf/invoice/${order.id}?download=1`}
+              <a
+                href={order.kind === "fulfillment"
+                  ? `/api/pdf/shipstation/${order.id}?portal=${token}&download=1`
+                  : `/api/pdf/invoice/${order.id}?download=1`}
                 style={{
                   padding: "9px 12px", background: "transparent", color: C.text,
                   border: `1px solid ${C.border}`, borderRadius: 6,
