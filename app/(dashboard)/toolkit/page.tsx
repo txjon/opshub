@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
-import { buildMockupClient, preloadTemplate } from "@/lib/mockup-client";
+import { buildMockupClient, preloadTemplate, extractPrintInfoFromPsd } from "@/lib/mockup-client";
 import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
 
 export default function ToolKitPage() {
@@ -85,41 +85,7 @@ function MockupTool() {
       const { readPsd } = await import("ag-psd");
       const arrayBuffer = await file.arrayBuffer();
       const psd = readPsd(new Uint8Array(arrayBuffer));
-      const PLACEMENT_MAP: Record<string, string> = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest' };
-      const SKIP_GROUPS = ['Shirt Color', 'Shadows', 'Highlights', 'Mask'];
-      const printInfo: any[] = [];
-      const groups = [...(psd.children || [])].reverse();
-      for (const group of groups) {
-        if (!group.children) continue;
-        if (SKIP_GROUPS.includes(group.name || "")) continue;
-        const zoneName = PLACEMENT_MAP[group.name || ""];
-        const isTag = (group.name || "").toLowerCase() === "tag" || (group.name || "").toLowerCase() === "tags";
-        const colors: any[] = [];
-        let minL = Infinity, minT = Infinity, maxR = -Infinity, maxB = -Infinity;
-        for (const layer of group.children) {
-          if (isTag) {
-            if (minL === Infinity) { minL = layer.left || 0; minT = layer.top || 0; maxR = layer.right || 0; maxB = layer.bottom || 0; }
-          } else {
-            minL = Math.min(minL, layer.left || 0); minT = Math.min(minT, layer.top || 0);
-            maxR = Math.max(maxR, layer.right || 0); maxB = Math.max(maxB, layer.bottom || 0);
-          }
-          let hex = "#888888";
-          if (layer.canvas) {
-            const ctx = layer.canvas.getContext("2d");
-            if (ctx) {
-              const data = ctx.getImageData(0, 0, layer.canvas.width, layer.canvas.height).data;
-              let rS = 0, gS = 0, bS = 0, cnt = 0;
-              for (let i = 0; i < data.length; i += 40) { if (data[i + 3] > 128) { rS += data[i]; gS += data[i + 1]; bS += data[i + 2]; cnt++; } }
-              if (cnt > 0) hex = "#" + [rS, gS, bS].map(v => Math.round(v / cnt).toString(16).padStart(2, "0")).join("");
-            }
-          }
-          colors.push({ name: layer.name, hex });
-        }
-        const artW = maxR - minL;
-        const artH = maxB - minT;
-        if (artW <= 0 || artH <= 0) continue;
-        printInfo.push({ placement: zoneName || group.name, groupName: group.name, widthInches: (artW / 300).toFixed(2), heightInches: (artH / 300).toFixed(2), colors });
-      }
+      const printInfo = extractPrintInfoFromPsd(psd);
       setManualPrintInfo(printInfo);
     } catch (err: any) {
       setError("Failed to read PSD: " + err.message);

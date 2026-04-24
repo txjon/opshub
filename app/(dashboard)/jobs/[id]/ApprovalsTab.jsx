@@ -44,7 +44,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
   useEffect(() => {
     const ids = items.map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
     if (ids.length === 0) return;
-    supabase.from("item_files").select("*").in("item_id", ids).then(({ data }) => {
+    supabase.from("item_files").select("*").in("item_id", ids).is("superseded_at", null).then(({ data }) => {
       const byItem = {};
       for (const f of (data || [])) {
         if (!byItem[f.item_id]) byItem[f.item_id] = [];
@@ -57,7 +57,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
   function reloadFiles() {
     const ids = items.map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
     if (ids.length === 0) return;
-    supabase.from("item_files").select("*").in("item_id", ids).then(({ data }) => {
+    supabase.from("item_files").select("*").in("item_id", ids).is("superseded_at", null).then(({ data }) => {
       const byItem = {};
       for (const f of (data || [])) {
         if (!byItem[f.item_id]) byItem[f.item_id] = [];
