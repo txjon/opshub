@@ -42,9 +42,18 @@ export async function POST(req: NextRequest) {
     if (!clientName) return NextResponse.json({ error: "No client name on report" }, { status: 400 });
 
     const totals = report.totals || {};
-    const feeAmount = Number(totals.fee) || 0;
+    const isPostage = report.report_type === "postage";
+    // Sales → totals.fee is the HPD Fee we bill.
+    // Postage → totals.billed is Shipping Cost (marked up) + Insurance.
+    const feeAmount = isPostage
+      ? Number(totals.billed) || 0
+      : Number(totals.fee) || 0;
     if (feeAmount <= 0) {
-      return NextResponse.json({ error: "Report has no HPD Fee to bill (totals.fee is zero or negative)" }, { status: 400 });
+      return NextResponse.json({
+        error: isPostage
+          ? "Report has nothing to bill (totals.billed is zero or negative)"
+          : "Report has no HPD Fee to bill (totals.fee is zero or negative)",
+      }, { status: 400 });
     }
 
     // QB customer — cache on clients.qb_customer_id like the jobs flow.
@@ -57,16 +66,24 @@ export async function POST(req: NextRequest) {
       await admin.from("clients").update({ qb_customer_id: customerId }).eq("id", client.id);
     }
 
-    // Single service-fee line. itemName "Service Fee" must exist as a QB
-    // Product/Service; if it doesn't, QB createInvoice falls back to item
-    // id "1" which may be wrong. If this ever becomes a problem, create
-    // "Service Fee" (Type: Service) in QB Products & Services.
+    // Single-line invoice. itemName must exist as a QB Product/Service;
+    // if it doesn't, QB createInvoice falls back to item id "1" which
+    // may be wrong. Postage reports expect a "Postage" item in QB;
+    // sales reports expect "Service Fee".
+    const pct = (Number(report.hpd_fee_pct) || 0) * 100;
+    const lineDescription = isPostage
+      ? `Postage & Insurance — ${report.period_label} (${(Number(totals.shipments) || 0).toFixed(0)} shipments, ${pct.toFixed(1)}% markup on carrier cost)`
+      : `Product Sales Fulfillment — ${report.period_label} (${pct.toFixed(1)}% of $${Number(totals.net || 0).toFixed(2)} net sales)`;
     const lineItems: QBLineItem[] = [{
-      description: `Product Sales Fulfillment — ${report.period_label} (${((Number(report.hpd_fee_pct) || 0) * 100).toFixed(1)}% of $${Number(totals.net || 0).toFixed(2)} net sales)`,
+      description: lineDescription,
       qty: 1,
       unitPrice: Math.round(feeAmount * 100) / 100,
-      itemName: "Service Fee",
+      itemName: isPostage ? "Postage" : "Service Fee",
     }];
+
+    const memo = isPostage
+      ? `Postage Report — ${report.period_label}`
+      : `Product Sales Report — ${report.period_label}`;
 
     const shipAddr = client.shipping_address || undefined;
     const existingInvoiceId = report.qb_invoice_id;
@@ -74,7 +91,7 @@ export async function POST(req: NextRequest) {
     if (existingInvoiceId) {
       // Update path — same self-heal-payment-link behavior the jobs flow has.
       const updated = await updateInvoice(existingInvoiceId, lineItems, {
-        memo: `Product Sales Report — ${report.period_label}`,
+        memo,
         shipAddress: shipAddr,
       });
 
@@ -101,7 +118,7 @@ export async function POST(req: NextRequest) {
     // Create path
     const result = await createInvoice(customerId, lineItems, {
       terms: (client.default_terms as string) || undefined,
-      memo: `Product Sales Report — ${report.period_label}`,
+      memo,
       shipAddress: shipAddr,
     });
 

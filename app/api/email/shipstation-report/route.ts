@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const { data: report, error } = await admin
       .from("shipstation_reports")
-      .select("*, clients(name)")
+      .select("*, clients(name, portal_token, client_hub_enabled)")
       .eq("id", reportId)
       .single();
     if (error || !report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
@@ -68,10 +68,40 @@ export async function POST(req: NextRequest) {
     const clientName = (report.clients as any)?.name || "—";
     const greetingName = recipientName ? recipientName.split(" ")[0] : clientName;
     const invoiceNum = report.qb_invoice_number || "";
-    const filename = `HPD-Sales-Report-${(clientName + "-" + report.period_label).replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "")}.pdf`;
+    const isPostage = report.report_type === "postage";
+    const reportKind = isPostage ? "Fulfillment Invoice" : "Product Sales Report";
+    const slug = (clientName + "-" + report.period_label).replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "");
+    const pdfFilename = `HPD-${isPostage ? "Fulfillment-Invoice" : "Sales-Report"}-${slug}.pdf`;
+
+    // For postage reports, also fetch the shipment-level xlsx so the
+    // client has the full raw data alongside the invoice summary.
+    let xlsxBuffer: Buffer | null = null;
+    let xlsxFilename = "";
+    if (isPostage) {
+      const xlsxRes = await fetch(`${baseUrl}/api/excel/shipstation/${reportId}`, {
+        headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "" },
+      });
+      if (xlsxRes.ok) {
+        xlsxBuffer = Buffer.from(await xlsxRes.arrayBuffer());
+        xlsxFilename = `HPD-Fulfillment-Shipments-${slug}.xlsx`;
+      } else {
+        const text = await xlsxRes.text();
+        console.error("[email/shipstation-report] xlsx generation failed:", text);
+      }
+    }
 
     const fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-    const defaultSubject = subject || `Product Sales Report — ${clientName} · ${report.period_label}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""}`;
+    const defaultSubject = subject || `${reportKind} — ${clientName} · ${report.period_label}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""}`;
+
+    // If the client is on the Client Hub, add a "View in Portal" CTA so they
+    // can see all their fulfillment invoices + pay status in one place.
+    // Fulfillment invoices only surface on the Client Hub Orders tab — the
+    // old per-job portal can't render them — so non-hub clients don't get
+    // a portal CTA here.
+    const hubClient = (report.clients as any) || {};
+    const portalUrl = hubClient.client_hub_enabled && hubClient.portal_token
+      ? `${(process.env.NEXT_PUBLIC_SITE_URL || "https://app.housepartydistro.com")}/portal/client/${hubClient.portal_token}/orders`
+      : "";
 
     const { data, error: sendErr } = await resend.emails.send({
       from: fromAddress,
@@ -79,14 +109,18 @@ export async function POST(req: NextRequest) {
       ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
       subject: defaultSubject,
       html: renderBrandedEmail({
-        heading: `Product Sales Report — ${report.period_label}`,
+        heading: `${reportKind} — ${report.period_label}`,
         greeting: `Hi ${greetingName},`,
         bodyHtml: customBody
-          || `Attached is your product sales report for <strong>${report.period_label}</strong>${invoiceNum ? ` — billed on Invoice #${invoiceNum}` : ""}. The report covers total units sold, product sales, cost of goods, and your net profit after the HPD fulfillment fee.`,
+          || (isPostage
+            ? `Attached is your fulfillment invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The PDF summarizes the amount due; the accompanying spreadsheet itemizes every shipment with carrier cost and insurance.`
+            : `Attached is your product sales report for <strong>${report.period_label}</strong>${invoiceNum ? ` — billed on Invoice #${invoiceNum}` : ""}. The report covers total units sold, product sales, cost of goods, and your net profit after the HPD fulfillment fee.`),
         cta: paymentLink ? { label: "Pay Online", url: paymentLink, style: "green" } : undefined,
+        secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
       }),
       attachments: [
-        { filename, content: pdfBuffer.toString("base64") },
+        { filename: pdfFilename, content: pdfBuffer.toString("base64") },
+        ...(xlsxBuffer ? [{ filename: xlsxFilename, content: xlsxBuffer.toString("base64") }] : []),
       ],
     });
 

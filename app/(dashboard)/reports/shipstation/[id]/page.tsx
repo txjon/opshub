@@ -8,15 +8,43 @@ import { groupLineItems } from "@/lib/shipstation-group";
 const fmtD = (n: number) =>
   "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtN = (n: number) => Number(n || 0).toLocaleString("en-US");
+// Strip any time component off ship_date. ShipStation exports usually
+// include "H:MM AM/PM" or an ISO T-separated time we don't want shown.
+function dateOnly(raw: string): string {
+  if (!raw) return "";
+  return raw.trim().split(/[\sT]/)[0];
+}
 
-type LineItem = { sku: string; description: string; qty_sold: number; product_sales: number; unit_cost: number };
+type SalesLineItem = { sku: string; description: string; qty_sold: number; product_sales: number; unit_cost: number };
+type PostageLineItem = {
+  ship_date: string;
+  recipient: string;
+  order_number: string;
+  provider: string;
+  service: string;
+  package_type: string;
+  items_count: number;
+  zone: string;
+  shipping_paid: number;
+  shipping_cost_raw: number;
+  shipping_cost: number;
+  insurance_cost: number;
+  weight: number;
+  weight_unit: string;
+  billed: number;
+};
+type SalesTotals = { qty: number; sales: number; cost: number; net: number; fee: number; profit: number };
+type PostageTotals = { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number };
+
+type ReportType = "sales" | "postage";
 type Report = {
   id: string;
   client_id: string;
+  report_type: ReportType;
   period_label: string;
   hpd_fee_pct: number;
-  line_items: LineItem[];
-  totals: { qty: number; sales: number; cost: number; net: number; fee: number; profit: number };
+  line_items: any[];
+  totals: any;
   created_at: string;
   clients: { name: string } | null;
   qb_invoice_id: string | null;
@@ -40,11 +68,9 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
 
-  // QB push state
   const [qbBusy, setQbBusy] = useState(false);
   const [qbMsg, setQbMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // Email send state
   const [sendOpen, setSendOpen] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [toEmail, setToEmail] = useState("");
@@ -65,7 +91,15 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
 
   useEffect(() => { load(); }, [params.id]);
 
-  // When email panel opens, load client contacts so we can default "To".
+  // Precompute reportType + what "billed" means so both paths below agree.
+  const isPostage = report?.report_type === "postage";
+  const billedAmount = useMemo(() => {
+    if (!report) return 0;
+    if (isPostage) return Number(report.totals?.billed) || 0;
+    return Number(report.totals?.fee) || 0;
+  }, [report, isPostage]);
+  const reportKindLabel = isPostage ? "Postage Report" : "Sales Report";
+
   useEffect(() => {
     if (!sendOpen || !report) return;
     (async () => {
@@ -82,10 +116,21 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       }
       if (!subject) {
         const n = report.qb_invoice_number;
-        setSubject(`Product Sales Report — ${report.clients?.name || ""} · ${report.period_label}${n ? ` · Invoice ${n}` : ""}`);
+        const kind = isPostage ? "Postage Report" : "Product Sales Report";
+        setSubject(`${kind} — ${report.clients?.name || ""} · ${report.period_label}${n ? ` · Invoice ${n}` : ""}`);
       }
     })();
-  }, [sendOpen, report]);
+  }, [sendOpen, report, isPostage]);
+
+  async function togglePaid() {
+    if (!report) return;
+    const markingPaid = !report.paid_at;
+    const patch = markingPaid
+      ? { paid_at: new Date().toISOString(), paid_amount: billedAmount }
+      : { paid_at: null, paid_amount: null };
+    await supabase.from("shipstation_reports").update(patch).eq("id", params.id);
+    await load();
+  }
 
   async function onDelete() {
     if (!window.confirm("Delete this report? This can't be undone.")) return;
@@ -143,15 +188,14 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   if (!report) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Report not found.</div>;
 
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" };
-  const btnPrimary: React.CSSProperties = { background: T.accent, color: "#0a0e1a", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 700, cursor: "pointer", textDecoration: "none", display: "inline-block" };
+  const btnPrimary: React.CSSProperties = { background: T.accent, color: "#ffffff", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 700, cursor: "pointer", textDecoration: "none", display: "inline-block" };
   const btnGhost: React.CSSProperties = { background: T.surface, color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer", textDecoration: "none", display: "inline-block" };
   const btnGreen: React.CSSProperties = { background: T.green, color: "#0a0e1a", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 700, cursor: "pointer", textDecoration: "none", display: "inline-block" };
-  const thStyle: React.CSSProperties = { padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}` };
-  const tdStyle: React.CSSProperties = { padding: "6px 10px", fontSize: 12, borderBottom: `1px solid ${T.border}`, fontFamily: mono };
   const input: React.CSSProperties = { padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font, boxSizing: "border-box", width: "100%" };
 
   const created = new Date(report.created_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
   const hasQB = !!report.qb_invoice_id;
+  const isManualInvoice = !!report.qb_invoice_number && !report.qb_invoice_id;
   const sentDate = report.sent_at ? new Date(report.sent_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : null;
 
   return (
@@ -163,7 +207,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
             <a href="/reports" style={{ color: T.muted, textDecoration: "none" }}>Reports</a> · ShipStation
           </div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
-            Sales Report — {report.clients?.name || "—"}
+            {reportKindLabel} — {report.clients?.name || "—"}
           </h1>
           <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
             {report.period_label} · Generated {created}
@@ -172,17 +216,32 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <a href={`/api/pdf/shipstation/${report.id}`} target="_blank" rel="noopener noreferrer" style={btnGhost}>Preview PDF</a>
           <a href={`/api/pdf/shipstation/${report.id}?download=1`} style={btnGhost}>Download PDF</a>
-          {!hasQB ? (
-            <button onClick={pushToQB} disabled={qbBusy} style={{ ...btnPrimary, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Pushing…" : "Push to QuickBooks"}</button>
-          ) : (
-            <button onClick={pushToQB} disabled={qbBusy} style={{ ...btnGhost, borderColor: T.accent + "66", color: T.accent, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Updating…" : "Update QB Invoice"}</button>
+          {isPostage && (
+            <a href={`/api/excel/shipstation/${report.id}`} style={btnGhost}>Download Excel</a>
           )}
-          {hasQB && (
+          {hasQB ? (
+            <button onClick={pushToQB} disabled={qbBusy} style={{ ...btnGhost, borderColor: T.accent + "66", color: T.accent, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Updating…" : "Update QB Invoice"}</button>
+          ) : isManualInvoice ? (
+            <button disabled style={{ ...btnGhost, borderColor: T.green + "66", color: T.green, cursor: "default", opacity: 1 }}>
+              ✓ QB #{report.qb_invoice_number} (manual)
+            </button>
+          ) : (
+            <button onClick={pushToQB} disabled={qbBusy} style={{ ...btnPrimary, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Pushing…" : "Push to QuickBooks"}</button>
+          )}
+          {(hasQB || isManualInvoice) && (
             <button onClick={() => setSendOpen(s => !s)} style={btnGreen}>{sendOpen ? "Close" : (sentDate ? "Re-send to client" : "Send to client")}</button>
           )}
           <button onClick={onDelete} disabled={deleting} style={{ ...btnGhost, color: T.red, borderColor: T.red + "44" }}>Delete</button>
         </div>
       </div>
+
+      {!hasQB && (
+        <ManualInvoiceInput
+          reportId={report.id}
+          initial={report.qb_invoice_number}
+          onSaved={load}
+        />
+      )}
 
       {qbMsg && (
         <div style={{ padding: "10px 14px", borderRadius: 8, background: qbMsg.ok ? T.green + "11" : T.red + "11", border: `1px solid ${qbMsg.ok ? T.green + "55" : T.red + "55"}`, color: qbMsg.ok ? T.green : T.red, fontSize: 12 }}>
@@ -190,16 +249,16 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         </div>
       )}
 
-      {/* QB invoice summary */}
-      {hasQB && (
+      {(hasQB || isManualInvoice) && (
         <div style={{ ...card, display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
           <div>
             <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>QB Invoice</div>
             <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono, color: T.accent }}>#{report.qb_invoice_number}</div>
+            {isManualInvoice && <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>manual</div>}
           </div>
           <div>
             <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Billed</div>
-            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono }}>{fmtD(Number(report.qb_total_with_tax ?? report.totals.fee))}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono }}>{fmtD(Number(report.qb_total_with_tax ?? billedAmount))}</div>
           </div>
           <div>
             <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Status</div>
@@ -207,9 +266,17 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
               <>
                 <div style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ Paid</div>
                 <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{new Date(report.paid_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" })} · {fmtD(Number(report.paid_amount) || 0)}</div>
+                <button onClick={togglePaid} style={{ background: "none", border: "none", color: T.muted, fontSize: 10, cursor: "pointer", padding: 0, marginTop: 4, textDecoration: "underline", fontFamily: font }}>
+                  Mark unpaid
+                </button>
               </>
             ) : (
-              <div style={{ fontSize: 13, fontWeight: 700, color: T.amber }}>Unpaid</div>
+              <>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.amber }}>Unpaid</div>
+                <button onClick={togglePaid} style={{ background: "none", border: `1px solid ${T.green}55`, color: T.green, fontSize: 10, cursor: "pointer", padding: "3px 8px", marginTop: 6, borderRadius: 4, fontFamily: font, fontWeight: 600 }}>
+                  Mark paid
+                </button>
+              </>
             )}
           </div>
           <div>
@@ -232,8 +299,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         </div>
       )}
 
-      {/* Send-to-client inline form */}
-      {sendOpen && hasQB && (
+      {sendOpen && (hasQB || isManualInvoice) && (
         <div style={{ ...card, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Send report + Pay Online link</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -277,37 +343,89 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       )}
 
       {/* Totals strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
-        {[
-          { label: "Qty", value: fmtN(report.totals.qty), color: T.text },
-          { label: "Product Sales", value: fmtD(report.totals.sales), color: T.text },
-          { label: "Total Cost", value: fmtD(report.totals.cost), color: T.muted },
-          { label: "Product Net", value: fmtD(report.totals.net), color: T.text },
-          { label: `HPD Fee (${(report.hpd_fee_pct * 100).toFixed(1)}%)`, value: fmtD(report.totals.fee), color: T.amber },
-          { label: "Net Profit", value: fmtD(report.totals.profit), color: T.green },
-        ].map(i => (
-          <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px" }}>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
-            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono, color: i.color }}>{i.value}</div>
-          </div>
-        ))}
-      </div>
+      {isPostage ? (
+        <PostageTotalsStrip totals={report.totals as PostageTotals} lines={(report.line_items || []) as PostageLineItem[]} />
+      ) : (
+        <SalesTotalsStrip totals={report.totals as SalesTotals} feePct={report.hpd_fee_pct} />
+      )}
 
-      {/* Line items — grouped by product, size variants collapsed as subtitles */}
-      <LineItemsTable report={report} />
+      {/* Line items */}
+      {isPostage ? (
+        <PostageLineItemsTable report={report} />
+      ) : (
+        <LineItemsTable report={report} />
+      )}
+    </div>
+  );
+}
+
+function SalesTotalsStrip({ totals, feePct }: { totals: SalesTotals; feePct: number }) {
+  const items = [
+    { label: "Qty", value: fmtN(totals.qty), color: T.text },
+    { label: "Product Sales", value: fmtD(totals.sales), color: T.text },
+    { label: "Total Cost", value: fmtD(totals.cost), color: T.muted },
+    { label: "Product Net", value: fmtD(totals.net), color: T.text },
+    { label: `HPD Fee (${(feePct * 100).toFixed(1)}%)`, value: fmtD(totals.fee), color: T.amber },
+    { label: "Net Profit", value: fmtD(totals.profit), color: T.green },
+  ];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
+      {items.map(i => (
+        <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px" }}>
+          <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
+          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono, color: i.color }}>{i.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PostageTotalsStrip({ totals, lines }: { totals: PostageTotals; lines: PostageLineItem[] }) {
+  // Older postage reports were saved before totals.items existed — fall
+  // back to summing items_count off the line items so historical reports
+  // still show the KPI.
+  const itemsFallback = lines.reduce((a, r) => a + (Number(r.items_count) || 0), 0);
+  const safe: PostageTotals = {
+    shipments: Number(totals?.shipments) || 0,
+    items: Number(totals?.items) || itemsFallback,
+    paid: Number(totals?.paid) || 0,
+    cost_raw: Number(totals?.cost_raw) || 0,
+    cost: Number(totals?.cost) || 0,
+    insurance: Number(totals?.insurance) || 0,
+    billed: Number(totals?.billed) || 0,
+    margin: Number(totals?.margin) || 0,
+  };
+  const tiles = [
+    { label: "Shipments", value: fmtN(safe.shipments), color: T.text },
+    { label: "Items Shipped", value: fmtN(safe.items), color: T.text },
+    { label: "Shipping Income", value: fmtD(safe.paid), color: T.text },
+    { label: "Shipping Cost", value: fmtD(safe.cost), color: T.muted },
+    { label: "Insurance", value: fmtD(safe.insurance), color: T.muted },
+    { label: "Billed Amount", value: fmtD(safe.billed), color: T.amber },
+    { label: "Client Profit", value: fmtD(safe.margin), color: safe.margin >= 0 ? T.green : T.red },
+  ];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+      {tiles.map(i => (
+        <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px" }}>
+          <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
+          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono, color: i.color }}>{i.value}</div>
+        </div>
+      ))}
     </div>
   );
 }
 
 function LineItemsTable({ report }: { report: Report }) {
-  const groups = useMemo(() => groupLineItems(report.line_items), [report.line_items]);
+  const lines = (report.line_items || []) as SalesLineItem[];
+  const groups = useMemo(() => groupLineItems(lines), [lines]);
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" };
   const thStyle: React.CSSProperties = { padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}` };
   const tdStyle: React.CSSProperties = { padding: "8px 10px", fontSize: 12, borderBottom: `1px solid ${T.border}`, fontFamily: mono, verticalAlign: "top" };
   return (
     <div style={card}>
       <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
-        Products ({groups.length}) · {report.line_items.length} variant{report.line_items.length === 1 ? "" : "s"}
+        Products ({groups.length}) · {lines.length} variant{lines.length === 1 ? "" : "s"}
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -353,6 +471,107 @@ function LineItemsTable({ report }: { report: Report }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function PostageLineItemsTable({ report }: { report: Report }) {
+  const lines = (report.line_items || []) as PostageLineItem[];
+  const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" };
+  const thStyle: React.CSSProperties = { padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap" };
+  const tdStyle: React.CSSProperties = { padding: "7px 10px", fontSize: 11, borderBottom: `1px solid ${T.border}`, fontFamily: mono, verticalAlign: "top" };
+  return (
+    <div style={card}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
+        Shipments ({lines.length})
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 960 }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Date</th>
+              <th style={thStyle}>Order #</th>
+              <th style={thStyle}>Recipient</th>
+              <th style={thStyle}>Service</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Items</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Weight</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Zone</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Paid</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Cost</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Insurance</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Billed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((r, i) => {
+              const svc = [r.provider, r.service, r.package_type].filter(Boolean).join(" · ");
+              const weight = r.weight ? `${r.weight} ${r.weight_unit || ""}`.trim() : "—";
+              return (
+                <tr key={i}>
+                  <td style={{ ...tdStyle, color: T.muted }}>{dateOnly(r.ship_date) || "—"}</td>
+                  <td style={{ ...tdStyle, color: T.text, fontWeight: 600 }}>{r.order_number || "—"}</td>
+                  <td style={{ ...tdStyle, fontFamily: font }}>{r.recipient || "—"}</td>
+                  <td style={{ ...tdStyle, fontFamily: font, color: T.muted }}>{svc || "—"}</td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>{r.items_count ? fmtN(r.items_count) : "—"}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{weight}</td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>{r.zone || "—"}</td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(r.shipping_paid)}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{fmtD(r.shipping_cost)}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: r.insurance_cost > 0 ? T.muted : T.faint }}>{r.insurance_cost > 0 ? fmtD(r.insurance_cost) : "—"}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>{fmtD(r.billed)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ManualInvoiceInput({ reportId, initial, onSaved }: { reportId: string; initial: string | null; onSaved: () => void }) {
+  const supabase = createClient();
+  const [value, setValue] = useState(initial || "");
+  const [savedValue, setSavedValue] = useState(initial || "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const trimmed = value.trim();
+    if (trimmed === savedValue) return;
+    setSaving(true);
+    await supabase.from("shipstation_reports")
+      .update({ qb_invoice_number: trimmed || null })
+      .eq("id", reportId);
+    setSavedValue(trimmed);
+    setSaving(false);
+    onSaved();
+  }
+
+  return (
+    <div style={{
+      background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px",
+      display: "flex", alignItems: "center", gap: 12,
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Existing QB invoice #</div>
+        <div style={{ fontSize: 11, color: T.faint, marginTop: 2 }}>
+          If this fulfillment fee is being billed on a QB invoice you already created by hand, enter the # here — no new invoice will be created in QB.
+        </div>
+      </div>
+      <input
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        placeholder="e.g. 3682"
+        style={{
+          width: 140, padding: "8px 12px",
+          background: T.surface, border: `1px solid ${T.border}`,
+          borderRadius: 6, color: T.text, fontSize: 13, fontFamily: mono,
+          outline: "none", textAlign: "center",
+        }}
+      />
+      {saving && <span style={{ fontSize: 10, color: T.muted }}>Saving…</span>}
     </div>
   );
 }

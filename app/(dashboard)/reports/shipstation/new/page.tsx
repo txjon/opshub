@@ -3,13 +3,10 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { groupLineItems, type Group } from "@/lib/shipstation-group";
+import { groupLineItems } from "@/lib/shipstation-group";
 
-// ── CSV row shape ────────────────────────────────────────────────────────────
+// ── Sales CSV row shape ───────────────────────────────────────────────────
 // ShipStation product-sales export: Store, SKU, Description, Category, QtySold, TotalSales
-// Only SKU / Description / QtySold / TotalSales are used. Refund rows come
-// through with no SKU and a negative TotalSales — we flag but still include
-// them in the selection UI so Jon decides.
 type ParsedRow = {
   idx: number;
   sku: string;
@@ -19,14 +16,42 @@ type ParsedRow = {
   included: boolean;
 };
 
+// ── Postage CSV row shape ─────────────────────────────────────────────────
+// ShipStation shipment export (flattened by Jon to 13 columns):
+// Ship Date, Recipient, Order #, Provider, Service, Package, Items, Zone,
+// Shipping Paid, Shipping Cost, Insurance Cost, Weight, Weight Unit
+type ParsedPostageRow = {
+  idx: number;
+  ship_date: string;
+  recipient: string;
+  order_number: string;
+  provider: string;
+  service: string;
+  package_type: string;
+  items_count: number;
+  zone: string;
+  shipping_paid: number;
+  shipping_cost: number;
+  insurance_cost: number;
+  weight: number;
+  weight_unit: string;
+  included: boolean;
+};
+
 const fmtD = (n: number) =>
   "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtN = (n: number) => Number(n || 0).toLocaleString("en-US");
+// ShipStation's ship date frequently carries a time component we don't
+// want to display. Strip anything after the first space or T separator.
+function dateOnly(raw: string): string {
+  if (!raw) return "";
+  return raw.trim().split(/[\sT]/)[0];
+}
 
-// Unit costs are typed in but often copy-pasted from Excel — so the raw
+// Unit costs / money inputs are often copy-pasted from Excel — the raw
 // string can include currency symbols, thousands commas, whitespace, or
 // a stray trailing newline. parseFloat silently returns NaN on any of
-// those and the real values get dropped on save. Strip the noise first.
+// those and real values get dropped. Strip the noise first.
 function parseMoney(raw: unknown): number {
   if (raw == null) return 0;
   const cleaned = String(raw).replace(/[\$,\s]/g, "").trim();
@@ -65,15 +90,28 @@ function parseCsv(text: string): string[][] {
   return rows;
 }
 
+// Match header by trying multiple aliases — ShipStation field names drift
+// slightly between exports. Returns -1 if nothing matches.
+function findCol(header: string[], aliases: string[]): number {
+  const h = header.map(s => s.trim().toLowerCase());
+  for (const alias of aliases) {
+    const i = h.indexOf(alias.toLowerCase());
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
 type Client = { id: string; name: string; hpd_fee_pct: number | null };
+type ReportType = "sales" | "postage";
 
 export default function NewShipstationReportPage() {
   const router = useRouter();
   const supabase = createClient();
 
+  const [reportType, setReportType] = useState<ReportType>("sales");
   const [stage, setStage] = useState<1 | 2 | 3 | 4>(1);
 
-  // Stage 1
+  // Stage 1 — shared
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState<string>("");
   const [periodLabel, setPeriodLabel] = useState<string>(() => {
@@ -81,22 +119,25 @@ export default function NewShipstationReportPage() {
     d.setMonth(d.getMonth() - 1);
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   });
-  const [rawRows, setRawRows] = useState<ParsedRow[]>([]);
   const [csvError, setCsvError] = useState("");
-  const [mergedCount, setMergedCount] = useState(0); // how many duplicate-SKU rows were merged on parse
 
-  // Stage 3
-  const [unitCosts, setUnitCosts] = useState<Record<string, string>>({}); // sku → string (raw input)
-  const [savedCosts, setSavedCosts] = useState<Record<string, number>>({}); // sku → number from DB
+  // Sales-specific
+  const [rawRows, setRawRows] = useState<ParsedRow[]>([]);
+  const [mergedCount, setMergedCount] = useState(0);
+  const [groupCosts, setGroupCosts] = useState<Record<string, string>>({});
+  const [savedCosts, setSavedCosts] = useState<Record<string, number>>({});
+  const [feePct, setFeePct] = useState<string>("0.20");
+
+  // Postage-specific
+  const [rawPostageRows, setRawPostageRows] = useState<ParsedPostageRow[]>([]);
+  const [markupPct, setMarkupPct] = useState<string>("0.10");
 
   // Stage 4
-  const [feePct, setFeePct] = useState<string>("0.20");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
   const client = clients.find(c => c.id === clientId) || null;
 
-  // Load clients. v1: all clients — Jon will grow into this over time.
   useEffect(() => {
     (async () => {
       const { data } = await supabase
@@ -104,15 +145,15 @@ export default function NewShipstationReportPage() {
         .select("id, name, hpd_fee_pct")
         .order("name");
       setClients(data || []);
-      // Default to Forward Observations Group if present (only fulfillment client today)
       const fog = (data || []).find(c => c.name.toLowerCase().includes("forward observations"));
       if (fog) setClientId(fog.id);
     })();
   }, []);
 
-  // Pull persisted unit costs + client fee when we know the client.
+  // Pull persisted unit costs + client fee when we know the client. Only
+  // relevant to sales reports — postage has no per-SKU costs.
   useEffect(() => {
-    if (!clientId) return;
+    if (!clientId || reportType !== "sales") return;
     (async () => {
       const { data } = await supabase
         .from("shipstation_sku_costs")
@@ -124,85 +165,167 @@ export default function NewShipstationReportPage() {
       const c = clients.find(c => c.id === clientId);
       if (c?.hpd_fee_pct != null) setFeePct(String(c.hpd_fee_pct));
     })();
-  }, [clientId, clients]);
+  }, [clientId, clients, reportType]);
+
+  async function parseSalesCsv(text: string) {
+    const parsed = parseCsv(text);
+    if (parsed.length < 2) throw new Error("CSV looks empty");
+    const header = parsed[0];
+    const skuIdx = findCol(header, ["sku"]);
+    const descIdx = findCol(header, ["description"]);
+    const qtyIdx = findCol(header, ["qtysold", "qty sold", "qty"]);
+    const salesIdx = findCol(header, ["totalsales", "total sales", "sales"]);
+    if (skuIdx < 0 || qtyIdx < 0 || salesIdx < 0) {
+      throw new Error("CSV is missing required columns (SKU, QtySold, TotalSales)");
+    }
+    // Aggregate duplicate SKUs. Blank-SKU rows stay individual (refunds).
+    const byKey = new Map<string, ParsedRow>();
+    const blankSkuRows: ParsedRow[] = [];
+    let merged = 0;
+    for (let i = 1; i < parsed.length; i++) {
+      const r = parsed[i];
+      if (!r || r.every(c => !c || !c.trim())) continue;
+      const sku = (r[skuIdx] || "").trim();
+      const description = descIdx >= 0 ? (r[descIdx] || "").trim() : "";
+      const qty_sold = parseMoney(r[qtyIdx]);
+      const product_sales = parseMoney(r[salesIdx]);
+      if (!sku) {
+        blankSkuRows.push({ idx: 0, sku, description, qty_sold, product_sales, included: true });
+        continue;
+      }
+      const existing = byKey.get(sku);
+      if (existing) {
+        existing.qty_sold += qty_sold;
+        existing.product_sales += product_sales;
+        if (description.length > existing.description.length) existing.description = description;
+        merged++;
+      } else {
+        byKey.set(sku, { idx: 0, sku, description, qty_sold, product_sales, included: true });
+      }
+    }
+    const rows: ParsedRow[] = [...byKey.values(), ...blankSkuRows].map((r, idx) => ({ ...r, idx }));
+    if (rows.length === 0) throw new Error("No data rows found");
+    return { rows, merged };
+  }
+
+  // Normalize ShipStation's internal provider names to the clean carrier
+  // label we show to clients. Hides the tooling we use from the client-
+  // facing invoice and keeps the provider column from wrapping.
+  function normalizeProvider(raw: string): string {
+    const s = (raw || "").trim();
+    if (!s) return "";
+    const lower = s.toLowerCase();
+    if (lower.startsWith("stamps.com") || lower === "stamps") return "USPS";
+    if (lower.startsWith("ups by shipstation") || lower === "ups by ss") return "UPS";
+    return s;
+  }
+
+  async function parsePostageCsv(text: string) {
+    const parsed = parseCsv(text);
+    if (parsed.length < 2) throw new Error("CSV looks empty");
+    const header = parsed[0];
+    const col = {
+      ship_date: findCol(header, ["ship date", "shipped date", "date", "ship_date"]),
+      recipient: findCol(header, ["recipient", "buyer", "ship to", "customer"]),
+      order_number: findCol(header, ["order #", "order number", "order", "order_number"]),
+      provider: findCol(header, ["provider", "carrier"]),
+      service: findCol(header, ["service", "ship service"]),
+      package_type: findCol(header, ["package", "package type"]),
+      items_count: findCol(header, ["items", "item count", "items count", "item qty", "qty"]),
+      zone: findCol(header, ["zone"]),
+      shipping_paid: findCol(header, ["shipping paid", "shipping collected", "paid", "postage paid"]),
+      shipping_cost: findCol(header, ["shipping cost", "postage cost", "postage", "cost"]),
+      insurance_cost: findCol(header, ["insurance cost", "insurance"]),
+      weight: findCol(header, ["weight"]),
+      weight_unit: findCol(header, ["weight unit", "unit"]),
+    };
+    if (col.shipping_cost < 0) {
+      throw new Error("CSV is missing a Shipping Cost column");
+    }
+    const rows: ParsedPostageRow[] = [];
+    for (let i = 1; i < parsed.length; i++) {
+      const r = parsed[i];
+      if (!r || r.every(c => !c || !c.trim())) continue;
+      const pick = (idx: number) => idx >= 0 ? (r[idx] || "").trim() : "";
+      const row: ParsedPostageRow = {
+        idx: rows.length,
+        ship_date: pick(col.ship_date),
+        recipient: pick(col.recipient),
+        order_number: pick(col.order_number),
+        provider: normalizeProvider(pick(col.provider)),
+        service: pick(col.service),
+        package_type: pick(col.package_type),
+        items_count: parseMoney(pick(col.items_count)),
+        zone: pick(col.zone),
+        shipping_paid: parseMoney(pick(col.shipping_paid)),
+        shipping_cost: parseMoney(pick(col.shipping_cost)),
+        insurance_cost: parseMoney(pick(col.insurance_cost)),
+        weight: parseMoney(pick(col.weight)),
+        weight_unit: pick(col.weight_unit),
+        included: true,
+      };
+      rows.push(row);
+    }
+    if (rows.length === 0) throw new Error("No data rows found");
+    return { rows };
+  }
 
   async function onCsvFile(file: File) {
     setCsvError("");
     try {
       const text = await file.text();
-      const parsed = parseCsv(text);
-      if (parsed.length < 2) throw new Error("CSV looks empty");
-      const header = parsed[0].map(h => h.trim().toLowerCase());
-      const skuIdx = header.findIndex(h => h === "sku");
-      const descIdx = header.findIndex(h => h === "description");
-      const qtyIdx = header.findIndex(h => h === "qtysold" || h === "qty sold" || h === "qty");
-      const salesIdx = header.findIndex(h => h === "totalsales" || h === "total sales" || h === "sales");
-      if (skuIdx < 0 || qtyIdx < 0 || salesIdx < 0) {
-        throw new Error("CSV is missing required columns (SKU, QtySold, TotalSales)");
+      if (reportType === "sales") {
+        const { rows, merged } = await parseSalesCsv(text);
+        setRawRows(rows);
+        setMergedCount(merged);
+      } else {
+        const { rows } = await parsePostageCsv(text);
+        setRawPostageRows(rows);
       }
-      // ShipStation sometimes emits the same SKU on multiple rows (e.g., a
-      // product description was edited mid-period, so the catalog has two
-      // entries). Economically those are one item — aggregate qty + sales
-      // and keep the longer description. Blank-SKU rows (refunds) are kept
-      // individually since each is its own line.
-      const byKey = new Map<string, ParsedRow>();
-      const blankSkuRows: ParsedRow[] = [];
-      let merged = 0;
-      for (let i = 1; i < parsed.length; i++) {
-        const r = parsed[i];
-        if (!r || r.every(c => !c || !c.trim())) continue;
-        const sku = (r[skuIdx] || "").trim();
-        const description = descIdx >= 0 ? (r[descIdx] || "").trim() : "";
-        const qty_sold = parseMoney(r[qtyIdx]);
-        const product_sales = parseMoney(r[salesIdx]);
-        if (!sku) {
-          blankSkuRows.push({ idx: 0, sku, description, qty_sold, product_sales, included: true });
-          continue;
-        }
-        const existing = byKey.get(sku);
-        if (existing) {
-          existing.qty_sold += qty_sold;
-          existing.product_sales += product_sales;
-          if (description.length > existing.description.length) existing.description = description;
-          merged++;
-        } else {
-          byKey.set(sku, { idx: 0, sku, description, qty_sold, product_sales, included: true });
-        }
-      }
-      const rows: ParsedRow[] = [...byKey.values(), ...blankSkuRows].map((r, idx) => ({ ...r, idx }));
-      if (rows.length === 0) throw new Error("No data rows found");
-      setRawRows(rows);
-      setMergedCount(merged);
     } catch (e: any) {
       setCsvError(e.message || "Failed to parse CSV");
-      setRawRows([]);
+      if (reportType === "sales") setRawRows([]);
+      else setRawPostageRows([]);
     }
   }
 
-  // Selected rows (stage 2) → feed stage 3.
-  const selectedRows = useMemo(() => rawRows.filter(r => r.included), [rawRows]);
+  // Reset row state when the user flips the type toggle after uploading —
+  // the parsed rows don't cross-apply.
+  function onChangeType(next: ReportType) {
+    setReportType(next);
+    setStage(1);
+    setCsvError("");
+    setRawRows([]);
+    setRawPostageRows([]);
+    setMergedCount(0);
+  }
 
-  // Stage 3 / 4 present groups (one row per product, size variants collapsed
-  // into a "Sizes: …" subtitle). Each group shares a single unit-cost input
-  // that applies to every variant SKU — Jon confirmed costs don't vary by
-  // size. Groups are keyed by a stable (SKU root + description root).
+  // ── Sales flow derivations ────────────────────────────────────────────────
+  const selectedRows = useMemo(() => rawRows.filter(r => r.included), [rawRows]);
   const groups = useMemo(() => {
     const raw = selectedRows.map(r => ({
       sku: r.sku,
       description: r.description,
       qty_sold: r.qty_sold,
       product_sales: r.product_sales,
-      unit_cost: parseMoney(unitCosts[r.sku]),
+      unit_cost: 0,
+      idx: r.idx,
     }));
     return groupLineItems(raw);
-  }, [selectedRows, unitCosts]);
-
-  // Live totals (stage 3 + stage 4) — uses current unitCosts map.
-  const totals = useMemo(() => {
+  }, [selectedRows]);
+  const costByRowIdx = useMemo(() => {
+    const m: Record<number, number> = {};
+    for (const g of groups) {
+      const cost = parseMoney(groupCosts[g.key]);
+      for (const v of g.variants) if (typeof v.idx === "number") m[v.idx] = cost;
+    }
+    return m;
+  }, [groups, groupCosts]);
+  const salesTotals = useMemo(() => {
     const feeRate = parseMoney(feePct);
     let qty = 0, sales = 0, cost = 0;
     for (const r of selectedRows) {
-      const uc = parseMoney(unitCosts[r.sku]);
+      const uc = costByRowIdx[r.idx] || 0;
       qty += r.qty_sold;
       sales += r.product_sales;
       cost += uc * r.qty_sold;
@@ -211,108 +334,164 @@ export default function NewShipstationReportPage() {
     const fee = net * feeRate;
     const profit = net - fee;
     return { qty, sales, cost, net, fee, profit };
-  }, [selectedRows, unitCosts, feePct]);
+  }, [selectedRows, costByRowIdx, feePct]);
 
-  // Anchor for shift-click range selection. Stores the last row index the
-  // user clicked (without shift). Shift-click between anchor and target
-  // applies the anchor row's new state to the whole range.
+  // ── Postage flow derivations ─────────────────────────────────────────────
+  const selectedPostageRows = useMemo(() => rawPostageRows.filter(r => r.included), [rawPostageRows]);
+  const postageTotals = useMemo(() => {
+    const mk = parseMoney(markupPct);
+    let shipments = 0, items = 0, paid = 0, cost_raw = 0, insurance = 0;
+    for (const r of selectedPostageRows) {
+      shipments += 1;
+      items += r.items_count || 0;
+      paid += r.shipping_paid;
+      cost_raw += r.shipping_cost;
+      insurance += r.insurance_cost;
+    }
+    const cost = cost_raw * (1 + mk);
+    const billed = cost + insurance;
+    const margin = paid - billed;
+    return { shipments, items, paid, cost_raw, cost, insurance, billed, margin };
+  }, [selectedPostageRows, markupPct]);
+
+  // ── Shared selection handlers ────────────────────────────────────────────
   const lastClickedIdxRef = useRef<number | null>(null);
   const toggleRow = useCallback((idx: number, shiftKey: boolean) => {
-    setRawRows(rs => {
-      const target = rs.find(r => r.idx === idx);
+    const setter: any = reportType === "sales" ? setRawRows : setRawPostageRows;
+    setter((rs: any[]) => {
+      const target = rs.find((r: any) => r.idx === idx);
       if (!target) return rs;
       const newState = !target.included;
       if (shiftKey && lastClickedIdxRef.current != null && lastClickedIdxRef.current !== idx) {
         const [from, to] = [lastClickedIdxRef.current, idx].sort((a, b) => a - b);
-        return rs.map(r => (r.idx >= from && r.idx <= to) ? { ...r, included: newState } : r);
+        return rs.map((r: any) => (r.idx >= from && r.idx <= to) ? { ...r, included: newState } : r);
       }
-      return rs.map(r => r.idx === idx ? { ...r, included: newState } : r);
+      return rs.map((r: any) => r.idx === idx ? { ...r, included: newState } : r);
     });
     if (!shiftKey) lastClickedIdxRef.current = idx;
-  }, []);
-  const selectAll = useCallback(() => setRawRows(rs => rs.map(r => ({ ...r, included: true }))), []);
-  const clearAll = useCallback(() => setRawRows(rs => rs.map(r => ({ ...r, included: false }))), []);
+  }, [reportType]);
+  const selectAll = useCallback(() => {
+    if (reportType === "sales") setRawRows(rs => rs.map(r => ({ ...r, included: true })));
+    else setRawPostageRows(rs => rs.map(r => ({ ...r, included: true })));
+  }, [reportType]);
+  const clearAll = useCallback(() => {
+    if (reportType === "sales") setRawRows(rs => rs.map(r => ({ ...r, included: false })));
+    else setRawPostageRows(rs => rs.map(r => ({ ...r, included: false })));
+  }, [reportType]);
 
-  // When we enter stage 3, seed unitCosts from savedCosts for any SKU we haven't touched.
+  // Seed groupCosts from savedCosts when entering stage 3 (sales only).
   useEffect(() => {
-    if (stage !== 3) return;
-    setUnitCosts(cur => {
+    if (stage !== 3 || reportType !== "sales") return;
+    setGroupCosts(cur => {
       const next = { ...cur };
-      for (const r of selectedRows) {
-        if (next[r.sku] !== undefined) continue;
-        if (savedCosts[r.sku] !== undefined) next[r.sku] = String(savedCosts[r.sku]);
+      for (const g of groups) {
+        if (next[g.key] !== undefined) continue;
+        const skuWithSaved = g.variants.map(v => v.sku).find(sku => sku && savedCosts[sku] !== undefined);
+        if (skuWithSaved) next[g.key] = String(savedCosts[skuWithSaved]);
       }
       return next;
     });
-  }, [stage, selectedRows, savedCosts]);
+  }, [stage, groups, savedCosts, reportType]);
 
   async function generate() {
     setSaving(true);
     setSaveError("");
     try {
-      const feeRate = parseMoney(feePct);
-
-      // 1. Upsert per-SKU unit costs so next month pre-fills. De-dupe by
-      // sku (keeping the last entry wins) so Postgres doesn't reject the
-      // batch with "ON CONFLICT DO UPDATE command cannot affect row a
-      // second time" if any duplicates slipped through parse aggregation.
-      const upsertsMap = new Map<string, any>();
-      for (const r of selectedRows) {
-        if (!r.sku) continue; // blank-SKU refund rows never persist
-        upsertsMap.set(r.sku, {
-          client_id: clientId,
-          sku: r.sku,
-          description: r.description || null,
-          unit_cost: parseMoney(unitCosts[r.sku]),
-          updated_at: new Date().toISOString(),
-        });
-      }
-      const upserts = Array.from(upsertsMap.values());
-      if (upserts.length) {
-        const { error: upErr } = await (supabase as any)
-          .from("shipstation_sku_costs")
-          .upsert(upserts, { onConflict: "client_id,sku" });
-        if (upErr) throw upErr;
-      }
-
-      // 2. If the client's saved fee rate has changed, write it back.
-      if (client && (client.hpd_fee_pct == null || Math.abs(client.hpd_fee_pct - feeRate) > 1e-9)) {
-        await (supabase as any).from("clients").update({ hpd_fee_pct: feeRate }).eq("id", clientId);
-      }
-
-      // 3. Insert the report.
-      const line_items = selectedRows.map(r => ({
-        sku: r.sku,
-        description: r.description,
-        qty_sold: r.qty_sold,
-        product_sales: r.product_sales,
-        unit_cost: parseMoney(unitCosts[r.sku]),
-      }));
-      const source_rows = rawRows.map(r => ({
-        sku: r.sku,
-        description: r.description,
-        qty_sold: r.qty_sold,
-        product_sales: r.product_sales,
-        included: r.included,
-      }));
-
       const { data: user } = await supabase.auth.getUser();
-      const { data: inserted, error: insErr } = await (supabase as any)
-        .from("shipstation_reports")
-        .insert({
-          client_id: clientId,
-          period_label: periodLabel,
-          hpd_fee_pct: feeRate,
-          line_items,
-          source_rows,
-          totals,
-          created_by: user.user?.id || null,
-        })
-        .select("id")
-        .single();
-      if (insErr) throw insErr;
 
-      router.push(`/reports/shipstation/${inserted.id}`);
+      if (reportType === "sales") {
+        const feeRate = parseMoney(feePct);
+        // 1. Upsert per-SKU unit costs so next month pre-fills.
+        const upsertsMap = new Map<string, any>();
+        for (const r of selectedRows) {
+          if (!r.sku) continue;
+          upsertsMap.set(r.sku, {
+            client_id: clientId,
+            sku: r.sku,
+            description: r.description || null,
+            unit_cost: costByRowIdx[r.idx] || 0,
+            updated_at: new Date().toISOString(),
+          });
+        }
+        const upserts = Array.from(upsertsMap.values());
+        if (upserts.length) {
+          const { error: upErr } = await (supabase as any)
+            .from("shipstation_sku_costs")
+            .upsert(upserts, { onConflict: "client_id,sku" });
+          if (upErr) throw upErr;
+        }
+
+        // 2. Save fee rate back to client if it's changed.
+        if (client && (client.hpd_fee_pct == null || Math.abs(client.hpd_fee_pct - feeRate) > 1e-9)) {
+          await (supabase as any).from("clients").update({ hpd_fee_pct: feeRate }).eq("id", clientId);
+        }
+
+        // 3. Insert report.
+        const line_items = selectedRows.map(r => ({
+          sku: r.sku,
+          description: r.description,
+          qty_sold: r.qty_sold,
+          product_sales: r.product_sales,
+          unit_cost: costByRowIdx[r.idx] || 0,
+        }));
+        // source_rows was a write-only audit copy of the full CSV. Never
+        // read anywhere, so we don't persist it — saves a large JSONB
+        // write on every report. If we ever build a re-edit flow, put
+        // it back.
+        const { data: inserted, error: insErr } = await (supabase as any)
+          .from("shipstation_reports")
+          .insert({
+            client_id: clientId,
+            report_type: "sales",
+            period_label: periodLabel,
+            hpd_fee_pct: feeRate,
+            line_items,
+            totals: salesTotals,
+            created_by: user.user?.id || null,
+          })
+          .select("id")
+          .single();
+        if (insErr) throw insErr;
+        router.push(`/reports/shipstation/${inserted.id}`);
+      } else {
+        // Postage insert — reuses hpd_fee_pct column to store markup %.
+        const markup = parseMoney(markupPct);
+        const line_items = selectedPostageRows.map(r => {
+          const cost_marked = r.shipping_cost * (1 + markup);
+          return {
+            ship_date: r.ship_date,
+            recipient: r.recipient,
+            order_number: r.order_number,
+            provider: r.provider,
+            service: r.service,
+            package_type: r.package_type,
+            items_count: r.items_count,
+            zone: r.zone,
+            shipping_paid: r.shipping_paid,
+            shipping_cost_raw: r.shipping_cost,
+            shipping_cost: cost_marked,
+            insurance_cost: r.insurance_cost,
+            weight: r.weight,
+            weight_unit: r.weight_unit,
+            billed: cost_marked + r.insurance_cost,
+          };
+        });
+        const { data: inserted, error: insErr } = await (supabase as any)
+          .from("shipstation_reports")
+          .insert({
+            client_id: clientId,
+            report_type: "postage",
+            period_label: periodLabel,
+            hpd_fee_pct: markup,
+            line_items,
+            totals: postageTotals,
+            created_by: user.user?.id || null,
+          })
+          .select("id")
+          .single();
+        if (insErr) throw insErr;
+        router.push(`/reports/shipstation/${inserted.id}`);
+      }
     } catch (e: any) {
       setSaveError(e.message || "Generate failed");
       setSaving(false);
@@ -322,7 +501,7 @@ export default function NewShipstationReportPage() {
   // ── UI ──────────────────────────────────────────────────────────────────────
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" };
   const input: React.CSSProperties = { padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font, boxSizing: "border-box" };
-  const btnPrimary: React.CSSProperties = { background: T.accent, color: "#0a0e1a", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 700, cursor: "pointer" };
+  const btnPrimary: React.CSSProperties = { background: T.accent, color: "#ffffff", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 700, cursor: "pointer" };
   const btnGhost: React.CSSProperties = { background: T.surface, color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" };
   const thStyle: React.CSSProperties = { padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}` };
   const tdStyle: React.CSSProperties = { padding: "6px 10px", fontSize: 12, borderBottom: `1px solid ${T.border}`, fontFamily: mono };
@@ -334,29 +513,56 @@ export default function NewShipstationReportPage() {
       background: active ? T.accent + "22" : done ? T.surface : "transparent",
       border: `1px solid ${active ? T.accent : done ? T.border : T.border}`,
     }}>
-      <span style={{ width: 22, height: 22, borderRadius: 11, background: active ? T.accent : done ? T.green : T.surface, color: active || done ? "#0a0e1a" : T.muted, fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", fontFamily: mono }}>
+      <span style={{ width: 22, height: 22, borderRadius: 11, background: active ? T.accent : done ? T.green : T.surface, color: active ? "#ffffff" : done ? "#0a0e1a" : T.muted, fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", fontFamily: mono }}>
         {done ? "✓" : n}
       </span>
       <span style={{ fontSize: 12, fontWeight: 600, color: active ? T.text : T.muted }}>{label}</span>
     </div>
   );
 
-  const canNextFrom1 = clientId && periodLabel.trim() && rawRows.length > 0 && !csvError;
-  const canNextFrom2 = selectedRows.length > 0;
-  const canNextFrom3 = selectedRows.every(r => unitCosts[r.sku] !== undefined && unitCosts[r.sku] !== "");
+  const isPostage = reportType === "postage";
+  const rowsLoaded = isPostage ? rawPostageRows.length : rawRows.length;
+  const selectedCount = isPostage ? selectedPostageRows.length : selectedRows.length;
+  const canNextFrom1 = clientId && periodLabel.trim() && rowsLoaded > 0 && !csvError;
+  const canNextFrom2 = selectedCount > 0;
+  const canNextFrom3 = isPostage
+    ? parseMoney(markupPct) >= 0
+    : groups.every(g => groupCosts[g.key] !== undefined && groupCosts[g.key] !== "");
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
         <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Reports · ShipStation</div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Create Sales Report</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
+          Create {isPostage ? "Postage" : "Sales"} Report
+        </h1>
+      </div>
+
+      {/* Report type toggle — only meaningful before rows are parsed; still
+          allowed to flip after, but parsed rows get cleared (see onChangeType). */}
+      <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
+        {(["sales", "postage"] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => onChangeType(t)}
+            style={{
+              background: reportType === t ? T.accent : "transparent",
+              color: reportType === t ? "#ffffff" : T.muted,
+              border: "none", borderRadius: 6,
+              padding: "6px 18px", fontSize: 12, fontWeight: 700,
+              fontFamily: font, cursor: "pointer", textTransform: "capitalize",
+            }}
+          >
+            {t} Report
+          </button>
+        ))}
       </div>
 
       {/* Stage pills */}
       <div style={{ display: "flex", gap: 8 }}>
         {stagePill(1, "Upload", stage === 1, stage > 1)}
-        {stagePill(2, "Select rows", stage === 2, stage > 2)}
-        {stagePill(3, "Unit costs", stage === 3, stage > 3)}
+        {stagePill(2, isPostage ? "Select shipments" : "Select rows", stage === 2, stage > 2)}
+        {stagePill(3, isPostage ? "Markup %" : "Unit costs", stage === 3, stage > 3)}
         {stagePill(4, "Review + generate", stage === 4, false)}
       </div>
 
@@ -378,7 +584,9 @@ export default function NewShipstationReportPage() {
           </div>
 
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>ShipStation CSV</label>
+            <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>
+              {isPostage ? "ShipStation shipment CSV" : "ShipStation sales CSV"}
+            </label>
             <div style={{ border: `1px dashed ${T.border}`, borderRadius: 10, padding: "18px 16px", background: T.surface, display: "flex", alignItems: "center", gap: 12 }}>
               <input
                 type="file"
@@ -386,12 +594,17 @@ export default function NewShipstationReportPage() {
                 onChange={e => e.target.files?.[0] && onCsvFile(e.target.files[0])}
                 style={{ fontSize: 12, color: T.muted, fontFamily: font }}
               />
-              {rawRows.length > 0 && (
+              {rowsLoaded > 0 && (
                 <span style={{ fontSize: 12, color: T.green, fontFamily: mono }}>
-                  ✓ {rawRows.length} rows parsed
+                  ✓ {rowsLoaded} {isPostage ? "shipments" : "rows"} parsed
                 </span>
               )}
             </div>
+            {isPostage && (
+              <div style={{ fontSize: 10, color: T.faint, marginTop: 6, lineHeight: 1.5 }}>
+                Expected columns: Ship Date · Recipient · Order # · Provider · Service · Package · Items · Zone · Shipping Paid · Shipping Cost · Insurance Cost · Weight · Weight Unit. Extra columns are ignored.
+              </div>
+            )}
             {csvError && <div style={{ fontSize: 12, color: T.red, marginTop: 8 }}>{csvError}</div>}
           </div>
 
@@ -404,7 +617,7 @@ export default function NewShipstationReportPage() {
       )}
 
       {/* ── Stage 2 — Select rows ── */}
-      {stage === 2 && (
+      {stage === 2 && !isPostage && (
         <div style={card}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: T.muted }}>
@@ -444,7 +657,7 @@ export default function NewShipstationReportPage() {
                         <input
                           type="checkbox"
                           checked={r.included}
-                          onChange={() => {}} /* state mutation handled on click so we get shiftKey */
+                          onChange={() => {}}
                           onClick={(e) => toggleRow(r.idx, e.shiftKey)}
                           style={{ cursor: "pointer" }}
                         />
@@ -467,10 +680,77 @@ export default function NewShipstationReportPage() {
         </div>
       )}
 
-      {/* ── Stage 3 — Unit costs (per product, applied to every size variant) ── */}
-      {stage === 3 && (
+      {/* ── Stage 2 — Select shipments (postage) ── */}
+      {stage === 2 && isPostage && (
+        <div style={card}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 12, color: T.muted }}>
+              <span style={{ fontWeight: 700, color: T.text }}>{selectedPostageRows.length}</span> of {rawPostageRows.length} shipments included
+              <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={selectAll} style={btnGhost}>Select all</button>
+              <button onClick={clearAll} style={btnGhost}>Clear all</button>
+            </div>
+          </div>
+
+          <div style={{ maxHeight: 560, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
+                <tr>
+                  <th style={{ ...thStyle, width: 36 }}></th>
+                  <th style={thStyle}>Ship Date</th>
+                  <th style={thStyle}>Recipient</th>
+                  <th style={thStyle}>Order #</th>
+                  <th style={thStyle}>Service</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Items</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Zone</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Paid</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Cost</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Insurance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rawPostageRows.map(r => {
+                  const svcLine = [r.provider, r.service, r.package_type].filter(Boolean).join(" · ");
+                  return (
+                    <tr key={r.idx} style={{ opacity: r.included ? 1 : 0.45 }}>
+                      <td style={{ ...tdStyle, textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={r.included}
+                          onChange={() => {}}
+                          onClick={(e) => toggleRow(r.idx, e.shiftKey)}
+                          style={{ cursor: "pointer" }}
+                        />
+                      </td>
+                      <td style={{ ...tdStyle, fontFamily: mono, color: T.muted, fontSize: 11 }}>{dateOnly(r.ship_date) || "—"}</td>
+                      <td style={{ ...tdStyle, fontFamily: font, fontWeight: 600 }}>{r.recipient || "—"}</td>
+                      <td style={{ ...tdStyle, fontFamily: mono, fontSize: 11, color: T.muted }}>{r.order_number || "—"}</td>
+                      <td style={{ ...tdStyle, fontFamily: font, fontSize: 11, color: T.muted }}>{svcLine || "—"}</td>
+                      <td style={{ ...tdStyle, textAlign: "right" }}>{r.items_count ? fmtN(r.items_count) : "—"}</td>
+                      <td style={{ ...tdStyle, textAlign: "right" }}>{r.zone || "—"}</td>
+                      <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(r.shipping_paid)}</td>
+                      <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(r.shipping_cost)}</td>
+                      <td style={{ ...tdStyle, textAlign: "right", color: r.insurance_cost > 0 ? T.text : T.faint }}>{r.insurance_cost > 0 ? fmtD(r.insurance_cost) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
+            <button onClick={() => setStage(1)} style={btnGhost}>← Back</button>
+            <button disabled={!canNextFrom2} onClick={() => setStage(3)} style={{ ...btnPrimary, opacity: canNextFrom2 ? 1 : 0.4, cursor: canNextFrom2 ? "pointer" : "not-allowed" }}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Stage 3 — Sales: per-product unit costs ── */}
+      {stage === 3 && !isPostage && (
         <>
-          <LiveTotalsStrip totals={totals} />
+          <SalesTotalsStrip totals={salesTotals} />
           <div style={card}>
             <div style={{ fontSize: 11, color: T.muted, marginBottom: 10 }}>
               One unit cost per product. Variants with different sizes share the same cost. Costs save per client so next month pre-fills.
@@ -489,21 +769,14 @@ export default function NewShipstationReportPage() {
                 </thead>
                 <tbody>
                   {groups.map(g => {
-                    // Represent the group's cost by the first variant's entry
-                    // (all variants share one cost). The input writes to every
-                    // variant SKU so saved data stays per-SKU.
-                    const primarySku = g.variants[0]?.sku || "";
-                    const raw = unitCosts[primarySku] ?? "";
+                    const raw = groupCosts[g.key] ?? "";
                     const uc = parseMoney(raw);
                     const totalCost = uc * g.qty_sold;
                     const net = g.product_sales - totalCost;
-                    const fromSaved = primarySku && savedCosts[primarySku] !== undefined;
+                    const skuWithSaved = g.variants.map(v => v.sku).find(sku => sku && savedCosts[sku] !== undefined);
+                    const fromSaved = !!skuWithSaved;
                     const setCostForGroup = (val: string) => {
-                      setUnitCosts(c => {
-                        const next = { ...c };
-                        for (const v of g.variants) next[v.sku] = val;
-                        return next;
-                      });
+                      setGroupCosts(c => ({ ...c, [g.key]: val }));
                     };
                     const sizesLabel = g.variants
                       .filter(v => v.size || v.qty_sold > 0)
@@ -535,7 +808,7 @@ export default function NewShipstationReportPage() {
                               if (normalized !== v) setCostForGroup(normalized);
                             }}
                             placeholder="0.00"
-                            title={fromSaved ? `Saved from last run: ${fmtD(savedCosts[primarySku])}` : undefined}
+                            title={fromSaved && skuWithSaved ? `Saved from last run: ${fmtD(savedCosts[skuWithSaved])}` : undefined}
                             style={{ ...input, padding: "4px 8px", fontSize: 12, fontFamily: mono, textAlign: "right", width: "100%", borderColor: uc === 0 && raw.trim() ? T.red : fromSaved ? T.green + "55" : T.border }}
                           />
                         </td>
@@ -557,10 +830,48 @@ export default function NewShipstationReportPage() {
         </>
       )}
 
-      {/* ── Stage 4 — Review + generate ── */}
-      {stage === 4 && (
+      {/* ── Stage 3 — Postage: markup % ── */}
+      {stage === 3 && isPostage && (
         <>
-          <LiveTotalsStrip totals={totals} />
+          <PostageTotalsStrip totals={postageTotals} />
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>HPD Markup</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <input
+                  type="text" inputMode="decimal"
+                  value={markupPct}
+                  onChange={e => setMarkupPct(e.target.value)}
+                  onFocus={e => e.target.select()}
+                  onBlur={e => {
+                    const v = e.target.value;
+                    if (!v.trim()) { setMarkupPct("0"); return; }
+                    const n = parseMoney(v);
+                    if (String(n) !== v) setMarkupPct(String(n));
+                  }}
+                  style={{ ...input, fontSize: 16, fontWeight: 700, width: 140, fontFamily: mono, textAlign: "right" }}
+                />
+                <span style={{ fontSize: 13, color: T.muted, fontFamily: mono }}>
+                  = {(parseMoney(markupPct) * 100).toFixed(1)}% markup on raw ShipStation cost
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: T.faint, marginTop: 8, lineHeight: 1.5 }}>
+                Client is billed: <strong style={{ color: T.text }}>Shipping Cost × (1 + markup) + Insurance</strong>. Margin = what the client collected from their customer minus what we bill them.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <button onClick={() => setStage(2)} style={btnGhost}>← Back</button>
+              <button disabled={!canNextFrom3} onClick={() => setStage(4)} style={{ ...btnPrimary, opacity: canNextFrom3 ? 1 : 0.4, cursor: canNextFrom3 ? "pointer" : "not-allowed" }}>Next →</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Stage 4 — Sales Review + generate ── */}
+      {stage === 4 && !isPostage && (
+        <>
+          <SalesTotalsStrip totals={salesTotals} />
           <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
               <div>
@@ -587,7 +898,52 @@ export default function NewShipstationReportPage() {
             </div>
 
             <div style={{ fontSize: 11, color: T.muted }}>
-              {groups.length} product{groups.length === 1 ? "" : "s"} ({selectedRows.length} variant{selectedRows.length === 1 ? "" : "s"}) · {fmtN(totals.qty)} units · {fmtD(totals.sales)} in sales · {fmtD(totals.profit)} net to client
+              {groups.length} product{groups.length === 1 ? "" : "s"} ({selectedRows.length} variant{selectedRows.length === 1 ? "" : "s"}) · {fmtN(salesTotals.qty)} units · {fmtD(salesTotals.sales)} in sales · {fmtD(salesTotals.profit)} net to client
+            </div>
+
+            {saveError && <div style={{ fontSize: 12, color: T.red, background: T.red + "11", padding: "8px 12px", borderRadius: 6 }}>{saveError}</div>}
+
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <button onClick={() => setStage(3)} style={btnGhost} disabled={saving}>← Back</button>
+              <button onClick={generate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>
+                {saving ? "Generating..." : "Generate Report"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Stage 4 — Postage Review + generate ── */}
+      {stage === 4 && isPostage && (
+        <>
+          <PostageTotalsStrip totals={postageTotals} />
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{client?.name || "—"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Period</div>
+                <input value={periodLabel} onChange={e => setPeriodLabel(e.target.value)} style={{ ...input, fontSize: 13, fontWeight: 700 }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Markup</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    type="text" inputMode="decimal"
+                    value={markupPct}
+                    onChange={e => setMarkupPct(e.target.value)}
+                    onFocus={e => e.target.select()}
+                    style={{ ...input, fontSize: 13, fontWeight: 700, width: 90, fontFamily: mono, textAlign: "right" }}
+                  />
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(markupPct) * 100).toFixed(1)}%)</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 11, color: T.muted }}>
+              {postageTotals.shipments} shipment{postageTotals.shipments === 1 ? "" : "s"} · {fmtD(postageTotals.paid)} shipping income · billed amount {fmtD(postageTotals.billed)} · client profit {fmtD(postageTotals.margin)}
             </div>
 
             {saveError && <div style={{ fontSize: 12, color: T.red, background: T.red + "11", padding: "8px 12px", borderRadius: 6 }}>{saveError}</div>}
@@ -605,7 +961,7 @@ export default function NewShipstationReportPage() {
   );
 }
 
-function LiveTotalsStrip({ totals }: { totals: { qty: number; sales: number; cost: number; net: number; fee: number; profit: number } }) {
+function SalesTotalsStrip({ totals }: { totals: { qty: number; sales: number; cost: number; net: number; fee: number; profit: number } }) {
   const fmt = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const items: { label: string; value: string; color?: string }[] = [
     { label: "Qty", value: Number(totals.qty).toLocaleString() },
@@ -618,6 +974,29 @@ function LiveTotalsStrip({ totals }: { totals: { qty: number; sales: number; cos
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
       {items.map(i => (
+        <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
+          <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
+          <div style={{ fontSize: 14, fontWeight: 700, fontFamily: mono, color: i.color || T.text }}>{i.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PostageTotalsStrip({ totals }: { totals: { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number } }) {
+  const fmt = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tiles: { label: string; value: string; color?: string }[] = [
+    { label: "Shipments", value: Number(totals.shipments).toLocaleString() },
+    { label: "Items Shipped", value: Number(totals.items || 0).toLocaleString() },
+    { label: "Shipping Income", value: fmt(totals.paid) },
+    { label: "Shipping Cost", value: fmt(totals.cost), color: T.muted },
+    { label: "Insurance", value: fmt(totals.insurance), color: T.muted },
+    { label: "Billed Amount", value: fmt(totals.billed), color: T.amber },
+    { label: "Client Profit", value: fmt(totals.margin), color: totals.margin >= 0 ? T.green : T.red },
+  ];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+      {tiles.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
           <div style={{ fontSize: 14, fontWeight: 700, fontFamily: mono, color: i.color || T.text }}>{i.value}</div>
