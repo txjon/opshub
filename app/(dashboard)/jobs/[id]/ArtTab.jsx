@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { buildMockupClient, preloadTemplate } from "@/lib/mockup-client";
+import { buildMockupClient, preloadTemplate, extractPrintInfoFromPsd } from "@/lib/mockup-client";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
@@ -155,45 +155,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
         const buf = await res.arrayBuffer();
         const { readPsd } = await import("ag-psd");
         const psd = readPsd(new Uint8Array(buf));
-        const PLACEMENT_MAP = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest','Right Chest':'Right Chest','Left Sleeve':'Left Sleeve','Right Sleeve':'Right Sleeve','Neck':'Neck','Hood':'Hood','Pocket':'Pocket' };
-        const SKIP_GROUPS = ['Shirt Color','Shadows','Highlights','Mask','Client Art'];
-        // Layer names that are template helpers, not ink/separations. "Base" is
-        // intentionally NOT in this list — Base is a real white underlayer pull
-        // and should appear on the proof as a separation.
-        const NON_INK_NAMES = new Set(["reference","guide","guides","template","preview","composite","bg","background","blank"]);
-        const info = [];
-        const groups = [...(psd.children || [])].reverse();
-        for (const group of groups) {
-          if (SKIP_GROUPS.includes(group.name)) continue;
-          const isTag = (group.name||"").toLowerCase() === "tag" || (group.name||"").toLowerCase() === "tags";
-          if (!isTag && (!group.children || group.children.length === 0)) continue;
-          let minL=Infinity,minT=Infinity,maxR=-Infinity,maxB=-Infinity;
-          const colors = [];
-          for (const layer of group.children) {
-            const ln = (layer.name||"").toLowerCase().trim();
-            const isBase = ln === "base";
-            const isHidden = layer.hidden === true;
-            const isNonInk = NON_INK_NAMES.has(ln);
-            const isBlank = !layer.canvas; // no rendered pixel data
-            // Bounds rule: only real inked layers drive the measured print size.
-            // Blank Pantone-callout layers can sit outside the ink area (e.g.
-            // labels for the printer on small prints like Left Chest) — their
-            // stored bounds would wrongly inflate the size there. They still
-            // appear in the colors list below so the printer sees them.
-            const excludeFromBounds = isHidden || isNonInk || isBlank;
-            if (isTag) { if(!excludeFromBounds && minL===Infinity){minL=layer.left||0;minT=layer.top||0;maxR=layer.right||0;maxB=layer.bottom||0;} }
-            else if (!excludeFromBounds) { minL=Math.min(minL,layer.left||0);minT=Math.min(minT,layer.top||0);maxR=Math.max(maxR,layer.right||0);maxB=Math.max(maxB,layer.bottom||0); }
-            let hex="#888888";
-            if(isBase) hex="#ffffff";
-            else if(layer.canvas){const ctx=layer.canvas.getContext("2d");if(ctx){const d=ctx.getImageData(0,0,layer.canvas.width,layer.canvas.height).data;let rS=0,gS=0,bS=0,cnt=0;for(let i=0;i<d.length;i+=40){if(d[i+3]>128){rS+=d[i];gS+=d[i+1];bS+=d[i+2];cnt++;}}if(cnt>0)hex="#"+[rS,gS,bS].map(v=>Math.round(v/cnt).toString(16).padStart(2,"0")).join("");}}
-            // Colors: include Base + ink layers + blank Pantone callouts.
-            // Only drop hidden layers and template helpers.
-            if (!isHidden && !isNonInk) colors.push({name:layer.name,hex});
-          }
-          const artW=maxR-minL,artH=maxB-minT;
-          if(artW<=0||artH<=0) continue;
-          info.push({ placement: PLACEMENT_MAP[group.name]||group.name, widthInches:(artW/300).toFixed(2), heightInches:(artH/300).toFixed(2), colors });
-        }
+        const info = extractPrintInfoFromPsd(psd);
         setPsdPrintInfo(info);
         // Pre-fill default callouts
         const defaults = {
@@ -781,47 +743,7 @@ export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged,
       const { readPsd } = await import("ag-psd");
       const arrayBuffer = await file.arrayBuffer();
       const psd = readPsd(new Uint8Array(arrayBuffer));
-      // Extract print info from PSD groups (same logic as mockup-client)
-      const PLACEMENT_MAP = { 'Front':'Full Front','Full Front':'Full Front','Back':'Full Back','Full Back':'Full Back','Left Chest':'Left Chest' };
-      const SKIP_GROUPS = ['Shirt Color', 'Shadows', 'Highlights', 'Mask'];
-      const printInfo = [];
-      const groups = [...(psd.children || [])].reverse();
-      for (const group of groups) {
-        if (!group.children) continue;
-        if (SKIP_GROUPS.includes(group.name)) continue;
-        const zoneName = PLACEMENT_MAP[group.name];
-        const isTag = group.name.toLowerCase() === "tag" || group.name.toLowerCase() === "tags";
-        const colors = [];
-        let minL=Infinity, minT=Infinity, maxR=-Infinity, maxB=-Infinity;
-        for (const layer of group.children) {
-          if (isTag) {
-            if (minL === Infinity) { minL=layer.left; minT=layer.top; maxR=layer.right; maxB=layer.bottom; }
-          } else {
-            minL=Math.min(minL,layer.left); minT=Math.min(minT,layer.top);
-            maxR=Math.max(maxR,layer.right); maxB=Math.max(maxB,layer.bottom);
-          }
-          // Sample color from layer
-          let hex = "#888888";
-          if (layer.canvas) {
-            const ctx = layer.canvas.getContext("2d");
-            const data = ctx.getImageData(0,0,layer.canvas.width,layer.canvas.height).data;
-            let rS=0,gS=0,bS=0,cnt=0;
-            for (let i=0;i<data.length;i+=40) { if(data[i+3]>128){rS+=data[i];gS+=data[i+1];bS+=data[i+2];cnt++;} }
-            if (cnt>0) hex="#"+[rS,gS,bS].map(v=>Math.round(v/cnt).toString(16).padStart(2,"0")).join("");
-          }
-          colors.push({ name: layer.name, hex });
-        }
-        const artW = maxR - minL;
-        const artH = maxB - minT;
-        if (artW <= 0 || artH <= 0) continue;
-        printInfo.push({
-          placement: zoneName || group.name,
-          groupName: group.name,
-          widthInches: (artW/300).toFixed(2),
-          heightInches: (artH/300).toFixed(2),
-          colors,
-        });
-      }
+      const printInfo = extractPrintInfoFromPsd(psd);
       setManualPrintInfo(printInfo);
     } catch (err) {
       setError("Failed to read PSD: " + err.message);
