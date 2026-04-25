@@ -52,6 +52,18 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" };
   const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
+  // Project-level payment aggregate. Used both for the summary strip
+  // above the table and to override individual row pills so a "paid"
+  // row doesn't visually contradict a "Partial Paid" project.
+  const aggInvoiceTotal = Number(job?.type_meta?.qb_total_with_tax)
+    || Number(job?.costing_summary?.grossRev)
+    || 0;
+  const aggPaidSum = (payments || [])
+    .filter(p => p.status === "paid" || p.status === "partial")
+    .reduce((a, p) => a + (Number(p.amount) || 0), 0);
+  const aggBalance = Math.max(0, aggInvoiceTotal - aggPaidSum);
+  const aggIsPartial = aggPaidSum > 0.01 && aggBalance > 0.01;
+
   async function refreshLink() {
     if (refreshingLink) return;
     setRefreshingLink(true);
@@ -334,6 +346,25 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
           <button onClick={() => setAddingPayment(!addingPayment)} style={{ background: T.accent, border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 600, padding: "5px 14px", cursor: "pointer" }}>+ Add Payment</button>
         </div>
 
+        {/* Aggregate paid summary — shows project-level partial state so
+            individual "Deposit" rows make sense in context. */}
+        {(() => {
+          if (aggInvoiceTotal <= 0.01 && aggPaidSum <= 0.01) return null;
+          const isPaid = aggPaidSum > 0.01 && aggBalance <= 0.01;
+          const stateColor = isPaid ? T.green : aggIsPartial ? T.amber : T.muted;
+          const stateLabel = isPaid ? "Paid" : aggIsPartial ? "Partial Paid" : "Unpaid";
+          const fmt = (n) => "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return (
+            <div style={{ display: "flex", alignItems: "baseline", gap: 14, padding: "8px 10px", marginBottom: 8, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: stateColor }}>{stateLabel}</span>
+              <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>
+                <strong style={{ color: T.text }}>{fmt(aggPaidSum)}</strong> paid of <strong style={{ color: T.text }}>{fmt(aggInvoiceTotal)}</strong>
+                {aggIsPartial && <> · <span style={{ color: T.amber }}>{fmt(aggBalance)} outstanding</span></>}
+              </span>
+            </div>
+          );
+        })()}
+
         {addingPayment && (
           <div style={{ background: T.surface, border: `1px solid ${T.accent}44`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 6 }}>
@@ -378,7 +409,14 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
             <tbody>{payments.map(p => {
               const statuses = ["pending", "paid", "void"];
               const statusStyle = { pending: { bg: T.amberDim, color: T.amber }, paid: { bg: T.greenDim, color: T.green }, void: { bg: T.redDim, color: T.red } };
-              const display = statusStyle[p.status] || statusStyle.pending;
+              // When the project as a whole is partial, "paid" rows mirror
+              // the amber "Partial Paid" label so the row pill doesn't
+              // visually contradict the aggregate strip above.
+              const isRowPartialDisplay = p.status === "paid" && aggIsPartial;
+              const display = isRowPartialDisplay
+                ? { bg: T.amberDim, color: T.amber }
+                : (statusStyle[p.status] || statusStyle.pending);
+              const rowLabel = isRowPartialDisplay ? "partial paid" : p.status;
               const nextStatus = () => { const idx = statuses.indexOf(p.status); return statuses[(idx + 1) % statuses.length]; };
               return (
                 <tr key={p.id} style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -394,7 +432,7 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
                       if (ns === "paid") notifyTeam(`Payment received — $${p.amount.toLocaleString()} · ${job.clients?.name || ""} · ${job.title}`, "payment", job.id, "job");
                       if (onReload) onReload();
                       if (onRecalcPhase) setTimeout(onRecalcPhase, 500);
-                    }} style={{ padding: "1px 7px", borderRadius: 99, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: display.bg, color: display.color }}>{p.status}</button>
+                    }} style={{ padding: "1px 7px", borderRadius: 99, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: display.bg, color: display.color }}>{rowLabel}</button>
                   </td>
                   <td style={{ padding: "6px" }}>
                     <button onClick={async () => {

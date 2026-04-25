@@ -32,6 +32,9 @@ type PostageTotals = { shipments: number; items: number; paid: number; cost_raw:
 
 function renderSalesReportHTML(data: {
   clientName: string;
+  clientBillingAddress: string | null;
+  clientBillingEmail: string | null;
+  invoiceNumber: string | null;
   periodLabel: string;
   generatedOn: string;
   feePct: number;
@@ -137,8 +140,13 @@ function renderSalesReportHTML(data: {
 </head><body>
 <div style="background:#fff;font-family:${font};color:#111;max-width:1040px;margin:0 auto">
 
+  <!-- ============ COVER PAGE — Services Invoice ============ -->
+  <!-- Mirrors the Fulfillment Invoice cover so clients immediately
+       recognize this as a bill, not a passive report. The actual
+       per-item breakdown begins on page 2 (forced page break below). -->
+
   <!-- Header -->
-  <div style="padding:28px 32px 20px;border-bottom:3px solid #111">
+  <div style="padding:36px 40px 24px;border-bottom:3px solid #111">
     <div style="display:flex;justify-content:space-between;align-items:flex-start">
       <div>
         ${HPD_LOGO_SVG}
@@ -147,16 +155,84 @@ function renderSalesReportHTML(data: {
         </div>
       </div>
       <div style="text-align:right">
-        <div style="font-size:18px;font-weight:700;letter-spacing:-0.01em;font-family:${font};margin-bottom:6px">
-          PRODUCT SALES REPORT
+        <div style="font-size:22px;font-weight:700;letter-spacing:-0.01em;font-family:${font};margin-bottom:8px">
+          SERVICES INVOICE
         </div>
         <div style="font-size:11px;color:#666;line-height:1.8;font-family:${font}">
-          <div><span style="font-weight:600">Client:</span> ${escapeHtml(data.clientName)}</div>
+          ${data.invoiceNumber ? `<div><span style="font-weight:600">Invoice #:</span> ${escapeHtml(data.invoiceNumber)}</div>` : ""}
+          <div><span style="font-weight:600">Date:</span> ${escapeHtml(data.generatedOn)}</div>
           <div><span style="font-weight:600">Period:</span> ${escapeHtml(data.periodLabel)}</div>
-          <div><span style="font-weight:600">Generated:</span> ${escapeHtml(data.generatedOn)}</div>
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Bill to -->
+  <div style="padding:24px 40px 8px;font-family:${font}">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:6px">Bill To</div>
+    <div style="font-size:15px;font-weight:700;color:#1a1a1a">${escapeHtml(data.clientName)}</div>
+    ${data.clientBillingAddress ? `<div style="font-size:11px;color:#444;line-height:1.6;margin-top:4px;white-space:pre-line">${escapeHtml(data.clientBillingAddress)}</div>` : ""}
+    ${data.clientBillingEmail ? `<div style="font-size:11px;color:#444;margin-top:4px">${escapeHtml(data.clientBillingEmail)}</div>` : ""}
+  </div>
+
+  <!-- Summary KPI strip (cover) -->
+  <div style="margin:16px 40px 0;font-family:${font}">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary — ${escapeHtml(data.periodLabel)}</div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
+      <div style="padding:10px 12px;border-right:0.5px solid #e5e7eb">
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Qty Sold</div>
+        <div style="font-size:12px;font-weight:700;color:#1a1a1a;font-family:monospace">${fmtN(data.totals.qty)}</div>
+      </div>
+      <div style="padding:10px 12px;border-right:0.5px solid #e5e7eb">
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Product Sales</div>
+        <div style="font-size:12px;font-weight:700;color:#1a1a1a;font-family:monospace">${fmtD(data.totals.sales)}</div>
+      </div>
+      <div style="padding:10px 12px;border-right:0.5px solid #e5e7eb">
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Total Cost</div>
+        <div style="font-size:12px;font-weight:700;color:#666;font-family:monospace">${fmtD(data.totals.cost)}</div>
+      </div>
+      <div style="padding:10px 12px;border-right:0.5px solid #e5e7eb">
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Product Net</div>
+        <div style="font-size:12px;font-weight:700;color:#1a1a1a;font-family:monospace">${fmtD(data.totals.net)}</div>
+      </div>
+      <div style="padding:10px 12px;border-right:0.5px solid #e5e7eb">
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">HPD Fee (${(data.feePct * 100).toFixed(1)}%)</div>
+        <div style="font-size:12px;font-weight:700;color:#1a1a1a;font-family:monospace">${fmtD(data.totals.fee)}</div>
+      </div>
+      <div style="padding:10px 12px">
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Net Profit</div>
+        <div style="font-size:12px;font-weight:700;color:${data.totals.profit >= 0 ? "#2a7a3a" : "#b3263a"};font-family:monospace">${fmtD(data.totals.profit)}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Amount due — invoice-standard right-aligned total. This is HPD's
+       service fee only; product sales and cost flow through to the
+       client (they collect the revenue, pay the unit cost, and HPD
+       bills the service percentage on top). -->
+  <div style="padding:20px 40px 24px;font-family:${font};display:flex;justify-content:flex-end">
+    <div style="text-align:right;min-width:240px;padding-top:10px;border-top:1.5px solid #1a1a1a">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa;margin-bottom:4px">Amount Due</div>
+      <div style="font-size:9px;color:#999;font-weight:500;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">${(data.feePct * 100).toFixed(0)}% Service Fee</div>
+      <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em;color:#1a1a1a;font-family:monospace">${fmtD(data.totals.fee)}</div>
+    </div>
+  </div>
+
+  <!-- Attachment / detail note -->
+  <div style="padding:14px 40px;background:#f7f7f8;font-family:${font};font-size:10px;color:#666">
+    A line-item breakdown of all product sales for this period appears on the following pages.
+  </div>
+
+  <!-- ============ PAGE BREAK — line-item report begins page 2 ============ -->
+  <div style="page-break-before:always;break-before:page;height:0"></div>
+
+  <!-- Page 2+ header (lighter, since the cover already establishes the doc) -->
+  <div style="padding:24px 32px 14px;border-bottom:1.5px solid #111;display:flex;justify-content:space-between;align-items:flex-end;font-family:${font}">
+    <div>
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa;margin-bottom:4px">Sales Detail</div>
+      <div style="font-size:14px;font-weight:700;color:#1a1a1a">${escapeHtml(data.clientName)} · ${escapeHtml(data.periodLabel)}</div>
+    </div>
+    <div style="font-size:10px;color:#888">${data.invoiceNumber ? `Invoice #${escapeHtml(data.invoiceNumber)} · ` : ""}${escapeHtml(data.generatedOn)}</div>
   </div>
 
   ${totalsStrip}
@@ -175,7 +251,7 @@ function renderSalesReportHTML(data: {
       <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">House Party Distro</div>
       <div style="font-size:10px;color:#666;line-height:1.8">hello@housepartydistro.com<br/>4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89139</div>
     </div>
-    <div style="font-size:9px;color:#aaa">Net Profit = Product Net − HPD Fee.</div>
+    <div style="font-size:9px;color:#aaa;text-align:right;max-width:300px">Net Profit = Product Net − HPD Fee. Please remit the service fee via the Pay Online link in the accompanying email.</div>
   </div>
 
 </div>
@@ -352,18 +428,16 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     // Pick bill-to email. Convention in OpsHub: client contacts are
     // labeled by actual role (Owner, Manager, etc.). Owner pays the
     // bills. Managers on a client record are usually the HPD-internal
-    // account lead and must not receive the bill.
-    let clientBillingEmail: string | null = null;
-    if (isPostage) {
-      const { data: contacts } = await supabase
-        .from("contacts")
-        .select("email, role_label")
-        .eq("client_id", report.client_id);
-      const list = (contacts || []) as Array<{ email: string | null; role_label: string | null }>;
-      const external = list.filter(c => c.email && !/@housepartydistro\.com$/i.test(c.email));
-      const owner = external.find(c => (c.role_label || "").toLowerCase().includes("owner"));
-      clientBillingEmail = (owner || external[0])?.email || null;
-    }
+    // account lead and must not receive the bill. Used by both report
+    // types now that the sales PDF has a Services Invoice cover page.
+    const { data: contacts } = await supabase
+      .from("contacts")
+      .select("email, role_label")
+      .eq("client_id", report.client_id);
+    const contactList = (contacts || []) as Array<{ email: string | null; role_label: string | null }>;
+    const externalContacts = contactList.filter(c => c.email && !/@housepartydistro\.com$/i.test(c.email));
+    const ownerContact = externalContacts.find(c => (c.role_label || "").toLowerCase().includes("owner"));
+    const clientBillingEmail: string | null = (ownerContact || externalContacts[0])?.email || null;
 
     const html = isPostage
       ? renderPostageReportHTML({
@@ -379,6 +453,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         })
       : renderSalesReportHTML({
           clientName,
+          clientBillingAddress,
+          clientBillingEmail,
+          invoiceNumber: report.qb_invoice_number || null,
           periodLabel: report.period_label,
           generatedOn,
           feePct: Number(report.hpd_fee_pct) || 0,
@@ -388,7 +465,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     const pdfBuffer = await generatePDF(html);
     const slug = (clientName + "-" + report.period_label).replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "");
-    const filename = `HPD-${isPostage ? "Fulfillment-Invoice" : "Sales-Report"}-${slug}.pdf`;
+    const filename = `HPD-${isPostage ? "Fulfillment-Invoice" : "Services-Invoice"}-${slug}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
     return new NextResponse(pdfBuffer, {

@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { getAccessToken } from "@/lib/quickbooks";
 import { createHmac } from "crypto";
 import { sendClientNotification } from "@/lib/auto-email";
+import { derivePaymentType } from "@/lib/payment-status";
 
 const QB_BASE_URL = "https://quickbooks.api.intuit.com";
 
@@ -124,7 +125,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     // Primary match: by qb_invoice_id
     let { data: jobs } = await supabase
       .from("jobs")
-      .select("id, title, type_meta, phase, clients(name)")
+      .select("id, title, type_meta, phase, costing_summary, clients(name)")
       .filter("type_meta->>qb_invoice_id", "eq", qbInvoiceId);
 
     // Fallback match: by qb_invoice_number (in case ID wasn't saved)
@@ -132,7 +133,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
       console.log("[QB Webhook1] No match on qb_invoice_id:", qbInvoiceId, "— trying invoice number");
       const { data: fallback } = await supabase
         .from("jobs")
-        .select("id, title, type_meta, phase, clients(name)")
+        .select("id, title, type_meta, phase, costing_summary, clients(name)")
         .filter("type_meta->>qb_invoice_number", "eq", String(qbInvoiceId));
       if (fallback?.length) jobs = fallback;
     }
@@ -145,25 +146,38 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     const job = jobs[0];
     console.log("[QB Webhook1] Matched job:", job.id, job.title);
 
-    // Dedup: check if already recorded
+    // Dedup: check if already recorded. Match across status values so a
+    // partial-then-final pattern doesn't double-record the same QB hit.
     const today = new Date().toISOString().split("T")[0];
     const { data: existing } = await supabase
       .from("payment_records")
       .select("id")
       .eq("job_id", job.id)
       .eq("amount", amount)
-      .eq("paid_date", today)
-      .eq("status", "paid");
+      .eq("paid_date", today);
 
     if (existing?.length) {
       console.log("[QB Webhook1] Duplicate — already recorded for job:", job.id);
       continue;
     }
 
+    // Classify deposit / balance / full_payment from prior paid total.
+    const { data: priorPays } = await supabase
+      .from("payment_records")
+      .select("amount, status")
+      .eq("job_id", job.id);
+    const priorPaidTotal = (priorPays || [])
+      .filter((p: any) => p.status === "paid" || p.status === "partial")
+      .reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+    const invoiceTotal = Number((job.type_meta as any)?.qb_total_with_tax)
+      || Number((job as any).costing_summary?.grossRev)
+      || 0;
+    const paymentType = derivePaymentType({ newAmount: amount, priorPaidTotal, invoiceTotal });
+
     // Record the payment
     const { error: insertErr } = await supabase.from("payment_records").insert({
       job_id: job.id,
-      type: "full_payment",
+      type: paymentType,
       amount,
       status: "paid",
       paid_date: today,

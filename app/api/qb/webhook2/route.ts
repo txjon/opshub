@@ -6,6 +6,7 @@ import { getAccessToken } from "@/lib/quickbooks";
 import { createHmac } from "crypto";
 import { sendClientNotification } from "@/lib/auto-email";
 import { appBaseUrl } from "@/lib/public-url";
+import { derivePaymentType } from "@/lib/payment-status";
 
 const QB_BASE_URL = "https://quickbooks.api.intuit.com";
 
@@ -125,7 +126,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     // Primary match: by qb_invoice_id
     let { data: jobs } = await supabase
       .from("jobs")
-      .select("id, title, type_meta, phase, clients(name)")
+      .select("id, title, type_meta, phase, costing_summary, clients(name)")
       .filter("type_meta->>qb_invoice_id", "eq", qbInvoiceId);
 
     // Fallback match: by qb_invoice_number (in case ID wasn't saved)
@@ -133,7 +134,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
       console.log("[QB Webhook2] No match on qb_invoice_id:", qbInvoiceId, "— trying invoice number");
       const { data: fallback } = await supabase
         .from("jobs")
-        .select("id, title, type_meta, phase, clients(name)")
+        .select("id, title, type_meta, phase, costing_summary, clients(name)")
         .filter("type_meta->>qb_invoice_number", "eq", String(qbInvoiceId));
       if (fallback?.length) jobs = fallback;
     }
@@ -150,25 +151,43 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     const job = jobs[0];
     console.log("[QB Webhook2] Matched job:", job.id, job.title);
 
-    // Dedup: check if already recorded
+    // Dedup: check if already recorded. Match across status values so a
+    // partial-then-final pattern doesn't double-record the same QB hit.
     const today = new Date().toISOString().split("T")[0];
     const { data: existing } = await supabase
       .from("payment_records")
       .select("id")
       .eq("job_id", job.id)
       .eq("amount", amount)
-      .eq("paid_date", today)
-      .eq("status", "paid");
+      .eq("paid_date", today);
 
     if (existing?.length) {
       console.log("[QB Webhook2] Duplicate — already recorded for job:", job.id);
       continue;
     }
 
-    // Record the payment
+    // Classify this payment as deposit / balance / full_payment based
+    // on prior paid records vs invoice total. This is what makes the
+    // project-list and detail aggregates show "Partial Paid" correctly
+    // when QB processes a partial payment against an invoice.
+    const { data: priorPays } = await supabase
+      .from("payment_records")
+      .select("amount, status")
+      .eq("job_id", job.id);
+    const priorPaidTotal = (priorPays || [])
+      .filter((p: any) => p.status === "paid" || p.status === "partial")
+      .reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+    const invoiceTotal = Number((job.type_meta as any)?.qb_total_with_tax)
+      || Number((job as any).costing_summary?.grossRev)
+      || 0;
+    const paymentType = derivePaymentType({ newAmount: amount, priorPaidTotal, invoiceTotal });
+
+    // Record the payment. The row-level status stays "paid" (this slice
+    // was received in full); the project-level partial state is
+    // computed from sum vs total at read time.
     const { error: insertErr } = await supabase.from("payment_records").insert({
       job_id: job.id,
-      type: "full_payment",
+      type: paymentType,
       amount,
       status: "paid",
       paid_date: today,
@@ -308,11 +327,12 @@ async function tryMatchShipstationReport(supabase: any, qbInvoiceId: string, amo
       const resend = new Resend(process.env.RESEND_API_KEY);
       const clientName = (report.clients as any)?.name || "";
       const invoiceNum = report.qb_invoice_number || "";
+      const reportLabel = report.report_type === "postage" ? "Fulfillment Invoice" : "Services Invoice";
       const { error: sendErr } = await resend.emails.send({
         from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",
         to: clientEmail,
         subject: `Payment received — ${clientName}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""} · ${report.period_label}`,
-        html: `<p>Hi,</p><p>Payment of <strong>$${amount.toLocaleString()}</strong> received for <strong>${report.period_label} Product Sales Report${invoiceNum ? ` (Invoice #${invoiceNum})` : ""}</strong>. Thanks for your business.</p><p>Welcome to the party,<br/>House Party Distro</p>`,
+        html: `<p>Hi,</p><p>Payment of <strong>$${amount.toLocaleString()}</strong> received for <strong>${report.period_label} ${reportLabel}${invoiceNum ? ` (Invoice #${invoiceNum})` : ""}</strong>. Thanks for your business.</p><p>Welcome to the party,<br/>House Party Distro</p>`,
       });
       if (sendErr) console.error("[QB Webhook2] Report paid email Resend error:", sendErr);
       else console.log(`[QB Webhook2] Report paid email sent to ${clientEmail}`);

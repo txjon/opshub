@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getAccessToken } from "@/lib/quickbooks";
+import { derivePaymentType } from "@/lib/payment-status";
 
 const QB_BASE_URL = "https://quickbooks.api.intuit.com";
 
@@ -106,14 +107,14 @@ export async function POST(req: NextRequest) {
       // Match by qb_invoice_id
       let { data: jobs } = await admin
         .from("jobs")
-        .select("id, title, type_meta, clients(name)")
+        .select("id, title, type_meta, costing_summary, clients(name)")
         .filter("type_meta->>qb_invoice_id", "eq", qbInvoiceId);
 
       // Fallback: match by qb_invoice_number
       if (!jobs?.length) {
         const { data: fallback } = await admin
           .from("jobs")
-          .select("id, title, type_meta, clients(name)")
+          .select("id, title, type_meta, costing_summary, clients(name)")
           .filter("type_meta->>qb_invoice_number", "eq", String(qbInvoiceId));
         if (fallback?.length) jobs = fallback;
       }
@@ -125,24 +126,37 @@ export async function POST(req: NextRequest) {
 
       const job = jobs[0];
 
-      // Check for existing payment
+      // Check for existing payment. Match across status values so a
+      // re-sync of a partial payment doesn't double-record.
       const today = new Date().toISOString().split("T")[0];
       const { data: existing } = await admin
         .from("payment_records")
         .select("id")
         .eq("job_id", job.id)
-        .eq("amount", amount)
-        .eq("status", "paid");
+        .eq("amount", amount);
 
       if (existing?.length) {
         results.push({ qbInvoiceId, jobId: job.id, jobTitle: job.title, status: "already_exists", paymentRecordId: existing[0].id });
         continue;
       }
 
+      // Classify deposit / balance / full_payment from prior paid total.
+      const { data: priorPays } = await admin
+        .from("payment_records")
+        .select("amount, status")
+        .eq("job_id", job.id);
+      const priorPaidTotal = (priorPays || [])
+        .filter((p: any) => p.status === "paid" || p.status === "partial")
+        .reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      const invoiceTotal = Number((job.type_meta as any)?.qb_total_with_tax)
+        || Number((job as any).costing_summary?.grossRev)
+        || 0;
+      const paymentType = derivePaymentType({ newAmount: amount, priorPaidTotal, invoiceTotal });
+
       // Insert payment
       const { error: insertErr } = await admin.from("payment_records").insert({
         job_id: job.id,
-        type: "full_payment",
+        type: paymentType,
         amount,
         status: "paid",
         paid_date: payment.TxnDate || today,

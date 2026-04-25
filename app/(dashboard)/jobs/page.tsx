@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { effectiveRevenue } from "@/lib/revenue";
+import { deriveAggregateStatus } from "@/lib/payment-status";
 
 type Job = {
   id: string; title: string; job_type: string; phase: string; priority: string;
@@ -65,7 +66,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), costing_summary, type_meta, payment_records(status), items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, garment_type, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, type_meta, payment_records(amount, status), items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, garment_type, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -230,12 +231,22 @@ export default function JobsPage() {
           const invNum = job.type_meta?.qb_invoice_number;
           const progress = getItemProgress(job);
 
-          const paid = (job as any).payment_records?.some((p:any) => p.status === "paid");
-          // Plain uppercase labels, only color for real signal (green when paid).
-          const status: { label: string; green: boolean } | null = paid
-            ? { label: "Paid", green: true }
-            : invNum ? { label: "Invoice Sent", green: false }
-            : (job as any).quote_approved ? { label: "Quote Approved", green: false }
+          // Aggregate paid status: sum collected vs invoice total. Single
+          // ".status === paid" check over-claims when a partial QB payment
+          // has been received but balance remains.
+          const invoiceTotal = Number((job as any).type_meta?.qb_total_with_tax)
+            || Number((job as any).costing_summary?.grossRev)
+            || 0;
+          const aggStatus = deriveAggregateStatus({
+            payments: (job as any).payment_records || [],
+            invoiceTotal,
+          });
+          // Plain uppercase labels, color only for real signal.
+          const status: { label: string; green?: boolean; amber?: boolean } | null =
+            aggStatus === "paid" ? { label: "Paid", green: true }
+            : aggStatus === "partial" ? { label: "Partial Paid", amber: true }
+            : invNum ? { label: "Invoice Sent" }
+            : (job as any).quote_approved ? { label: "Quote Approved" }
             : null;
 
           // Priority only shown for non-normal. Red for hot, amber for rush.
@@ -263,7 +274,7 @@ export default function JobsPage() {
                   {progress && <span style={{ color:T.faint, fontFamily:mono }}>{progress}</span>}
                   {totalUnits > 0 && <span style={{ color:T.muted, fontFamily:mono }}>{totalUnits.toLocaleString()} units</span>}
                   {status && (
-                    <span style={{ color:status.green ? T.green : T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", fontSize:10 }}>
+                    <span style={{ color: status.green ? T.green : status.amber ? T.amber : T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", fontSize:10 }}>
                       {status.label}
                     </span>
                   )}
@@ -309,7 +320,7 @@ export default function JobsPage() {
               </div>
 
               {/* Status */}
-              <div style={{ fontSize:10, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", color: status?.green ? T.green : T.muted, whiteSpace:"nowrap" }}>
+              <div style={{ fontSize:10, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", color: status?.green ? T.green : status?.amber ? T.amber : T.muted, whiteSpace:"nowrap" }}>
                 {status?.label || ""}
               </div>
 
