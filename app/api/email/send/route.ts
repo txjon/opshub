@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
       const isLegacy = qbPaymentLink.startsWith("https://app.qbo.intuit.com/app/invoices/pay");
       if (invoiceId && (!qbPaymentLink || isLegacy)) {
         try {
-          const fresh = await refreshPaymentLink(String(invoiceId));
+          const fresh = await refreshPaymentLink(String(invoiceId), recipientEmail);
           if (fresh && fresh !== qbPaymentLink) {
             qbPaymentLink = fresh;
             await adminClient.from("jobs").update({

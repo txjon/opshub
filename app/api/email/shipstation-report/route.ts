@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
       const isLegacy = paymentLink.startsWith("https://app.qbo.intuit.com/app/invoices/pay");
       if (!paymentLink || isLegacy) {
         try {
-          const fresh = await refreshPaymentLink(String(report.qb_invoice_id));
+          const fresh = await refreshPaymentLink(String(report.qb_invoice_id), recipientEmail);
           if (fresh && fresh !== paymentLink) {
             paymentLink = fresh;
             await admin.from("shipstation_reports").update({ qb_payment_link: fresh }).eq("id", reportId);
@@ -69,9 +69,9 @@ export async function POST(req: NextRequest) {
     const greetingName = recipientName ? recipientName.split(" ")[0] : clientName;
     const invoiceNum = report.qb_invoice_number || "";
     const isPostage = report.report_type === "postage";
-    const reportKind = isPostage ? "Fulfillment Invoice" : "Product Sales Report";
+    const reportKind = isPostage ? "Fulfillment Invoice" : "Services Invoice";
     const slug = (clientName + "-" + report.period_label).replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "");
-    const pdfFilename = `HPD-${isPostage ? "Fulfillment-Invoice" : "Sales-Report"}-${slug}.pdf`;
+    const pdfFilename = `HPD-${isPostage ? "Fulfillment-Invoice" : "Services-Invoice"}-${slug}.pdf`;
 
     // For postage reports, also fetch the shipment-level xlsx so the
     // client has the full raw data alongside the invoice summary.
@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
         bodyHtml: customBody
           || (isPostage
             ? `Attached is your fulfillment invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The PDF summarizes the amount due; the accompanying spreadsheet itemizes every shipment with carrier cost and insurance.`
-            : `Attached is your product sales report for <strong>${report.period_label}</strong>${invoiceNum ? ` — billed on Invoice #${invoiceNum}` : ""}. The report covers total units sold, product sales, cost of goods, and your net profit after the HPD fulfillment fee.`),
+            : `Attached is your services invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The cover page shows the amount due (HPD service fee) and a line-item sales breakdown follows on the inside pages.`),
         cta: paymentLink ? { label: "Pay Online", url: paymentLink, style: "green" } : undefined,
         secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
       }),

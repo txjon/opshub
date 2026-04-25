@@ -278,15 +278,22 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
             // next to zero-dollar invoices.
             if (order.payment_status === "none") return null;
             if ((order.total || 0) <= 0.01) return null;
-            const paid = order.payment_status === "paid";
+            const isPaid = order.payment_status === "paid";
+            const isPartial = order.payment_status === "partial";
             const paidStamp = order.paid_at ? fmtDate(order.paid_at) : null;
+            const color = isPaid ? C.green : isPartial ? C.amber : C.muted;
+            const label = isPaid
+              ? (paidStamp ? `Paid · ${paidStamp}` : "Paid")
+              : isPartial
+              ? "Partial Paid"
+              : "Unpaid";
             return (
               <span style={{
-                fontSize: 10, fontWeight: 600, color: paid ? C.green : C.muted,
+                fontSize: 10, fontWeight: 600, color,
                 textTransform: "uppercase", letterSpacing: "0.06em",
                 whiteSpace: "nowrap",
               }}>
-                {paid ? (paidStamp ? `Paid · ${paidStamp}` : "Paid") : "Unpaid"}
+                {label}
               </span>
             );
           })()}
@@ -530,7 +537,7 @@ const HEX_NAMES: Record<string, string> = {
 
 function paymentPillFor(status: Order["payment_status"], hasInvoice: boolean): { label: string; color: string; bg: string } {
   if (status === "paid") return { label: "Paid", color: C.green, bg: C.greenBg };
-  if (status === "partial") return { label: "Deposit", color: C.amber, bg: C.amberBg };
+  if (status === "partial") return { label: "Partial Paid", color: C.amber, bg: C.amberBg };
   if (status === "unpaid" && hasInvoice) return { label: "Unpaid", color: C.red, bg: C.redBg };
   return { label: "Pending", color: C.muted, bg: C.surface };
 }

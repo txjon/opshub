@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
 
     const memo = isPostage
       ? `Postage Report — ${report.period_label}`
-      : `Product Sales Report — ${report.period_label}`;
+      : `Services Invoice — ${report.period_label}`;
 
     const shipAddr = client.shipping_address || undefined;
     const existingInvoiceId = report.qb_invoice_id;

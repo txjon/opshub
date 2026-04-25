@@ -98,7 +98,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
     if (isPostage) return Number(report.totals?.billed) || 0;
     return Number(report.totals?.fee) || 0;
   }, [report, isPostage]);
-  const reportKindLabel = isPostage ? "Postage Report" : "Sales Report";
+  const reportKindLabel = isPostage ? "Postage Report" : "Services Invoice";
 
   useEffect(() => {
     if (!sendOpen || !report) return;
@@ -116,7 +116,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       }
       if (!subject) {
         const n = report.qb_invoice_number;
-        const kind = isPostage ? "Postage Report" : "Product Sales Report";
+        const kind = isPostage ? "Postage Report" : "Services Invoice";
         setSubject(`${kind} — ${report.clients?.name || ""} · ${report.period_label}${n ? ` · Invoice ${n}` : ""}`);
       }
     })();

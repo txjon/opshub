@@ -914,25 +914,70 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </select>
                 </div>
                 {payments.length===0&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
-                {payments.length>0&&(
-                  <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
-                    <thead><tr style={{borderBottom:`1px solid ${T.border}`}}>
-                      {["Invoice","Type","Amount","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:T.muted,fontWeight:500}}>{h}</th>)}
-                    </tr></thead>
-                    <tbody>{payments.map(p=>(
-                      <tr key={p.id} style={{borderBottom:`1px solid ${T.border}`}}>
-                        <td style={{padding:"6px",fontFamily:mono,color:T.muted}}>{p.invoice_number||"—"}</td>
-                        <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
-                        <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
-                        <td style={{padding:"6px"}}>
-                          <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
-                            background:p.status==="paid"?T.greenDim:p.status==="void"?T.redDim:T.amberDim,
-                            color:p.status==="paid"?T.green:p.status==="void"?T.red:T.amber}}>{p.status}</span>
-                        </td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                )}
+                {payments.length>0&&(() => {
+                  const invoiceTotal = Number((job as any)?.type_meta?.qb_total_with_tax)
+                    || Number((job as any)?.costing_summary?.grossRev)
+                    || 0;
+                  const paidSum = (payments || [])
+                    .filter(p => p.status === "paid" || p.status === "partial")
+                    .reduce((a, p) => a + (Number(p.amount) || 0), 0);
+                  const balance = Math.max(0, invoiceTotal - paidSum);
+                  const isPaid = paidSum > 0.01 && balance <= 0.01;
+                  const isPartial = paidSum > 0.01 && balance > 0.01;
+                  const stateColor = isPaid ? T.green : isPartial ? T.amber : T.muted;
+                  const stateLabel = isPaid ? "Paid" : isPartial ? "Partial Paid" : "Unpaid";
+                  const fmt = (n:number) => "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  const showStrip = !(invoiceTotal <= 0.01 && paidSum <= 0.01);
+                  // When the project as a whole is partial, individual paid
+                  // rows mirror that amber "Partial Paid" label so the row
+                  // pill doesn't visually contradict the aggregate above.
+                  const rowLabel = (rowStatus: string) => {
+                    if (rowStatus === "paid" && isPartial) return "partial paid";
+                    return rowStatus;
+                  };
+                  const rowPillBg = (rowStatus: string) => {
+                    if (rowStatus === "paid" && isPartial) return T.amberDim;
+                    if (rowStatus === "paid") return T.greenDim;
+                    if (rowStatus === "void") return T.redDim;
+                    return T.amberDim;
+                  };
+                  const rowPillFg = (rowStatus: string) => {
+                    if (rowStatus === "paid" && isPartial) return T.amber;
+                    if (rowStatus === "paid") return T.green;
+                    if (rowStatus === "void") return T.red;
+                    return T.amber;
+                  };
+                  return (
+                    <>
+                      {showStrip && (
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "6px 9px", marginBottom: 8, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: stateColor }}>{stateLabel}</span>
+                          <span style={{ fontSize: 10, color: T.muted, fontFamily: mono }}>
+                            <strong style={{ color: T.text }}>{fmt(paidSum)}</strong> of <strong style={{ color: T.text }}>{fmt(invoiceTotal)}</strong>
+                            {isPartial && <> · <span style={{ color: T.amber }}>{fmt(balance)} due</span></>}
+                          </span>
+                        </div>
+                      )}
+                      <table style={{width:"100%",fontSize:11,borderCollapse:"collapse"}}>
+                        <thead><tr style={{borderBottom:`1px solid ${T.border}`}}>
+                          {["Invoice","Type","Amount","Status"].map(h=><th key={h} style={{textAlign:"left",padding:"3px 6px",color:T.muted,fontWeight:500}}>{h}</th>)}
+                        </tr></thead>
+                        <tbody>{payments.map(p=>(
+                          <tr key={p.id} style={{borderBottom:`1px solid ${T.border}`}}>
+                            <td style={{padding:"6px",fontFamily:mono,color:T.muted}}>{p.invoice_number||"—"}</td>
+                            <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
+                            <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
+                            <td style={{padding:"6px"}}>
+                              <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
+                                background:rowPillBg(p.status),
+                                color:rowPillFg(p.status)}}>{rowLabel(p.status)}</span>
+                            </td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Items */}

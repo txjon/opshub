@@ -298,7 +298,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   useEffect(() => {
     const ids = (items || []).map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
     if (ids.length === 0) return;
-    createClient().from("item_files").select("item_id, stage, drive_file_id, file_name").in("item_id", ids).then(({ data }) => {
+    createClient().from("item_files").select("item_id, stage, drive_file_id, file_name").in("item_id", ids).is("superseded_at", null).then(({ data }) => {
       const summary = {};
       const mockups = {};
       const filenameFallback = {};

@@ -154,6 +154,7 @@ export async function POST(req: NextRequest) {
       const updated = await updateInvoice(existingInvoiceId, lineItems, {
         memo: `${job.title} — ${job.job_number}`,
         shipAddress: shipAddr,
+        email: primaryEmail || undefined,
       });
 
       // Update tax/total in type_meta. Also record variance-finalized timestamp
