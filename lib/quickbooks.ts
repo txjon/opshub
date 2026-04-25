@@ -348,44 +348,13 @@ export async function createInvoice(
 
   // Payment link must come from InvoiceLink (customer-facing connect.intuit.com
   // portal URL). Do NOT fabricate a fallback — the old /app/invoices/pay?txnId=
-  // URL is the logged-in admin screen and 404s for customers. Missing link
-  // returns empty string; callers/UI hide the "Pay Online" CTA.
+  // URL is the logged-in admin screen and 404s for customers.
   //
-  // /send is what tells QB to mint an InvoiceLink, but it also emails the
-  // invoice to the sendTo address. Always target an internal address so
-  // clients never receive a QB-side invoice email — OpsHub sends its own
-  // branded invoice email.
-  let paymentLink = fullInvoice.InvoiceLink || "";
-  if (!paymentLink) {
-    const internalSendEmail = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
-    try {
-      const sendResult = await qbFetch(`/invoice/${invoice.Id}/send?sendTo=${encodeURIComponent(internalSendEmail)}`, { method: "POST" });
-      paymentLink = sendResult?.Invoice?.InvoiceLink || "";
-      // QB sometimes returns the invoice from /send without InvoiceLink
-      // populated — the link exists on their side but the object they
-      // echo back isn't filled. Retry the read a few times with small
-      // backoff; if it's still empty after that, call /send again.
-      if (!paymentLink) {
-        for (let i = 0; i < 4 && !paymentLink; i++) {
-          await new Promise(r => setTimeout(r, 400 * (i + 1)));
-          const retry = await qbFetch(`/invoice/${invoice.Id}`);
-          paymentLink = retry?.Invoice?.InvoiceLink || "";
-        }
-      }
-      if (!paymentLink) {
-        // Second /send as a last resort. Harmless — same internal address.
-        const retrySend = await qbFetch(`/invoice/${invoice.Id}/send?sendTo=${encodeURIComponent(internalSendEmail)}`, { method: "POST" });
-        paymentLink = retrySend?.Invoice?.InvoiceLink || "";
-        if (!paymentLink) {
-          const finalRead = await qbFetch(`/invoice/${invoice.Id}`);
-          paymentLink = finalRead?.Invoice?.InvoiceLink || "";
-        }
-      }
-      console.log("[QB] Invoice sent (internal), InvoiceLink:", paymentLink || "(still empty)");
-    } catch (e) {
-      console.log("[QB] Could not send invoice for payment link:", (e as any).message);
-    }
-  }
+  // Delegate to refreshPaymentLink — it already handles: existing valid link,
+  // /send via internal hello@, retry-read with backoff for QB's empty-response
+  // quirk, and fallback to the customer email when QB refuses internal /send.
+  const paymentLink = await refreshPaymentLink(invoice.Id, options.email);
+  console.log("[QB] Invoice created — InvoiceLink:", paymentLink || "(still empty)");
 
   return {
     invoiceId: invoice.Id,
@@ -396,7 +365,7 @@ export async function createInvoice(
   };
 }
 
-// ── Update existing invoice ──
+// ── Payment link refresh ──
 // Ensure a QB invoice has a current customer-facing payment link.
 // Returns the best link we can get without modifying invoice content.
 // Use cases: email send path (make sure the "Pay online" button works),
@@ -406,7 +375,7 @@ export async function createInvoice(
 // only minted when /invoice/{id}/send is called. Legacy invoices may
 // have stored the /app/invoices/pay admin URL (which 404s for customers
 // without QB login) — we detect that and force a re-mint.
-export async function refreshPaymentLink(invoiceId: string): Promise<string> {
+export async function refreshPaymentLink(invoiceId: string, customerEmail?: string): Promise<string> {
   const existing = await qbFetch(`/invoice/${invoiceId}`);
   const invoice = existing?.Invoice;
   if (!invoice) throw new Error("Invoice not found in QuickBooks");
@@ -415,30 +384,64 @@ export async function refreshPaymentLink(invoiceId: string): Promise<string> {
   const isLegacyAdminUrl = current.startsWith("https://app.qbo.intuit.com/app/invoices/pay");
   if (current && !isLegacyAdminUrl) return current;
 
-  // Mint a fresh link by /send to internal address. Client never sees this
-  // mail — OpsHub sends its own branded invoice email separately.
+  // Mint a fresh link via /send. First try internal hello@ — keeps the
+  // customer from getting a duplicate QB-template email on the happy path.
   const internalSendEmail = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
-  try {
-    const sendResult = await qbFetch(`/invoice/${invoiceId}/send?sendTo=${encodeURIComponent(internalSendEmail)}`, { method: "POST" });
-    let refreshed = sendResult?.Invoice?.InvoiceLink || "";
-    // Same QB quirk: the /send response occasionally omits InvoiceLink
-    // even though the link is minted. Retry the read with small backoff.
-    for (let i = 0; i < 4 && !refreshed; i++) {
+
+  async function sendAndRead(toEmail: string): Promise<string> {
+    let sendResult: any;
+    try {
+      sendResult = await qbFetch(`/invoice/${invoiceId}/send?sendTo=${encodeURIComponent(toEmail)}`, { method: "POST" });
+    } catch (e) {
+      // Surface QB's full response at the business-logic layer so we can
+      // diagnose why a specific invoice+recipient combo is refused. The
+      // underlying qbFetch also logs [QB API Error] with the body.
+      console.error(`[QB] /send rejected — invoice=${invoiceId} recipient=${toEmail}: ${(e as any).message}`);
+      throw e;
+    }
+    let link = sendResult?.Invoice?.InvoiceLink || "";
+    // QB quirk: /send response sometimes omits InvoiceLink even though
+    // the link was minted. Retry the read with small backoff.
+    for (let i = 0; i < 4 && !link; i++) {
       await new Promise(r => setTimeout(r, 400 * (i + 1)));
       const retry = await qbFetch(`/invoice/${invoiceId}`);
-      refreshed = retry?.Invoice?.InvoiceLink || "";
+      link = retry?.Invoice?.InvoiceLink || "";
     }
-    return refreshed || current;
-  } catch (e) {
-    console.log("[QB] refreshPaymentLink failed:", (e as any).message);
-    return current;
+    return link;
   }
+
+  // Each attempt is independently try/caught — a thrown 500 on the
+  // internal send must NOT short-circuit the customer-email fallback.
+  let refreshed = "";
+  try {
+    refreshed = await sendAndRead(internalSendEmail);
+  } catch (e) {
+    console.log("[QB] refreshPaymentLink internal send threw:", (e as any).message);
+  }
+
+  // Fallback: when internal send returned empty or threw, try the actual
+  // customer email (BillEmail on the invoice, or caller-provided). QB
+  // sometimes refuses /send to an unrelated internal address but accepts
+  // the customer's own email and mints the link.
+  if (!refreshed) {
+    const billEmail: string = invoice?.BillEmail?.Address || "";
+    const fallbackEmail = billEmail || customerEmail || "";
+    if (fallbackEmail && fallbackEmail.toLowerCase() !== internalSendEmail.toLowerCase()) {
+      try {
+        refreshed = await sendAndRead(fallbackEmail);
+      } catch (e) {
+        console.log("[QB] refreshPaymentLink fallback send threw:", (e as any).message);
+      }
+    }
+  }
+
+  return refreshed || current;
 }
 
 export async function updateInvoice(
   invoiceId: string,
   lineItems: QBLineItem[],
-  options: { memo?: string; shipAddress?: string } = {}
+  options: { memo?: string; shipAddress?: string; email?: string } = {}
 ): Promise<{ taxAmount: number; totalWithTax: number; paymentLink: string }> {
   // Fetch existing invoice to get SyncToken (required for updates)
   const existing = await qbFetch(`/invoice/${invoiceId}`);
@@ -496,37 +499,13 @@ export async function updateInvoice(
   const readBack = await qbFetch(`/invoice/${invoiceId}`);
   const full = readBack.Invoice || updated;
 
-  // Re-mint the payment link on every update. The stored InvoiceLink on QB
-  // can go stale after a revision — the old link may point at pre-revision
-  // content, or (historically) may have been the legacy /app/invoices/pay
-  // admin URL that 404s for customers. Calling /send here forces QB to
-  // return a current customer-facing connect.intuit.com URL.
-  // sendTo points at an internal address — customers never get this mail;
-  // OpsHub ships its own branded invoice email separately.
-  const current: string = full.InvoiceLink || "";
-  const isLegacyAdminUrl = current.startsWith("https://app.qbo.intuit.com/app/invoices/pay");
-  let paymentLink: string = current;
-  const shouldRefresh = !paymentLink || isLegacyAdminUrl;
-  if (shouldRefresh) {
-    const internalSendEmail = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
-    try {
-      const sendResult = await qbFetch(`/invoice/${invoiceId}/send?sendTo=${encodeURIComponent(internalSendEmail)}`, { method: "POST" });
-      const refreshed = sendResult?.Invoice?.InvoiceLink || "";
-      if (refreshed) {
-        paymentLink = refreshed;
-      } else {
-        const retry = await qbFetch(`/invoice/${invoiceId}`);
-        paymentLink = retry?.Invoice?.InvoiceLink || current;
-      }
-      console.log("[QB] Invoice update — refreshed InvoiceLink:", paymentLink || "(still empty)");
-    } catch (e) {
-      console.log("[QB] Update: could not refresh payment link:", (e as any).message);
-      // Keep whatever was there — at least send a stable (if stale) URL.
-      paymentLink = current;
-    }
-  }
+  // Re-mint the payment link after an update. The stored InvoiceLink can go
+  // stale after a revision (pre-revision content or legacy admin URL).
+  // Delegate to refreshPaymentLink for one source of truth on the /send +
+  // customer-email-fallback logic.
+  const paymentLink = await refreshPaymentLink(invoiceId, options.email);
 
-  console.log("[QB] Invoice updated:", invoiceId);
+  console.log("[QB] Invoice updated:", invoiceId, "— InvoiceLink:", paymentLink || "(still empty)");
   return {
     taxAmount: full.TxnTaxDetail?.TotalTax || 0,
     totalWithTax: full.TotalAmt || 0,
