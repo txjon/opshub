@@ -6,6 +6,7 @@ import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewModal";
 import { PdfPreviewModal } from "@/components/PdfPreviewModal";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export function PaymentTab({ job, items = [], contacts, payments, onReload, onRecalcPhase, onUpdateJob }) {
   const supabase = createClient();
@@ -15,6 +16,9 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
   const [qbError, setQbError] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const [showVarianceModal, setShowVarianceModal] = useState(false);
+  const [refreshingLink, setRefreshingLink] = useState(false);
+  const [linkError, setLinkError] = useState("");
+  const [showSendAnywayConfirm, setShowSendAnywayConfirm] = useState(false);
 
   // Variance review becomes available once invoice exists AND job is fully shipped
   const isDropShip = job.shipping_route === "drop_ship";
@@ -47,6 +51,39 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
 
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" };
   const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
+
+  async function refreshLink() {
+    if (refreshingLink) return;
+    setRefreshingLink(true);
+    setLinkError("");
+    try {
+      const res = await fetch("/api/qb/refresh-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.paymentLink) {
+        throw new Error(data.error || "QuickBooks did not return a payment link.");
+      }
+      if (onUpdateJob) onUpdateJob({
+        type_meta: { ...(job.type_meta || {}), qb_payment_link: data.paymentLink },
+      });
+      logJobActivity(job.id, "QB payment link refreshed");
+    } catch (err) {
+      setLinkError(err.message);
+    } finally {
+      setRefreshingLink(false);
+    }
+  }
+
+  function handleSendInvoiceClick() {
+    if (!qbPaymentLink) {
+      setShowSendAnywayConfirm(true);
+      return;
+    }
+    setShowInvoiceEmail(true);
+  }
 
   async function pushToQB() {
     setPushingToQB(true);
@@ -120,7 +157,7 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
           {previewed ? "✓ Preview Invoice" : "Preview Invoice"}
         </button>
         <span style={{ fontSize: 14, color: previewed ? T.accent : T.faint, flexShrink: 0 }}>→</span>
-        <button onClick={() => setShowInvoiceEmail(!showInvoiceEmail)} disabled={!previewed}
+        <button onClick={handleSendInvoiceClick} disabled={!previewed}
           style={{ flex: 1, minWidth: 100, height: 60, borderRadius: 8, border: "none", cursor: !previewed ? "default" : "pointer",
             background: !previewed ? T.surface : T.accent, color: !previewed ? T.faint : "#fff", fontSize: 11, fontWeight: 700, fontFamily: font,
             opacity: !previewed ? 0.4 : 1, transition: "opacity 0.15s", textAlign: "center",
@@ -161,11 +198,75 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
           style={{ ...ic, width: 160, textAlign: "center", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}
         />
       </div>
-      {qbPaymentLink && (
-        <div style={{ textAlign: "center", fontSize: 11, color: T.accent }}>
-          <a href={qbPaymentLink} target="_blank" rel="noopener noreferrer" style={{ color: T.accent }}>QB Payment link →</a>
-        </div>
-      )}
+      {/* Pay link chip — only shown once a QB invoice exists. Amber = no
+          link yet (click to create); green = link ready (click chip to
+          update, click label to open); red = last attempt failed (click
+          to retry). Working = in flight. */}
+      {qbInvoiceId && (() => {
+        const working = refreshingLink;
+        const hasLink = !!qbPaymentLink;
+        const failed = !hasLink && !!linkError;
+        const bg = working ? T.surface : hasLink ? T.greenDim : failed ? T.redDim : T.amberDim;
+        const fg = working ? T.muted : hasLink ? T.green : failed ? T.red : T.amber;
+        const borderColor = working ? T.border : hasLink ? `${T.green}66` : failed ? `${T.red}66` : `${T.amber}66`;
+        const label = working
+          ? "Working…"
+          : hasLink
+          ? "QB Payment link"
+          : failed
+          ? "Pay link failed"
+          : "No pay link";
+        const subLabel = working
+          ? ""
+          : hasLink
+          ? "Click to update"
+          : failed
+          ? "Click to retry"
+          : "Click to create";
+        return (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "stretch", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${borderColor}` }}>
+              <button
+                onClick={refreshLink}
+                disabled={working}
+                title={failed ? linkError : subLabel}
+                style={{
+                  background: bg, color: fg, border: "none",
+                  padding: "6px 12px", fontSize: 11, fontWeight: 700, fontFamily: font,
+                  cursor: working ? "default" : "pointer",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 1,
+                  transition: "opacity 0.15s",
+                }}
+                onMouseEnter={e => { if (!working) e.currentTarget.style.opacity = "0.85"; }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
+              >
+                <span>{hasLink ? "✓" : failed ? "✕" : working ? "…" : "○"} {label}</span>
+                {subLabel && <span style={{ fontSize: 9, fontWeight: 500, opacity: 0.8 }}>{subLabel}</span>}
+              </button>
+              {hasLink && !working && (
+                <a
+                  href={qbPaymentLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open pay link"
+                  style={{
+                    background: bg, color: fg, borderLeft: `1px solid ${borderColor}`,
+                    padding: "0 12px", fontSize: 14, fontWeight: 700, fontFamily: font,
+                    display: "flex", alignItems: "center", textDecoration: "none",
+                  }}
+                >
+                  →
+                </a>
+              )}
+            </div>
+            {failed && (
+              <div style={{ fontSize: 10, color: T.red, maxWidth: 420, textAlign: "center", lineHeight: 1.3 }}>
+                {linkError}
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {qbError && <div style={{ background: T.redDim, border: `1px solid ${T.red}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.red }}>{qbError}</div>}
 
       {/* Variance review — appears once invoice exists AND job is fully shipped.
@@ -215,6 +316,16 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
           onSent={() => { logJobActivity(job.id, "Invoice sent to client"); setShowInvoiceEmail(false); }}
         />
       )}
+
+      <ConfirmDialog
+        open={showSendAnywayConfirm}
+        title="No pay link available"
+        message="QuickBooks hasn't returned a pay link for this invoice yet. Sending now means the client won't see a 'Pay Online' button in the email or the portal. Click the amber chip to create the link first, or send anyway and the client will still get the PDF and portal link."
+        confirmLabel="Send anyway"
+        confirmColor={T.amber}
+        onConfirm={() => { setShowSendAnywayConfirm(false); setShowInvoiceEmail(true); }}
+        onCancel={() => setShowSendAnywayConfirm(false)}
+      />
 
       {/* ── Payment Records ── */}
       <div style={card}>
