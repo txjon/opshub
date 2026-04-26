@@ -552,10 +552,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const showRev = totalRev > 0 || pricingKnown || estRev != null;
             const profit = totalCost > 0 ? effRev - totalCost : 0;
             const marginPct = effRev > 0 ? (profit / effRev * 100) : 0;
+            // Show full cents — Math.round() was hiding the .46 on
+            // an $80.46 invoice, which led Taylor to mark a partial
+            // $80 payment as "Full Payment" because $80 looked like
+            // the total.
+            const fmt$ = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             return [
-              { label: "Revenue", value: showRev ? "$" + Math.round(effRev).toLocaleString() : "—", color: T.text },
-              { label: "Cost", value: totalCost > 0 ? "$" + Math.round(totalCost).toLocaleString() : "—" },
-              { label: "Profit", value: totalCost > 0 ? "$" + Math.round(profit).toLocaleString() : "—", color: profit >= 0 ? T.green : T.red },
+              { label: "Revenue", value: showRev ? fmt$(effRev) : "—", color: T.text },
+              { label: "Cost", value: totalCost > 0 ? fmt$(totalCost) : "—" },
+              { label: "Profit", value: totalCost > 0 ? fmt$(profit) : "—", color: profit >= 0 ? T.green : T.red },
               { label: "Margin", value: totalCost > 0 && effRev > 0 ? marginPct.toFixed(1) + "%" : "—", color: marginPct >= 30 ? T.green : marginPct >= 20 ? T.amber : T.red },
             ];
           })().map(s=>(

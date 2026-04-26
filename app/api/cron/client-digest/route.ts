@@ -66,20 +66,27 @@ export async function GET(req: NextRequest) {
 
     const briefIds = briefs.map((b: any) => b.id);
 
-    // Activity in the last 24h (files + note edits)
-    const { data: recentFiles } = await sb
-      .from("art_brief_files")
-      .select("brief_id, kind, created_at, uploader_role, annotation_updated_at")
-      .in("brief_id", briefIds)
-      .or(`created_at.gte.${since},annotation_updated_at.gte.${since}`);
+    // Activity in the last 24h — uploads from art_brief_files, comment
+    // chatter from art_brief_file_comments (HPD/designer side; client's
+    // own activity is excluded since this digest goes to the client).
+    const [recentFilesRes, recentCommentsRes] = await Promise.all([
+      sb.from("art_brief_files")
+        .select("brief_id, kind, created_at, uploader_role")
+        .in("brief_id", briefIds)
+        .gte("created_at", since),
+      sb.from("art_brief_file_comments")
+        .select("brief_id, sender_role, created_at")
+        .in("brief_id", briefIds)
+        .gte("created_at", since),
+    ]);
 
     const awaitingReview = briefs.filter((b: any) => b.state === "client_review");
     const approvedInPrep = briefs.filter((b: any) => ["final_approved", "pending_prep"].includes(b.state));
-    const recentUploads = (recentFiles || []).filter((f: any) =>
-      f.uploader_role !== "client" && f.kind !== "print_ready" && (f.created_at || "") >= since
+    const recentUploads = (recentFilesRes.data || []).filter((f: any) =>
+      f.uploader_role !== "client" && f.kind !== "print_ready"
     );
-    const recentNotes = (recentFiles || []).filter((f: any) =>
-      f.annotation_updated_at && f.annotation_updated_at >= since
+    const recentNotes = (recentCommentsRes.data || []).filter((c: any) =>
+      c.sender_role !== "client"
     );
 
     const totalActivity = awaitingReview.length + recentUploads.length + recentNotes.length;

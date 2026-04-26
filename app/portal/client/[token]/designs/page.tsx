@@ -5,7 +5,9 @@ import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
 import { DriveFileLink } from "@/components/DriveFileLink";
 import { useClientPortal } from "../_shared/context";
 import { C, daysUntil, thumbUrl } from "../_shared/theme";
-import { clientStateFor, isDoneForClient } from "../_shared/state-labels";
+import { clientStateFor } from "../_shared/state-labels";
+import { formatFileLabel, unreadHighlightFor } from "@/lib/art-activity-text";
+import { ArtReferencesGrid } from "@/components/ArtReferencesGrid";
 import type { Brief, Thumb } from "../_shared/types";
 
 // Designs tab — the Art Studio client view, moved into the tabbed shell.
@@ -18,7 +20,7 @@ export default function DesignsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const [filter, setFilter] = useState<"all" | "unread" | "done">("all");
+  const [filter, setFilter] = useState<"all" | "pending" | "working" | "done" | "unread">("all");
   const [openBrief, setOpenBrief] = useState<Brief | null>(null);
   const [showNew, setShowNew] = useState(false);
 
@@ -53,58 +55,50 @@ export default function DesignsPage() {
 
   const briefs = data.briefs;
   const withBucket = briefs.map(b => ({ b, meta: clientStateFor(b) }));
-  const unreadCount = briefs.filter(b => b.has_unread_external).length;
-  const doneCount = briefs.filter(isDoneForClient).length;
 
-  const filtered = filter === "unread"
-    ? withBucket.filter(x => x.b.has_unread_external)
-    : filter === "done"
-      ? withBucket.filter(x => isDoneForClient(x.b))
-      : withBucket.filter(x => !isDoneForClient(x.b));
+  // Client lifecycle:
+  //   Pending → HPD asked for input the client hasn't filled out yet
+  //   Working → in design (sent through revisions)
+  //   Done    → client approved (final_approved+)
+  const DONE_STATES = ["final_approved", "pending_prep", "production_ready", "delivered"];
+  const bucketFor = (b: Brief): "pending" | "working" | "done" => {
+    if (DONE_STATES.includes(b.state)) return "done";
+    if (b.intake_requested && (b.state === "draft" || b.state === "sent")) return "pending";
+    return "working";
+  };
+
+  const counts = {
+    all: briefs.length,
+    pending: briefs.filter(b => bucketFor(b) === "pending").length,
+    working: briefs.filter(b => bucketFor(b) === "working").length,
+    done: briefs.filter(b => bucketFor(b) === "done").length,
+    unread: briefs.filter(b => b.has_unread_external).length,
+  };
+
+  const filtered = (() => {
+    if (filter === "unread") return withBucket.filter(x => x.b.has_unread_external);
+    if (filter === "pending") return withBucket.filter(x => bucketFor(x.b) === "pending");
+    if (filter === "working") return withBucket.filter(x => bucketFor(x.b) === "working");
+    if (filter === "done") return withBucket.filter(x => bucketFor(x.b) === "done");
+    return withBucket;
+  })();
 
   return (
     <div>
-      {/* Filter strip + new request button */}
+      {/* Filter pills + new request button */}
       <div style={{
         marginBottom: 18,
-        display: "flex", alignItems: "center", gap: 10,
+        display: "flex", alignItems: "center", gap: 6,
         flexWrap: "wrap",
       }}>
-        {unreadCount > 0 ? (
-          <button onClick={() => setFilter(filter === "unread" ? "all" : "unread")}
-            style={{
-              background: filter === "unread" ? C.red : "transparent",
-              color: filter === "unread" ? "#fff" : C.red,
-              border: `1px solid ${C.red}`, borderRadius: 6,
-              padding: "8px 14px", minHeight: 40,
-              fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: C.font,
-            }}>
-            {unreadCount} new update{unreadCount === 1 ? "" : "s"}
-            {filter === "unread" ? " · showing" : " · tap to filter"}
-          </button>
-        ) : (
-          <span style={{ fontSize: 14, color: C.muted, fontWeight: 700 }}>All caught up.</span>
+        <ClientFilterPill label="All" count={counts.all} active={filter === "all"} onClick={() => setFilter("all")} />
+        {counts.pending > 0 && (
+          <ClientFilterPill label="Needs your input" count={counts.pending} active={filter === "pending"} onClick={() => setFilter("pending")} accent={C.amber} />
         )}
-        {filter !== "all" && (
-          <button onClick={() => setFilter("all")}
-            style={{
-              background: "transparent", color: C.muted,
-              border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer",
-              fontFamily: C.font, textDecoration: "underline",
-            }}>
-            Show active
-          </button>
-        )}
-        {doneCount > 0 && filter !== "done" && (
-          <button onClick={() => setFilter("done")}
-            style={{
-              background: "transparent", color: C.muted,
-              border: `1px solid ${C.border}`, borderRadius: 6,
-              padding: "8px 12px", minHeight: 40,
-              fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
-            }}>
-            Done · {doneCount}
-          </button>
+        <ClientFilterPill label="In design" count={counts.working} active={filter === "working"} onClick={() => setFilter("working")} />
+        <ClientFilterPill label="Approved" count={counts.done} active={filter === "done"} onClick={() => setFilter("done")} accent={C.green} />
+        {counts.unread > 0 && (
+          <ClientFilterPill label="Unread" count={counts.unread} active={filter === "unread"} onClick={() => setFilter("unread")} accent={C.blue} />
         )}
         <div style={{ flex: 1 }} />
         <button onClick={() => setShowNew(true)}
@@ -162,6 +156,30 @@ export default function DesignsPage() {
 }
 
 // ── Tile ──────────────────────────────────────────────────────────────
+function ClientFilterPill({ label, count, active, onClick, accent }: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  accent?: string;
+}) {
+  const fg = active ? "#fff" : (accent || C.text);
+  const bg = active ? (accent || C.text) : "transparent";
+  const border = accent || C.border;
+  return (
+    <button onClick={onClick}
+      style={{
+        background: bg, color: fg, border: `1px solid ${border}`,
+        borderRadius: 6, padding: "8px 12px", minHeight: 40,
+        fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: C.font,
+        display: "inline-flex", alignItems: "center", gap: 6,
+      }}>
+      <span>{label}</span>
+      <span style={{ fontSize: 10, fontWeight: 600, opacity: active ? 0.85 : 0.6 }}>· {count}</span>
+    </button>
+  );
+}
+
 function TileMosaic({ thumbs, total }: { thumbs: Thumb[]; total: number }) {
   const count = Math.min(thumbs.length, 4);
   const overflow = Math.max(0, total - 4);
@@ -224,11 +242,12 @@ function BriefTile({ brief, meta, onOpen }: {
   onOpen: () => void;
 }) {
   const due = daysUntil(brief.deadline);
+  const highlight = brief.has_unread_external ? unreadHighlightFor(brief.unread_kind) : null;
   return (
     <div onClick={onOpen}
       style={{
         background: C.card,
-        border: brief.has_unread_external ? `2px solid ${C.red}` : `1px solid ${C.border}`,
+        border: highlight ? `2px solid ${highlight}` : `1px solid ${C.border}`,
         borderRadius: 12,
         overflow: "hidden", display: "flex", flexDirection: "column",
         cursor: "pointer",
@@ -237,23 +256,28 @@ function BriefTile({ brief, meta, onOpen }: {
       }}
       onMouseEnter={(e: any) => { e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
       onMouseLeave={(e: any) => { e.currentTarget.style.boxShadow = "none"; }}>
-      {brief.has_unread_external && (
+      {/* Unread ribbon — full-width banner across the top with the
+          specific activity text. Replaces the old corner "NEW" badge. */}
+      {brief.has_unread_external && highlight && (
         <div style={{
-          position: "absolute", top: 10, left: 10, zIndex: 2,
-          padding: "4px 12px", borderRadius: 4,
-          background: C.red, color: "#fff",
-          fontSize: 10, fontWeight: 800, letterSpacing: "0.08em",
-          boxShadow: "0 2px 8px rgba(255, 50, 77, 0.35)",
-        }}>NEW</div>
+          padding: "6px 14px", background: highlight, color: "#fff",
+          fontSize: 11, fontWeight: 700, letterSpacing: "0.02em",
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", padding: "1px 5px", borderRadius: 2, background: C.purple, color: "#fff" }}>NEW</span>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {brief.preview_line || "New activity"}
+          </span>
+        </div>
       )}
+      {/* Mosaic with optional 30% darken overlay when unread. Status dot
+          removed — the ribbon above carries the unread signal, and the
+          state pill on the parent list shows broader status. */}
       <div style={{ aspectRatio: "1", position: "relative", overflow: "hidden" }}>
         <TileMosaic thumbs={brief.thumbs || []} total={brief.thumb_total ?? (brief.thumbs?.length || 0)} />
-        <div title={meta.label}
-          style={{
-            position: "absolute", top: 10, right: 10,
-            width: 10, height: 10, borderRadius: 99,
-            background: meta.color, boxShadow: "0 0 0 2px #fff", zIndex: 2,
-          }} />
+        {brief.has_unread_external && (
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.30)", pointerEvents: "none", zIndex: 1 }} />
+        )}
       </div>
       <div style={{ padding: "10px 14px 12px", display: "flex", flexDirection: "column", gap: 2 }}>
         <div style={{
@@ -274,15 +298,6 @@ function BriefTile({ brief, meta, onOpen }: {
           )}
           {due && <><span style={{ color: C.faint }}>·</span><span style={{ color: due.color, fontWeight: 600 }}>{due.text}</span></>}
         </div>
-        {brief.preview_line && (
-          <div style={{
-            fontSize: 11, fontWeight: 700,
-            color: brief.has_unread_external ? C.red : C.muted,
-            marginTop: 6,
-          }}>
-            {brief.preview_line}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -292,6 +307,8 @@ function BriefTile({ brief, meta, onOpen }: {
 type DetailFile = {
   id: string; file_name: string; drive_link: string | null; drive_file_id: string | null;
   kind: string; version: number;
+  /** 1-based index of this file within its kind on this brief — populated server-side. */
+  kind_ordinal?: number | null;
   hpd_annotation: string | null; client_annotation: string | null; designer_annotation: string | null;
   uploader_role: string; created_at: string;
 };
@@ -339,20 +356,20 @@ function bulletHandlers(value: string, setValue: (v: string) => void) {
 }
 
 function clientNextStep(state: string): { text: string; tone: "info" | "action" | "done" } | null {
-  if (state === "draft" || state === "sent") {
-    return { text: "Your designer is getting started. First look coming soon.", tone: "info" };
+  if (state === "draft") {
+    return { text: "We're getting started. First look coming soon.", tone: "info" };
   }
-  if (state === "in_progress" || state === "wip_review") {
-    return { text: "Designer is exploring directions. First draft on the way.", tone: "info" };
+  if (state === "sent" || state === "in_progress" || state === "wip_review") {
+    return { text: "We're creating. First look coming soon.", tone: "info" };
   }
   if (state === "client_review") {
-    return { text: "Your designer shared a draft — review it below and approve or request changes.", tone: "action" };
+    return { text: "Draft ready — review it below and approve or comment.", tone: "action" };
   }
   if (state === "revisions") {
-    return { text: "Your designer is working on your revisions. Updated version coming.", tone: "info" };
+    return { text: "We're working on your revisions. Updated version coming soon.", tone: "info" };
   }
   if (state === "final_approved" || state === "pending_prep" || state === "production_ready") {
-    return { text: "Your design is approved! HPD is prepping the production file.", tone: "done" };
+    return { text: "Your design is approved. We're getting it ready for print.", tone: "done" };
   }
   if (state === "delivered") {
     return { text: "Complete. Thanks for working with us.", tone: "done" };
@@ -391,8 +408,6 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
   const [uploading, setUploading] = useState(false);
   const [heroId, setHeroId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [clientNote, setClientNote] = useState("");
-  const [clientNoteSaved, setClientNoteSaved] = useState("");
   const [uploadNote, setUploadNote] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -489,20 +504,23 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
     setUploading(false);
   }
 
-  async function saveClientNote(fileId: string, note: string) {
-    if (note === clientNoteSaved) return;
-    try {
-      await fetch(`/api/portal/client/${tk}/briefs/${brief.id}/files`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileId, client_annotation: note }),
-      });
-      setClientNoteSaved(note);
-      setDetail(d => d ? {
-        ...d,
-        files: d.files.map(f => f.id === fileId ? { ...f, client_annotation: note || null } : f),
-      } : d);
-    } catch {}
+  async function postClientComment(fileId: string, body: string) {
+    const r = await fetch(`/api/portal/client/${tk}/briefs/${brief.id}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileId, body }),
+    });
+    if (!r.ok) throw new Error("post failed");
+    const d = await r.json();
+    const saved = d?.comment;
+    setDetail(prev => prev ? {
+      ...prev,
+      files: prev.files.map(f => f.id === fileId ? {
+        ...f,
+        comments: [...((f as any).comments || []), saved],
+      } as any : f),
+    } : prev);
+    return saved;
   }
 
   const allFiles = detail?.files || [];
@@ -513,34 +531,32 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
   ];
   const heroMeta = hero ? KIND_META[hero.kind] : null;
 
-  useEffect(() => {
-    const saved = hero?.client_annotation || "";
-    setClientNote(saved);
-    setClientNoteSaved(saved);
-  }, [hero?.id, hero?.client_annotation]);
-
   return (
-    <div onClick={onClose}
+    // Full-viewport panel — design requests are a primary surface for
+    // clients, so the detail view takes over the screen. × returns to
+    // the dashboard list.
+    <div
       style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: "clamp(8px, 2vw, 24px)",
+        position: "fixed", inset: 0, background: C.card, zIndex: 1000,
+        display: "flex", flexDirection: "column",
       }}>
-      <div onClick={e => e.stopPropagation()}
-        style={{
-          background: C.card, borderRadius: 14,
-          maxWidth: 1180, width: "100%", maxHeight: "94vh",
-          overflow: "hidden", display: "flex", flexDirection: "column",
-        }}>
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "12px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <div style={{ fontSize: 16, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {brief.title || "Untitled design"}
               </div>
-              <span style={{ padding: "3px 8px", borderRadius: 4, background: meta.bg, color: meta.color, fontSize: 9, fontWeight: 700, border: `1px solid ${meta.border}`, whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                {meta.label}
-              </span>
+              {(() => {
+                // Recompute the badge from the freshly-loaded brief
+                // state so it flips immediately on approve / revision.
+                const liveMeta = clientStateFor({ ...brief, state: detail?.brief?.state || brief.state } as any);
+                return (
+                  <span style={{ color: liveMeta.color, fontSize: 10, fontWeight: 700, whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                    {liveMeta.label}
+                  </span>
+                );
+              })()}
             </div>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {brief.job_title && <>{brief.job_title}</>}
@@ -556,10 +572,15 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
         </div>
 
         {(() => {
-          const next = clientNextStep(brief.state);
+          // Live state — after the client approves / requests changes,
+          // load() refetches the brief into `detail`. Read from there so
+          // the banner + button update immediately. Falls back to the
+          // parent prop while detail is still loading.
+          const liveState = detail?.brief?.state || brief.state;
+          const next = clientNextStep(liveState);
           if (!next) return null;
           return (
-            <div style={{ padding: "10px 22px", background: next.tone === "action" ? C.amberBg : next.tone === "done" ? C.greenBg : C.blueBg, borderBottom: `1px solid ${next.tone === "action" ? C.amberBorder : next.tone === "done" ? C.greenBorder : C.blueBorder}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            <div style={{ padding: "10px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
               <div style={{ flex: 1, fontSize: 12, color: next.tone === "action" ? C.amber : next.tone === "done" ? C.green : C.blue, fontWeight: 600 }}>
                 {next.text}
               </div>
@@ -567,18 +588,21 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
           );
         })()}
 
-        {/* Body — on desktop: hero+strip left, brief+notes right. On mobile: stacked. */}
-        <div className="brief-modal-body" style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-          <style>{`
-            .brief-modal-body { display: grid; grid-template-columns: 1fr 320px; }
-            @media (max-width: 768px) {
-              .brief-modal-body { grid-template-columns: 1fr !important; overflow-y: auto; }
-              .brief-modal-hero { height: clamp(260px, 50vh, 440px) !important; }
-              .brief-modal-right { border-left: none !important; border-top: 1px solid ${C.border}; max-height: none !important; }
-            }
-          `}</style>
-          <div style={{ display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
-            <div className="brief-modal-hero"
+        {/* Body — single column, brief banner + action bar + upload bar
+            + files grid. Notes live inline on each file card. */}
+        {(() => {
+          const allFiles = (detail?.files || []) as DetailFile[];
+          // Latest draft/revision = the deliverable the client is being
+          // asked to act on. Used as the target for Approve / Request
+          // changes when state === client_review.
+          const latestDraft = [...allFiles]
+            .filter(f => f.kind === "first_draft" || f.kind === "revision")
+            .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0] || null;
+          const liveState = detail?.brief?.state || brief.state;
+          const showActionBar = liveState === "client_review" && !!latestDraft;
+
+          return (
+            <div
               onDragOver={e => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={e => {
@@ -588,133 +612,57 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
                 if (f) uploadFile(f);
               }}
               style={{
-                height: "clamp(380px, 55vh, 680px)",
-                flexShrink: 0,
+                flex: 1, minHeight: 0, overflow: "auto",
                 background: C.surface,
-                position: "relative",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                overflow: "hidden",
-                outline: dragOver ? `3px dashed ${C.blue}` : "none",
-                outlineOffset: -3,
-              }}>
-              {hero ? (
-                <>
-                  <DriveFileLink driveFileId={hero.drive_file_id} fileName={hero.file_name} mimeType={(hero as any).mime_type}
-                    style={{ display: "block", width: "100%", height: "100%" }}>
-                    <img
-                      src={hero.drive_file_id ? `https://drive.google.com/thumbnail?id=${hero.drive_file_id}&sz=w1600` : ""}
-                      referrerPolicy="no-referrer"
-                      alt=""
-                      style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-                      onError={(e: any) => { e.target.style.display = "none"; }}
-                    />
-                  </DriveFileLink>
-                  {heroMeta && (
-                    <div style={{ position: "absolute", top: 12, left: 12, padding: "3px 9px", borderRadius: 4, background: heroMeta.bg, color: heroMeta.fg, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em" }}>
-                      {heroMeta.short}{hero.version > 1 ? ` · v${hero.version}` : ""}
-                    </div>
+                display: "flex", flexDirection: "column",
+                outline: dragOver ? `3px dashed ${C.blue}` : "none", outlineOffset: -3,
+              }}
+            >
+              {/* From HPD — only when there's actual content. */}
+              {(detail?.brief?.concept
+                || (detail?.brief as any)?.placement
+                || (detail?.brief as any)?.colors
+                || (detail?.brief as any)?.mood_words?.length > 0
+                || brief.deadline
+              ) && (
+                <div style={{ padding: "12px 18px", background: C.card, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 6 }}>
+                    From HPD
+                  </div>
+                  {detail?.brief?.concept && (
+                    <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", color: C.text, marginBottom: 8 }}>{detail.brief.concept}</div>
                   )}
-                  {hero.file_name && (
-                    <div style={{ position: "absolute", bottom: 12, left: 12, padding: "3px 9px", borderRadius: 4, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 10, fontFamily: C.mono }}>
-                      {hero.file_name}
-                    </div>
-                  )}
-                  {dragOver && (
-                    <div style={{ position: "absolute", inset: 0, background: "rgba(45,122,143,0.25)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 16, fontWeight: 700 }}>
-                      Drop to add reference
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div style={{ textAlign: "center", color: C.faint, fontSize: 13 }}>
-                  {dragOver
-                    ? <span style={{ color: C.blue, fontWeight: 700 }}>Drop to add reference</span>
-                    : <>
-                        <div style={{ fontSize: 36, marginBottom: 8, color: C.faint }}>↑</div>
-                        <div>Drop a reference image, or use <strong>+ Add reference</strong> below.</div>
-                      </>}
-                </div>
-              )}
-            </div>
-
-            <div style={{ background: C.surface, borderTop: `1px solid ${C.border}`, padding: "10px 14px", flex: 1, overflowY: "auto", minHeight: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                  Files {stripFiles.length > 0 && <span style={{ fontWeight: 400, color: C.faint }}>· {stripFiles.length}</span>}
-                </div>
-                <div style={{ flex: 1 }} />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  style={{ padding: "7px 12px", background: C.text, color: "#fff", border: "none", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: C.font, minHeight: 32 }}>
-                  {uploading ? "Uploading…" : "+ Add reference"}
-                </button>
-                <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }}
-                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
-              </div>
-              <textarea value={uploadNote} onChange={e => setUploadNote(e.target.value)}
-                {...bulletHandlers(uploadNote, setUploadNote)}
-                placeholder="• Note for the next reference (optional)"
-                rows={2}
-                style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: C.font, outline: "none", background: C.card, resize: "vertical", boxSizing: "border-box", marginBottom: 8 }} />
-
-              {stripFiles.length > 0 ? (
-                <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
-                  {stripFiles.map(f => {
-                    const m = KIND_META[f.kind] || KIND_META.reference;
-                    const isHero = hero?.id === f.id;
-                    return (
-                      <div key={f.id}
-                        onClick={() => setHeroId(f.id)}
-                        title={`${m.short}${f.version ? ` v${f.version}` : ""} — ${f.file_name || ""}`}
-                        style={{
-                          width: 72, height: 72, flexShrink: 0,
-                          background: "#fff", borderRadius: 4,
-                          border: `2px solid ${isHero ? C.blue : C.border}`,
-                          boxShadow: isHero ? `0 0 0 2px ${C.blueBorder}` : "none",
-                          overflow: "hidden", position: "relative", cursor: "pointer",
-                        }}>
-                        <img
-                          src={thumbUrl(f.drive_file_id) || ""}
-                          alt=""
-                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                          onError={(e: any) => { e.target.style.display = "none"; }}
-                        />
-                        <div style={{ position: "absolute", top: 2, left: 2, padding: "1px 4px", borderRadius: 2, background: m.bg, color: m.fg, fontSize: 8, fontWeight: 700 }}>
-                          {m.short}
-                        </div>
-                        {f.version > 1 && (
-                          <div style={{ position: "absolute", bottom: 2, left: 2, padding: "1px 4px", borderRadius: 2, background: "rgba(0,0,0,0.5)", color: "#fff", fontSize: 8, fontFamily: C.mono }}>
-                            v{f.version}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div style={{ fontSize: 11, color: C.faint, fontStyle: "italic" }}>
-                  {loading ? "Loading…" : "No images yet — drop a reference or click + Add reference."}
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: C.muted }}>
+                    {(detail?.brief as any)?.placement && <span><span style={{ color: C.faint, fontWeight: 600 }}>Placement</span> · {(detail!.brief as any).placement}</span>}
+                    {(detail?.brief as any)?.colors && <span><span style={{ color: C.faint, fontWeight: 600 }}>Colors</span> · {(detail!.brief as any).colors}</span>}
+                    {(detail?.brief as any)?.mood_words?.length > 0 && <span><span style={{ color: C.faint, fontWeight: 600 }}>Mood</span> · {((detail!.brief as any).mood_words as string[]).join(", ")}</span>}
+                    {brief.deadline && <span><span style={{ color: C.faint, fontWeight: 600 }}>Due</span> · {new Date(brief.deadline).toLocaleDateString("en-US", { month: "long", day: "numeric" })}</span>}
+                  </div>
                 </div>
               )}
 
-              {brief.state === "client_review" && hero && (hero.kind === "first_draft" || hero.kind === "revision") && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+              {/* Approve / Request changes — only when there's a draft
+                  or revision in client_review awaiting action. */}
+              {showActionBar && latestDraft && (
+                <div style={{ padding: "12px 18px", background: C.card, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
                   {!showRevisionInput ? (
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, color: C.text, fontWeight: 600, marginRight: 4 }}>
+                        Ready to decide on the {formatFileLabel(latestDraft.kind, latestDraft.kind_ordinal)}?
+                      </span>
                       <button onClick={() => runAction("approve")} disabled={!!actionPending}
-                        style={{ flex: "1 1 160px", padding: "12px 14px", background: C.green, color: "#fff", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: C.font, opacity: actionPending ? 0.7 : 1, minHeight: 44 }}>
+                        style={{ padding: "10px 18px", background: C.green, color: "#fff", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: C.font, opacity: actionPending ? 0.7 : 1, minHeight: 40 }}>
                         {actionPending === "approve" ? "Approving…" : "✓ Approve this design"}
                       </button>
-                      <button onClick={() => { setShowRevisionInput(true); setRevisionNote(clientNote); }} disabled={!!actionPending}
-                        style={{ flex: "1 1 160px", padding: "12px 14px", background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: C.font, minHeight: 44 }}>
+                      <button onClick={() => { setShowRevisionInput(true); setRevisionNote(""); }} disabled={!!actionPending}
+                        style={{ padding: "10px 18px", background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: C.font, minHeight: 40 }}>
                         Request changes
                       </button>
                     </div>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, background: C.amberBg, border: `1px solid ${C.amberBorder}`, borderRadius: 6 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                        What would you like changed?
+                        What would you like changed on the {formatFileLabel(latestDraft.kind, latestDraft.kind_ordinal)}?
                       </div>
                       <textarea value={revisionNote} onChange={e => setRevisionNote(e.target.value)}
                         {...bulletHandlers(revisionNote, setRevisionNote)}
@@ -726,7 +674,7 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
                           style={{ padding: "8px 12px", background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: C.font, minHeight: 36 }}>
                           Cancel
                         </button>
-                        <button onClick={() => runAction("request_changes", revisionNote, hero.id)} disabled={!!actionPending || !revisionNote.trim()}
+                        <button onClick={() => runAction("request_changes", revisionNote, latestDraft.id)} disabled={!!actionPending || !revisionNote.trim()}
                           style={{ flex: 1, padding: "8px 14px", background: C.amber, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: C.font, opacity: actionPending || !revisionNote.trim() ? 0.5 : 1, minHeight: 36 }}>
                           {actionPending === "request_changes" ? "Sending…" : "Send revision request"}
                         </button>
@@ -735,66 +683,91 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
                   )}
                 </div>
               )}
-            </div>
-          </div>
 
-          <div className="brief-modal-right" style={{ display: "flex", flexDirection: "column", borderLeft: `1px solid ${C.border}`, background: C.card, minHeight: 0, overflow: "hidden" }}>
-            <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10, flexShrink: 0, maxHeight: "40%", overflowY: "auto", borderBottom: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Brief
+              {/* Upload bar — clients only upload references; kind is
+                  fixed, no pills needed. */}
+              <div style={{
+                position: "sticky", top: 0, zIndex: 5,
+                padding: "10px 18px",
+                background: C.card, borderBottom: `1px solid ${C.border}`,
+                display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                flexShrink: 0,
+              }}>
+                <span style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.12em" }}>
+                  Add reference
+                </span>
+                <input
+                  value={uploadNote}
+                  onChange={e => setUploadNote(e.target.value)}
+                  placeholder="Note for the next reference (optional)"
+                  style={{
+                    flex: 1, minWidth: 200,
+                    padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6,
+                    fontSize: 12, fontFamily: C.font, outline: "none",
+                    background: C.surface, color: C.text,
+                  }}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  style={{
+                    padding: "7px 16px",
+                    background: uploading ? C.surface : C.text,
+                    color: uploading ? C.muted : "#fff",
+                    border: "none", borderRadius: 6,
+                    fontSize: 12, fontWeight: 700,
+                    cursor: uploading ? "not-allowed" : "pointer",
+                    fontFamily: C.font, whiteSpace: "nowrap",
+                  }}>
+                  {uploading ? "Uploading…" : "+ Choose file"}
+                </button>
+                <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ""; }} />
               </div>
-              {detail?.brief?.concept ? (
-                <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", color: C.text }}>{detail.brief.concept}</div>
-              ) : !loading ? (
-                <div style={{ fontSize: 12, color: C.faint, fontStyle: "italic" }}>HPD hasn't written a brief yet.</div>
-              ) : null}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
-                {(detail?.brief as any)?.placement && <div><span style={{ color: C.faint, fontWeight: 600 }}>Placement: </span>{(detail!.brief as any).placement}</div>}
-                {(detail?.brief as any)?.colors && <div><span style={{ color: C.faint, fontWeight: 600 }}>Colors: </span>{(detail!.brief as any).colors}</div>}
-                {(detail?.brief as any)?.mood_words?.length > 0 && (
-                  <div><span style={{ color: C.faint, fontWeight: 600 }}>Mood: </span>{((detail!.brief as any).mood_words as string[]).join(" · ")}</div>
+
+              {/* Files header + grid */}
+              <div style={{ padding: "14px 18px 6px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: C.muted }}>
+                  Files {allFiles.length > 0 && <span style={{ fontWeight: 400, color: C.faint }}>· {allFiles.length}</span>}
+                </div>
+                {dragOver && (
+                  <span style={{ color: C.blue, fontSize: 11, fontWeight: 700 }}>
+                    Drop to add reference
+                  </span>
                 )}
-                {brief.deadline && <div><span style={{ color: C.faint, fontWeight: 600 }}>Due: </span>{new Date(brief.deadline).toLocaleDateString("en-US", { month: "long", day: "numeric" })}</div>}
               </div>
-            </div>
 
-            <div style={{ padding: "14px 16px", flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Notes on this image
-              </div>
-              {!hero ? (
-                <div style={{ fontSize: 12, color: C.faint, fontStyle: "italic" }}>Pick a file to see + add notes.</div>
+              {allFiles.length > 0 ? (
+                <div style={{ padding: "0 18px 24px", flexShrink: 0 }}>
+                  <ArtReferencesGrid
+                    files={allFiles as any}
+                    viewerRole="client"
+                    onPostComment={async (fileId, body) => {
+                      const saved = await postClientComment(fileId, body);
+                      return saved;
+                    }}
+                    /* Per spec: only HPD deletes REFs. Clients can
+                       upload but not delete; designers can't touch
+                       refs at all. No onDelete passed = no trash icon. */
+                  />
+                </div>
               ) : (
-                <>
-                  {hero.designer_annotation && (
-                    <div style={{ padding: "8px 12px", background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: 6 }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: C.blue, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Designer</div>
-                      <div style={{ fontSize: 12, color: C.text, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{hero.designer_annotation}</div>
+                <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center", color: C.faint, fontSize: 13 }}>
+                  {dragOver ? (
+                    <span style={{ color: C.blue, fontWeight: 700 }}>Drop to add reference</span>
+                  ) : loading ? (
+                    "Loading…"
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 36, marginBottom: 8, color: C.faint }}>↑</div>
+                      <div>Drop a reference image, or use the upload bar above.</div>
                     </div>
                   )}
-                  {hero.hpd_annotation && (
-                    <div style={{ padding: "8px 12px", background: C.amberBg, border: `1px solid ${C.amberBorder}`, borderRadius: 6 }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>HPD</div>
-                      <div style={{ fontSize: 12, color: C.text, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{hero.hpd_annotation}</div>
-                    </div>
-                  )}
-                  <div>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: C.purple, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Your note</div>
-                    <textarea
-                      value={clientNote}
-                      onChange={e => setClientNote(e.target.value)}
-                      onBlur={() => saveClientNote(hero.id, clientNote)}
-                      {...bulletHandlers(clientNote, setClientNote)}
-                      placeholder={hero.kind === "reference" ? "• love the color palette" : "• thoughts on this image"}
-                      rows={4}
-                      style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.purpleBorder}`, borderRadius: 6, fontSize: 12, fontFamily: C.font, outline: "none", background: C.purpleBg, color: C.text, lineHeight: 1.5, resize: "vertical", boxSizing: "border-box" }}
-                    />
-                  </div>
-                </>
+                </div>
               )}
             </div>
-          </div>
-        </div>
+          );
+        })()}
       </div>
     </div>
   );

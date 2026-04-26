@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { computeFileOrdinals, formatActivityText, type ActivityRole, type ActivityType } from "@/lib/art-activity-text";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -36,70 +37,67 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const ids = briefList.map(b => b.id);
 
     let filesByBrief: Record<string, any[]> = {};
-    type Activity = { at: string; type: "message" | "upload" | "note"; kind?: string };
+    type Activity = { at: string; type: "message" | "upload" | "note"; kind?: string; fileId?: string; messageBody?: string };
     let lastByRole: Record<string, { client?: Activity; designer?: Activity; hpd?: Activity }> = {};
+    // Per-file ordinal within its kind on each brief — drives the
+    // "REF 3" / "2nd Draft" labeling in preview lines.
+    let ordinalsByFileId: Record<string, number> = {};
 
     if (ids.length > 0) {
-      const [filesRes, msgsRes] = await Promise.all([
+      const [filesRes, msgsRes, commentsRes] = await Promise.all([
         db.from("art_brief_files")
-          .select("brief_id, drive_file_id, drive_link, kind, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation")
+          .select("id, brief_id, drive_file_id, drive_link, kind, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation")
           .in("brief_id", ids),
         db.from("art_brief_messages")
-          .select("brief_id, sender_role, created_at"),
+          .select("brief_id, sender_role, created_at, message"),
+        db.from("art_brief_file_comments")
+          .select("brief_id, file_id, sender_role, created_at, body")
+          .in("brief_id", ids),
       ]);
 
       // Client sees everything except HPD's internal print-ready files.
       const visibleFiles = (filesRes.data || []).filter((f: any) => f.kind !== "print_ready");
+      const visibleFileIds = new Set(visibleFiles.map((f: any) => f.id));
+      const fileKindById: Record<string, string> = {};
+      for (const f of visibleFiles) fileKindById[f.id] = f.kind;
 
       // Per-role last activity — group-chat "unread" uses this
-      const bump = (bid: string, role: string | null | undefined, at: string, type: "message" | "upload" | "note", kind?: string) => {
+      const bump = (bid: string, role: string | null | undefined, at: string, type: "message" | "upload" | "note", extras: { kind?: string; fileId?: string; messageBody?: string } = {}) => {
         const r = role === "client" ? "client" : role === "designer" ? "designer" : "hpd";
         const slot = (lastByRole[bid] ||= {});
         const cur = (slot as any)[r];
-        if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type, kind };
+        if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type, ...extras };
       };
-      // Only count files visible to the client so "unread" matches reality.
-      const lastTouched = (f: any) => {
-        const c = f.created_at || "";
-        const a = f.annotation_updated_at || "";
-        return c > a ? c : a;
-      };
-      // Smart inference for annotation activity (single shared
-      // annotation_updated_at column): if the role matches the file's
-      // uploader, the annotation was set at upload (use created_at).
-      // Otherwise it was PATCHed later (use shared). This prevents HPD's
-      // PATCH time from being attributed to the designer's upload-time
-      // note, which broke unread-badge math.
+      // Bump per upload (visible files only so "unread" matches reality)
       for (const f of visibleFiles) {
-        bump(f.brief_id, f.uploader_role, f.created_at, "upload", f.kind);
-        const inferAt = (role: "hpd" | "designer" | "client", has: boolean) => {
-          if (!has) return null;
-          if (f.uploader_role === role) return f.created_at;
-          return f.annotation_updated_at || null;
-        };
-        const hpdAt = inferAt("hpd", !!f.hpd_annotation);
-        const designerAt = inferAt("designer", !!f.designer_annotation);
-        const clientAt = inferAt("client", !!f.client_annotation);
-        if (hpdAt) bump(f.brief_id, "hpd", hpdAt, "note", f.kind);
-        if (designerAt) bump(f.brief_id, "designer", designerAt, "note", f.kind);
-        if (clientAt) bump(f.brief_id, "client", clientAt, "note", f.kind);
+        bump(f.brief_id, f.uploader_role, f.created_at, "upload", { kind: f.kind, fileId: f.id });
       }
-      for (const m of (msgsRes.data || [])) bump(m.brief_id, m.sender_role, m.created_at, "message");
+      // Per-file chat comments — only those on files the client can see
+      for (const c of (commentsRes.data || [])) {
+        if (!visibleFileIds.has(c.file_id)) continue;
+        bump(c.brief_id, c.sender_role, c.created_at, "note", {
+          kind: fileKindById[c.file_id] || undefined,
+          fileId: c.file_id,
+          messageBody: c.body,
+        });
+      }
+      for (const m of (msgsRes.data || [])) bump(m.brief_id, m.sender_role, m.created_at, "message", { messageBody: m.message });
 
-      // Group visible files per brief, sorted by last touched (upload or note)
+      // Group visible files per brief, newest-touched at top (upload time).
       visibleFiles.forEach((f: any) => {
         (filesByBrief[f.brief_id] ||= []).push(f);
       });
       Object.keys(filesByBrief).forEach(bid => {
-        filesByBrief[bid].sort((a, b) => lastTouched(b).localeCompare(lastTouched(a)));
+        filesByBrief[bid].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
       });
-    }
 
-    const KIND_LABEL: Record<string, string> = {
-      final: "the Final", revision: "a Revision", first_draft: "a 1st Draft",
-      wip: "a WIP", reference: "a reference", client_intake: "intake",
-      print_ready: "Print-Ready",
-    };
+      // Compute per-kind ordinal for every visible file so previews can
+      // label them as REF 3 / 2nd Draft / etc.
+      for (const bid of ids) {
+        const ord = computeFileOrdinals(filesByBrief[bid] || []);
+        Object.assign(ordinalsByFileId, ord);
+      }
+    }
 
     const out = briefList.map(b => {
       const files = filesByBrief[b.id] || [];
@@ -118,18 +116,19 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       const lastExternalRole = designerAt > hpdAt ? "designer" : "hpd";
       const externalActivity = lastExternalRole === "designer" ? la.designer : la.hpd;
       const hasUnreadExternal = !!lastExternal && lastExternal > clientAt;
-      // Preview line like "Designer uploaded Revision" or "HPD posted"
+      // Preview line — uses the shared formatter so wording matches what
+      // the designer + HPD see on the same brief ("HPD uploaded REF 3",
+      // "Designer uploaded 2nd Draft", etc.).
       let previewLine: string | null = null;
       if (hasUnreadExternal && externalActivity) {
-        const who = lastExternalRole === "designer" ? "Designer" : "HPD";
-        const label = KIND_LABEL[externalActivity.kind || ""] || "a file";
-        if (externalActivity.type === "upload") {
-          previewLine = `${who} uploaded ${label}`;
-        } else if (externalActivity.type === "note") {
-          previewLine = `${who} added a note on ${label}`;
-        } else {
-          previewLine = `${who} posted`;
-        }
+        const fileId = (externalActivity as any).fileId;
+        previewLine = formatActivityText({
+          role: lastExternalRole as ActivityRole,
+          type: externalActivity.type as ActivityType,
+          kind: externalActivity.kind || null,
+          ordinal: fileId ? ordinalsByFileId[fileId] || null : null,
+          messageBody: (externalActivity as any).messageBody || null,
+        });
       }
       // Sort timestamp — "latest activity by anyone", newest to top
       const latestAt = [clientAt, designerAt, hpdAt].filter(Boolean).sort().pop() || b.updated_at || b.created_at;
@@ -151,6 +150,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         updated_at: b.updated_at,
         last_activity_at: latestAt,
         has_unread_external: hasUnreadExternal,
+        unread_kind: hasUnreadExternal ? externalActivity?.kind || null : null,
         preview_line: previewLine,
       };
     });

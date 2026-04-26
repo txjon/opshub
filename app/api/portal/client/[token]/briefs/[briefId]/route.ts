@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { computeFileOrdinals } from "@/lib/art-activity-text";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -40,10 +41,29 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   // client's view ends at Final.
   const visibleFiles = (filesRes.data || []).filter((f: any) => f.kind !== "print_ready");
 
+  const fileIds = visibleFiles.map((f: any) => f.id);
+  const { data: commentsRaw } = fileIds.length > 0
+    ? await ctx.db.from("art_brief_file_comments")
+        .select("id, file_id, sender_role, body, created_at")
+        .in("file_id", fileIds)
+        .order("created_at")
+    : { data: [] as any[] };
+  const commentsByFile: Record<string, any[]> = {};
+  for (const c of (commentsRaw || [])) (commentsByFile[c.file_id] ||= []).push(c);
+
+  // Per-kind 1-based ordinal so the file badge can render "REF 3" /
+  // "2nd Draft" instead of just "REF" / "REV".
+  const ordinals = computeFileOrdinals(visibleFiles);
+  const filesWithOrd = visibleFiles.map((f: any) => ({
+    ...f,
+    kind_ordinal: ordinals[f.id] || null,
+    comments: commentsByFile[f.id] || [],
+  }));
+
   return NextResponse.json({
     brief: ctx.brief,
     client: { name: ctx.client.name },
-    files: visibleFiles,
+    files: filesWithOrd,
     messages: msgsRes.data || [],
   });
 }
