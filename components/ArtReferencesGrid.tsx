@@ -592,9 +592,7 @@ function Composer({
   );
 }
 
-function composerPlaceholder(viewerRole: ViewerRole): string {
-  if (viewerRole === "hpd") return "Comment…";
-  if (viewerRole === "designer") return "Comment for HPD or client…";
+function composerPlaceholder(_viewerRole: ViewerRole): string {
   return "Comment…";
 }
 

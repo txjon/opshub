@@ -23,7 +23,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // No embedded join — fetch client names separately to avoid any PostgREST
     // cache weirdness around embedded resources.
     const { data: briefs, error: briefErr } = await db.from("art_briefs")
-      .select("id, title, state, deadline, concept, placement, colors, mood_words, sent_to_designer_at, updated_at, version_count, job_id, item_id, client_id, client_aborted_at, archived_by")
+      .select("id, title, state, deadline, concept, placement, colors, mood_words, sent_to_designer_at, updated_at, version_count, job_id, item_id, client_id, client_aborted_at, archived_by, designer_last_seen_at")
       .eq("assigned_designer_id", designer.id)
       .not("sent_to_designer_at", "is", null)
       .order("updated_at", { ascending: false });
@@ -122,7 +122,12 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       }
       const la = lastByRole[b.id] || {};
       const clientAt = la.client?.at || "";
-      const designerAt = la.designer?.at || "";
+      // designerAt = max(actual designer activity, designer_last_seen_at).
+      // Opening the modal counts as "seen" — clears the unread ribbon
+      // even if the designer didn't post anything.
+      const designerActivityAt = la.designer?.at || "";
+      const designerSeenAt = (b as any).designer_last_seen_at || "";
+      const designerAt = designerActivityAt > designerSeenAt ? designerActivityAt : designerSeenAt;
       const hpdAt = la.hpd?.at || "";
       const latestExternal = clientAt > hpdAt ? clientAt : hpdAt;
       const latestExternalRole: "client" | "hpd" = clientAt > hpdAt ? "client" : "hpd";
