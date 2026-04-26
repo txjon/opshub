@@ -39,6 +39,14 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     } catch {}
   }
 
+  // Mark-as-read for designer on every detail open. Listing rollup
+  // factors this into designerAt so unread ribbons clear once the
+  // brief has been viewed.
+  ctx.db.from("art_briefs")
+    .update({ designer_last_seen_at: new Date().toISOString() })
+    .eq("id", ctx.brief.id)
+    .then(() => {});
+
   const { data: brief } = await ctx.db.from("art_briefs")
     .select("id, title, concept, placement, colors, mood_words, deadline, state, version_count, sent_to_designer_at, client_aborted_at, archived_by, clients(name)")
     .eq("id", params.briefId)

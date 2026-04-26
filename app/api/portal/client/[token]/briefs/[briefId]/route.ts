@@ -29,6 +29,13 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   const ctx = await verifyAccess(params.token, params.briefId);
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // Mark-as-read on every detail open. Listing rollup factors this
+  // into clientAt so unread ribbons clear after first open.
+  ctx.db.from("art_briefs")
+    .update({ client_last_seen_at: new Date().toISOString() })
+    .eq("id", ctx.brief.id)
+    .then(() => {});
+
   const [filesRes, msgsRes] = await Promise.all([
     ctx.db.from("art_brief_files").select("*").eq("brief_id", params.briefId).order("created_at"),
     ctx.db.from("art_brief_messages").select("*").eq("brief_id", params.briefId)
