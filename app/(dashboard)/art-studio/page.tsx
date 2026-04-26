@@ -284,17 +284,17 @@ export default function ArtStudioPage() {
   const [loading, setLoading] = useState(true);
   const [showNewRequest, setShowNewRequest] = useState(false);
   const [selectedBrief, setSelectedBrief] = useState<Brief | null>(null);
-  const [filter, setFilter] = useState<"all" | "pending" | "working" | "ready" | "done" | "unread" | "aborted">("all");
+  const [filter, setFilter] = useState<"all" | "pending" | "working" | "ready" | "done" | "unread" | "aborted">("unread");
   const [search, setSearch] = useState("");
   const [clientFilter, setClientFilter] = useState("");
 
   useEffect(() => {
-    loadBriefs();
+    loadBriefs(true);
     loadClients();
     // Poll every 15s so client/designer activity (approvals, uploads,
-    // comments) propagates without a manual refresh — matches the
-    // designer + client portals' poll cadence.
-    const interval = setInterval(() => loadBriefs(), 15000);
+    // comments) propagates without a manual refresh. Silent poll —
+    // doesn't flash the loading state — matches portal cadence.
+    const interval = setInterval(() => loadBriefs(false), 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -306,12 +306,12 @@ export default function ArtStudioPage() {
     if (match && (!selectedBrief || selectedBrief.id !== briefId)) setSelectedBrief(match);
   }, [params, briefs]);
 
-  async function loadBriefs() {
-    setLoading(true);
+  async function loadBriefs(initial = false) {
+    if (initial) setLoading(true);
     const res = await fetch("/api/art-briefs");
     const data = await res.json();
     setBriefs(data.briefs || []);
-    setLoading(false);
+    if (initial) setLoading(false);
   }
 
   async function loadClients() {
@@ -423,12 +423,12 @@ export default function ArtStudioPage() {
           print-ready; Done = print-ready uploaded. Unread + Aborted are
           orthogonal slices for HPD admin. */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        <FilterPill label="Unread" count={counts.unread} active={filter === "unread"} onClick={() => setFilter("unread")} />
         <FilterPill label="All" count={counts.all} active={filter === "all"} onClick={() => setFilter("all")} />
         <FilterPill label="Pending" count={counts.pending} active={filter === "pending"} onClick={() => setFilter("pending")} />
         <FilterPill label="Working" count={counts.working} active={filter === "working"} onClick={() => setFilter("working")} />
         <FilterPill label="Ready" count={counts.ready} active={filter === "ready"} onClick={() => setFilter("ready")} />
         <FilterPill label="Done" count={counts.done} active={filter === "done"} onClick={() => setFilter("done")} />
-        {counts.unread > 0 && <FilterPill label="Unread" count={counts.unread} active={filter === "unread"} onClick={() => setFilter("unread")} />}
         {counts.aborted > 0 && <FilterPill label="Aborted" count={counts.aborted} active={filter === "aborted"} onClick={() => setFilter("aborted")} />}
       </div>
 
