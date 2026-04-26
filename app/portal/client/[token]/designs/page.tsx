@@ -210,7 +210,8 @@ function TileMosaic({ thumbs, total }: { thumbs: Thumb[]; total: number }) {
       {thumbs.slice(0, count).map((t, i) => {
         const spanLeft = count === 3 && i === 0;
         const isLast = i === count - 1;
-        const src = t.drive_file_id ? `/api/files/thumbnail?id=${t.drive_file_id}&thumb=1` : null;
+        const tid = t.preview_drive_file_id || t.drive_file_id;
+        const src = tid ? `/api/files/thumbnail?id=${tid}&thumb=1` : null;
         return (
           <div key={i} style={{
             position: "relative", background: "#fff",

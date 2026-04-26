@@ -29,6 +29,10 @@ export type FileComment = {
 export type RefFile = {
   id: string;
   drive_file_id: string | null;
+  /** Server-rendered preview (e.g. flattened PSD → PNG). When set, the
+   *  tile + lightbox use this for thumbnails since Drive can't render
+   *  the original. Falls back to drive_file_id when null. */
+  preview_drive_file_id?: string | null;
   drive_link?: string | null;
   kind: string;
   kind_ordinal?: number | null;
@@ -267,8 +271,11 @@ function FileCard({
         aspectRatio: "1 / 1", overflow: "hidden",
       };
 
-  const imageSrc = file.drive_file_id
-    ? `https://drive.google.com/thumbnail?id=${file.drive_file_id}&sz=w1600`
+  // Prefer the server-rendered preview when present (Drive can't
+  // thumbnail PSDs etc.), fall back to the original drive_file_id.
+  const thumbId = file.preview_drive_file_id || file.drive_file_id;
+  const imageSrc = thumbId
+    ? `https://drive.google.com/thumbnail?id=${thumbId}&sz=w1600`
     : null;
 
   const handleSend = async (body: string): Promise<boolean> => {

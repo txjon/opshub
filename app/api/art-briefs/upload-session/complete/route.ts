@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { setFilePublicReadable, getDriveWebLink } from "@/lib/drive-resumable";
+import { generatePsdPreview, isPsdFile } from "@/lib/psd-preview-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 // POST — HPD registers a completed Drive upload. Called after the client
 // successfully PUTs bytes to the resumable session URL.
@@ -50,6 +52,20 @@ export async function POST(req: NextRequest) {
     }).select("*").single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // PSD preview — Drive can't auto-thumbnail layered Photoshop files,
+    // so we render a flattened PNG and store its drive_id alongside.
+    // Fire-and-forget: tile thumbnails resolve to the original Drive id
+    // until the preview lands, then flip on next refresh.
+    if (data?.id && isPsdFile(file_name, mime_type)) {
+      generatePsdPreview(drive_file_id, file_name).then(async (previewId) => {
+        if (previewId) {
+          await supabase.from("art_brief_files")
+            .update({ preview_drive_file_id: previewId })
+            .eq("id", data.id);
+        }
+      }).catch(() => {});
+    }
 
     // State transitions (match upload-reference legacy behavior)
     const now = new Date().toISOString();

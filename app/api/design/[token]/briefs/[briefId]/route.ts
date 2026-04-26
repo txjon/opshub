@@ -53,7 +53,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     .single();
 
   const { data: filesRaw } = await ctx.db.from("art_brief_files")
-    .select("id, file_name, drive_file_id, drive_link, mime_type, file_size, version, kind, hpd_annotation, client_annotation, designer_annotation, shared_with_client_at, uploader_role, created_at")
+    .select("id, file_name, drive_file_id, preview_drive_file_id, drive_link, mime_type, file_size, version, kind, hpd_annotation, client_annotation, designer_annotation, shared_with_client_at, uploader_role, created_at")
     .eq("brief_id", params.briefId)
     .order("created_at");
 

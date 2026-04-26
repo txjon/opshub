@@ -47,7 +47,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     if (briefIds.length > 0) {
       const [filesResRaw, msgsRes, commentsRes] = await Promise.all([
         db.from("art_brief_files")
-          .select("id, brief_id, kind, version, drive_file_id, drive_link, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation")
+          .select("id, brief_id, kind, version, drive_file_id, preview_drive_file_id, drive_link, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation")
           .in("brief_id", briefIds)
           .order("created_at", { ascending: false }),
         db.from("art_brief_messages")
@@ -113,6 +113,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       // OpsHub Art Studio tiles.
       const thumbs = sorted.slice(0, 4).map((f: any) => ({
         drive_file_id: f.drive_file_id,
+        preview_drive_file_id: f.preview_drive_file_id || null,
         drive_link: f.drive_link,
         kind: f.kind,
       }));
@@ -163,7 +164,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       return {
         ...b,
         clients: b.client_id ? (clientsById[b.client_id] || null) : null,
-        latest_thumb: latest ? { drive_file_id: latest.drive_file_id, drive_link: latest.drive_link, kind: latest.kind } : null,
+        latest_thumb: latest ? { drive_file_id: latest.drive_file_id, preview_drive_file_id: latest.preview_drive_file_id || null, drive_link: latest.drive_link, kind: latest.kind } : null,
         thumbs,
         thumb_total: files.length,
         file_counts: counts,

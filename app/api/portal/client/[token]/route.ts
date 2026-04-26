@@ -46,7 +46,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     if (ids.length > 0) {
       const [filesRes, msgsRes, commentsRes] = await Promise.all([
         db.from("art_brief_files")
-          .select("id, brief_id, drive_file_id, drive_link, kind, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation")
+          .select("id, brief_id, drive_file_id, preview_drive_file_id, drive_link, kind, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation")
           .in("brief_id", ids),
         db.from("art_brief_messages")
           .select("brief_id, sender_role, created_at, message"),
@@ -103,6 +103,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       const files = filesByBrief[b.id] || [];
       const thumbs = files.slice(0, 8).map(f => ({
         drive_file_id: f.drive_file_id,
+        preview_drive_file_id: f.preview_drive_file_id || null,
         drive_link: f.drive_link,
         kind: f.kind,
       }));
