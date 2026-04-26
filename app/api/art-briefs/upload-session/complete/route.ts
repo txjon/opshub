@@ -59,11 +59,51 @@ export async function POST(req: NextRequest) {
         updated_at: now,
       }).eq("id", brief_id);
     }
+    // Print-Ready upload is HPD's final hand-off into production. Push the
+    // file into the linked item's pipeline (item_files + items.drive_link)
+    // so POs and production tabs pick it up without a separate step, then
+    // close the brief out as delivered. The graphic now lives as a client
+    // asset and can be reused on new/existing projects.
     if (k === "print_ready") {
+      const { data: brief } = await supabase
+        .from("art_briefs")
+        .select("id, item_id, client_id, job_id, title")
+        .eq("id", brief_id)
+        .single();
+
+      if (brief?.item_id && data?.drive_file_id && data?.drive_link) {
+        // Avoid duplicate print_ready rows for same drive file
+        const { data: existing } = await supabase
+          .from("item_files")
+          .select("id")
+          .eq("item_id", brief.item_id)
+          .eq("drive_file_id", data.drive_file_id)
+          .maybeSingle();
+        if (!existing) {
+          await supabase.from("item_files").insert({
+            item_id: brief.item_id,
+            file_name: data.file_name,
+            stage: "print_ready",
+            drive_file_id: data.drive_file_id,
+            drive_link: data.drive_link,
+            mime_type: data.mime_type,
+            file_size: data.file_size,
+            uploaded_by: user.id,
+          });
+        }
+        await supabase.from("items").update({ drive_link: data.drive_link }).eq("id", brief.item_id);
+      }
+
       await supabase.from("art_briefs").update({
-        state: "production_ready",
+        state: "delivered",
         updated_at: now,
       }).eq("id", brief_id);
+
+      return NextResponse.json({
+        file: data,
+        brief: brief ? { id: brief.id, client_id: brief.client_id, item_id: brief.item_id, job_id: brief.job_id, title: brief.title } : null,
+        delivered: true,
+      });
     }
 
     return NextResponse.json({ file: data });

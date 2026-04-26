@@ -14,7 +14,9 @@ export type Owner = "hpd" | "client" | "designer" | "done";
 
 export type PrimaryActionKind =
   | "open" // just open detail modal, no endpoint call
-  | "send_to_client" // wip_review → client_review
+  | "send_to_client" // wip_review → client_review (legacy)
+  | "forward_to_client" // wip_review → client_review (HPD approves designer's draft)
+  | "request_revision" // wip_review → revisions (HPD bounces it back)
   | "mark_production_ready" // pending_prep (or final_approved) → production_ready
   | "mark_delivered" // → delivered
   | "repurpose"; // client aborted → restore

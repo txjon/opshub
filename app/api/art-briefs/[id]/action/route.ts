@@ -11,9 +11,9 @@ export const dynamic = "force-dynamic";
 // performs the correct state transition and fires notifications. No other
 // route should duplicate these transitions — all HPD-initiated moves go here.
 
-type ActionKind = "send_to_client" | "mark_production_ready" | "mark_delivered" | "repurpose" | "archive" | "recall";
+type ActionKind = "send_to_client" | "forward_to_client" | "request_revision" | "mark_production_ready" | "mark_delivered" | "repurpose" | "archive" | "recall";
 
-const TRANSITIONS: Record<Exclude<ActionKind, "repurpose">, {
+const TRANSITIONS: Record<Exclude<ActionKind, "repurpose" | "recall" | "archive">, {
   from: string[];
   to: string;
   notifyMsg: (title: string, client: string) => string;
@@ -26,6 +26,24 @@ const TRANSITIONS: Record<Exclude<ActionKind, "repurpose">, {
     to: "client_review",
     notifyMsg: (title, client) => `${client} — ${title || "brief"} sent to client for review`,
     notifyType: "approval",
+  },
+  // Forward designer's draft to client for review. Same transition as
+  // send_to_client but distinct copy + audit trail — this is HPD
+  // approving the designer's work, not pushing a draft of their own.
+  forward_to_client: {
+    from: ["wip_review", "revisions"],
+    to: "client_review",
+    notifyMsg: (title, client) => `${client} — ${title || "brief"} forwarded to client by HPD`,
+    notifyType: "approval",
+  },
+  // HPD bounces the designer's submission back without going to the
+  // client. Lands the brief in `revisions` so the designer's banner
+  // tells them changes were requested.
+  request_revision: {
+    from: ["wip_review"],
+    to: "revisions",
+    notifyMsg: (title, client) => `HPD requested changes from designer on "${title || "brief"}"`,
+    notifyType: "mention",
   },
   mark_production_ready: {
     from: ["final_approved", "pending_prep"],
@@ -135,7 +153,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ brief: updated, action });
     }
 
-    const tx = TRANSITIONS[action as Exclude<ActionKind, "repurpose">];
+    const tx = TRANSITIONS[action as keyof typeof TRANSITIONS];
     if (!tx) return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 
     if (!tx.from.includes(brief.state)) {

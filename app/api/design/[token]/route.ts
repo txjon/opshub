@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { computeFileOrdinals, formatActivityText, type ActivityRole, type ActivityType } from "@/lib/art-activity-text";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -37,51 +38,61 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
 
     let filesByBrief: Record<string, any[]> = {};
     let clientsById: Record<string, { name: string }> = {};
-    type Activity = { at: string; type: "message" | "upload" | "note"; kind?: string };
+    type Activity = { at: string; type: "message" | "upload" | "note"; kind?: string; fileId?: string; messageBody?: string };
     let lastByRole: Record<string, { client?: Activity; designer?: Activity; hpd?: Activity }> = {};
+    // Per-file ordinal within its kind on each brief — drives the
+    // "REF 3" / "2nd Draft" labeling in preview lines.
+    let ordinalsByFileId: Record<string, number> = {};
 
     if (briefIds.length > 0) {
-      const [filesRes, msgsRes] = await Promise.all([
+      const [filesResRaw, msgsRes, commentsRes] = await Promise.all([
         db.from("art_brief_files")
-          .select("brief_id, kind, version, drive_file_id, drive_link, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation")
+          .select("id, brief_id, kind, version, drive_file_id, drive_link, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation")
           .in("brief_id", briefIds)
           .order("created_at", { ascending: false }),
         db.from("art_brief_messages")
-          .select("brief_id, sender_role, created_at")
+          .select("brief_id, sender_role, created_at, message")
+          .in("brief_id", briefIds),
+        db.from("art_brief_file_comments")
+          .select("brief_id, file_id, sender_role, created_at, body")
           .in("brief_id", briefIds),
       ]);
+      // Designer doesn't see HPD's print_ready uploads — drop them from
+      // the dashboard data so thumbs, activity, and previews all reflect
+      // what the designer actually sees in the modal.
+      const filesRes = { data: (filesResRaw.data || []).filter((f: any) => f.kind !== "print_ready") };
       for (const f of (filesRes.data || [])) {
         if (!filesByBrief[f.brief_id]) filesByBrief[f.brief_id] = [];
         filesByBrief[f.brief_id].push(f);
       }
-      // Compute last activity per role (uploads, notes, messages)
-      const bump = (bid: string, role: string | null | undefined, at: string, type: "message" | "upload" | "note", kind?: string) => {
+      // Compute per-kind ordinal for every file across all briefs in one
+      // pass. Each brief gets its own ordinal sequence per kind.
+      for (const bid of briefIds) {
+        const ord = computeFileOrdinals(filesByBrief[bid] || []);
+        Object.assign(ordinalsByFileId, ord);
+      }
+      // Map fileId → kind for chat-comment activity attribution
+      const fileKindById: Record<string, string> = {};
+      for (const f of (filesRes.data || [])) fileKindById[f.id] = f.kind;
+      // Compute last activity per role (uploads, chat comments, brief messages)
+      const bump = (bid: string, role: string | null | undefined, at: string, type: "message" | "upload" | "note", extras: { kind?: string; fileId?: string; messageBody?: string } = {}) => {
         const r = role === "client" ? "client" : role === "designer" ? "designer" : "hpd";
         const slot = (lastByRole[bid] ||= {});
         const cur = (slot as any)[r];
-        if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type, kind };
+        if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type, ...extras };
       };
       for (const f of (filesRes.data || [])) {
-        bump(f.brief_id, f.uploader_role, f.created_at, "upload", f.kind);
-        // Attribute annotations with smart inference since we share one
-        // annotation_updated_at across all three roles: if the role matches
-        // the file's uploader, assume the annotation was set at upload
-        // (use created_at). Otherwise it was PATCHed later (use shared).
-        // This prevents HPD's PATCH time from being attributed to the
-        // designer's upload-time note, which broke unread-badge math.
-        const inferAt = (role: "hpd" | "designer" | "client", has: boolean) => {
-          if (!has) return null;
-          if (f.uploader_role === role) return f.created_at;
-          return f.annotation_updated_at || null;
-        };
-        const hpdAt = inferAt("hpd", !!f.hpd_annotation);
-        const designerAt = inferAt("designer", !!f.designer_annotation);
-        const clientAt = inferAt("client", !!f.client_annotation);
-        if (hpdAt) bump(f.brief_id, "hpd", hpdAt, "note", f.kind);
-        if (designerAt) bump(f.brief_id, "designer", designerAt, "note", f.kind);
-        if (clientAt) bump(f.brief_id, "client", clientAt, "note", f.kind);
+        bump(f.brief_id, f.uploader_role, f.created_at, "upload", { kind: f.kind, fileId: f.id });
       }
-      for (const m of (msgsRes.data || [])) bump(m.brief_id, m.sender_role, m.created_at, "message");
+      // Per-file chat comments — definitive source for who-said-what-when.
+      for (const c of (commentsRes.data || [])) {
+        bump(c.brief_id, c.sender_role, c.created_at, "note", {
+          kind: fileKindById[c.file_id] || undefined,
+          fileId: c.file_id,
+          messageBody: c.body,
+        });
+      }
+      for (const m of (msgsRes.data || [])) bump(m.brief_id, m.sender_role, m.created_at, "message", { messageBody: m.message });
     }
     if (clientIds.length > 0) {
       const { data: clients } = await db.from("clients").select("id, name").in("id", clientIds);
@@ -120,18 +131,28 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       const latestAt = [clientAt, designerAt, hpdAt].filter(Boolean).sort().pop() || b.updated_at || "";
 
       // Pre-compute the preview string server-side so the tile can render
-      // it directly (no client-side branching).
-      const KIND_LABEL: Record<string, string> = {
-        final: "the Final", revision: "a Revision", first_draft: "a 1st Draft",
-        wip: "a WIP", reference: "a reference", print_ready: "Print-Ready", client_intake: "intake",
-      };
+      // it directly. Uses the shared formatter so wording matches across
+      // designer / client / HPD surfaces ("HPD uploaded REF 3", etc.).
+      //
+      // Special case for designer: when state is "sent" and the designer
+      // hasn't acted yet, the headline is "New design request" — the
+      // request itself is the news. File uploads from HPD before the
+      // designer's first action are part of the brief, not separate
+      // events worth surfacing on the ribbon.
       let previewLine: string | null = null;
       if (hasUnreadExternal && latestExternalActivity) {
-        const who = latestExternalRole === "client" ? "Client" : "HPD";
-        const label = KIND_LABEL[latestExternalActivity.kind || ""] || "a file";
-        if (latestExternalActivity.type === "upload") previewLine = `${who} uploaded ${label}`;
-        else if (latestExternalActivity.type === "note") previewLine = `${who} added a note on ${label}`;
-        else previewLine = `${who} posted`;
+        if (b.state === "sent" && !designerAt) {
+          previewLine = "New design request";
+        } else {
+          const fileId = (latestExternalActivity as any).fileId;
+          previewLine = formatActivityText({
+            role: latestExternalRole as ActivityRole,
+            type: latestExternalActivity.type as ActivityType,
+            kind: latestExternalActivity.kind || null,
+            ordinal: fileId ? ordinalsByFileId[fileId] || null : null,
+            messageBody: (latestExternalActivity as any).messageBody || null,
+          });
+        }
       }
 
       return {
@@ -148,6 +169,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         has_unread_external: hasUnreadExternal,
         unread_by_role: hasUnreadExternal ? latestExternalRole : null,
         unread_type: hasUnreadExternal ? latestExternalActivity?.type || null : null,
+        unread_kind: hasUnreadExternal ? latestExternalActivity?.kind || null : null,
         preview_line: previewLine,
       };
     });
