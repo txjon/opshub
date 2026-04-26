@@ -43,10 +43,15 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       .order("created_at"),
   ]);
 
-  // Client sees everything the designer + HPD produce EXCEPT print-ready.
-  // Print-ready is HPD's internal production file (CMYK, separations) —
-  // client's view ends at Final.
-  const visibleFiles = (filesRes.data || []).filter((f: any) => f.kind !== "print_ready");
+  // Client visibility rules (mirror /api/portal/client/[token]/route.ts):
+  // - print_ready hidden — HPD's internal CMYK/separations file
+  // - wip hidden — designer↔HPD working files, unless HPD has explicitly
+  //   surfaced one via shared_with_client_at (future "share WIP" toggle)
+  const visibleFiles = (filesRes.data || []).filter((f: any) => {
+    if (f.kind === "print_ready") return false;
+    if (f.kind === "wip" && !f.shared_with_client_at) return false;
+    return true;
+  });
 
   const fileIds = visibleFiles.map((f: any) => f.id);
   const { data: commentsRaw } = fileIds.length > 0

@@ -46,7 +46,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     if (ids.length > 0) {
       const [filesRes, msgsRes, commentsRes] = await Promise.all([
         db.from("art_brief_files")
-          .select("id, brief_id, drive_file_id, preview_drive_file_id, drive_link, kind, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation")
+          .select("id, brief_id, drive_file_id, preview_drive_file_id, drive_link, kind, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation, shared_with_client_at")
           .in("brief_id", ids),
         db.from("art_brief_messages")
           .select("brief_id, sender_role, created_at, message"),
@@ -55,8 +55,15 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           .in("brief_id", ids),
       ]);
 
-      // Client sees everything except HPD's internal print-ready files.
-      const visibleFiles = (filesRes.data || []).filter((f: any) => f.kind !== "print_ready");
+      // Client visibility rules:
+      // - print_ready hidden — HPD's internal CMYK/separations file
+      // - wip hidden — designer↔HPD working files, unless HPD has explicitly
+      //   surfaced one via shared_with_client_at (future "share WIP" toggle)
+      const visibleFiles = (filesRes.data || []).filter((f: any) => {
+        if (f.kind === "print_ready") return false;
+        if (f.kind === "wip" && !f.shared_with_client_at) return false;
+        return true;
+      });
       const visibleFileIds = new Set(visibleFiles.map((f: any) => f.id));
       const fileKindById: Record<string, string> = {};
       for (const f of visibleFiles) fileKindById[f.id] = f.kind;
