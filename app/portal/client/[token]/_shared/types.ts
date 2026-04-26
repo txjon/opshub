@@ -2,6 +2,7 @@
 
 export type Thumb = {
   drive_file_id: string | null;
+  preview_drive_file_id?: string | null;
   drive_link: string | null;
   kind?: string;
 };

@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { setFilePublicReadable, getDriveWebLink } from "@/lib/drive-resumable";
 import { notifyTeamServer, logJobActivityServer } from "@/lib/notify-server";
+import { generatePsdPreview, isPsdFile } from "@/lib/psd-preview-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -50,6 +52,19 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     }).select("*").single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // PSD preview — Drive can't auto-thumbnail layered Photoshop files.
+    // Render a flattened PNG and store its drive_id for the tile thumb.
+    // Fire-and-forget so the upload response stays fast.
+    if (data?.id && isPsdFile(file_name, mime_type)) {
+      generatePsdPreview(drive_file_id, file_name).then(async (previewId) => {
+        if (previewId) {
+          await ctx.db.from("art_brief_files")
+            .update({ preview_drive_file_id: previewId })
+            .eq("id", data.id);
+        }
+      }).catch(() => {});
+    }
 
     try {
       await notifyTeamServer(

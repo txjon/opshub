@@ -52,7 +52,7 @@ type Brief = {
   clients?: { name: string } | null;
   message_count?: number;
   designer_message_count?: number;
-  thumbs?: Array<{ drive_file_id: string | null; drive_link: string | null; kind?: string }>;
+  thumbs?: Array<{ drive_file_id: string | null; preview_drive_file_id?: string | null; drive_link: string | null; kind?: string }>;
   thumb_total?: number;
   thumb_file_id?: string | null;
   thumb_link?: string | null;
@@ -76,7 +76,7 @@ function thumbUrl(fileId: string | null | undefined, w = 400) {
   return `https://drive.google.com/thumbnail?id=${fileId}&sz=w${w}`;
 }
 
-type Thumb = { drive_file_id: string | null; drive_link: string | null };
+type Thumb = { drive_file_id: string | null; preview_drive_file_id?: string | null; drive_link: string | null };
 
 function ImageMosaic({ thumbs, total, aspect = "4/3" }: { thumbs: Thumb[]; total: number; aspect?: string }) {
   const count = Math.min(thumbs.length, 4);
@@ -111,9 +111,9 @@ function ImageMosaic({ thumbs, total, aspect = "4/3" }: { thumbs: Thumb[]; total
             overflow: "hidden",
             ...(spanLeft ? { gridRow: "1 / span 2" } : {}),
           }}>
-            {t.drive_file_id ? (
+            {(t.preview_drive_file_id || t.drive_file_id) ? (
               <img
-                src={thumbUrl(t.drive_file_id, 320) || ""}
+                src={thumbUrl(t.preview_drive_file_id || t.drive_file_id, 320) || ""}
                 referrerPolicy="no-referrer"
                 alt=""
                 style={{ width: "100%", height: "100%", objectFit: "cover" }}

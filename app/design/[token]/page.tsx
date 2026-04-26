@@ -37,7 +37,7 @@ const C = {
   mono: "'IBM Plex Mono', 'Courier New', monospace",
 };
 
-type ThumbLite = { drive_file_id: string | null; drive_link: string | null; kind?: string };
+type ThumbLite = { drive_file_id: string | null; preview_drive_file_id?: string | null; drive_link: string | null; kind?: string };
 type Brief = {
   id: string; title: string | null; state: string; deadline: string | null;
   concept: string | null; placement: string | null; colors: string | null;
@@ -294,7 +294,9 @@ function TileMosaic({ thumbs, total }: { thumbs: ThumbLite[]; total: number }) {
       {thumbs.slice(0, count).map((t, i) => {
         const spanLeft = count === 3 && i === 0;
         const isLast = i === count - 1;
-        const thumb = t.drive_file_id ? `/api/files/thumbnail?id=${t.drive_file_id}&thumb=1` : null;
+        // Prefer server-rendered preview (PSD → PNG) over the original
+        const tid = (t as any).preview_drive_file_id || t.drive_file_id;
+        const thumb = tid ? `/api/files/thumbnail?id=${tid}&thumb=1` : null;
         return (
           <div key={i} style={{
             position: "relative", background: "#fff",

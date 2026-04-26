@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
       const ids = briefs.map((b: any) => b.id);
       const [msgsRes, filesRes, commentsRes] = await Promise.all([
         supabase.from("art_brief_messages").select("brief_id, sender_role, created_at, message").in("brief_id", ids),
-        supabase.from("art_brief_files").select("id, brief_id, drive_file_id, drive_link, kind, uploader_role, created_at").in("brief_id", ids).order("created_at", { ascending: false }),
+        supabase.from("art_brief_files").select("id, brief_id, drive_file_id, preview_drive_file_id, drive_link, kind, uploader_role, created_at").in("brief_id", ids).order("created_at", { ascending: false }),
         supabase.from("art_brief_file_comments").select("brief_id, file_id, sender_role, body, created_at").in("brief_id", ids),
       ]);
 
@@ -151,7 +151,7 @@ export async function GET(req: NextRequest) {
         b.last_designer_activity = la.designer || null;
         b.last_hpd_activity = la.hpd || null;
         const all = perBrief[b.id] || [];
-        b.thumbs = all.slice(0, 4).map(f => ({ drive_file_id: f.drive_file_id, drive_link: f.drive_link, kind: f.kind }));
+        b.thumbs = all.slice(0, 4).map(f => ({ drive_file_id: f.drive_file_id, preview_drive_file_id: f.preview_drive_file_id || null, drive_link: f.drive_link, kind: f.kind }));
         b.thumb_total = all.length;
         b.thumb_file_id = b.thumbs[0]?.drive_file_id || null;
         b.thumb_link = b.thumbs[0]?.drive_link || null;
