@@ -336,29 +336,6 @@ const KIND_META: Record<string, { short: string; bg: string; fg: string }> = {
   print_ready: { short: "PRINT", bg: C.green, fg: "#fff" },
 };
 
-function bulletHandlers(value: string, setValue: (v: string) => void) {
-  return {
-    onFocus: (e: React.FocusEvent<HTMLTextAreaElement>) => {
-      if (!e.target.value) {
-        const b = "• ";
-        setValue(b);
-        setTimeout(() => (e.target as HTMLTextAreaElement).setSelectionRange(b.length, b.length), 0);
-      }
-    },
-    onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        const t = e.target as HTMLTextAreaElement;
-        const pos = t.selectionStart;
-        const insert = "\n• ";
-        const next = value.slice(0, pos) + insert + value.slice(pos);
-        setValue(next);
-        setTimeout(() => t.setSelectionRange(pos + insert.length, pos + insert.length), 0);
-      }
-    },
-  };
-}
-
 function clientNextStep(state: string): { text: string; tone: "info" | "action" | "done" } | null {
   if (state === "draft") {
     return { text: "We're getting started. First look coming soon.", tone: "info" };
@@ -439,28 +416,27 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
   }
 
   const [actionPending, setActionPending] = useState<string | null>(null);
-  const [showRevisionInput, setShowRevisionInput] = useState(false);
-  const [revisionNote, setRevisionNote] = useState("");
 
-  async function runAction(action: "approve" | "request_changes" | "abort", note?: string, fileId?: string) {
+  // Client now has two paths at client_review: approve (a button), or
+  // request changes by leaving comments on the file (handled by the
+  // chat composer in ArtReferencesGrid). HPD reads the comments and
+  // flips the brief to revisions from their modal — no client-side
+  // request_changes button.
+  async function runAction(action: "approve" | "abort") {
     setActionPending(action);
     try {
       const res = await fetch(`/api/portal/client/${tk}/briefs/${brief.id}/action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, note, fileId }),
+        body: JSON.stringify({ action }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         alert(data.error || `${action} failed`);
+      } else if (action === "abort") {
+        onClose();
       } else {
-        setShowRevisionInput(false);
-        setRevisionNote("");
-        if (action === "abort") {
-          onClose();
-        } else {
-          await load();
-        }
+        await load();
       }
     } finally {
       setActionPending(null);
@@ -645,46 +621,24 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
                 </div>
               )}
 
-              {/* Approve / Request changes — only when there's a draft
-                  or revision in client_review awaiting action. */}
+              {/* Approve action — only when a draft/revision is in
+                  client_review. Revisions happen by leaving comments on
+                  the file (chat composer below); HPD reviews and clicks
+                  "Send back as revision" from their modal. */}
               {showActionBar && latestDraft && (
                 <div style={{ padding: "12px 18px", background: C.card, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-                  {!showRevisionInput ? (
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 12, color: C.text, fontWeight: 600, marginRight: 4 }}>
-                        Ready to decide on the {formatFileLabel(latestDraft.kind, latestDraft.kind_ordinal)}?
-                      </span>
-                      <button onClick={() => runAction("approve")} disabled={!!actionPending}
-                        style={{ padding: "10px 18px", background: C.green, color: "#fff", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: C.font, opacity: actionPending ? 0.7 : 1, minHeight: 40 }}>
-                        {actionPending === "approve" ? "Approving…" : "✓ Approve this design"}
-                      </button>
-                      <button onClick={() => { setShowRevisionInput(true); setRevisionNote(""); }} disabled={!!actionPending}
-                        style={{ padding: "10px 18px", background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: C.font, minHeight: 40 }}>
-                        Request changes
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, background: C.amberBg, border: `1px solid ${C.amberBorder}`, borderRadius: 6 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: C.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                        What would you like changed on the {formatFileLabel(latestDraft.kind, latestDraft.kind_ordinal)}?
-                      </div>
-                      <textarea value={revisionNote} onChange={e => setRevisionNote(e.target.value)}
-                        {...bulletHandlers(revisionNote, setRevisionNote)}
-                        placeholder="• Bolder serif   • Warmer tone"
-                        rows={3}
-                        style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.amberBorder}`, borderRadius: 6, fontSize: 12, fontFamily: C.font, outline: "none", background: C.card, resize: "vertical", boxSizing: "border-box" }} />
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => { setShowRevisionInput(false); setRevisionNote(""); }} disabled={!!actionPending}
-                          style={{ padding: "8px 12px", background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: C.font, minHeight: 36 }}>
-                          Cancel
-                        </button>
-                        <button onClick={() => runAction("request_changes", revisionNote, latestDraft.id)} disabled={!!actionPending || !revisionNote.trim()}
-                          style={{ flex: 1, padding: "8px 14px", background: C.amber, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: C.font, opacity: actionPending || !revisionNote.trim() ? 0.5 : 1, minHeight: 36 }}>
-                          {actionPending === "request_changes" ? "Sending…" : "Send revision request"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>
+                      Ready to approve the {formatFileLabel(latestDraft.kind, latestDraft.kind_ordinal)}?
+                    </span>
+                    <button onClick={() => runAction("approve")} disabled={!!actionPending}
+                      style={{ padding: "10px 18px", background: C.green, color: "#fff", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: C.font, opacity: actionPending ? 0.7 : 1, minHeight: 40 }}>
+                      {actionPending === "approve" ? "Approving…" : "✓ Approve this design"}
+                    </button>
+                    <span style={{ fontSize: 11, color: C.muted }}>
+                      Need changes? Leave a comment on the file below.
+                    </span>
+                  </div>
                 </div>
               )}
 
