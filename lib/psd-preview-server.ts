@@ -9,13 +9,67 @@
 // Skip if the file isn't a PSD; AI/EPS/big TIFFs need different parsers
 // and can land here in a follow-up.
 
-import { readPsd } from "ag-psd";
+import { readPsd, initializeCanvas } from "ag-psd";
 import { PNG } from "pngjs";
 import { getDriveToken } from "@/lib/drive-token";
 import { setFilePublicReadable } from "@/lib/drive-resumable";
 
 const MAX_PSD_BYTES = 200 * 1024 * 1024; // 200 MB cap — beyond that, skip
 const PREVIEW_MAX_DIM = 1600; // downscale enormous files to this max edge
+
+// Pure-JS canvas stub for ag-psd. Native `canvas` ships a binary that
+// Vercel won't deploy, so we hand ag-psd a minimal HTMLCanvasElement-
+// shaped object that just stores RGBA bytes. ag-psd uses it for
+// putImageData/getImageData when it decodes the composite — no real
+// rendering needed.
+let canvasInitialized = false;
+function ensureCanvasInitialized() {
+  if (canvasInitialized) return;
+  canvasInitialized = true;
+  initializeCanvas((width: number, height: number) => {
+    const data = new Uint8ClampedArray(width * height * 4);
+    const ctx: any = {
+      canvas: null as any,
+      createImageData(w: number, h: number) {
+        return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) };
+      },
+      putImageData(img: any, dx: number, dy: number) {
+        const x = dx | 0, y = dy | 0;
+        for (let row = 0; row < img.height; row++) {
+          const ty = y + row;
+          if (ty < 0 || ty >= height) continue;
+          const srcStart = row * img.width * 4;
+          const dstStart = (ty * width + x) * 4;
+          const len = Math.min(img.width, width - x) * 4;
+          if (len > 0) data.set(img.data.subarray(srcStart, srcStart + len), dstStart);
+        }
+      },
+      getImageData(sx: number, sy: number, sw: number, sh: number) {
+        const out = new Uint8ClampedArray(sw * sh * 4);
+        for (let row = 0; row < sh; row++) {
+          const ty = sy + row;
+          if (ty < 0 || ty >= height) continue;
+          const srcStart = (ty * width + sx) * 4;
+          const dstStart = row * sw * 4;
+          const len = Math.min(sw, width - sx) * 4;
+          if (len > 0) out.set(data.subarray(srcStart, srcStart + len), dstStart);
+        }
+        return { width: sw, height: sh, data: out };
+      },
+      drawImage() { /* no-op — composite mode not used */ },
+      fillRect() {}, fillStyle: "", globalCompositeOperation: "source-over",
+      save() {}, restore() {}, translate() {}, transform() {}, setTransform() {}, resetTransform() {}, scale() {}, clip() {}, beginPath() {}, rect() {},
+    };
+    const canvas: any = {
+      width, height,
+      getContext: (t: string) => (t === "2d" ? ctx : null),
+      toBuffer() { return Buffer.alloc(0); },
+      _data: data,
+    };
+    ctx.canvas = canvas;
+    return canvas;
+  });
+}
 
 export function isPsdFile(fileName: string | null | undefined, mimeType: string | null | undefined): boolean {
   if (mimeType === "image/vnd.adobe.photoshop") return true;
@@ -168,6 +222,7 @@ export async function generatePsdPreview(
   originalFileName: string,
 ): Promise<string | null> {
   try {
+    ensureCanvasInitialized();
     const token = await getDriveToken();
 
     const psdBytes = await downloadDriveFile(driveFileId, token);
