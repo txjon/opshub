@@ -330,11 +330,15 @@ export async function createInvoice(
     body.CustomerMemo = { value: options.memo };
   }
 
-  // Deliberately do NOT set BillEmail on the invoice. With no invoice-level
-  // email, QB has nowhere to send payment confirmation receipts — OpsHub
-  // sends its own "payment received" email when a payment is recorded.
-  // The payment link itself does not depend on BillEmail; /send is targeted
-  // at an internal address below to generate the link.
+  // Set BillEmail to internal hello@ — required for /send to mint the
+  // customer-facing InvoiceLink without throwing NullPointerException.
+  // QB's /send reads BillEmail to record the send action even when sendTo
+  // is passed; if BillEmail is empty AND the customer's PreferredDelivery
+  // Method is "None", QB hits an internal null path and returns 500.
+  // Using the internal sentinel (not the customer's email) keeps QB-side
+  // payment-confirmation receipts inside HPD — OpsHub still sends the
+  // customer-facing email via Resend.
+  body.BillEmail = { Address: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com" };
 
   const data = await qbFetch("/invoice", { method: "POST", body });
   const invoice = data.Invoice;
@@ -377,7 +381,7 @@ export async function createInvoice(
 // without QB login) — we detect that and force a re-mint.
 export async function refreshPaymentLink(invoiceId: string, customerEmail?: string): Promise<string> {
   const existing = await qbFetch(`/invoice/${invoiceId}`);
-  const invoice = existing?.Invoice;
+  let invoice = existing?.Invoice;
   if (!invoice) throw new Error("Invoice not found in QuickBooks");
 
   const current: string = invoice.InvoiceLink || "";
@@ -387,6 +391,24 @@ export async function refreshPaymentLink(invoiceId: string, customerEmail?: stri
   // Mint a fresh link via /send. First try internal hello@ — keeps the
   // customer from getting a duplicate QB-template email on the happy path.
   const internalSendEmail = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
+
+  // Self-heal: legacy invoices were created with no BillEmail, which makes
+  // /send throw 500 NullPointerException for customers whose Preferred
+  // Delivery Method is "None". Patch BillEmail to the sentinel before
+  // calling /send so the link mints reliably. New invoices already set
+  // BillEmail in createInvoice; this is the safety net for old ones.
+  if (!invoice?.BillEmail?.Address) {
+    try {
+      const patched = await qbFetch("/invoice", {
+        method: "POST",
+        body: { Id: invoice.Id, SyncToken: invoice.SyncToken, sparse: true, BillEmail: { Address: internalSendEmail } },
+      });
+      invoice = patched?.Invoice || invoice;
+      console.log(`[QB] refreshPaymentLink: patched BillEmail on invoice ${invoiceId}`);
+    } catch (e) {
+      console.log(`[QB] refreshPaymentLink: BillEmail patch failed on ${invoiceId}:`, (e as any).message);
+    }
+  }
 
   async function sendAndRead(toEmail: string): Promise<string> {
     let sendResult: any;
