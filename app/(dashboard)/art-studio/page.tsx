@@ -590,7 +590,7 @@ function TileGrid({ children, compact }: { children: React.ReactNode; compact?: 
       display: "grid",
       gridTemplateColumns: compact
         ? "repeat(auto-fill, minmax(160px, 1fr))"
-        : "repeat(auto-fill, minmax(240px, 1fr))",
+        : "repeat(auto-fill, minmax(200px, 1fr))",
       gap: compact ? 8 : 12,
     }}>
       {children}
