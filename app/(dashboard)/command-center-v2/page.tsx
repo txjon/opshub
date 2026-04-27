@@ -39,10 +39,10 @@ const SAMPLE: Bucket[] = [
   {
     key: "clients",
     label: "Clients",
-    hint: "1 awaiting design approval, 2 new leads, 1 invoice to send",
+    hint: "1 past ship · 2 new leads · 2 awaiting client review",
     tone: "amber",
     stats: [
-      { label: "Awaiting client", value: 3, tone: "amber" },
+      { label: "Awaiting client", value: 2, tone: "amber" },
       { label: "New leads", value: 2, tone: "blue" },
       { label: "Past ship", value: 1, tone: "red" },
     ],
@@ -93,19 +93,6 @@ const SAMPLE: Bucket[] = [
             subtitle: "Proof sent · 1d ago",
             meta: "4226",
             urgency: "watch",
-          },
-        ],
-      },
-      {
-        title: "Billing",
-        cards: [
-          {
-            id: "c6",
-            title: "J&J Enterprises — Logo Polo Tees",
-            subtitle: "Send invoice · payment required",
-            meta: "4224",
-            badge: "Send",
-            urgency: "action",
           },
         ],
       },
@@ -338,9 +325,11 @@ export default function CommandCenterV2() {
         conversations the team has — Clients, Decorators, Designers. Per-column
         stats are queue counts (actionable), not vanity rollups. Vanity KPIs
         (projects / items / units / prints) intentionally absent — they belong
-        on their respective pages + the owner's insights. Cards are
-        sub-sectioned and sorted by urgency (critical → action → watch → ok).
-        Static sample data — wire real queries once the structure feels right.
+        on their respective pages + the owner's insights. Billing intentionally
+        absent — it's its own page (clients owe invoices, those happen there,
+        not on the team's daily dashboard). Cards are sub-sectioned and sorted
+        by urgency (critical → action → watch → ok). Static sample data — wire
+        real queries once the structure feels right.
       </div>
     </div>
   );
