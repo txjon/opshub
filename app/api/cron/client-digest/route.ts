@@ -69,24 +69,36 @@ export async function GET(req: NextRequest) {
     // Activity in the last 24h — uploads from art_brief_files, comment
     // chatter from art_brief_file_comments (HPD/designer side; client's
     // own activity is excluded since this digest goes to the client).
-    const [recentFilesRes, recentCommentsRes] = await Promise.all([
+    // hiddenWipFiles = WIPs not explicitly shared with the client; both
+    // their uploads and any chatter on them are designer↔HPD only and
+    // must stay out of the digest.
+    const [recentFilesRes, recentCommentsRes, hiddenWipFilesRes] = await Promise.all([
       sb.from("art_brief_files")
-        .select("brief_id, kind, created_at, uploader_role")
+        .select("brief_id, kind, created_at, uploader_role, shared_with_client_at")
         .in("brief_id", briefIds)
         .gte("created_at", since),
       sb.from("art_brief_file_comments")
-        .select("brief_id, sender_role, created_at")
+        .select("brief_id, file_id, sender_role, created_at")
         .in("brief_id", briefIds)
         .gte("created_at", since),
+      sb.from("art_brief_files")
+        .select("id")
+        .in("brief_id", briefIds)
+        .eq("kind", "wip")
+        .is("shared_with_client_at", null),
     ]);
+
+    const hiddenWipFileIds = new Set((hiddenWipFilesRes.data || []).map((f: any) => f.id));
 
     const awaitingReview = briefs.filter((b: any) => b.state === "client_review");
     const approvedInPrep = briefs.filter((b: any) => ["final_approved", "pending_prep"].includes(b.state));
     const recentUploads = (recentFilesRes.data || []).filter((f: any) =>
-      f.uploader_role !== "client" && f.kind !== "print_ready"
+      f.uploader_role !== "client"
+      && f.kind !== "print_ready"
+      && !(f.kind === "wip" && !f.shared_with_client_at)
     );
     const recentNotes = (recentCommentsRes.data || []).filter((c: any) =>
-      c.sender_role !== "client"
+      c.sender_role !== "client" && !hiddenWipFileIds.has(c.file_id)
     );
 
     const totalActivity = awaitingReview.length + recentUploads.length + recentNotes.length;

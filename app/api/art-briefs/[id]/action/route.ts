@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // performs the correct state transition and fires notifications. No other
 // route should duplicate these transitions — all HPD-initiated moves go here.
 
-type ActionKind = "send_to_client" | "forward_to_client" | "request_revision" | "mark_production_ready" | "mark_delivered" | "repurpose" | "archive" | "recall";
+type ActionKind = "send_to_client" | "forward_to_client" | "approve_wip" | "request_revision" | "mark_production_ready" | "mark_delivered" | "repurpose" | "archive" | "recall";
 
 const TRANSITIONS: Record<Exclude<ActionKind, "repurpose" | "recall" | "archive">, {
   from: string[];
@@ -27,14 +27,24 @@ const TRANSITIONS: Record<Exclude<ActionKind, "repurpose" | "recall" | "archive"
     notifyMsg: (title, client) => `${client} — ${title || "brief"} sent to client for review`,
     notifyType: "approval",
   },
-  // Forward designer's draft to client for review. Same transition as
-  // send_to_client but distinct copy + audit trail — this is HPD
-  // approving the designer's work, not pushing a draft of their own.
+  // Forward designer's WIP to the client for a direction check.
+  // Use sparingly — most WIPs should never reach the client. The
+  // canonical path is approve_wip → designer uploads first_draft →
+  // client_review.
   forward_to_client: {
     from: ["wip_review", "revisions"],
     to: "client_review",
     notifyMsg: (title, client) => `${client} — ${title || "brief"} forwarded to client by HPD`,
     notifyType: "approval",
+  },
+  // HPD greenlights the WIP without showing the client. Brief returns
+  // to in_progress so the designer can keep working toward the first
+  // draft — which auto-flips to client_review on upload.
+  approve_wip: {
+    from: ["wip_review"],
+    to: "in_progress",
+    notifyMsg: (title) => `HPD approved WIP on "${title || "brief"}" — designer to continue with first draft`,
+    notifyType: "production",
   },
   // HPD bounces the designer's submission back without going to the
   // client. Lands the brief in `revisions` so the designer's banner

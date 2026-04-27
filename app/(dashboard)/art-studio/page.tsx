@@ -975,8 +975,12 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
       return sentAt ? [] : [];
     }
     if (form.state === "wip_review") {
+      // Default path: approve → designer keeps working toward first draft
+      // (which auto-flips to client_review on upload). Forward-to-client is
+      // the special case for direction checks.
       return [
-        { label: "Forward to client", kind: "forward_to_client", tone: "primary" },
+        { label: "Approve, continue to draft", kind: "approve_wip", tone: "primary" },
+        { label: "Forward to client", kind: "forward_to_client", tone: "secondary" },
         { label: "Send back as revision", kind: "request_revision", tone: "warn" },
       ];
     }
