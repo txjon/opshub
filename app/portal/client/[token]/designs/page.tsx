@@ -611,29 +611,6 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
                 outline: dragOver ? `3px dashed ${C.blue}` : "none", outlineOffset: -3,
               }}
             >
-              {/* From HPD — only when there's actual content. */}
-              {(detail?.brief?.concept
-                || (detail?.brief as any)?.placement
-                || (detail?.brief as any)?.colors
-                || (detail?.brief as any)?.mood_words?.length > 0
-                || brief.deadline
-              ) && (
-                <div style={{ padding: "12px 18px", background: C.card, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 6 }}>
-                    From HPD
-                  </div>
-                  {detail?.brief?.concept && (
-                    <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap", color: C.text, marginBottom: 8 }}>{detail.brief.concept}</div>
-                  )}
-                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: C.muted }}>
-                    {(detail?.brief as any)?.placement && <span><span style={{ color: C.faint, fontWeight: 600 }}>Placement</span> · {(detail!.brief as any).placement}</span>}
-                    {(detail?.brief as any)?.colors && <span><span style={{ color: C.faint, fontWeight: 600 }}>Colors</span> · {(detail!.brief as any).colors}</span>}
-                    {(detail?.brief as any)?.mood_words?.length > 0 && <span><span style={{ color: C.faint, fontWeight: 600 }}>Mood</span> · {((detail!.brief as any).mood_words as string[]).join(", ")}</span>}
-                    {brief.deadline && <span><span style={{ color: C.faint, fontWeight: 600 }}>Due</span> · {new Date(brief.deadline).toLocaleDateString("en-US", { month: "long", day: "numeric" })}</span>}
-                  </div>
-                </div>
-              )}
-
               {/* Approve action — only when a draft/revision is in
                   client_review. Revisions happen by leaving comments on
                   the file (chat composer below); HPD reviews and clicks
