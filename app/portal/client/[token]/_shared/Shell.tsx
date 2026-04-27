@@ -11,9 +11,9 @@ import { useClientPortal } from "./context";
 // Mobile: header stacks, tab nav horizontally scrolls, padding shrinks. No
 // separate mobile layout — just responsive CSS.
 
-const TABS = [
+const TABS: { label: string; path: string; unreadKey?: "designs" }[] = [
   { label: "Overview", path: "" },
-  { label: "Designs", path: "/designs" },
+  { label: "Designs", path: "/designs", unreadKey: "designs" },
   { label: "Items", path: "/items" },
   { label: "Orders", path: "/orders" },
   { label: "Staging", path: "/staging" },
@@ -27,6 +27,13 @@ export default function Shell({ children }: { children: ReactNode }) {
   if (loading) return <CenterMsg msg="Loading…" />;
   if (error) return <CenterMsg msg={error} err />;
   if (!data) return <CenterMsg msg="Nothing here" />;
+
+  // Per-tab unread counts derived from the polled portal data — no extra
+  // fetch. ClientPortalProvider refreshes this every 15s so the badge
+  // tracks new activity without a page refresh.
+  const unreadCounts: Record<NonNullable<(typeof TABS)[number]["unreadKey"]>, number> = {
+    designs: data.briefs.filter(b => b.has_unread_external).length,
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
@@ -84,11 +91,12 @@ export default function Shell({ children }: { children: ReactNode }) {
             const active = t.path === ""
               ? pathname === base || pathname === base + "/"
               : pathname?.startsWith(href);
+            const unread = t.unreadKey ? unreadCounts[t.unreadKey] : 0;
             return (
               <Link key={t.label} href={href}
                 style={{
                   padding: "8px 16px", minHeight: 44,
-                  display: "flex", alignItems: "center",
+                  display: "flex", alignItems: "center", gap: 6,
                   fontSize: 13, fontWeight: 700,
                   color: active ? C.text : C.muted,
                   textDecoration: "none",
@@ -97,6 +105,18 @@ export default function Shell({ children }: { children: ReactNode }) {
                   transition: "color 0.15s",
                 }}>
                 {t.label}
+                {unread > 0 && (
+                  <span style={{
+                    background: C.purple, color: "#fff",
+                    fontSize: 10, fontWeight: 800,
+                    minWidth: 18, height: 18, padding: "0 5px",
+                    borderRadius: 9, display: "inline-flex",
+                    alignItems: "center", justifyContent: "center",
+                    lineHeight: 1,
+                  }}>
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                )}
               </Link>
             );
           })}
