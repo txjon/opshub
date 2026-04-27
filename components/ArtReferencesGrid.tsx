@@ -589,12 +589,6 @@ function Composer({
           Send
         </button>
       </div>
-      <div style={{
-        padding: "0 12px 6px",
-        fontSize: 10, color: C.faint, letterSpacing: "0.02em",
-      }}>
-        ↵ send · ⇧↵ new line
-      </div>
     </div>
   );
 }
