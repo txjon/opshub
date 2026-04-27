@@ -310,7 +310,7 @@ function ItemCard({ item, onAssign, onRemove, assignDisabled }: {
       onMouseLeave={e => { if (action) e.currentTarget.style.borderColor = C.border; }}
     >
       <div style={{
-        aspectRatio: "4 / 3", background: "#f4f4f7",
+        aspectRatio: "3 / 1", background: "#f4f4f7",
         overflow: "hidden",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
