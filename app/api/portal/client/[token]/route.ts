@@ -249,8 +249,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         const costingSummary = (j.costing_summary || {}) as any;
         const jobPays = paysByJob.get(j.id) || [];
         const hasIssued = jobPays.some((p: any) => p.status && !["draft", "void"].includes(p.status));
-        const typeMetaHasQB = !!typeMeta.qb_invoice_number;
-        const isInvoiced = hasIssued || typeMetaHasQB;
+        // Match the Orders tab gate: a job is "invoiced" once OpsHub has
+        // sent the invoice (invoice_sent_at) OR a manual payment record
+        // exists. Pushing to QB alone does not count.
+        const isInvoiced = !!typeMeta.invoice_sent_at || hasIssued;
         if (!isInvoiced) continue;
         // Total — prefer QB total_with_tax, fall back to costing grossRev.
         const total = Number(typeMeta.qb_total_with_tax) || Number(costingSummary.grossRev) || 0;
@@ -261,12 +263,13 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     }
 
     // Fold in ShipStation fulfillment invoices — same rule as Orders tab:
-    // has any invoice number (pushed or manually entered) AND not yet paid.
+    // has been sent (sent_at not null), has an invoice number, and not yet paid.
     const { data: shipReports } = await db
       .from("shipstation_reports")
       .select("id, paid_at")
       .eq("client_id", client.id)
-      .not("qb_invoice_number", "is", null);
+      .not("qb_invoice_number", "is", null)
+      .not("sent_at", "is", null);
     unpaidCount += (shipReports || []).filter((r: any) => !r.paid_at).length;
 
     return NextResponse.json({

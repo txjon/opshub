@@ -59,6 +59,10 @@ export async function GET(
         const costProds = (j.costing_data as any)?.costProds || [];
         const itemCount = costProds.length;
         const unitCount = costProds.reduce((s: number, cp: any) => s + (cp.totalQty || Object.values(cp.qtys || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0)), 0);
+        // Sidebar invoice number is gated on invoice_sent_at — same rule
+        // as the main view, so a project pushed to QB but not yet sent
+        // doesn't surface its number on the side-nav either.
+        const sentAt = (j.type_meta as any)?.invoice_sent_at;
         return {
           jobId: j.id,
           title: j.title,
@@ -66,7 +70,7 @@ export async function GET(
           phase: j.phase,
           shipDate: j.target_ship_date,
           portalToken: j.portal_token,
-          invoiceNumber: (j.type_meta as any)?.qb_invoice_number || null,
+          invoiceNumber: sentAt ? ((j.type_meta as any)?.qb_invoice_number || null) : null,
           isComplete: j.phase === "complete",
           itemCount,
           unitCount,
@@ -280,8 +284,13 @@ export async function GET(
         paidDate: p.paid_date,
         invoiceNumber: p.invoice_number,
       })),
-      paymentLink: typeMeta.qb_payment_link || null,
-      invoiceNumber: typeMeta.qb_invoice_number || null,
+      // Invoice + pay link gated on invoice_sent_at. Pushing to QB
+      // doesn't expose anything to the portal — the client sees
+      // nothing until OpsHub explicitly sends the invoice. Manual
+      // payment records (issued/paid) also count as "sent" for legacy
+      // out-of-band invoices.
+      paymentLink: (typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status))) ? (typeMeta.qb_payment_link || null) : null,
+      invoiceNumber: (typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status))) ? (typeMeta.qb_invoice_number || null) : null,
       activity: (activity || []).map((a: any) => ({
         message: a.message,
         date: a.created_at,

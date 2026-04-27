@@ -121,11 +121,16 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     // (qb_invoice_id set) or entered manually (qb_invoice_number set
     // without qb_invoice_id, for historical invoices or bundled ones
     // created outside OpsHub).
+    // Only surface reports that have actually been sent — sent_at is the
+    // gate. Drafts and "pushed to QB but not emailed yet" stay hidden so
+    // the client doesn't see invoice numbers / pay links before HPD is
+    // ready for them to.
     const { data: shipReports } = await db
       .from("shipstation_reports")
       .select("id, report_type, period_label, totals, qb_invoice_id, qb_invoice_number, qb_payment_link, sent_at, created_at, paid_at, paid_amount")
       .eq("client_id", client.id)
-      .not("qb_invoice_number", "is", null);
+      .not("qb_invoice_number", "is", null)
+      .not("sent_at", "is", null);
 
     const fulfillmentOrders = (shipReports || []).map((r: any) => {
       const totals = r.totals || {};
@@ -201,8 +206,13 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         p.status && !["draft", "void"].includes(p.status)
       );
       const balance = Math.max(0, total - paidAmount);
-      const typeMetaHasQB = !!typeMeta.qb_invoice_number;
-      const isInvoiced = hasIssued || typeMetaHasQB;
+      // Only treat the invoice as "visible to client" once it's actually
+      // been sent from OpsHub (invoice_sent_at) OR a manual payment record
+      // already exists (legacy / out-of-band invoices). Pushing to QB alone
+      // doesn't expose anything to the portal — that's the producer-side
+      // step before review-and-send.
+      const isInvoiceSent = !!typeMeta.invoice_sent_at || hasIssued;
+      const isInvoiced = isInvoiceSent;
 
       let paymentStatus: "paid" | "unpaid" | "partial" | "deposit" | "none" = "none";
       // Zero-total orders (voided, migrated history, etc.) carry no
@@ -241,8 +251,8 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         balance,
         payment_status: paymentStatus,
         paid_at: paidAt,
-        qb_invoice_number: typeMeta.qb_invoice_number || null,
-        qb_payment_link: typeMeta.qb_payment_link || null,
+        qb_invoice_number: isInvoiceSent ? (typeMeta.qb_invoice_number || null) : null,
+        qb_payment_link: isInvoiceSent ? (typeMeta.qb_payment_link || null) : null,
         has_invoice: isInvoiced,
       };
     });
