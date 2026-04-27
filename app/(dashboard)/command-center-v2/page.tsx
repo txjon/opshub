@@ -303,10 +303,40 @@ export default function CommandCenterV2() {
         </div>
       </div>
 
-      {/* No global KPI strip — vanity counts (projects / items / units /
-          prints) live on their respective pages and the owner's insights.
-          The team dashboard is pure action queue, sorted by who they
-          need to talk to next. */}
+      {/* Today strip — cross-cutting morning-read counts. Things that
+          don't fit cleanly inside one bucket (because they span multiple
+          conversations or are about physical workflow rather than a
+          conversation): what's going out the door today, what's coming
+          in today, what's been silently stuck. Each chip links to a
+          filtered view of the underlying queue. */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+        gap: 10,
+        marginBottom: 24,
+      }}>
+        <TodayChip
+          label="Ships today"
+          value={3}
+          subtitle="confirm outbound tracking"
+          tone={T.blue}
+          href="/production?filter=ships-today"
+        />
+        <TodayChip
+          label="Receiving today"
+          value={12}
+          subtitle="boxes incoming · FOG, S&S"
+          tone={T.purple}
+          href="/warehouse"
+        />
+        <TodayChip
+          label="Stalled 7d+"
+          value={2}
+          subtitle="no movement — chase"
+          tone={T.amber}
+          href="/production?filter=stalled"
+        />
+      </div>
 
       {/* Three-column buckets */}
       <div style={{
@@ -321,17 +351,52 @@ export default function CommandCenterV2() {
       </div>
 
       <div style={{ marginTop: 32, padding: "12px 16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
-        <strong style={{ color: T.text }}>Mockup notes:</strong> three columns map to the three
-        conversations the team has — Clients, Decorators, Designers. Per-column
-        stats are queue counts (actionable), not vanity rollups. Vanity KPIs
-        (projects / items / units / prints) intentionally absent — they belong
-        on their respective pages + the owner's insights. Billing intentionally
-        absent — it's its own page (clients owe invoices, those happen there,
-        not on the team's daily dashboard). Cards are sub-sectioned and sorted
-        by urgency (critical → action → watch → ok). Static sample data — wire
-        real queries once the structure feels right.
+        <strong style={{ color: T.text }}>Mockup notes:</strong> top "today" strip surfaces
+        cross-cutting urgency — ships today, receiving today, stalled 7d+ —
+        because Drake's morning question isn't "scan three columns" but
+        "what's hitting the door today that I need to chase." Three columns
+        below map to the three conversations — Clients, Decorators, Designers.
+        Per-column stats are queue counts (actionable), not vanity. Cards
+        sub-sectioned and sorted by urgency (critical → action → watch → ok).
+        Vanity KPIs (projects / items / units / prints) and Billing
+        intentionally absent — they belong on their respective pages.
+        Static sample data — wire real queries once the structure feels right.
       </div>
     </div>
+  );
+}
+
+function TodayChip({ label, value, subtitle, tone, href }: {
+  label: string;
+  value: number;
+  subtitle: string;
+  tone: string;
+  href: string;
+}) {
+  return (
+    <Link href={href} style={{
+      background: T.card, border: `1px solid ${T.border}`,
+      borderLeft: `3px solid ${tone}`,
+      borderRadius: 8, padding: "12px 14px",
+      display: "flex", alignItems: "center", gap: 12,
+      textDecoration: "none", color: T.text,
+      transition: "border-color 0.12s, box-shadow 0.12s",
+    }}
+    onMouseEnter={e => { e.currentTarget.style.borderColor = tone; e.currentTarget.style.boxShadow = "0 1px 8px rgba(0,0,0,0.04)"; }}
+    onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.boxShadow = "none"; }}
+    >
+      <div style={{ fontSize: 26, fontWeight: 800, color: tone, lineHeight: 1, fontFamily: mono, minWidth: 38 }}>
+        {value}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: T.text }}>
+          {label}
+        </div>
+        <div style={{ fontSize: 11, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {subtitle}
+        </div>
+      </div>
+    </Link>
   );
 }
 
