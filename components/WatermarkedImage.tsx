@@ -70,10 +70,10 @@ export function WatermarkedImage({
           xmlns="http://www.w3.org/2000/svg"
         >
           <defs>
-            <pattern id={patternId} patternUnits="userSpaceOnUse" width="440" height="200" patternTransform="rotate(-25)">
+            <pattern id={patternId} patternUnits="userSpaceOnUse" width="360" height="130" patternTransform="rotate(-25)">
               <text
                 x="0"
-                y="100"
+                y="80"
                 fontFamily="Arial, sans-serif"
                 fontSize="18"
                 fontWeight="800"
