@@ -447,8 +447,6 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: () => void }) {
               border: `2px solid ${C.amber}`,
               boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
               maxWidth: "100%",
-              display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
-              overflow: "hidden",
             }}>
               {next.text}
             </div>

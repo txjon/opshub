@@ -258,8 +258,6 @@ function BriefTile({
               border: `2px solid ${T.amber}`,
               boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
               maxWidth: "100%",
-              display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
-              overflow: "hidden",
             }}>
               {next.text}
             </div>
