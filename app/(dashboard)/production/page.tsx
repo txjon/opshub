@@ -58,7 +58,7 @@ export default function ProductionPage() {
   const [search, setSearch] = useState("");
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterStalled, setFilterStalled] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [modalProject, setModalProject] = useState<ProjectGroup | null>(null);
   const [packingSlips, setPackingSlips] = useState<Record<string, { id: string; file_name: string; drive_link: string; folder_link?: string }[]>>({});
   const [uploadingSlip, setUploadingSlip] = useState<string | null>(null);
   const [slipProgress, setSlipProgress] = useState(0);
@@ -69,6 +69,23 @@ export default function ProductionPage() {
   const now = new Date();
 
   useEffect(() => { loadAll(); }, []);
+
+  // Escape closes the full-page project modal.
+  useEffect(() => {
+    if (!modalProject) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setModalProject(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modalProject]);
+
+  // Keep the open modal in sync when projects state refreshes (e.g.,
+  // after a tracking edit / mark-shipped) — find the same job id and
+  // swap in the fresh ProjectGroup so handlers see the latest items.
+  useEffect(() => {
+    if (!modalProject) return;
+    const fresh = projects.find(p => p.jobId === modalProject.jobId);
+    if (fresh && fresh !== modalProject) setModalProject(fresh);
+  }, [projects, modalProject]);
 
   async function loadAll() {
     setLoading(true);
@@ -495,7 +512,7 @@ export default function ProductionPage() {
       )}
 
       {activeProjects.map(project => {
-        const isExpanded = expanded.has(project.jobId);
+        const isModalOpen = modalProject?.jobId === project.jobId;
         const ship = shipDatePill(project.shipDate);
         const allShipped = project.decoratorGroups.every(dg => dg.items.every(it => it.pipeline_stage === "shipped"));
 
@@ -503,16 +520,11 @@ export default function ProductionPage() {
           <div key={project.jobId} style={{
             background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden",
           }}>
-            {/* ── Collapsed row ── */}
+            {/* ── Row — click opens full-page modal (replaces inline
+                expand pattern Jon flagged as cluttered). ── */}
             <div
-              onClick={() => setExpanded(prev => {
-                const next = new Set(prev);
-                next.has(project.jobId) ? next.delete(project.jobId) : next.add(project.jobId);
-                return next;
-              })}
-              style={{ padding: "14px 18px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "flex-start",
-                borderBottom: isExpanded ? `1px solid ${T.border}` : "none",
-              }}
+              onClick={() => setModalProject(project)}
+              style={{ padding: "14px 18px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
             >
               <div style={{ flex: 1 }}>
                 {/* Title row */}
@@ -551,13 +563,37 @@ export default function ProductionPage() {
                 <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                   {project.totalUnits.toLocaleString()} units
                 </span>
-                <span style={{ fontSize: 18, color: T.faint, transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "none" }}>▾</span>
               </div>
             </div>
 
-            {/* ── Expanded: decorator groups ── */}
-            {isExpanded && (
-              <div style={{ padding: "0 18px 18px" }}>
+            {/* ── Modal — full-page overlay, click backdrop or ESC to close ── */}
+            {isModalOpen && (
+              <div onClick={() => setModalProject(null)}
+                style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", overflow: "auto", padding: "5vh 16px" }}>
+                <div onClick={e => e.stopPropagation()}
+                  style={{ background: T.card, borderRadius: 12, width: "100%", maxWidth: 1100, boxShadow: "0 12px 40px rgba(0,0,0,0.25)" }}>
+                  <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>
+                        <span style={{ fontFamily: mono }}>{project.invoiceNumber || project.jobNumber}</span>
+                        <span style={{ marginLeft: 10, color: T.muted, fontWeight: 600 }}>{project.clientName}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: T.faint, marginTop: 2 }}>
+                        {project.jobTitle}
+                        {project.invoiceNumber && <span style={{ marginLeft: 8, fontFamily: mono }}>{project.jobNumber}</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      {ship && (
+                        <div style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: ship.bg, color: ship.color }}>
+                          {ship.dateStr} · {ship.label}
+                        </div>
+                      )}
+                      <button onClick={() => setModalProject(null)} title="Close (Esc)"
+                        style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>×</button>
+                    </div>
+                  </div>
+                  <div style={{ padding: "0 18px 18px" }}>
                 {project.decoratorGroups.map(dg => (
                   <div key={dg.decoratorId || dg.decoratorName} style={{
                     marginTop: 14, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden",
@@ -745,6 +781,8 @@ export default function ProductionPage() {
                     {/* Decorator email thread */}
                   </div>
                 ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>
