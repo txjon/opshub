@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdmin } from "@supabase/supabase-js";
 import { computeFileOrdinals, formatActivityText, type ActivityRole, type ActivityType } from "@/lib/art-activity-text";
+
+// art_brief_file_comments has RLS enabled with no policies (migration 040),
+// so the cookie client returns zero rows. Read through service-role to
+// match the POST pattern in /api/art-briefs/[id]/comments and the portal
+// routes — auth still gated by the cookie client above.
+function commentsAdmin() {
+  return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+}
 
 // GET /api/art-briefs?itemId=xxx — list briefs for an item (with files and messages)
 // GET /api/art-briefs?jobId=xxx — list briefs for a job
@@ -38,10 +47,10 @@ export async function GET(req: NextRequest) {
       // "2nd Draft" instead of just "REF" / "REV".
       const ordinals = computeFileOrdinals(filesRes.data || []);
       // Per-file chat comments — needed by ArtReferencesGrid for the
-      // chat thread on each file card.
+      // chat thread on each file card. Service-role read (see top).
       const fileIds = (filesRes.data || []).map((f: any) => f.id);
       const { data: commentsRaw } = fileIds.length > 0
-        ? await supabase.from("art_brief_file_comments")
+        ? await commentsAdmin().from("art_brief_file_comments")
             .select("id, file_id, sender_role, body, created_at")
             .in("file_id", fileIds)
             .order("created_at")
@@ -88,7 +97,7 @@ export async function GET(req: NextRequest) {
       const [msgsRes, filesRes, commentsRes] = await Promise.all([
         supabase.from("art_brief_messages").select("brief_id, sender_role, created_at, message").in("brief_id", ids),
         supabase.from("art_brief_files").select("id, brief_id, drive_file_id, preview_drive_file_id, drive_link, kind, uploader_role, created_at").in("brief_id", ids).order("created_at", { ascending: false }),
-        supabase.from("art_brief_file_comments").select("brief_id, file_id, sender_role, body, created_at").in("brief_id", ids),
+        commentsAdmin().from("art_brief_file_comments").select("brief_id, file_id, sender_role, body, created_at").in("brief_id", ids),
       ]);
 
       // Message counts
