@@ -349,15 +349,17 @@ export default function JobsPage() {
               style={{
                 background:T.card, border:`1px solid ${T.border}`, borderRadius:10,
                 cursor:"pointer", transition:"background 0.1s",
-                display:"grid", gridTemplateColumns:"52px 1fr 130px 130px 200px 90px",
+                display:"grid", gridTemplateColumns:"68px 1fr 130px 130px 200px 100px",
                 alignItems:"center", gap:14, padding:"12px 18px", minHeight:56,
               }}
               onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = T.surface}
               onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = T.card}>
 
-              {/* Priority — only rendered when non-normal, otherwise empty column */}
-              <span style={{ fontSize:10, fontWeight:800, color:pri?.color || "transparent", letterSpacing:"0.1em", whiteSpace:"nowrap" }}>
-                {pri?.label || ""}
+              {/* Invoice number — left-anchor identifier when present.
+                  Replaces the priority chip; priority moved to the
+                  right side above ship date. */}
+              <span style={{ fontSize:14, fontWeight:700, color: invNum ? T.text : "transparent", fontFamily:mono, whiteSpace:"nowrap" }}>
+                {invNum || ""}
               </span>
 
               {/* Client + title */}
@@ -366,7 +368,7 @@ export default function JobsPage() {
                   {job.clients?.name||"No client"}
                 </div>
                 <div style={{ fontSize:12, color:T.faint, marginTop:2, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                  {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{invNum || job.job_number}</span>{invNum && <span style={{ color:T.faint, marginLeft:6, fontSize:10 }}>{job.job_number}</span>}
+                  {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{job.job_number}</span>
                 </div>
               </div>
 
@@ -386,8 +388,15 @@ export default function JobsPage() {
                 {progress && <span style={{ fontSize:10, color:T.faint, fontFamily:mono, whiteSpace:"nowrap" }}>{progress}</span>}
               </div>
 
-              {/* Ship date */}
-              <div style={{ textAlign:"right", minWidth:0 }}>
+              {/* Priority (top) + Ship date (bottom) — right-anchored
+                  signal column. Priority only renders when non-normal;
+                  ship date is always visible when set. */}
+              <div style={{ textAlign:"right", minWidth:0, display:"flex", flexDirection:"column", gap:2 }}>
+                {pri && (
+                  <span style={{ fontSize:10, fontWeight:800, color:pri.color, letterSpacing:"0.1em", whiteSpace:"nowrap" }}>
+                    {pri.label}
+                  </span>
+                )}
                 {daysLeft !== null ? (
                   <>
                     <div style={{ fontSize:13, fontWeight:700, color:dateColor, fontFamily:mono, whiteSpace:"nowrap" }}>
@@ -397,7 +406,7 @@ export default function JobsPage() {
                       {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
                     </div>
                   </>
-                ) : <span style={{ fontSize:10, color:T.faint }}>No date</span>}
+                ) : !pri && <span style={{ fontSize:10, color:T.faint }}>No date</span>}
               </div>
 
             </div>
