@@ -66,7 +66,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), costing_summary, type_meta, payment_records(amount, status), items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, garment_type, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, costing_data, type_meta, payment_records(amount, status), items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, ship_tracking, garment_type, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -91,6 +91,38 @@ export default function JobsPage() {
     cancelled: jobs.filter(j => j.phase === "cancelled").length,
     on_hold: jobs.filter(j => j.phase === "on_hold").length,
   }), [jobs]);
+
+  // Active-pipeline KPIs (Projects · Items · Units · Prints). These
+  // moved here from the team Command Center per the rule "vanity KPIs
+  // live on their domain page + the owner's insights." Active = not
+  // complete / cancelled / on_hold.
+  const kpis = useMemo(() => {
+    const active = jobs.filter(j => !["complete","cancelled","on_hold"].includes(j.phase));
+    const items = active.flatMap(j => (j as any).items || []);
+    const units = items.reduce(
+      (s: number, it: any) => s + ((it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0)),
+      0,
+    );
+    const NON_GARMENT = new Set(["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]);
+    let prints = 0;
+    for (const j of active) {
+      const costProds = ((j as any).costing_data?.costProds || []) as any[];
+      for (const cp of costProds) {
+        const qty = cp.totalQty || 0;
+        if (qty === 0) continue;
+        const activeLocs = [1,2,3,4,5,6].filter(loc => {
+          const ld = cp.printLocations?.[loc];
+          return ld?.screens > 0 || ld?.location;
+        }).length;
+        const hasTag = cp.tagPrint ? 1 : 0;
+        const decoCount = NON_GARMENT.has(cp.garment_type)
+          ? ((cp.customCosts?.length || 0) > 0 ? 1 : 0)
+          : activeLocs + hasTag;
+        prints += decoCount * qty;
+      }
+    }
+    return { projects: active.length, items: items.length, units, prints };
+  }, [jobs]);
 
   const visible = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -168,6 +200,19 @@ export default function JobsPage() {
             + New Project
           </a>
         )}
+      </div>
+
+      {/* KPI strip — active pipeline at a glance. Vanity counts moved
+          here from the team Command Center; this is their proper home. */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+        gap: 10,
+      }}>
+        <KpiTile label="Projects" value={kpis.projects.toLocaleString()} />
+        <KpiTile label="Items" value={kpis.items.toLocaleString()} tone={T.blue} />
+        <KpiTile label="Units" value={kpis.units.toLocaleString()} tone={T.muted} />
+        <KpiTile label="Prints" value={kpis.prints.toLocaleString()} tone={T.purple} />
       </div>
 
       {/* Filter + sort bar */}
@@ -352,6 +397,22 @@ export default function JobsPage() {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function KpiTile({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div style={{
+      background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
+      padding: "10px 14px", display: "flex", alignItems: "center", gap: 10,
+    }}>
+      <div style={{ fontSize: 22, fontWeight: 800, color: tone || T.text, lineHeight: 1, fontFamily: mono }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+        {label}
       </div>
     </div>
   );
