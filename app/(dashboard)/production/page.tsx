@@ -59,6 +59,10 @@ export default function ProductionPage() {
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterStalled, setFilterStalled] = useState(false);
   const [modalProject, setModalProject] = useState<ProjectGroup | null>(null);
+  // Per-decorator expand state inside the modal. Reset on modal change
+  // so a fresh project always opens with everything collapsed (Jon
+  // wants the multi-vendor view quiet on first open).
+  const [expandedDecorators, setExpandedDecorators] = useState<Set<string>>(new Set());
   const [packingSlips, setPackingSlips] = useState<Record<string, { id: string; file_name: string; drive_link: string; folder_link?: string }[]>>({});
   const [uploadingSlip, setUploadingSlip] = useState<string | null>(null);
   const [slipProgress, setSlipProgress] = useState(0);
@@ -86,6 +90,20 @@ export default function ProductionPage() {
     const fresh = projects.find(p => p.jobId === modalProject.jobId);
     if (fresh && fresh !== modalProject) setModalProject(fresh);
   }, [projects, modalProject]);
+
+  // Reset decorator expansion state whenever the modal switches to a
+  // different project (or closes).
+  useEffect(() => {
+    setExpandedDecorators(new Set());
+  }, [modalProject?.jobId]);
+
+  function toggleDecorator(key: string) {
+    setExpandedDecorators(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
 
   async function loadAll() {
     setLoading(true);
@@ -595,19 +613,25 @@ export default function ProductionPage() {
                   </div>
                   {/* Scrollable body */}
                   <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 22px" }}>
-                {project.decoratorGroups.map(dg => (
-                  <div key={dg.decoratorId || dg.decoratorName} style={{
+                {project.decoratorGroups.map(dg => {
+                  const decKey = dg.decoratorId || dg.decoratorName;
+                  const isDecExpanded = expandedDecorators.has(decKey);
+                  return (
+                  <div key={decKey} style={{
                     marginTop: 14, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden",
                   }}>
-                    {/* Decorator header */}
-                    <div style={{
-                      padding: "10px 14px", background: T.surface,
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
-                      borderBottom: `1px solid ${T.border}`,
-                    }}>
-                      <div>
+                    {/* Decorator header — click to expand/collapse */}
+                    <div onClick={() => toggleDecorator(decKey)}
+                      style={{
+                        padding: "10px 14px", background: T.surface,
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        borderBottom: isDecExpanded ? `1px solid ${T.border}` : "none",
+                        cursor: "pointer",
+                      }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 11, color: T.faint, transition: "transform 0.15s", transform: isDecExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{dg.decoratorName}</span>
-                        <span style={{ fontSize: 11, color: T.muted, marginLeft: 8 }}>
+                        <span style={{ fontSize: 11, color: T.muted }}>
                           {dg.items.length} item{dg.items.length !== 1 ? "s" : ""} · {dg.totalUnits.toLocaleString()} units
                         </span>
                       </div>
@@ -635,6 +659,7 @@ export default function ProductionPage() {
                       </div>
                     </div>
 
+                    {isDecExpanded && (<>
                     {/* Packing slip upload */}
                     {(() => {
                       const dgKey = project.jobId + "_" + (dg.decoratorId || "");
@@ -780,8 +805,10 @@ export default function ProductionPage() {
                     </div>
 
                     {/* Decorator email thread */}
+                    </>)}
                   </div>
-                ))}
+                  );
+                })}
                   </div>
                 </div>
               </div>
