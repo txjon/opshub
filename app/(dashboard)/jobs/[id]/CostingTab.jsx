@@ -999,7 +999,6 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
         const canSend = !!rfqVendor && selectedCount > 0 && recipientCount > 0 && !rfqSending;
         const inp = { width:"100%", padding:"7px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:font, outline:"none", boxSizing:"border-box" };
         const sectionLabel = { fontSize:10, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:5 };
-        const clientGreeting = project?.clients?.name || "a client";
         return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>!rfqSending && setShowRfqModal(false)}>
             <div style={{background:T.card,borderRadius:12,width:"95vw",maxWidth:680,maxHeight:"90vh",overflow:"auto",padding:0}} onClick={e=>e.stopPropagation()}>
@@ -1145,7 +1144,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       <div style={{padding:"10px 14px",fontSize:12,color:T.text,lineHeight:1.55,background:T.card,fontFamily:font}}>
                         <div style={{fontWeight:600,marginBottom:4}}>Hi {rfqVendor || "{Vendor}"},</div>
                         <div style={{marginBottom:6}}>
-                          We're working on a project for <strong>{clientGreeting}</strong> and would love a quote from you. The attached PDF lays out each item with the decoration spec — please reply with your pricing, any setup fees, and expected lead time.
+                          Can you please provide pricing for the item(s) in the attachment? The PDF lays out each item — please reply with: pricing, setup fees, and estimated shipping cost. In addition, we need realistic production lead time and post-production transit time.
                         </div>
                         {rfqBody.trim() && (
                           <div style={{marginTop:8,padding:"8px 10px",background:T.surface,borderLeft:`3px solid ${T.accent}`,borderRadius:3,whiteSpace:"pre-wrap"}}>
@@ -1153,7 +1152,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           </div>
                         )}
                         <div style={{marginTop:8,fontSize:11,color:T.muted,fontStyle:"italic"}}>
-                          Reach out if anything in the spec is unclear or if you need additional artwork — we'll send through whatever you need.
+                          Reach out if anything in the spec is unclear or if you need additional info — we'll send through whatever you need.
                         </div>
                         <div style={{marginTop:8}}>Thanks,<br/>House Party Distro</div>
                       </div>

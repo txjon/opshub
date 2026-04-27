@@ -154,9 +154,9 @@ export async function POST(req: NextRequest) {
             return renderBrandedEmail({
               heading: `Quote request — ${jobNum || ""}`.trim(),
               greeting: `Hi ${vendor || "there"},`,
-              bodyHtml: `We're working on a project for <strong>${(jobData as any)?.clients?.name || "a client"}</strong> and would love a quote from you. The attached PDF lays out each item with the decoration spec — please reply with your pricing, any setup fees, and expected lead time.`,
+              bodyHtml: `Can you please provide pricing for the item(s) in the attachment? The PDF lays out each item — please reply with: pricing, setup fees, and estimated shipping cost. In addition, we need realistic production lead time and post-production transit time.`,
               extraHtml: customExtra,
-              hint: `Reach out if anything in the spec is unclear or if you need additional artwork — we'll send through whatever you need.`,
+              hint: `Reach out if anything in the spec is unclear or if you need additional info — we'll send through whatever you need.`,
               closing: "Thanks,\nHouse Party Distro",
             });
           })()
