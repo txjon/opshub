@@ -789,29 +789,6 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   const finals = useMemo(() => allFiles.filter(f => f.kind === "final").sort((a, b) => (b.version || 0) - (a.version || 0)), [allFiles]);
   const wips = useMemo(() => allFiles.filter(f => f.kind === "wip").sort((a, b) => (b.version || 0) - (a.version || 0)), [allFiles]);
 
-  const [hpdNote, setHpdNote] = useState("");
-  const [hpdNoteSaved, setHpdNoteSaved] = useState("");
-
-  // Init HPD's note editor when hero changes; on poll-driven annotation
-  // updates, only sync if HPD has nothing typed (preserve in-progress edits).
-  const lastInitHeroRef = useRef<string | null>(null);
-  const hpdNoteSavedRef = useRef("");
-  useEffect(() => { hpdNoteSavedRef.current = hpdNoteSaved; }, [hpdNoteSaved]);
-  useEffect(() => {
-    const saved = hero?.hpd_annotation || "";
-    const currentHeroId = hero?.id || null;
-    if (lastInitHeroRef.current !== currentHeroId) {
-      lastInitHeroRef.current = currentHeroId;
-      setHpdNote(saved);
-      setHpdNoteSaved(saved);
-      return;
-    }
-    if (saved !== hpdNoteSavedRef.current) {
-      setHpdNote(prev => prev === hpdNoteSavedRef.current ? saved : prev);
-      setHpdNoteSaved(saved);
-    }
-  }, [hero?.id, hero?.hpd_annotation]);
-
   async function runPrimaryAction(action: PrimaryActionKind) {
     if (action === "open") return;
     setActionPending(action);
@@ -888,20 +865,6 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
       setLinkCopied(true);
       setTimeout(() => setLinkCopied(false), 2000);
     }
-  }
-
-  async function saveHpdAnnotation(fileId: string, annotation: string) {
-    if (annotation === hpdNoteSaved) return;
-    try {
-      await fetch("/api/art-briefs/files", {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: fileId, hpd_annotation: annotation }),
-      });
-      setHpdNoteSaved(annotation);
-      // Keep local state in sync so re-focusing the file shows the latest value.
-      setAllFiles(p => p.map(f => f.id === fileId ? { ...f, hpd_annotation: annotation || null } : f));
-      setChanged(true);
-    } catch {}
   }
 
   const refInputRef = useRef<HTMLInputElement>(null);

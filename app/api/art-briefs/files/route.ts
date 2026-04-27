@@ -63,42 +63,6 @@ export async function PATCH(req: NextRequest) {
     if (isAnnotationEdit) updates.annotation_updated_at = new Date().toISOString();
     const { error } = await supabase.from("art_brief_files").update(updates).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    // Bridge to chat — until the legacy art-studio hero pattern is
-    // migrated, HPD edits annotations through the single-string editor.
-    // Mirror those edits into the comments table so designer + client
-    // portals (which read from comments) stay in sync. We replace the
-    // most recent HPD comment on this file rather than insert a new one,
-    // matching art-studio's "single editable annotation" UX.
-    if (isAnnotationEdit && hpd_annotation !== undefined) {
-      const text = (hpd_annotation || "").trim();
-      const { data: file } = await supabase.from("art_brief_files").select("brief_id").eq("id", id).single();
-      const { data: latest } = await supabase
-        .from("art_brief_file_comments")
-        .select("id")
-        .eq("file_id", id)
-        .eq("sender_role", "hpd")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (text) {
-        if (latest?.id) {
-          await supabase.from("art_brief_file_comments")
-            .update({ body: text, created_at: new Date().toISOString() })
-            .eq("id", latest.id);
-        } else if (file?.brief_id) {
-          await supabase.from("art_brief_file_comments").insert({
-            file_id: id, brief_id: file.brief_id, sender_role: "hpd", body: text,
-          });
-        }
-      } else if (latest?.id) {
-        await supabase.from("art_brief_file_comments").delete().eq("id", latest.id);
-      }
-    }
-    // NOTE: no auto-message on share. The shared_with_client_at timestamp is
-    // the canonical signal — client portal surfaces it as "HPD posted work in
-    // progress for review" on the tile + fires the direction-check banner.
-    // An extra chat message would clutter the thread.
     return NextResponse.json({ success: true });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
