@@ -17,6 +17,7 @@ type ProdItem = {
   decorator_name: string | null; decorator_short_code: string | null;
   decorator_id: string | null; decorator_assignment_id: string | null;
   target_ship_date: string | null; total_units: number;
+  garment_type: string | null;
   sizes: string[]; qtys: Record<string, number>;
   ship_qtys: Record<string, number>; ship_notes: string;
 };
@@ -119,6 +120,7 @@ export default function ProductionPage() {
         decorator_assignment_id: assignment?.id || null,
         target_ship_date: job.target_ship_date,
         total_units: totalUnits, sizes, qtys,
+        garment_type: it.garment_type ?? null,
         ship_qtys: it.ship_qtys || {}, ship_notes: it.ship_notes || "",
       };
 
@@ -337,40 +339,45 @@ export default function ProductionPage() {
   // Recently-completed jobs are loaded for the list below but never
   // contribute to KPI counts.
   const productionKpis = useMemo(() => {
-    // Items currently at the decorator only.
-    const inProdItems = projects
-      .filter(p => p.phase !== "complete")
-      .flatMap(p => p.decoratorGroups.flatMap(dg => dg.items))
-      .filter(it => it.pipeline_stage === "in_production");
-    const items = inProdItems.length;
-    const units = inProdItems.reduce((sum, it) => sum + (it.total_units || 0), 0);
-
-    // Prints — only count costProds in projects that still have at
-    // least one item at the decorator. Approximation: a project with
-    // some items shipped + some still in production will count all
-    // of its print locations, slightly over-counting. Worth refactoring
-    // to per-item prints when costProd → item mapping is needed
-    // elsewhere.
     const NON_GARMENT = new Set(["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]);
-    const projectsWithInProd = projects.filter(p =>
-      p.phase !== "complete" &&
-      p.decoratorGroups.some(dg => dg.items.some(it => it.pipeline_stage === "in_production"))
-    );
+
+    let items = 0;
+    let units = 0;
     let prints = 0;
-    for (const p of projectsWithInProd) {
+
+    for (const p of projects) {
+      if (p.phase === "complete") continue;
       const costProds = (p.costingData?.costProds || []) as any[];
+      // Match costProds to items by garment_type. costProd
+      // print locations + tag give the per-piece decoration count
+      // for items of that garment type. Multiplied by the item's
+      // own qty (not the costProd's aggregate totalQty) so shipped
+      // items don't get their prints counted again.
+      const cpByGarment: Record<string, any> = {};
       for (const cp of costProds) {
-        const qty = cp.totalQty || 0;
-        if (qty === 0) continue;
-        const activeLocs = [1,2,3,4,5,6].filter(loc => {
-          const ld = cp.printLocations?.[loc];
-          return ld?.screens > 0 || ld?.location;
-        }).length;
-        const hasTag = cp.tagPrint ? 1 : 0;
-        const decoCount = NON_GARMENT.has(cp.garment_type)
-          ? ((cp.customCosts?.length || 0) > 0 ? 1 : 0)
-          : activeLocs + hasTag;
-        prints += decoCount * qty;
+        if (cp?.garment_type) cpByGarment[cp.garment_type] = cp;
+      }
+      for (const dg of p.decoratorGroups) {
+        for (const it of dg.items) {
+          if (it.pipeline_stage !== "in_production") continue;
+          items++;
+          units += it.total_units || 0;
+
+          const cp = it.garment_type ? cpByGarment[it.garment_type] : null;
+          if (!cp) continue;
+          if (NON_GARMENT.has(cp.garment_type)) {
+            // Custom-cost items count as 1 decoration per piece if any
+            // custom costs are configured, else 0.
+            if ((cp.customCosts?.length || 0) > 0) prints += it.total_units || 0;
+            continue;
+          }
+          const activeLocs = [1,2,3,4,5,6].filter(loc => {
+            const ld = cp.printLocations?.[loc];
+            return ld?.screens > 0 || ld?.location;
+          }).length;
+          const hasTag = cp.tagPrint ? 1 : 0;
+          prints += (activeLocs + hasTag) * (it.total_units || 0);
+        }
       }
     }
     return { items, units, prints };
