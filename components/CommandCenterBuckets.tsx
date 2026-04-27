@@ -17,6 +17,10 @@ export type BucketCard = {
   title: string;
   subtitle: string;
   meta?: string;
+  /** "invoice" gets visually stronger treatment than "job" — invoice
+   *  numbers are the business reference clients quote back at us, so
+   *  they read first when they exist. */
+  metaKind?: "invoice" | "job";
   badge?: string;
   urgency: Urgency;
   href?: string;
@@ -170,7 +174,10 @@ function CardRow({ card }: { card: BucketCard }) {
         {card.title}
       </div>
       <div style={{
-        fontSize: 9, color: T.faint, fontFamily: mono,
+        fontSize: card.metaKind === "invoice" ? 11 : 9,
+        color: card.metaKind === "invoice" ? T.text : T.faint,
+        fontWeight: card.metaKind === "invoice" ? 700 : 400,
+        fontFamily: mono,
         alignSelf: "center", whiteSpace: "nowrap",
       }}>
         {card.meta || ""}

@@ -350,16 +350,20 @@ export default async function DashboardPage() {
     grouped[bucket][section].push(card);
   }
 
-  // Convert job-level alerts into cards.
+  // Convert job-level alerts into cards. Invoice number takes priority
+  // over the OpsHub job number when present — it's the reference the
+  // client recognizes, and the team chases payments by it.
   for (const a of alerts) {
     const map = SECTION_BY_TYPE[a.type];
     if (!map) continue; // billing + anything we don't surface drops here
     const titleParts = [a.clientName, a.jobTitle].filter(Boolean);
+    const metaKind: "invoice" | "job" | undefined = a.invoiceNumber ? "invoice" : a.jobNumber ? "job" : undefined;
     pushCard(map.bucket, map.section, {
       id: `alert-${a.type}-${a.jobId || a.clientName}-${a.action.slice(0, 30)}`,
       title: titleParts.join(" — ") || a.action,
       subtitle: a.action,
-      meta: a.jobNumber || a.invoiceNumber || undefined,
+      meta: a.invoiceNumber || a.jobNumber || undefined,
+      metaKind,
       urgency: priorityToUrgency(a.priority),
       href: a.href,
     });
@@ -389,6 +393,7 @@ export default async function DashboardPage() {
       title: clientName ? `${clientName} — ${briefTitle}` : briefTitle,
       subtitle: map.subtitlePrefix,
       meta: jobNumber || undefined,
+      metaKind: jobNumber ? "job" : undefined,
       urgency: map.urgency,
       href: `/art-studio?brief=${b.id}`,
     };
