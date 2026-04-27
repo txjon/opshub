@@ -784,6 +784,11 @@ function BriefDetailModal({ token, brief, meta, onClose, autoApprove }: {
                        the trash icon only appears on the client's own refs.
                        Designer uploads and HPD-uploaded refs stay locked. */
                     onDelete={deleteClientFile}
+                    /* Watermark + lock-down on deliverables (WIP/draft/
+                       revision/final) until HPD marks the brief delivered.
+                       References stay clean — they're the client's own
+                       uploads. */
+                    protectImages={(detail?.brief?.state || brief.state) !== "delivered"}
                   />
                 </div>
               ) : (

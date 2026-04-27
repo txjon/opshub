@@ -18,6 +18,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { formatFileLabel } from "@/lib/art-activity-text";
+import { WatermarkedImage } from "@/components/WatermarkedImage";
 
 export type FileComment = {
   id: string;
@@ -59,6 +60,11 @@ export type ArtReferencesGridProps = {
   canDelete?: (file: RefFile) => boolean;
   /** Optional empty-state UI override. */
   emptyState?: React.ReactNode;
+  /** When true, deliverable images (wip / first_draft / revision /
+   *  final) are watermarked, the download button is hidden, and the
+   *  served thumbnail is downsized. References stay clean. Used by
+   *  the client portal until HPD marks the brief delivered. */
+  protectImages?: boolean;
 };
 
 // Header bar accent per kind — uses T's tokens.
@@ -130,6 +136,7 @@ export function ArtReferencesGrid({
   onDelete,
   canDelete,
   emptyState,
+  protectImages,
 }: ArtReferencesGridProps) {
   if (files.length === 0) {
     return emptyState ? <>{emptyState}</> : null;
@@ -160,6 +167,7 @@ export function ArtReferencesGrid({
               onPostComment={onPostComment}
               onDelete={onDelete && canDeleteFn(f) ? onDelete : undefined}
               variant="deliverable"
+              protectImages={!!protectImages}
             />
           ))}
         </div>
@@ -188,6 +196,7 @@ export function ArtReferencesGrid({
                 readOnly={!!readOnly}
                 onPostComment={onPostComment}
                 onDelete={onDelete && canDeleteFn(f) ? onDelete : undefined}
+                protectImages={false}
               />
             ))}
           </div>
@@ -217,6 +226,7 @@ function FileCard({
   onPostComment,
   onDelete,
   variant = "reference",
+  protectImages = false,
 }: {
   file: RefFile;
   viewerRole: ViewerRole;
@@ -227,6 +237,9 @@ function FileCard({
    *  "deliverable" = full-width card; on desktop image sits left,
    *  thread right; collapses to stacked on mobile. */
   variant?: "reference" | "deliverable";
+  /** Watermark + lock-down for client-facing deliverable previews.
+   *  Caller already filters non-deliverable kinds out before passing. */
+  protectImages?: boolean;
 }) {
   const label = formatFileLabel(file.kind, file.kind_ordinal).toUpperCase();
   const accent = KIND_ACCENT[file.kind] || KIND_ACCENT.reference;
@@ -246,7 +259,9 @@ function FileCard({
 
   // Drive direct-download URL — opens "save file" prompt without a
   // separate Drive UI step. Lets designers pull files into their tools.
-  const downloadUrl = file.drive_file_id
+  // Suppressed when protectImages is on so the client can't grab the
+  // raw file via the chip; deliverables in that mode are proof-only.
+  const downloadUrl = file.drive_file_id && !protectImages
     ? `https://drive.google.com/uc?export=download&id=${file.drive_file_id}`
     : null;
 
@@ -273,9 +288,12 @@ function FileCard({
 
   // Prefer the server-rendered preview when present (Drive can't
   // thumbnail PSDs etc.), fall back to the original drive_file_id.
+  // Lower the served resolution when protectImages is on — clients
+  // never get a print-quality file out of the portal preview.
   const thumbId = file.preview_drive_file_id || file.drive_file_id;
+  const thumbSize = protectImages ? 900 : 1600;
   const imageSrc = thumbId
-    ? `https://drive.google.com/thumbnail?id=${thumbId}&sz=w1600`
+    ? `https://drive.google.com/thumbnail?id=${thumbId}&sz=w${thumbSize}`
     : null;
 
   const handleSend = async (body: string): Promise<boolean> => {
@@ -355,12 +373,10 @@ function FileCard({
           onClick={() => imageSrc && setLightboxOpen(true)}
         >
           {imageSrc && (
-            <img
+            <WatermarkedImage
               src={imageSrc}
-              alt=""
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              style={{
+              watermark={protectImages}
+              imgStyle={{
                 width: "100%",
                 height: "100%",
                 objectFit: variant === "reference" ? "cover" : "contain",
@@ -384,7 +400,7 @@ function FileCard({
       </div>
 
       {lightboxOpen && imageSrc && (
-        <Lightbox src={imageSrc} label={label} onClose={() => setLightboxOpen(false)} />
+        <Lightbox src={imageSrc} label={label} watermark={protectImages} onClose={() => setLightboxOpen(false)} />
       )}
     </div>
   );
@@ -614,7 +630,7 @@ function formatTime(iso: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + time;
 }
 
-function Lightbox({ src, label, onClose }: { src: string; label: string; onClose: () => void }) {
+function Lightbox({ src, label, watermark, onClose }: { src: string; label: string; watermark?: boolean; onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -648,16 +664,14 @@ function Lightbox({ src, label, onClose }: { src: string; label: string; onClose
           fontSize: 18, lineHeight: 1, cursor: "pointer",
         }}
       >×</button>
-      <img
-        src={src}
-        alt=""
-        referrerPolicy="no-referrer"
-        onClick={e => e.stopPropagation()}
-        style={{
-          maxWidth: "92vw", maxHeight: "92vh",
-          objectFit: "contain", display: "block", cursor: "default",
-        }}
-      />
+      <div onClick={e => e.stopPropagation()} style={{ maxWidth: "92vw", maxHeight: "92vh", display: "flex" }}>
+        <WatermarkedImage
+          src={src}
+          watermark={!!watermark}
+          imgStyle={{ maxWidth: "92vw", maxHeight: "92vh", objectFit: "contain", display: "block", cursor: "default" }}
+          style={{ width: "auto", height: "auto" }}
+        />
+      </div>
     </div>
   );
 }

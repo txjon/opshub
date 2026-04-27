@@ -247,7 +247,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             const heroFile = byKind("revision") || byKind("first_draft") || byKind("wip") || null;
             const hasDraft = !!visibleDeliverables.find((f: any) => f.kind === "first_draft" || f.kind === "revision");
             const thumbId = heroFile?.preview_drive_file_id || heroFile?.drive_file_id || null;
-            const thumbUrl = thumbId ? `https://drive.google.com/thumbnail?id=${thumbId}&sz=w1600` : null;
+            // Email thumbnails are intentionally low-res (Level 2 of the
+            // proof plan) — the client gets a recognizable preview but
+            // not a print-quality file they can grab from their inbox.
+            // Full proof view (with watermark) lives in the portal.
+            const thumbUrl = thumbId ? `https://drive.google.com/thumbnail?id=${thumbId}&sz=w900` : null;
 
             const heading = hasDraft
               ? `${title} — ready for your review`
