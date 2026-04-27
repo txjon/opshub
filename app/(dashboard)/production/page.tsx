@@ -37,6 +37,9 @@ type ProjectGroup = {
   decoratorGroups: DecoratorGroup[];
   totalItems: number; totalUnits: number;
   shippingNotifications: ShipmentNotificationRecord[];
+  /** Stashed from the job for the print-count KPI. Only present for
+   *  active jobs (not completed) since prints are an "in-flight" stat. */
+  costingData?: any;
 };
 
 type DecoratorGroup = {
@@ -71,7 +74,7 @@ export default function ProductionPage() {
     // Active jobs + recently completed (last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
     const [activeRes, completedRes] = await Promise.all([
-      supabase.from("jobs").select("id, title, job_number, target_ship_date, phase, type_meta, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
+      supabase.from("jobs").select("id, title, job_number, target_ship_date, phase, type_meta, costing_data, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
       supabase.from("jobs").select("id, title, job_number, target_ship_date, phase, type_meta, phase_timestamps, clients(name)").eq("phase", "complete").gte("updated_at", thirtyDaysAgo),
     ]);
     const jobs = [...(activeRes.data || []), ...(completedRes.data || [])];
@@ -130,6 +133,7 @@ export default function ProductionPage() {
           phase: job.phase, completedAt: (job as any).phase_timestamps?.complete || null,
           decoratorGroups: [], totalItems: 0, totalUnits: 0,
           shippingNotifications: Array.isArray(tm.shipping_notifications) ? tm.shipping_notifications : [],
+          costingData: (job as any).costing_data,
         };
       }
       projectMap[it.job_id].totalItems++;
@@ -325,26 +329,36 @@ export default function ProductionPage() {
 
   // ── Stats ──
   const allItems = projects.flatMap(p => p.decoratorGroups.flatMap(dg => dg.items));
-  const atDecorator = allItems.filter(it => it.pipeline_stage === "in_production").length;
-  const stalled = allItems.filter(it => {
-    const ts = it.pipeline_timestamps?.[it.pipeline_stage || ""];
-    if (!ts) return false;
-    return Math.floor((Date.now() - new Date(ts).getTime()) / 86400000) >= 7;
-  }).length;
-  const shippingThisWeek = allItems.filter(it => {
-    if (!it.target_ship_date) return false;
-    const diff = Math.ceil((new Date(it.target_ship_date).getTime() - now.getTime()) / 86400000);
-    return diff >= 0 && diff <= 7;
-  }).length;
-  // Production-pipeline KPIs ported from the old Command Center. These
-  // belong here per "vanity counts live on their domain page."
-  const needsBlanks = allItems.filter((it: any) =>
-    !it.blanks_order_number && it.garment_type !== "accessory"
-  ).length;
-  const shippedEnRoute = allItems.filter((it: any) =>
-    it.pipeline_stage === "shipped" && !it.received_at_hpd
-  ).length;
   const decorators = useMemo(() => [...new Set(allItems.map(it => it.decorator_name).filter(Boolean))].sort(), [projects]);
+
+  // Vanity KPIs across active production work (phase = production /
+  // receiving / fulfillment — recently-completed jobs are loaded for
+  // the list below but excluded from the counts).
+  const productionKpis = useMemo(() => {
+    const activeProjs = projects.filter(p => p.phase !== "complete");
+    const activeItems = activeProjs.flatMap(p => p.decoratorGroups.flatMap(dg => dg.items));
+    const items = activeItems.length;
+    const units = activeItems.reduce((sum, it) => sum + (it.total_units || 0), 0);
+    const NON_GARMENT = new Set(["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]);
+    let prints = 0;
+    for (const p of activeProjs) {
+      const costProds = (p.costingData?.costProds || []) as any[];
+      for (const cp of costProds) {
+        const qty = cp.totalQty || 0;
+        if (qty === 0) continue;
+        const activeLocs = [1,2,3,4,5,6].filter(loc => {
+          const ld = cp.printLocations?.[loc];
+          return ld?.screens > 0 || ld?.location;
+        }).length;
+        const hasTag = cp.tagPrint ? 1 : 0;
+        const decoCount = NON_GARMENT.has(cp.garment_type)
+          ? ((cp.customCosts?.length || 0) > 0 ? 1 : 0)
+          : activeLocs + hasTag;
+        prints += decoCount * qty;
+      }
+    }
+    return { items, units, prints };
+  }, [projects]);
 
   // ── Filter & split active vs completed ──
   const filtered = useMemo(() => {
@@ -413,27 +427,26 @@ export default function ProductionPage() {
         <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>{allItems.length} items across {projects.length} projects</div>
       </div>
 
-      {/* Stats — production-pipeline KPI strip. Same tile style as the
-          Projects page strip (number left, label right) for consistency
-          across domain pages. */}
+      {/* KPI strip — vanity counts for active production work (Items ·
+          Units · Prints). Action queues (Needs blanks / Awaiting client
+          / etc.) live on the Command Center, not here. Same tile style
+          as the Projects page. */}
       <div style={{
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
         gap: 10,
       }}>
         {[
-          { label: "Needs blanks",       count: needsBlanks,      tone: needsBlanks > 0 ? T.amber : T.muted },
-          { label: "At decorator",       count: atDecorator,      tone: T.text },
-          { label: "Stalled 7+ days",    count: stalled,          tone: stalled > 0 ? T.red : T.muted },
-          { label: "Shipping this week", count: shippingThisWeek, tone: T.blue },
-          { label: "Shipped en route",   count: shippedEnRoute,   tone: T.purple },
+          { label: "Items",  value: productionKpis.items.toLocaleString(),  tone: T.text },
+          { label: "Units",  value: productionKpis.units.toLocaleString(),  tone: T.muted },
+          { label: "Prints", value: productionKpis.prints.toLocaleString(), tone: T.purple },
         ].map(s => (
           <div key={s.label} style={{
             background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
             padding: "10px 14px", display: "flex", alignItems: "center", gap: 10,
           }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: s.count > 0 ? s.tone : T.faint, lineHeight: 1, fontFamily: mono }}>
-              {s.count}
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.tone, lineHeight: 1, fontFamily: mono }}>
+              {s.value}
             </div>
             <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>
               {s.label}
