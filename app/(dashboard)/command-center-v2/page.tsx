@@ -324,19 +324,50 @@ function BucketColumn({ bucket }: { bucket: Bucket }) {
       </div>
 
       {/* Sections + rows */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
-        {bucket.sections.map(section => (
-          <div key={section.title}>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: T.faint, marginBottom: 3, paddingLeft: 2 }}>
-              {section.title}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 6 }}>
+        {bucket.sections.map(section => {
+          const tone = sectionTone(section.cards);
+          const t = URGENCY[tone];
+          return (
+            <div key={section.title}>
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                marginBottom: 4, paddingLeft: 2,
+              }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase",
+                  color: t.color,
+                }}>
+                  {section.title}
+                </span>
+                <span style={{
+                  background: t.bg, color: t.color,
+                  fontSize: 9, fontWeight: 800,
+                  padding: "1px 6px", borderRadius: 99,
+                  lineHeight: 1.4,
+                }}>
+                  {section.cards.length}
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {section.cards.map(c => <CardRow key={c.id} card={c} />)}
+              </div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              {section.cards.map(c => <CardRow key={c.id} card={c} />)}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
+  );
+}
+
+// Highest-urgency card in a section sets the section's tone — same
+// color logic the portal filter pills use (action = amber, critical
+// = red, watch = blue, ok = muted).
+function sectionTone(cards: Card[]): Urgency {
+  const order: Record<Urgency, number> = { critical: 0, action: 1, watch: 2, ok: 3 };
+  return cards.reduce<Urgency>(
+    (best, c) => (order[c.urgency] < order[best] ? c.urgency : best),
+    "ok",
   );
 }
 
