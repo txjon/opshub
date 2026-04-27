@@ -63,14 +63,14 @@ export function CommandCenterBuckets({ buckets }: { buckets: BucketPayload[] }) 
           <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.01em" }}>Command Center</div>
           <div style={{ fontSize: 13, color: T.muted, marginTop: 2 }}>{today}</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 12, fontWeight: 700 }}>
           {critical > 0 && (
-            <span style={{ background: T.redDim, color: T.red, padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700 }}>
+            <span style={{ color: T.red }}>
               {critical} critical
             </span>
           )}
           {actions > 0 && (
-            <span style={{ background: T.amberDim, color: T.amber, padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700 }}>
+            <span style={{ color: T.amber }}>
               {actions} actions
             </span>
           )}
@@ -121,7 +121,7 @@ function BucketColumn({ bucket }: { bucket: BucketPayload }) {
           return (
             <div key={section.title}>
               <div style={{
-                display: "inline-flex", alignItems: "center", gap: 5,
+                display: "inline-flex", alignItems: "baseline", gap: 6,
                 marginBottom: 4, paddingLeft: 2,
               }}>
                 <span style={{
@@ -131,10 +131,8 @@ function BucketColumn({ bucket }: { bucket: BucketPayload }) {
                   {section.title}
                 </span>
                 <span style={{
-                  background: t.bg, color: t.color,
-                  fontSize: 9, fontWeight: 800,
-                  padding: "1px 6px", borderRadius: 99,
-                  lineHeight: 1.4,
+                  color: t.color,
+                  fontSize: 10, fontWeight: 800,
                 }}>
                   {section.cards.length}
                 </span>
