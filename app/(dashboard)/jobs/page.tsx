@@ -280,6 +280,7 @@ export default function JobsPage() {
             a + (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0), 0);
 
           const invNum = job.type_meta?.qb_invoice_number;
+          const invoiceSentAt = (job as any).type_meta?.invoice_sent_at;
           const progress = getItemProgress(job);
 
           // Aggregate paid status: sum collected vs invoice total. Single
@@ -292,11 +293,14 @@ export default function JobsPage() {
             payments: (job as any).payment_records || [],
             invoiceTotal,
           });
-          // Plain uppercase labels, color only for real signal.
+          // "Invoice Sent" only after OpsHub actually emailed the invoice
+          // (invoice_sent_at). Pushing to QB alone shows "Invoice Drafted"
+          // — invoice exists internally but client hasn't seen it yet.
           const status: { label: string; green?: boolean; amber?: boolean } | null =
             aggStatus === "paid" ? { label: "Paid", green: true }
             : aggStatus === "partial" ? { label: "Partial Paid", amber: true }
-            : invNum ? { label: "Invoice Sent" }
+            : invoiceSentAt ? { label: "Invoice Sent" }
+            : invNum ? { label: "Invoice Drafted" }
             : (job as any).quote_approved ? { label: "Quote Approved" }
             : null;
 
