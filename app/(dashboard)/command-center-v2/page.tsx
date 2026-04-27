@@ -316,13 +316,10 @@ export default function CommandCenterV2() {
         </div>
       </div>
 
-      {/* KPI strip — global, the same numbers as the live dashboard */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 24 }}>
-        <Kpi label="Projects" value="23" />
-        <Kpi label="Items" value="147" tone="blue" />
-        <Kpi label="Units" value="49,909" tone="muted" />
-        <Kpi label="Prints" value="68,243" tone="purple" />
-      </div>
+      {/* No global KPI strip — vanity counts (projects / items / units /
+          prints) live on their respective pages and the owner's insights.
+          The team dashboard is pure action queue, sorted by who they
+          need to talk to next. */}
 
       {/* Three-column buckets */}
       <div style={{
@@ -337,26 +334,14 @@ export default function CommandCenterV2() {
       </div>
 
       <div style={{ marginTop: 32, padding: "12px 16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
-        <strong style={{ color: T.text }}>Mockup notes:</strong> three columns map to the three conversations
-        the team has — Clients, Decorators, Designers. Each column has a header
-        with a one-line read, a mini stat strip, then sub-sectioned cards
-        ordered by urgency (critical → action → watch → ok). Same KPI strip
-        at the top as the live dashboard. Static sample data — wire real
-        queries once the structure feels right.
+        <strong style={{ color: T.text }}>Mockup notes:</strong> three columns map to the three
+        conversations the team has — Clients, Decorators, Designers. Per-column
+        stats are queue counts (actionable), not vanity rollups. Vanity KPIs
+        (projects / items / units / prints) intentionally absent — they belong
+        on their respective pages + the owner's insights. Cards are
+        sub-sectioned and sorted by urgency (critical → action → watch → ok).
+        Static sample data — wire real queries once the structure feels right.
       </div>
-    </div>
-  );
-}
-
-function Kpi({ label, value, tone = "text" }: { label: string; value: string; tone?: "text" | "blue" | "muted" | "purple" }) {
-  const color = tone === "blue" ? T.blue : tone === "muted" ? T.muted : tone === "purple" ? T.purple : T.text;
-  return (
-    <div style={{
-      background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
-      padding: "12px 16px", display: "flex", alignItems: "center", gap: 12,
-    }}>
-      <div style={{ fontSize: 26, fontWeight: 800, color, lineHeight: 1, fontFamily: mono }}>{value}</div>
-      <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>{label}</div>
     </div>
   );
 }
