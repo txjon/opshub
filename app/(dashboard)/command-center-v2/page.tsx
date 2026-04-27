@@ -342,38 +342,48 @@ function BucketColumn({ bucket }: { bucket: Bucket }) {
 
 function CardRow({ card }: { card: Card }) {
   const u = URGENCY[card.urgency];
+  const isUrgent = card.urgency === "critical" || card.urgency === "action";
   return (
     <div style={{
       borderTop: `1px solid ${T.border}`,
-      padding: "6px 4px 6px 8px",
-      display: "flex", alignItems: "center", gap: 8,
+      padding: "8px 4px 8px 10px",
+      display: "grid",
+      gridTemplateColumns: "1fr auto",
+      columnGap: 8,
+      rowGap: 1,
       cursor: card.href ? "pointer" : "default",
       position: "relative",
-      minHeight: 36,
     }}>
-      {/* urgency dot — small, on the left, replaces the heavy left border */}
-      <span style={{
-        flexShrink: 0,
-        width: 6, height: 6, borderRadius: 99,
-        background: u.color,
-      }} />
-      <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 6 }}>
+      {/* tiny urgency rail — only on critical, soft on action, none on watch/ok */}
+      {(card.urgency === "critical" || card.urgency === "action") && (
         <span style={{
-          fontSize: 12, fontWeight: 700, color: T.text,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          flexShrink: 1, minWidth: 0,
-        }}>
-          {card.title}
-        </span>
-        <span style={{
-          fontSize: 11, color: u.color, fontWeight: 500,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          flexShrink: 1, minWidth: 0,
-        }}>
-          · {card.subtitle}
-        </span>
+          position: "absolute", left: 0, top: 8, bottom: 8,
+          width: 2, borderRadius: 2,
+          background: u.color,
+        }} />
+      )}
+      <div style={{
+        fontSize: 12.5, fontWeight: isUrgent ? 700 : 600,
+        color: T.text,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        minWidth: 0,
+      }}>
+        {card.title}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+      <div style={{
+        fontSize: 9, color: T.faint, fontFamily: mono,
+        alignSelf: "center", whiteSpace: "nowrap",
+      }}>
+        {card.meta || ""}
+      </div>
+      <div style={{
+        fontSize: 11, color: T.muted, fontWeight: 500,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        minWidth: 0,
+      }}>
+        {card.subtitle}
+      </div>
+      <div style={{ alignSelf: "center", whiteSpace: "nowrap" }}>
         {card.badge && (
           <span style={{
             color: u.color,
@@ -381,11 +391,6 @@ function CardRow({ card }: { card: Card }) {
             textTransform: "uppercase",
           }}>
             {card.badge}
-          </span>
-        )}
-        {card.meta && (
-          <span style={{ fontSize: 9, color: T.faint, fontFamily: mono }}>
-            {card.meta}
           </span>
         )}
       </div>
