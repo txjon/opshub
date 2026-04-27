@@ -123,12 +123,16 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       // formal draft to approve (vs a forwarded WIP that's just a
       // direction check). Keeps banner copy honest at client_review.
       const hasLatestDraft = files.some((f: any) => f.kind === "first_draft" || f.kind === "revision");
-      const intakeRequested = !!b.client_intake_token && !b.client_intake_submitted_at;
       const la = lastByRole[b.id] || {};
       // clientAt = max(actual client activity, client_last_seen_at).
       // Opening the modal counts as "seen" — clears the unread ribbon
       // even if the client didn't post anything.
       const clientActivityAt = la.client?.at || "";
+      // "Needs your input" is intake-form-driven, but any genuine client
+      // activity on the brief (a comment, a reference upload, a chat
+      // message) also counts as input — once the client has engaged,
+      // there's no point dunning them for the structured form.
+      const intakeRequested = !!b.client_intake_token && !b.client_intake_submitted_at && !clientActivityAt;
       const clientSeenAt = (b as any).client_last_seen_at || "";
       const clientAt = clientActivityAt > clientSeenAt ? clientActivityAt : clientSeenAt;
       const designerAt = la.designer?.at || "";

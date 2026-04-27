@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { notifyTeamServer, logJobActivityServer } from "@/lib/notify-server";
 
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -9,7 +10,7 @@ async function verifyAccess(token: string, briefId: string) {
   const db = admin();
   const { data: client } = await db.from("clients").select("id, name").eq("portal_token", token).single();
   if (!client) return null;
-  const { data: brief } = await db.from("art_briefs").select("id, client_id").eq("id", briefId).single();
+  const { data: brief } = await db.from("art_briefs").select("id, title, client_id, job_id").eq("id", briefId).single();
   if (!brief || brief.client_id !== client.id) return null;
   return { db, client, brief };
 }
@@ -36,5 +37,23 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   }).select("*").single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Notify HPD + log to job activity. Mirrors the messages and
+  // file-upload client routes so every client-originated write fans
+  // out the same way; without this, HPD never sees per-file comments.
+  try {
+    const briefTitle = (ctx.brief as any).title || "brief";
+    const clientName = (ctx.client as any).name || "Client";
+    await notifyTeamServer(
+      `${clientName} commented on "${briefTitle}": ${text.slice(0, 80)}${text.length > 80 ? "…" : ""}`,
+      "mention",
+      ctx.brief.id,
+      "art_brief",
+    );
+    if ((ctx.brief as any).job_id) {
+      await logJobActivityServer((ctx.brief as any).job_id, `Client commented on ${briefTitle}`);
+    }
+  } catch {}
+
   return NextResponse.json({ comment: data });
 }
