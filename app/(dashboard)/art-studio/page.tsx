@@ -871,7 +871,6 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   const printInputRef = useRef<HTMLInputElement>(null);
   const [uploadingRefs, setUploadingRefs] = useState(0);
   const [refUploadError, setRefUploadError] = useState<string | null>(null);
-  const [uploadNote, setUploadNote] = useState("");
   // After a print-ready upload, show a "where to next?" card with the
   // file id so the two CTAs (new project / add to existing) can carry
   // the graphic forward.
@@ -890,7 +889,6 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     const newFiles: any[] = [];
     let printReadyResult: { fileId: string; driveLink: string | null; driveFileId: string | null } | null = null;
     let briefDelivered = false;
-    const noteForBatch = uploadNote.trim();
     for (const file of files) {
       try {
         const sessionRes = await fetch("/api/art-briefs/upload-session", {
@@ -921,7 +919,6 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
             mime_type: file.type || "application/octet-stream",
             file_size: file.size,
             kind,
-            note: noteForBatch || null,
           }),
         });
         if (!completeRes.ok) {
@@ -946,7 +943,6 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
       doneCount++;
       setUploadingRefs(files.length - doneCount);
     }
-    setUploadNote("");
     if (newFiles.length) {
       setAllFiles(p => [...p, ...newFiles]);
       setChanged(true);
@@ -1162,9 +1158,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
               style={{ padding: "6px 12px", background: T.green, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.5 : 1 }}>
               + Print-Ready
             </button>
-            <input value={uploadNote} onChange={e => setUploadNote(e.target.value)}
-              placeholder="Note for the next upload (optional)"
-              style={{ ...ic, flex: 1, minWidth: 200 }} />
+            <div style={{ flex: 1 }} />
             {uploadingRefs > 0 && <span style={{ fontSize: 11, color: T.blue, fontWeight: 600 }}>Uploading… {uploadingRefs} left</span>}
             {refUploadError && <span style={{ fontSize: 11, color: T.red, fontWeight: 600 }}>{refUploadError}</span>}
             <input ref={refInputRef} type="file" multiple style={{ display: "none" }}

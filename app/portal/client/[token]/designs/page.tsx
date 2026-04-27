@@ -389,7 +389,6 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
   const [uploading, setUploading] = useState(false);
   const [heroId, setHeroId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [uploadNote, setUploadNote] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -450,7 +449,6 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
 
   async function uploadFile(file: File) {
     setUploading(true);
-    const noteForBatch = uploadNote.trim();
     try {
       const sessionRes = await fetch(`/api/portal/client/${tk}/briefs/${brief.id}/upload-session`, {
         method: "POST",
@@ -473,10 +471,8 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
           file_name: file.name,
           mime_type: file.type || "application/octet-stream",
           file_size: file.size,
-          note: noteForBatch || null,
         }),
       });
-      setUploadNote("");
       await load();
     } catch (e: any) {
       alert(`Upload failed: ${e.message || "unknown error"}`);
@@ -644,17 +640,7 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
                 <span style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.12em" }}>
                   Add reference
                 </span>
-                <input
-                  value={uploadNote}
-                  onChange={e => setUploadNote(e.target.value)}
-                  placeholder="Note for the next reference (optional)"
-                  style={{
-                    flex: 1, minWidth: 200,
-                    padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6,
-                    fontSize: 12, fontFamily: C.font, outline: "none",
-                    background: C.surface, color: C.text,
-                  }}
-                />
+                <div style={{ flex: 1 }} />
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}

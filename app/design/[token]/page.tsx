@@ -560,7 +560,6 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
   const [selectedKind, setSelectedKind] = useState<UploadKind>("wip");
   const [heroId, setHeroId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [uploadNote, setUploadNote] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -593,7 +592,6 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
 
   async function upload(file: File, kind: UploadKind) {
     setUploadingKind(kind);
-    const noteForBatch = uploadNote.trim();
     try {
       // 1. Session — server returns Drive upload URL
       const sessionRes = await fetch(`/api/design/${token}/briefs/${briefId}/upload-session`, {
@@ -621,13 +619,11 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
           mime_type: file.type || "application/octet-stream",
           file_size: file.size,
           kind,
-          note: noteForBatch || null,
         }),
       });
     } catch (e: any) {
       alert(`Upload failed: ${e.message || "unknown error"}`);
     }
-    setUploadNote("");
     setUploadingKind(null);
     load();
   }
@@ -779,17 +775,7 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
               );
             })}
           </div>
-          <input
-            value={uploadNote}
-            onChange={e => setUploadNote(e.target.value)}
-            placeholder="Note for this upload (optional)"
-            style={{
-              flex: 1, minWidth: 200,
-              padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6,
-              fontSize: 12, fontFamily: C.font, outline: "none",
-              background: C.surface, color: C.text,
-            }}
-          />
+          <div style={{ flex: 1 }} />
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploadingKind !== null || isClientAborted}
