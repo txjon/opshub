@@ -422,15 +422,23 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: () => void }) {
         )}
         {actionPending && next && (
           <div style={{
-            position: "absolute", left: 0, right: 0, bottom: 0,
-            padding: "8px 12px",
-            background: "rgba(20,20,28,0.88)", color: "#fff",
-            fontSize: 11, fontWeight: 700, lineHeight: 1.35,
-            zIndex: 2, pointerEvents: "none",
-            borderTop: `2px solid ${C.amber}`,
-            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            position: "absolute", inset: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 14, zIndex: 2, pointerEvents: "none",
           }}>
-            {next.text}
+            <div style={{
+              background: "rgba(20,20,28,0.92)", color: "#fff",
+              padding: "10px 14px", borderRadius: 8,
+              fontSize: 12, fontWeight: 700, lineHeight: 1.4,
+              textAlign: "center",
+              border: `2px solid ${C.amber}`,
+              boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+              maxWidth: "100%",
+              display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}>
+              {next.text}
+            </div>
           </div>
         )}
       </div>
