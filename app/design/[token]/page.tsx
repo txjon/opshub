@@ -533,10 +533,10 @@ function designerNextStep(
   ctx?: { latestWipAt?: string; latestFinalAt?: string }
 ): { text: string; tone: "info" | "action" | "done" } | null {
   if (state === "sent") {
-    return { text: "New design request — please review below. Upload a Work In Progress PNG if direction needs confirmation, or jump to 1st Draft PNG when ready.", tone: "action" };
+    return { text: "New design request — please review below and upload your 1st Draft PNG when ready.", tone: "action" };
   }
   if (state === "in_progress") {
-    return { text: "New design request — please review references. Upload a Work In Progress PNG if direction needs confirmation, or jump to 1st Draft PNG when ready.", tone: "action" };
+    return { text: "New design request — please review references and upload your 1st Draft PNG when ready.", tone: "action" };
   }
   if (state === "wip_review") {
     const ts = ctx?.latestWipAt ? formatStamp(ctx.latestWipAt) : "";
@@ -599,7 +599,7 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
   const [brief, setBrief] = useState<any>(null);
   const [files, setFiles] = useState<BriefFile[]>([]);
   const [uploadingKind, setUploadingKind] = useState<UploadKind | null>(null);
-  const [selectedKind, setSelectedKind] = useState<UploadKind>("wip");
+  const [selectedKind, setSelectedKind] = useState<UploadKind>("first_draft");
   const [heroId, setHeroId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -798,7 +798,7 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
             Upload
           </span>
           <div style={{ display: "flex", gap: 4 }}>
-            {(["wip", "first_draft", "revision", "final"] as UploadKind[]).map(k => {
+            {(["first_draft", "revision", "final"] as UploadKind[]).map(k => {
               const isSelected = selectedKind === k;
               const isFinal = k === "final";
               return (
@@ -897,7 +897,7 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
 }
 
 function defaultUploadKind(state: string | undefined): UploadKind | null {
-  if (state === "sent" || state === "in_progress") return "wip";
+  if (state === "sent" || state === "in_progress") return "first_draft";
   if (state === "wip_review") return "first_draft";
   if (state === "client_review") return "first_draft";
   if (state === "revisions") return "revision";
