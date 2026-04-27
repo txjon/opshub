@@ -1044,12 +1044,25 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
         { label: "Send back as revision", kind: "request_revision", tone: "warn" },
       ];
     }
-    if (form.state === "pending_prep" || form.state === "final_approved") {
-      return [{ label: "Mark production-ready", kind: "mark_production_ready", tone: "primary" }];
+    if (form.state === "pending_prep") {
+      // Primary path is the "+ Print-Ready" upload chip below — that
+      // single click pushes the file to the linked item AND auto-flips
+      // the brief to delivered. This secondary button is the escape
+      // hatch for the rare case where no print prep is needed (designer's
+      // final IS the production file, e.g. digital-only deliverables).
+      return [
+        { label: "Mark complete (no prep needed)", kind: "mark_delivered", tone: "secondary" },
+      ];
     }
     if (form.state === "production_ready") {
+      // Legacy / edge-case state — most new briefs skip this entirely
+      // by going pending_prep → delivered on print-ready upload. Kept
+      // for any briefs already here.
       return [{ label: "Mark delivered", kind: "mark_delivered", tone: "primary" }];
     }
+    // final_approved deliberately has no button: HPD is waiting on the
+    // designer's final upload. Banner copy carries the status; nothing
+    // for HPD to click.
     return [];
   })();
 
