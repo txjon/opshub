@@ -737,7 +737,6 @@ type StagedFile = { id: string; file: File; previewUrl: string | null; status: "
 function NewRequestModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const { token } = useClientPortal();
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
   const [files, setFiles] = useState<StagedFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
@@ -776,7 +775,7 @@ function NewRequestModal({ onClose, onCreated }: { onClose: () => void; onCreate
     setErrorMsg(null);
     const briefRes = await fetch(`/api/portal/client/${token}/briefs`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: title.trim() || null, concept: description.trim() || null }),
+      body: JSON.stringify({ title: title.trim() || null }),
     });
     const briefData = await briefRes.json();
     if (!briefRes.ok || !briefData.brief) {
@@ -830,34 +829,6 @@ function NewRequestModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <input value={title} onChange={e => setTitle(e.target.value)} disabled={submitting}
             placeholder="Working title (optional)"
             style={{ width: "100%", padding: "11px 12px", fontSize: 13, borderRadius: 7, border: `1px solid ${C.border}`, background: C.card, color: C.text, outline: "none", fontFamily: C.font, boxSizing: "border-box", minHeight: 40 }} />
-        </div>
-
-        <div style={{ padding: "10px 22px", borderBottom: `1px solid ${C.border}`, background: C.surface }}>
-          <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            onFocus={e => {
-              if (!e.target.value) {
-                setDescription("• ");
-                setTimeout(() => { (e.target as HTMLTextAreaElement).setSelectionRange(2, 2); }, 0);
-              }
-            }}
-            onKeyDown={e => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                const target = e.target as HTMLTextAreaElement;
-                const pos = target.selectionStart;
-                const before = description.slice(0, pos);
-                const after = description.slice(pos);
-                const insert = "\n• ";
-                setDescription(before + insert + after);
-                setTimeout(() => target.setSelectionRange(pos + insert.length, pos + insert.length), 0);
-              }
-            }}
-            disabled={submitting} rows={3}
-            placeholder="Notes (optional) — one bullet per line"
-            style={{ width: "100%", padding: "10px 12px", fontSize: 12, borderRadius: 7, border: `1px solid ${C.border}`, background: C.card, color: C.text, outline: "none", fontFamily: C.font, resize: "vertical", boxSizing: "border-box", lineHeight: 1.5 }}
-          />
         </div>
 
         <div style={{ flex: 1, overflow: "auto", padding: 20, background: dragOver ? "rgba(26, 26, 26, 0.05)" : "transparent" }}>
