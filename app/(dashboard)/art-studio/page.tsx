@@ -68,8 +68,6 @@ type Client = { id: string; name: string };
 
 // ─── Image mosaic (image-first tile visual) ───────────────────────────────
 // Up to 4 thumbnails in a smart 1/2/3/4-cell layout. Overflow → "+N" badge.
-// Copied from components/ArtBoard so the legacy preview page can diverge
-// without our tiles being affected.
 function thumbUrl(fileId: string | null | undefined, w = 400) {
   if (!fileId) return null;
   return `https://drive.google.com/thumbnail?id=${fileId}&sz=w${w}`;
