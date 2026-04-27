@@ -433,7 +433,7 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: () => void }) {
             {kindLabel}
           </div>
         )}
-        {next && (
+        {next && (actionPending || !brief.has_unread_external) && (
           <div style={{
             position: "absolute", inset: 0,
             display: "flex",

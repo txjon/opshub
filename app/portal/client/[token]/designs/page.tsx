@@ -315,7 +315,7 @@ function BriefTile({ brief, meta, onOpen }: {
         {brief.has_unread_external && (
           <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.30)", pointerEvents: "none", zIndex: 1 }} />
         )}
-        {next && (
+        {next && (actionPending || !brief.has_unread_external) && (
           <div style={{
             position: "absolute", inset: 0,
             display: "flex",

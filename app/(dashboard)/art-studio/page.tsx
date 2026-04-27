@@ -244,7 +244,7 @@ function BriefTile({
             {kindLabel}
           </div>
         )}
-        {next && (
+        {next && (actionPending || !unread) && (
           <div style={{
             position: "absolute", inset: 0,
             display: "flex",
