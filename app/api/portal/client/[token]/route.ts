@@ -75,9 +75,14 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         const cur = (slot as any)[r];
         if (!cur || (at || "") > cur.at) (slot as any)[r] = { at, type, ...extras };
       };
-      // Bump per upload (visible files only so "unread" matches reality)
+      // Bump per upload (visible files only so "unread" matches reality).
+      // For WIPs that were forwarded later, use shared_with_client_at —
+      // the file's "first visible to client" moment is the share, not the
+      // original upload (which can be days older than client_last_seen_at
+      // and would otherwise miss the unread check).
       for (const f of visibleFiles) {
-        bump(f.brief_id, f.uploader_role, f.created_at, "upload", { kind: f.kind, fileId: f.id });
+        const at = (f.kind === "wip" && f.shared_with_client_at) ? f.shared_with_client_at : f.created_at;
+        bump(f.brief_id, f.uploader_role, at, "upload", { kind: f.kind, fileId: f.id });
       }
       // Per-file chat comments — only those on files the client can see
       for (const c of (commentsRes.data || [])) {

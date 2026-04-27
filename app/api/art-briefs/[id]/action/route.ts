@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { notifyTeamServer } from "@/lib/notify-server";
+import { renderBrandedEmail } from "@/lib/email-template";
+import { appBaseUrl } from "@/lib/public-url";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +87,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const db = admin();
     const { data: brief, error: loadErr } = await db
       .from("art_briefs")
-      .select("id, state, title, client_id, job_id, client_aborted_at, sent_to_designer_at, assigned_designer_id, clients(name)")
+      .select("id, state, title, client_id, job_id, client_aborted_at, sent_to_designer_at, assigned_designer_id, clients(name, portal_token)")
       .eq("id", params.id)
       .single();
     if (loadErr || !brief) return NextResponse.json({ error: loadErr?.message || "Not found" }, { status: 404 });
@@ -190,6 +192,64 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         "art_brief"
       );
     } catch {}
+
+    // Forward / send to client = the moment a designer's WIP becomes
+    // visible to the client. Two side-effects fire here, both gated to
+    // transitions that originate from wip_review:
+    //   1) Mark every WIP on this brief as shared_with_client_at = now.
+    //      Portal file filters honor this column, so the WIP shows up
+    //      in the client's brief modal. Existing share timestamps are
+    //      preserved so a second forward doesn't overwrite the first.
+    //   2) Send a branded portal-link email to the client's contacts.
+    //      Modeled after the send-intake email.
+    if ((action === "forward_to_client" || action === "send_to_client") && brief.state === "wip_review") {
+      const portalToken = (brief as any).clients?.portal_token as string | null | undefined;
+      try {
+        await db.from("art_brief_files")
+          .update({ shared_with_client_at: new Date().toISOString() })
+          .eq("brief_id", brief.id)
+          .eq("kind", "wip")
+          .is("shared_with_client_at", null);
+      } catch (e) {
+        console.error("[art-brief action] failed to flip shared_with_client_at:", e);
+      }
+
+      if (portalToken && process.env.RESEND_API_KEY) {
+        try {
+          const { data: contacts } = await db
+            .from("contacts")
+            .select("email")
+            .eq("client_id", (brief as any).client_id)
+            .not("email", "is", null)
+            .limit(5);
+          const recipients = (contacts || []).map((c: any) => c.email).filter(Boolean);
+          if (recipients.length > 0) {
+            const title = brief.title || "your design";
+            const portalUrl = `${appBaseUrl()}/portal/client/${portalToken}/designs?brief=${brief.id}`;
+            const html = renderBrandedEmail({
+              heading: "Your design team has something to show you",
+              greeting: `Hi ${clientName},`,
+              bodyHtml: `We just shared progress on <strong>${title}</strong>. Open the portal to see it and leave any feedback directly on the file.`,
+              cta: { label: "Open the portal →", url: portalUrl, style: "dark" },
+              hint: "Comments go straight to your design team. We'll loop back when there's a next version.",
+              closing: "",
+            });
+            await fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",
+                to: recipients,
+                subject: `${title} — design ready for review`,
+                html,
+              }),
+            });
+          }
+        } catch (e) {
+          console.error("[art-brief action] forward email send failed:", e);
+        }
+      }
+    }
 
     return NextResponse.json({ brief: updated, action, from: brief.state, to: tx.to });
   } catch (e: any) {

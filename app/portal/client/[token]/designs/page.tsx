@@ -336,7 +336,10 @@ const KIND_META: Record<string, { short: string; bg: string; fg: string }> = {
   print_ready: { short: "PRINT", bg: C.green, fg: "#fff" },
 };
 
-function clientNextStep(state: string): { text: string; tone: "info" | "action" | "done" } | null {
+function clientNextStep(
+  state: string,
+  ctx?: { hasLatestDraft?: boolean }
+): { text: string; tone: "info" | "action" | "done" } | null {
   if (state === "draft") {
     return { text: "We're getting started. First look coming soon.", tone: "info" };
   }
@@ -344,6 +347,12 @@ function clientNextStep(state: string): { text: string; tone: "info" | "action" 
     return { text: "We're creating. First look coming soon.", tone: "info" };
   }
   if (state === "client_review") {
+    // Draft/revision present = formal review with an Approve button.
+    // No draft yet = HPD forwarded a WIP for a direction check; comments
+    // are the only action available.
+    if (ctx?.hasLatestDraft === false) {
+      return { text: "Direction check — your design team shared a work-in-progress. Leave a comment with your thoughts.", tone: "action" };
+    }
     return { text: "Draft ready — review it below and approve or comment.", tone: "action" };
   }
   if (state === "revisions") {
@@ -566,7 +575,10 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
           // the banner + button update immediately. Falls back to the
           // parent prop while detail is still loading.
           const liveState = detail?.brief?.state || brief.state;
-          const next = clientNextStep(liveState);
+          const hasLatestDraft = !!(detail?.files || []).find(f =>
+            f.kind === "first_draft" || f.kind === "revision"
+          );
+          const next = clientNextStep(liveState, { hasLatestDraft });
           if (!next) return null;
           return (
             <div style={{ padding: "10px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
