@@ -110,3 +110,34 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
 }
+
+// DELETE — client removes one of their own reference uploads on this brief.
+// Restricted to uploader_role='client' so the client can't nuke designer or
+// HPD files from the portal. Drive deletion is best-effort; DB row goes
+// either way (ON DELETE CASCADE on art_brief_file_comments cleans chatter).
+export async function DELETE(req: NextRequest, { params }: { params: { token: string; briefId: string } }) {
+  const ctx = await verifyAccess(params.token, params.briefId);
+  if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const fileId = req.nextUrl.searchParams.get("fileId");
+  if (!fileId) return NextResponse.json({ error: "fileId required" }, { status: 400 });
+
+  const { data: file } = await ctx.db.from("art_brief_files")
+    .select("id, brief_id, uploader_role, drive_file_id")
+    .eq("id", fileId).single();
+  if (!file || file.brief_id !== ctx.brief.id || file.uploader_role !== "client") {
+    return NextResponse.json({ error: "Not allowed" }, { status: 403 });
+  }
+
+  if (file.drive_file_id) {
+    try {
+      const token = await getDriveToken();
+      await fetch(`https://www.googleapis.com/drive/v3/files/${file.drive_file_id}`, {
+        method: "DELETE", headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {}
+  }
+
+  await ctx.db.from("art_brief_files").delete().eq("id", fileId);
+  return NextResponse.json({ success: true });
+}

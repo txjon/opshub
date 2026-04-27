@@ -503,6 +503,19 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
     return saved;
   }
 
+  async function deleteClientFile(fileId: string) {
+    if (!window.confirm("Delete this reference?")) return;
+    const r = await fetch(`/api/portal/client/${tk}/briefs/${brief.id}/files?fileId=${fileId}`, {
+      method: "DELETE",
+    });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      alert(data.error || "Couldn't delete");
+      return;
+    }
+    await load();
+  }
+
   const allFiles = detail?.files || [];
   const hero = (heroId && allFiles.find(f => f.id === heroId)) || pickClientHero(brief.state, allFiles);
   const stripFiles = [
@@ -704,9 +717,10 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
                       const saved = await postClientComment(fileId, body);
                       return saved;
                     }}
-                    /* Per spec: only HPD deletes REFs. Clients can
-                       upload but not delete; designers can't touch
-                       refs at all. No onDelete passed = no trash icon. */
+                    /* Default canDelete = uploader_role === viewerRole, so
+                       the trash icon only appears on the client's own refs.
+                       Designer uploads and HPD-uploaded refs stay locked. */
+                    onDelete={deleteClientFile}
                   />
                 </div>
               ) : (
