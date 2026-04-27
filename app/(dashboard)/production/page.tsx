@@ -566,34 +566,35 @@ export default function ProductionPage() {
               </div>
             </div>
 
-            {/* ── Modal — full-page overlay, click backdrop or ESC to close ── */}
+            {/* ── Full-page modal — takes over the viewport, mirrors
+                the art-studio brief modal pattern. ESC or × to close. ── */}
             {isModalOpen && (
-              <div onClick={() => setModalProject(null)}
-                style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", overflow: "auto", padding: "5vh 16px" }}>
-                <div onClick={e => e.stopPropagation()}
-                  style={{ background: T.card, borderRadius: 12, width: "100%", maxWidth: 1100, boxShadow: "0 12px 40px rgba(0,0,0,0.25)" }}>
-                  <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>
+              <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 1000, display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
+                <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  {/* Header */}
+                  <div style={{ padding: "14px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, background: T.card }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: T.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
                         <span style={{ fontFamily: mono }}>{project.invoiceNumber || project.jobNumber}</span>
-                        <span style={{ marginLeft: 10, color: T.muted, fontWeight: 600 }}>{project.clientName}</span>
+                        <span style={{ color: T.muted, fontWeight: 600 }}>{project.clientName}</span>
                       </div>
                       <div style={{ fontSize: 12, color: T.faint, marginTop: 2 }}>
                         {project.jobTitle}
                         {project.invoiceNumber && <span style={{ marginLeft: 8, fontFamily: mono }}>{project.jobNumber}</span>}
                       </div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                       {ship && (
                         <div style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: ship.bg, color: ship.color }}>
                           {ship.dateStr} · {ship.label}
                         </div>
                       )}
                       <button onClick={() => setModalProject(null)} title="Close (Esc)"
-                        style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>×</button>
+                        style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
                     </div>
                   </div>
-                  <div style={{ padding: "0 18px 18px" }}>
+                  {/* Scrollable body */}
+                  <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 22px" }}>
                 {project.decoratorGroups.map(dg => (
                   <div key={dg.decoratorId || dg.decoratorName} style={{
                     marginTop: 14, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden",
