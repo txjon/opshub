@@ -303,10 +303,12 @@ export default function CommandCenterV2() {
         </div>
       </div>
 
-      {/* Three-column buckets */}
+      {/* Three-column buckets — tightened from 360 to 300 so all three
+          fit at typical desktop widths. With only 3 children, auto-fit
+          naturally collapses any extra slots on wider screens. */}
       <div style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+        gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
         gap: 16,
         alignItems: "start",
       }}>
