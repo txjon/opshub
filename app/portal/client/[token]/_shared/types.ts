@@ -26,6 +26,7 @@ export type Brief = {
   last_activity_at?: string | null;
   has_unread_external?: boolean;
   has_latest_draft?: boolean;
+  client_engaged_with_review?: boolean;
   unread_kind?: string | null;
   preview_line?: string | null;
   unread_body?: string | null;

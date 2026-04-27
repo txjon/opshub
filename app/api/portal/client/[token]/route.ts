@@ -138,6 +138,13 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       const lastExternalRole = designerAt > hpdAt ? "designer" : "hpd";
       const externalActivity = lastExternalRole === "designer" ? la.designer : la.hpd;
       const hasUnreadExternal = !!lastExternal && lastExternal > clientAt;
+      // Engagement signal: did the client actually post (comment or
+      // upload) after the latest external move? clientActivityAt is
+      // bump-driven (real activity, not just opens), so this is true only
+      // once they've responded — feeds into the action-banner logic so a
+      // forwarded WIP that the client commented on flips from "Leave a
+      // comment" to "We got your feedback" without a state change.
+      const clientEngaged = !!clientActivityAt && (!lastExternal || clientActivityAt > lastExternal);
       // Preview line — uses the shared formatter so wording matches what
       // the designer + HPD see on the same brief ("HPD uploaded REF 3",
       // "Designer uploaded 2nd Draft", etc.).
@@ -181,6 +188,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         last_activity_at: latestAt,
         has_unread_external: hasUnreadExternal,
         has_latest_draft: hasLatestDraft,
+        client_engaged_with_review: clientEngaged,
         unread_kind: hasUnreadExternal ? externalActivity?.kind || null : null,
         preview_line: previewLine,
         unread_body: unreadBody,

@@ -259,9 +259,12 @@ function BriefTile({ brief, meta, onOpen }: {
   const highlight = brief.has_unread_external ? unreadHighlightFor(brief.unread_kind) : null;
   // Persistent action-banner: derives from clientNextStep, only shown
   // when tone === "action" (a move is genuinely owed). Survives modal
-  // open — clears only when the brief moves out of an action state
-  // (approve, comment-as-revision-trigger, designer uploads next, etc.).
-  const next = clientNextStep(brief.state, { hasLatestDraft: !!brief.has_latest_draft });
+  // open — softens to info once the client has actually posted, so a
+  // commented-on WIP doesn't keep nagging them.
+  const next = clientNextStep(brief.state, {
+    hasLatestDraft: !!brief.has_latest_draft,
+    clientEngaged: !!brief.client_engaged_with_review,
+  });
   const actionPending = next?.tone === "action";
   return (
     <div onClick={onOpen}
@@ -392,7 +395,7 @@ const KIND_META: Record<string, { short: string; bg: string; fg: string }> = {
 
 function clientNextStep(
   state: string,
-  ctx?: { hasLatestDraft?: boolean }
+  ctx?: { hasLatestDraft?: boolean; clientEngaged?: boolean }
 ): { text: string; tone: "info" | "action" | "done" } | null {
   if (state === "draft") {
     return { text: "We're getting started. First look coming soon.", tone: "info" };
@@ -401,6 +404,14 @@ function clientNextStep(
     return { text: "We're creating. First look coming soon.", tone: "info" };
   }
   if (state === "client_review") {
+    // Client already posted (comment or upload) since the deliverable
+    // landed — soften to status, the ball is back on HPD/designer.
+    // For drafts, approval is still the formal next step but the comment
+    // counts as engagement; designer can iterate or HPD can chase the
+    // approval directly.
+    if (ctx?.clientEngaged) {
+      return { text: "We got your feedback. Your design team is on it.", tone: "info" };
+    }
     // Draft/revision present = formal review with an Approve button.
     // No draft yet = HPD forwarded a WIP for a direction check; comments
     // are the only action available.
