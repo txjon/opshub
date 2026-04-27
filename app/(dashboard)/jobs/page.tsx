@@ -157,6 +157,14 @@ export default function JobsPage() {
     } else if (sortKey === "phase") {
       const order: Record<string,number> = { intake:0, pending:1, ready:2, production:3, receiving:4, fulfillment:5, complete:6 };
       av = order[a.phase] ?? 9; bv = order[b.phase] ?? 9;
+    } else if (sortKey === "invoice_number") {
+      // Numeric-aware: QB returns invoice numbers as strings ("4170")
+      // but they're naturally numeric. Coerce when possible; rows
+      // without an invoice number sort to the bottom.
+      const ai = a.type_meta?.qb_invoice_number;
+      const bi = b.type_meta?.qb_invoice_number;
+      av = ai ? (Number(ai) || ai) : Infinity;
+      bv = bi ? (Number(bi) || bi) : Infinity;
     } else if (sortKey === "pct") {
       av = getJobPct(a); bv = getJobPct(b);
     } else {
@@ -253,6 +261,7 @@ export default function JobsPage() {
           <option value="client">Sort · Client</option>
           <option value="priority">Sort · Priority</option>
           <option value="phase">Sort · Phase</option>
+          <option value="invoice_number">Sort · Invoice #</option>
         </select>
       </div>
 
