@@ -127,8 +127,10 @@ export default function JobsPage() {
   const visible = useMemo(() => {
     const q = search.toLowerCase().trim();
     return jobs.filter(j => {
-      // Phase filter
-      if (filter === "active" && ["complete","cancelled"].includes(j.phase)) return false;
+      // Top-level filter buckets: Active (in flight) / On Hold /
+      // Complete / Cancelled. Per-phase drill-down went away when the
+      // Command Center took over urgency triage.
+      if (filter === "active" && ["complete","cancelled","on_hold"].includes(j.phase)) return false;
       if (filter !== "active" && filter !== "all" && j.phase !== filter) return false;
       // Text search
       if (q && !(
@@ -163,16 +165,6 @@ export default function JobsPage() {
     const r = typeof av === "string" ? (av < bv ? -1 : av > bv ? 1 : 0) : (av - bv);
     return sortDir === "asc" ? r : -r;
   }), [visible, sortKey, sortDir]);
-
-  const SortBtn = ({ col, label }: { col: string; label: string }) => {
-    const active = sortKey === col;
-    return (
-      <button onClick={() => { if (sortKey === col) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortKey(col); setSortDir("asc"); }}}
-        style={{ background:"none", border:"none", padding:"5px 9px", cursor:"pointer", fontFamily:font, fontSize:10, fontWeight:700, color:active?T.accent:T.muted, letterSpacing:"0.07em", textTransform:"uppercase", display:"flex", alignItems:"center", gap:3, whiteSpace:"nowrap" }}>
-        {label}{active && <span style={{fontSize:9}}>{sortDir === "asc" ? "▲" : "▼"}</span>}
-      </button>
-    );
-  };
 
   if (loading) return (
     <div style={{ padding:"2rem", color: T.muted, fontFamily: font, fontSize: 13 }}>Loading projects...</div>
@@ -215,48 +207,53 @@ export default function JobsPage() {
         <KpiTile label="Prints" value={kpis.prints.toLocaleString()} tone={T.purple} />
       </div>
 
-      {/* Filter + sort bar */}
-      <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-        <div style={{
-          display:"flex", gap:3, background:T.surface, padding:3, borderRadius:8,
-          ...(isMobile ? { overflowX:"auto" as const, maxWidth:"100%", scrollbarWidth:"none" as any, WebkitOverflowScrolling:"touch" as any } : {}),
-        }}>
-          {[
-            ["active","All Active",jobs.filter(j => !["complete","cancelled"].includes(j.phase)).length],
-            ["intake","Intake",phaseCounts.intake],
-            ["pending","Pending",phaseCounts.pending],
-            ["ready","Ready",phaseCounts.ready],
-            ["production","Production",phaseCounts.production],
-            ["receiving","Receiving",phaseCounts.receiving],
-            ["fulfillment","Fulfillment",phaseCounts.fulfillment],
-            ["on_hold","On Hold",phaseCounts.on_hold],
-            ["complete","Complete",phaseCounts.complete],
-            ["cancelled","Cancelled",phaseCounts.cancelled],
-          ].map(([k,l,count]) => (
-            <button key={k as string} onClick={() => setFilter(k as string)}
-              style={{ background:filter===k?T.accent:"transparent", color:filter===k?"#fff":T.muted, border:"none", borderRadius:5, padding:"4px 10px", fontSize:11, fontFamily:font, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:4, flexShrink:0, whiteSpace:"nowrap" }}>
-              {l as string}
-              {(count as number) > 0 && <span style={{ background:filter===k?"rgba(255,255,255,0.25)":T.faint+"44", borderRadius:10, padding:"0 5px", fontSize:9 }}>{count as number}</span>}
+      {/* Filter + sort bar — slim, no pill chrome. Per-phase browsing
+          went away when the Command Center took over urgency triage;
+          this page is now mostly "find a specific project." Four
+          top-level buckets cover the browse modes; phase still shows
+          per-row in the PHASE column for scanning. */}
+      <div style={{ display:"flex", alignItems:"center", gap:14, flexWrap:"wrap", borderBottom:`1px solid ${T.border}`, paddingBottom:6 }}>
+        {([
+          ["active",   "Active",    jobs.filter(j => !["complete","cancelled","on_hold"].includes(j.phase)).length],
+          ["on_hold",  "On Hold",   phaseCounts.on_hold],
+          ["complete", "Complete",  phaseCounts.complete],
+          ["cancelled","Cancelled", phaseCounts.cancelled],
+        ] as const).map(([k, l, count]) => {
+          const active = filter === k;
+          return (
+            <button key={k} onClick={() => setFilter(k)}
+              style={{
+                background:"none", border:"none", padding:"4px 0",
+                cursor:"pointer", fontFamily:font,
+                fontSize:13, fontWeight: active ? 800 : 600,
+                color: active ? T.text : T.muted,
+                borderBottom: active ? `2px solid ${T.text}` : "2px solid transparent",
+                marginBottom:-7,
+                display:"inline-flex", alignItems:"baseline", gap:5,
+              }}>
+              {l}
+              {count > 0 && (
+                <span style={{ fontSize:10, fontWeight:700, color: active ? T.muted : T.faint }}>
+                  {count}
+                </span>
+              )}
             </button>
-          ))}
-        </div>
-        {!isMobile && (
-          <div style={{ marginLeft:"auto", display:"flex", gap:0, background:T.surface, borderRadius:8, padding:3 }}>
-            <SortBtn col="client" label="Client" />
-            <SortBtn col="priority" label="Priority" />
-            <SortBtn col="phase" label="Phase" />
-            <SortBtn col="target_ship_date" label="Ship Date" />
-          </div>
-        )}
-        {isMobile && (
-          <select value={sortKey} onChange={e => setSortKey(e.target.value)}
-            style={{ marginLeft:"auto", background:T.surface, border:`1px solid ${T.border}`, borderRadius:8, padding:"5px 10px", fontSize:11, fontFamily:font, fontWeight:600, color:T.muted, outline:"none", cursor:"pointer" }}>
-            <option value="target_ship_date">Sort: Ship Date</option>
-            <option value="client">Sort: Client</option>
-            <option value="priority">Sort: Priority</option>
-            <option value="phase">Sort: Phase</option>
-          </select>
-        )}
+          );
+        })}
+        <select value={sortKey} onChange={e => setSortKey(e.target.value)}
+          style={{
+            marginLeft:"auto",
+            background:"none", border:"none",
+            padding:"4px 0",
+            fontSize:11, fontFamily:font, fontWeight:700,
+            color:T.muted, outline:"none", cursor:"pointer",
+            letterSpacing:"0.06em", textTransform:"uppercase",
+          }}>
+          <option value="target_ship_date">Sort · Ship date</option>
+          <option value="client">Sort · Client</option>
+          <option value="priority">Sort · Priority</option>
+          <option value="phase">Sort · Phase</option>
+        </select>
       </div>
 
       {/* Job list */}
