@@ -252,11 +252,6 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             </button>
           ))}
         </div>
-        <button onClick={()=>{ setRfqVendor(""); setRfqSelected({}); setShowRfqPicker(true); }}
-          style={{marginLeft:"auto",background:"transparent",border:`1px solid ${T.accent}`,borderRadius:6,color:T.accent,fontFamily:font,fontSize:12,fontWeight:600,padding:"6px 14px",cursor:"pointer"}}
-          title="Send a quote request to a decorator for selected items">
-          Request Pricing
-        </button>
       </div>
       )}
 
@@ -273,22 +268,29 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               {project?.type_meta?.costing_locked?"Ready to quote":"Lock in pricing when all items are costed"}
             </span>
           </div>
-          <button onClick={async ()=>{
-            // Save costing first
-            if (onSave) await onSave();
-            const { createClient: cc } = await import("@/lib/supabase/client");
-            const sb = cc();
-            const newVal = !project?.type_meta?.costing_locked;
-            const meta = {...(project?.type_meta||{}), costing_locked: newVal, costing_locked_at: newVal ? new Date().toISOString() : null};
-            await sb.from("jobs").update({type_meta: meta}).eq("id", project.id);
-            // Update local state immediately
-            if (onUpdateProject) onUpdateProject({ type_meta: meta });
-          }}
-            style={{padding:"6px 16px",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer",border:"none",
-              background:project?.type_meta?.costing_locked?T.surface:T.green,
-              color:project?.type_meta?.costing_locked?T.muted:"#fff"}}>
-            {project?.type_meta?.costing_locked?"Unlock Pricing":"Lock In Pricing"}
-          </button>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <button onClick={()=>{ setRfqVendor(""); setRfqSelected({}); setShowRfqPicker(true); }}
+              style={{padding:"6px 14px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.accent}`,color:T.accent,fontFamily:font}}
+              title="Send a quote request to a decorator for selected items">
+              Request Pricing
+            </button>
+            <button onClick={async ()=>{
+              // Save costing first
+              if (onSave) await onSave();
+              const { createClient: cc } = await import("@/lib/supabase/client");
+              const sb = cc();
+              const newVal = !project?.type_meta?.costing_locked;
+              const meta = {...(project?.type_meta||{}), costing_locked: newVal, costing_locked_at: newVal ? new Date().toISOString() : null};
+              await sb.from("jobs").update({type_meta: meta}).eq("id", project.id);
+              // Update local state immediately
+              if (onUpdateProject) onUpdateProject({ type_meta: meta });
+            }}
+              style={{padding:"6px 16px",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer",border:"none",
+                background:project?.type_meta?.costing_locked?T.surface:T.green,
+                color:project?.type_meta?.costing_locked?T.muted:"#fff"}}>
+              {project?.type_meta?.costing_locked?"Unlock Pricing":"Lock In Pricing"}
+            </button>
+          </div>
         </div>
       )}
 
