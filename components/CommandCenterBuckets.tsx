@@ -178,7 +178,8 @@ function CardRow({ card }: { card: BucketCard }) {
         color: card.metaKind === "invoice" ? T.text : T.faint,
         fontWeight: card.metaKind === "invoice" ? 700 : 400,
         fontFamily: mono,
-        alignSelf: "center", whiteSpace: "nowrap",
+        alignSelf: "start", whiteSpace: "nowrap",
+        marginTop: 1,
       }}>
         {card.meta || ""}
       </div>
