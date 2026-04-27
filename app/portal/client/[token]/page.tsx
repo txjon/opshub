@@ -35,7 +35,7 @@ export default function OverviewPage() {
           label="Designs with updates"
           value={unreadCount}
           hint={unreadCount === 0 ? "All caught up" : "Tap to review"}
-          accent={unreadCount > 0 ? C.red : C.muted}
+          accent={unreadCount > 0 ? C.purple : C.muted}
         />
         <StatCard
           href={`${base}/designs`}
@@ -100,7 +100,7 @@ export default function OverviewPage() {
                   {b.has_unread_external ? (
                     <div style={{
                       width: 42, minWidth: 42, textAlign: "center",
-                      padding: "3px 6px", background: C.red, color: "#fff",
+                      padding: "3px 6px", background: C.purple, color: "#fff",
                       fontSize: 9, fontWeight: 800, letterSpacing: "0.06em",
                       borderRadius: 3,
                     }}>NEW</div>
