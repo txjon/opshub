@@ -260,16 +260,18 @@ export default function StagingPage() {
 }
 
 // ── Image-first grid of item tiles ──────────────────────────────────
-// Responsive: 100px-min cells on phones grow up to 160px on desktop.
-// Image-only with the name as a caption; no status / qty / metadata —
-// Staging is an organizing surface, not a detail surface (that lives on
-// the Items tab).
+// Wider rectangular tiles (4:3) so apparel/product photos that aren't
+// strictly square don't get cropped. Auto-fill at 320px min lands at
+// ~3 columns on typical desktop widths, more on wider screens, fewer
+// on phones. Image-only with the name as a caption; no status / qty /
+// metadata — Staging is an organizing surface, not a detail surface
+// (that lives on the Items tab).
 function ItemGrid({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))",
-      gap: 10,
+      gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+      gap: 12,
     }}>
       {children}
     </div>
@@ -308,14 +310,14 @@ function ItemCard({ item, onAssign, onRemove, assignDisabled }: {
       onMouseLeave={e => { if (action) e.currentTarget.style.borderColor = C.border; }}
     >
       <div style={{
-        aspectRatio: "1", background: "#f4f4f7",
+        aspectRatio: "4 / 3", background: "#f4f4f7",
         overflow: "hidden",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
         {item.thumb_id ? (
           <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
             alt="" referrerPolicy="no-referrer" loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
             onError={(e: any) => { e.target.style.display = "none"; }} />
         ) : (
           <span style={{ fontSize: 10, color: C.faint }}>No preview</span>
