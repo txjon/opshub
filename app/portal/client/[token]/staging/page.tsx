@@ -270,7 +270,7 @@ function ItemGrid({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+      gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
       gap: 12,
     }}>
       {children}
@@ -310,7 +310,7 @@ function ItemCard({ item, onAssign, onRemove, assignDisabled }: {
       onMouseLeave={e => { if (action) e.currentTarget.style.borderColor = C.border; }}
     >
       <div style={{
-        aspectRatio: "3 / 1", background: "#f4f4f7",
+        height: 120, background: "#f4f4f7",
         overflow: "hidden",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
