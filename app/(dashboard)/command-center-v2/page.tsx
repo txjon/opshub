@@ -365,7 +365,13 @@ function CardRow({ card }: { card: Card }) {
       <div style={{
         fontSize: 12.5, fontWeight: isUrgent ? 700 : 600,
         color: T.text,
-        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        // Allow wrap up to 2 lines so long titles like "HPD Web —
+        // House Party Labs Heat Transfer Hat Sample" stay readable.
+        // Subtitle below stays single-line so the row doesn't balloon.
+        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+        overflow: "hidden",
+        wordBreak: "break-word",
+        lineHeight: 1.3,
         minWidth: 0,
       }}>
         {card.title}
