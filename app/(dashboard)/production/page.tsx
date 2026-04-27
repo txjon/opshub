@@ -331,17 +331,33 @@ export default function ProductionPage() {
   const allItems = projects.flatMap(p => p.decoratorGroups.flatMap(dg => dg.items));
   const decorators = useMemo(() => [...new Set(allItems.map(it => it.decorator_name).filter(Boolean))].sort(), [projects]);
 
-  // Vanity KPIs across active production work (phase = production /
-  // receiving / fulfillment — recently-completed jobs are loaded for
-  // the list below but excluded from the counts).
+  // Vanity KPIs for items still at the decorator. Once an item ships
+  // from the decorator (pipeline_stage = "shipped"), production is done
+  // for that item — those units belong to Receiving, not here.
+  // Recently-completed jobs are loaded for the list below but never
+  // contribute to KPI counts.
   const productionKpis = useMemo(() => {
-    const activeProjs = projects.filter(p => p.phase !== "complete");
-    const activeItems = activeProjs.flatMap(p => p.decoratorGroups.flatMap(dg => dg.items));
-    const items = activeItems.length;
-    const units = activeItems.reduce((sum, it) => sum + (it.total_units || 0), 0);
+    // Items currently at the decorator only.
+    const inProdItems = projects
+      .filter(p => p.phase !== "complete")
+      .flatMap(p => p.decoratorGroups.flatMap(dg => dg.items))
+      .filter(it => it.pipeline_stage === "in_production");
+    const items = inProdItems.length;
+    const units = inProdItems.reduce((sum, it) => sum + (it.total_units || 0), 0);
+
+    // Prints — only count costProds in projects that still have at
+    // least one item at the decorator. Approximation: a project with
+    // some items shipped + some still in production will count all
+    // of its print locations, slightly over-counting. Worth refactoring
+    // to per-item prints when costProd → item mapping is needed
+    // elsewhere.
     const NON_GARMENT = new Set(["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]);
+    const projectsWithInProd = projects.filter(p =>
+      p.phase !== "complete" &&
+      p.decoratorGroups.some(dg => dg.items.some(it => it.pipeline_stage === "in_production"))
+    );
     let prints = 0;
-    for (const p of activeProjs) {
+    for (const p of projectsWithInProd) {
       const costProds = (p.costingData?.costProds || []) as any[];
       for (const cp of costProds) {
         const qty = cp.totalQty || 0;
