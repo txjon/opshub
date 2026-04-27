@@ -28,8 +28,7 @@ export async function updateSession(request: NextRequest) {
   const isAuthRoute = request.nextUrl.pathname.startsWith("/login") || request.nextUrl.pathname.startsWith("/set-password") || request.nextUrl.pathname.startsWith("/auth/callback");
   const isPublicRoute = request.nextUrl.pathname.startsWith("/portal")
     || request.nextUrl.pathname.startsWith("/staging/share")
-    || request.nextUrl.pathname.startsWith("/design/")
-    || request.nextUrl.pathname.startsWith("/art-intake/");
+    || request.nextUrl.pathname.startsWith("/design/");
 
   if (!user && !isAuthRoute && !isPublicRoute) {
     const url = request.nextUrl.clone();

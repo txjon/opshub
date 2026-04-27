@@ -44,7 +44,6 @@ const KIND_LABELS: Record<string, string> = {
   revision: "a Revision",
   final: "the Final",
   print_ready: "Print-Ready",
-  client_intake: "intake",
 };
 function describeActivity(who: string, act: NonNullable<RoleActivity>): string {
   if (act.type === "message") return `${who} posted`;
@@ -60,8 +59,6 @@ export type ResolvableBrief = {
   updated_at?: string | null;
   deadline?: string | null;
   sent_to_designer_at?: string | null;
-  client_intake_token?: string | null;
-  client_intake_submitted_at?: string | null;
   client_aborted_at?: string | null;
   designer_message_count?: number;
   last_client_activity?: RoleActivity;
@@ -92,9 +89,6 @@ function ago(iso?: string | null): string {
 export function resolveBrief(b: ResolvableBrief): Resolution {
   const s = b.state || "draft";
   const sourceIsClient = b.source === "client";
-  const hasIntakeToken = !!b.client_intake_token;
-  const intakeSubmitted = !!b.client_intake_submitted_at;
-  const awaitingIntake = hasIntakeToken && !intakeSubmitted;
   const lastActivity = b.updated_at || b.created_at;
   const dSince = daysSince(lastActivity);
 
@@ -145,26 +139,9 @@ export function resolveBrief(b: ResolvableBrief): Resolution {
     };
   }
 
-  // Draft — depends on source + intake state
+  // Draft — either client-submitted (HPD reviews + forwards) or
+  // HPD-created and being filled out.
   if (s === "draft") {
-    if (intakeSubmitted) {
-      return {
-        section: "your_move",
-        owner: "hpd",
-        activity: `Intake submitted · ${ago(b.client_intake_submitted_at)}`,
-        primary: { label: "Translate & send", action: "open" },
-        urgency: "action",
-      };
-    }
-    if (awaitingIntake) {
-      return {
-        section: "in_flight",
-        owner: "client",
-        activity: `Intake sent · ${ago(b.updated_at)}`,
-        primary: { label: "Chat", action: "open" },
-        urgency: dSince > 3 ? "stale" : "normal",
-      };
-    }
     if (sourceIsClient) {
       return {
         section: "your_move",
@@ -174,7 +151,6 @@ export function resolveBrief(b: ResolvableBrief): Resolution {
         urgency: "action",
       };
     }
-    // HPD-created draft still being filled in
     return {
       section: "your_move",
       owner: "hpd",

@@ -75,7 +75,6 @@ const KIND_ACCENT: Record<string, string> = {
   revision:    "#fd3aa3", // T.purple — iteration
   final:       "#4ddb88", // T.green — locked
   print_ready: "#4ddb88", // T.green — production
-  client_intake: "#1a1a1a", // T.text — client-side context
 };
 
 // Soft tint of each kind accent — used for the viewer's own bubbles
@@ -87,7 +86,6 @@ const KIND_BUBBLE_BG: Record<string, string> = {
   revision:    "#fee8f4", // T.purpleDim
   final:       "#e5f9ed", // T.greenDim
   print_ready: "#e5f9ed", // T.greenDim
-  client_intake: "#eaeaee",
 };
 
 // Phase priority — lower number = higher in the stack. Newest
@@ -101,7 +99,6 @@ const KIND_RANK: Record<string, number> = {
   wip:          3,
   reference:    4,
   print_ready:  5,
-  client_intake: 6,
 };
 
 const C = {

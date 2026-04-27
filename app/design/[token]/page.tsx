@@ -491,7 +491,6 @@ const KIND_META: Record<string, { short: string; bg: string; fg: string; rank: n
   first_draft: { short: "1ST",   bg: C.blue,   fg: "#fff", rank: 3 },
   wip:         { short: "WIP",   bg: C.accent, fg: "#fff", rank: 2 },
   reference:   { short: "REF",   bg: C.purple, fg: "#fff", rank: 1 },
-  client_intake: { short: "INTK", bg: C.purpleBg, fg: C.purple, rank: 1 },
   print_ready: { short: "PRINT", bg: C.green, fg: "#fff", rank: 5 },
 };
 

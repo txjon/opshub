@@ -44,8 +44,6 @@ type Brief = {
   item_id: string | null;
   job_id: string | null;
   client_id: string | null;
-  client_intake_token?: string | null;
-  client_intake_submitted_at?: string | null;
   sent_to_designer_at?: string | null;
   items?: { name: string } | null;
   jobs?: { title: string; job_number: string; job_type: string | null } | null;
@@ -606,7 +604,6 @@ const KIND_META: Record<string, { short: string; bg: string; fg: string; rank: n
   first_draft: { short: "1ST",    bg: T.accent,   fg: "#fff",       rank: 3 },
   wip:         { short: "WIP",    bg: T.blue,     fg: "#fff",       rank: 2 },
   reference:   { short: "REF",    bg: T.purple,   fg: "#fff",       rank: 1 },
-  client_intake: { short: "INTK", bg: T.purpleDim, fg: T.purple,    rank: 1 },
   packing_slip: { short: "PACK",  bg: T.surface,  fg: T.muted,      rank: 0 },
   print_ready: { short: "PRINT",  bg: T.green,    fg: "#fff",       rank: 5 },
 };
@@ -686,7 +683,7 @@ function pickHeroFile(state: string, files: any[]): any | null {
   if (!files.length) return null;
   // State-to-relevant-kind preference order
   const pref: Record<string, string[]> = {
-    draft: ["reference", "client_intake"],
+    draft: ["reference"],
     sent: ["reference"],
     in_progress: ["wip", "reference"],
     wip_review: ["wip", "reference"],
@@ -914,16 +911,15 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     }
   }
 
-  async function copyIntakeLink() {
+  async function copyPortalLink() {
     const res = await fetch("/api/art-briefs/intake-link", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ brief_id: brief.id }),
     });
     const data = await res.json();
-    // Prefer the client-wide portal URL; fall back to per-brief intake
     const url = data.client_portal_token
       ? `${appBaseUrl()}/portal/client/${data.client_portal_token}`
-      : (data.token ? `${appBaseUrl()}/art-intake/${data.token}` : null);
+      : null;
     if (url) {
       await navigator.clipboard.writeText(url);
       setLinkCopied(true);
@@ -1114,7 +1110,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
                       For unsticking edge cases only. Day-to-day transitions happen automatically.
                     </div>
                   </div>
-                  <button onClick={copyIntakeLink}
+                  <button onClick={copyPortalLink}
                     style={{ width: "100%", padding: "6px 10px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font, marginBottom: 10 }}>
                     {linkCopied ? "✓ Copied" : "Copy portal link"}
                   </button>

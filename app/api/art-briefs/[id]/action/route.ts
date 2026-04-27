@@ -200,8 +200,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     //      Portal file filters honor this column, so the WIP shows up
     //      in the client's brief modal. Existing share timestamps are
     //      preserved so a second forward doesn't overwrite the first.
-    //   2) Send a branded portal-link email to the client's contacts.
-    //      Modeled after the send-intake email.
+    //   2) Send a branded portal-link email to the client's contacts
+    //      (renderBrandedEmail + Resend, same pattern as the other
+    //      transactional sends in OpsHub).
     if ((action === "forward_to_client" || action === "send_to_client") && brief.state === "wip_review") {
       const portalToken = (brief as any).clients?.portal_token as string | null | undefined;
       try {

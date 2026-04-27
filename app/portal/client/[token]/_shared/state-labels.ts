@@ -4,12 +4,6 @@ import type { Brief, ClientStateMeta } from "./types";
 // Collapses internal brief states into client-facing buckets.
 // See also: app/(dashboard)/art-studio for HPD's fuller state vocabulary.
 export function clientStateFor(b: Brief): ClientStateMeta {
-  // "Needs your input" only applies before the brief moves into design.
-  // Once HPD has sent it to a designer, the intake form is no longer the
-  // blocker — even if the client never submitted it.
-  if (b.intake_requested && (b.state === "draft" || b.state === "sent")) {
-    return { label: "Needs your input", bucket: "action", color: C.amber, bg: C.amberBg, border: C.amberBorder };
-  }
   const s = b.state;
   if (s === "draft") {
     return { label: "Planning", bucket: "progress", color: C.muted, bg: C.surface, border: C.border };

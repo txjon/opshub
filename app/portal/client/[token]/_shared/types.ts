@@ -15,10 +15,6 @@ export type Brief = {
   deadline: string | null;
   job_title: string | null;
   job_number: string | null;
-  intake_token: string | null;
-  intake_requested: boolean;
-  submitted_at: string | null;
-  has_intake: boolean;
   sent_to_designer_at: string | null;
   thumbs: Thumb[];
   thumb_total: number;

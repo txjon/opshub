@@ -5,7 +5,7 @@ import { createResumableUploadSession } from "@/lib/drive-resumable";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const ALLOWED_KINDS = ["reference", "wip", "final", "client_intake", "print_ready"];
+const ALLOWED_KINDS = ["reference", "wip", "final", "print_ready"];
 
 // POST — HPD creates a resumable upload session for a brief file.
 // Returns a Drive upload URL; client PUTs the bytes directly (bypasses

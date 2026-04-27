@@ -72,10 +72,8 @@ export default function DesignsPage() {
   const DONE_STATES = ["final_approved", "pending_prep", "production_ready", "delivered"];
   const bucketFor = (b: Brief): "pending" | "working" | "done" => {
     if (DONE_STATES.includes(b.state)) return "done";
-    // Client owes a move when a draft/revision is up for review or
-    // when the intake form is requested but unsubmitted.
+    // Client owes a move when a draft/revision is up for review.
     if (b.state === "client_review") return "pending";
-    if (b.intake_requested && (b.state === "draft" || b.state === "sent")) return "pending";
     return "working";
   };
 
@@ -389,7 +387,6 @@ const KIND_META: Record<string, { short: string; bg: string; fg: string }> = {
   first_draft: { short: "1ST",   bg: C.blue,   fg: "#fff" },
   wip:         { short: "WIP",   bg: C.accent, fg: "#fff" },
   reference:   { short: "REF",   bg: C.purple, fg: "#fff" },
-  client_intake: { short: "INTK", bg: C.purpleBg, fg: C.purple },
   print_ready: { short: "PRINT", bg: C.green, fg: "#fff" },
 };
 

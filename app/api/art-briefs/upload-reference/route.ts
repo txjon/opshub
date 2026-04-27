@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
 
     if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
     if (!briefId) return NextResponse.json({ error: "brief_id required" }, { status: 400 });
-    if (!["reference", "wip", "final", "client_intake", "print_ready"].includes(kind)) {
+    if (!["reference", "wip", "final", "print_ready"].includes(kind)) {
       return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
     }
 

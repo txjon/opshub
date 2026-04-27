@@ -11,8 +11,7 @@ function admin() {
 
 // GET /api/portal/client/[token]
 // Returns all art briefs for the client identified by the portal token,
-// plus per-brief intake tokens so the front-end can deep-link to
-// /art-intake/[token] for each one.
+// with per-brief activity rollups for tile rendering.
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   try {
     const db = admin();
@@ -26,7 +25,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const { data: briefs } = await db
       .from("art_briefs")
       .select(
-        "id, title, concept, state, deadline, client_intake_token, client_intake_submitted_at, purpose, audience, mood_words, no_gos, sent_to_designer_at, created_at, updated_at, client_aborted_at, job_id, client_last_seen_at, jobs(title, job_number)"
+        "id, title, concept, state, deadline, purpose, audience, mood_words, no_gos, sent_to_designer_at, created_at, updated_at, client_aborted_at, job_id, client_last_seen_at, jobs(title, job_number)"
       )
       .eq("client_id", client.id)
       // Delivered briefs stay in the response — they bucket as "Approved"
@@ -135,7 +134,6 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       // activity on the brief (a comment, a reference upload, a chat
       // message) also counts as input — once the client has engaged,
       // there's no point dunning them for the structured form.
-      const intakeRequested = !!b.client_intake_token && !b.client_intake_submitted_at && !clientActivityAt;
       const clientSeenAt = (b as any).client_last_seen_at || "";
       const clientAt = clientActivityAt > clientSeenAt ? clientActivityAt : clientSeenAt;
       const designerAt = la.designer?.at || "";
@@ -184,10 +182,6 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         deadline: b.deadline,
         job_title: b.jobs?.title || null,
         job_number: b.jobs?.job_number || null,
-        intake_token: b.client_intake_token || null,
-        intake_requested: intakeRequested,
-        submitted_at: b.client_intake_submitted_at,
-        has_intake: !!b.client_intake_submitted_at,
         sent_to_designer_at: b.sent_to_designer_at,
         thumbs,
         thumb_total: files.length,

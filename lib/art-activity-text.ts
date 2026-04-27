@@ -4,8 +4,8 @@
 // surfaces show identical wording.
 //
 // The DB stores kinds as: reference, wip, first_draft, revision, final,
-// print_ready, client_intake. Per-kind ordinals are computed by the
-// caller (1-based, by upload order within a brief).
+// print_ready. Per-kind ordinals are computed by the caller (1-based,
+// by upload order within a brief).
 
 export type ActivityRole = "client" | "designer" | "hpd";
 export type ActivityType = "upload" | "note" | "message";
@@ -16,7 +16,6 @@ export type FileKind =
   | "revision"
   | "final"
   | "print_ready"
-  | "client_intake"
   | (string & {});
 
 export type ActivityEvent = {
@@ -64,7 +63,6 @@ export function formatFileLabel(kind: FileKind | null | undefined, ordinal?: num
   }
   if (k === "final") return "Final";
   if (k === "print_ready") return "Print File";
-  if (k === "client_intake") return "intake";
   return "a file";
 }
 
