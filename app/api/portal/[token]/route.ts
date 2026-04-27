@@ -268,6 +268,12 @@ export async function GET(
       cancelled: "Cancelled",
     };
 
+    // Quote visibility is gated on quote_sent_at — same rule as the
+    // /client/[token]/orders/[jobId] route. Until OpsHub emails the quote,
+    // the client portal hides the quote section and the approved badge.
+    const isQuoteSent = !!typeMeta.quote_sent_at;
+    const portalQuoteItems = isQuoteSent ? quoteItems : [];
+
     return NextResponse.json({
       project: {
         id: job.id,
@@ -276,16 +282,16 @@ export async function GET(
         phase: job.phase,
         phaseLabel: phaseLabels[job.phase] || job.phase,
         shipDate: job.target_ship_date,
-        quoteApproved: job.quote_approved,
-        quoteApprovedAt: job.quote_approved_at,
+        quoteApproved: isQuoteSent ? job.quote_approved : false,
+        quoteApprovedAt: isQuoteSent ? job.quote_approved_at : null,
         paymentTerms: job.payment_terms,
       },
       client: { name: clientName },
       quote: {
-        items: quoteItems,
-        subtotal: quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0),
-        tax: typeMeta.qb_tax_amount || 0,
-        total: typeMeta.qb_total_with_tax || quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0),
+        items: portalQuoteItems,
+        subtotal: portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0),
+        tax: isQuoteSent ? (typeMeta.qb_tax_amount || 0) : 0,
+        total: isQuoteSent ? (typeMeta.qb_total_with_tax || portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0)) : 0,
       },
       invoiceStale: (() => {
         // Only "stale" when OpsHub actually pushed an invoice to QB
