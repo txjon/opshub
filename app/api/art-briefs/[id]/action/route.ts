@@ -216,22 +216,75 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
       if (portalToken && process.env.RESEND_API_KEY) {
         try {
-          const { data: contacts } = await db
-            .from("contacts")
-            .select("email")
-            .eq("client_id", (brief as any).client_id)
-            .not("email", "is", null)
-            .limit(5);
-          const recipients = (contacts || []).map((c: any) => c.email).filter(Boolean);
+          const [contactsRes, filesRes] = await Promise.all([
+            db.from("contacts")
+              .select("email")
+              .eq("client_id", (brief as any).client_id)
+              .not("email", "is", null)
+              .limit(5),
+            db.from("art_brief_files")
+              .select("id, kind, drive_file_id, preview_drive_file_id, created_at, shared_with_client_at")
+              .eq("brief_id", brief.id),
+          ]);
+          const recipients = (contactsRes.data || []).map((c: any) => c.email).filter(Boolean);
           if (recipients.length > 0) {
             const title = brief.title || "your design";
             const portalUrl = `${appBaseUrl()}/portal/client/${portalToken}/designs?brief=${brief.id}`;
+
+            // Hero file for the email thumbnail. Same visibility rules as
+            // the client portal (no print_ready; WIPs only when shared).
+            // Preference order: revision > first_draft > shared WIP. PSDs
+            // need the rendered preview; everything else falls back to the
+            // raw drive_file_id.
+            const visibleDeliverables = (filesRes.data || []).filter((f: any) =>
+              f.kind !== "reference"
+              && f.kind !== "print_ready"
+              && !(f.kind === "wip" && !f.shared_with_client_at)
+            );
+            const byKind = (k: string) => visibleDeliverables
+              .filter((f: any) => f.kind === k)
+              .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0] || null;
+            const heroFile = byKind("revision") || byKind("first_draft") || byKind("wip") || null;
+            const hasDraft = !!visibleDeliverables.find((f: any) => f.kind === "first_draft" || f.kind === "revision");
+            const thumbId = heroFile?.preview_drive_file_id || heroFile?.drive_file_id || null;
+            const thumbUrl = thumbId ? `https://drive.google.com/thumbnail?id=${thumbId}&sz=w1600` : null;
+
+            const heading = hasDraft
+              ? `${title} — ready for your review`
+              : `${title} — your design team wants your input`;
+            const bodyHtml = hasDraft
+              ? `Your design team just shared a draft of <strong>${title}</strong>. Approve it below, or open the portal to leave feedback on the file.`
+              : `Your design team shared a work-in-progress on <strong>${title}</strong>. Open the portal to leave feedback directly on the file — comments go straight to the team.`;
+
+            // Inline thumbnail. Wraps the image in an <a> so a tap on the
+            // image lands in the same place as the CTA. Background sits
+            // behind the image so the email looks intentional in dark
+            // mode even before the image loads.
+            const extraHtml = thumbUrl
+              ? `<a href="${portalUrl}" style="display:block;margin:8px 0 16px;background:#f4f4f7;border-radius:10px;overflow:hidden;text-decoration:none;border:1px solid #e0e0e4;"><img src="${thumbUrl}" alt="${title}" style="width:100%;max-width:100%;height:auto;max-height:380px;object-fit:contain;display:block;background:#f4f4f7;" /></a>`
+              : "";
+
+            const cta = hasDraft
+              ? { label: "✓ Approve this design", url: `${portalUrl}&approve=1`, style: "green" as const }
+              : { label: "Open the portal →", url: portalUrl, style: "dark" as const };
+            const secondaryCta = hasDraft
+              ? { label: "Open & comment", url: portalUrl, style: "outline" as const }
+              : undefined;
+
+            const subject = hasDraft
+              ? `${title} — design ready for review`
+              : `${title} — feedback wanted`;
+
             const html = renderBrandedEmail({
-              heading: "Your design team has something to show you",
+              heading,
               greeting: `Hi ${clientName},`,
-              bodyHtml: `We just shared progress on <strong>${title}</strong>. Open the portal to see it and leave any feedback directly on the file.`,
-              cta: { label: "Open the portal →", url: portalUrl, style: "dark" },
-              hint: "Comments go straight to your design team. We'll loop back when there's a next version.",
+              bodyHtml,
+              extraHtml,
+              cta,
+              secondaryCta,
+              hint: hasDraft
+                ? "Approving sends the design to production prep. Need changes? Use comments instead — your design team picks them up."
+                : "Comments go straight to your design team. We'll loop back when there's a next version.",
               closing: "",
             });
             await fetch("https://api.resend.com/emails", {
@@ -240,7 +293,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
               body: JSON.stringify({
                 from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",
                 to: recipients,
-                subject: `${title} — design ready for review`,
+                subject,
                 html,
               }),
             });

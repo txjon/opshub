@@ -22,6 +22,9 @@ export default function DesignsPage() {
   const pathname = usePathname();
   const [filter, setFilter] = useState<"all" | "pending" | "working" | "done" | "unread">("all");
   const [openBrief, setOpenBrief] = useState<Brief | null>(null);
+  // True when the brief was opened from an "Approve" deep-link in an
+  // email — the modal will fire window.confirm on detail load.
+  const [autoApprove, setAutoApprove] = useState(false);
   const [showNew, setShowNew] = useState(false);
 
   // Expose a brief-opener to the context so toasts (fired from other tabs)
@@ -29,23 +32,29 @@ export default function DesignsPage() {
   useEffect(() => {
     const open = (briefId: string) => {
       const b = data?.briefs.find(x => x.id === briefId);
-      if (b) setOpenBrief(b);
+      if (b) {
+        setOpenBrief(b);
+        setAutoApprove(false);
+      }
     };
     registerBriefOpener(open);
     return () => registerBriefOpener(null);
   }, [data, registerBriefOpener]);
 
   // ?brief=<id> — auto-open on navigation (from Overview feed, toasts, etc.)
+  // ?approve=1 — also fire approve confirm once the modal's detail loads.
   useEffect(() => {
     const briefId = searchParams?.get("brief");
     if (!briefId || !data) return;
     const b = data.briefs.find(x => x.id === briefId);
     if (b) {
       setOpenBrief(b);
-      // Clear the query param so the browser URL is clean (doesn't re-open
-      // on refresh if the user closed the modal).
+      setAutoApprove(searchParams?.get("approve") === "1");
+      // Clear query params so the browser URL is clean (doesn't re-open
+      // / re-confirm on refresh if the user closed the modal).
       const params = new URLSearchParams(searchParams.toString());
       params.delete("brief");
+      params.delete("approve");
       const qs = params.toString();
       router.replace(qs ? `${pathname}?${qs}` : (pathname || ""));
     }
@@ -144,7 +153,8 @@ export default function DesignsPage() {
           token={data ? (searchParams?.get("_t") || "") : ""}
           brief={openBrief}
           meta={clientStateFor(openBrief)}
-          onClose={() => { setOpenBrief(null); refetch(); }}
+          autoApprove={autoApprove}
+          onClose={() => { setOpenBrief(null); setAutoApprove(false); refetch(); }}
         />
       )}
 
@@ -385,11 +395,12 @@ function pickClientHero(state: string, files: DetailFile[]): DetailFile | null {
   return [...files].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0] || null;
 }
 
-function BriefDetailModal({ token, brief, meta, onClose }: {
+function BriefDetailModal({ token, brief, meta, onClose, autoApprove }: {
   token: string;
   brief: Brief;
   meta: ReturnType<typeof clientStateFor>;
   onClose: () => void;
+  autoApprove?: boolean;
 }) {
   const { token: ctxToken } = useClientPortal();
   const tk = token || ctxToken;
@@ -399,6 +410,7 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
   const [heroId, setHeroId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoApproveTriggered = useRef(false);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -455,6 +467,27 @@ function BriefDetailModal({ token, brief, meta, onClose }: {
     if (!window.confirm("Abort this design request? It'll be removed from your view. HPD can still access it for 60 days in case anything needs to be repurposed.")) return;
     runAction("abort");
   }
+
+  // Email "Approve" deep-link → fire confirm once detail loads. Uses a
+  // ref so the prompt fires exactly once per modal open even if detail
+  // refetches via the 15s poll. State guard prevents firing on a stale
+  // link (e.g. designer pushed a new revision after the email landed).
+  useEffect(() => {
+    if (!autoApprove || autoApproveTriggered.current || !detail) return;
+    const liveState = detail.brief?.state;
+    const latestDraft = (detail.files || []).find(f =>
+      f.kind === "first_draft" || f.kind === "revision"
+    );
+    if (liveState !== "client_review" || !latestDraft) return;
+    autoApproveTriggered.current = true;
+    const t = setTimeout(() => {
+      if (window.confirm("Approve this design? This sends it to production prep. To request changes instead, cancel here and leave a comment on the file.")) {
+        runAction("approve");
+      }
+    }, 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoApprove, detail]);
 
   async function uploadFile(file: File) {
     setUploading(true);
