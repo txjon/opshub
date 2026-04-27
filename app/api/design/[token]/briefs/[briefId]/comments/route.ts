@@ -9,8 +9,9 @@ async function verifyAccess(token: string, briefId: string) {
   const db = admin();
   const { data: designer } = await db.from("designers").select("id, active").eq("portal_token", token).single();
   if (!designer || !designer.active) return null;
-  const { data: brief } = await db.from("art_briefs").select("id, assigned_designer_id").eq("id", briefId).single();
-  if (!brief || brief.assigned_designer_id !== designer.id) return null;
+  const { data: brief } = await db.from("art_briefs").select("id, assigned_designer_id, client_aborted_at").eq("id", briefId).single();
+  // Aborted/archived briefs are recalled from the designer side.
+  if (!brief || brief.assigned_designer_id !== designer.id || brief.client_aborted_at) return null;
   return { db, designer, brief };
 }
 
