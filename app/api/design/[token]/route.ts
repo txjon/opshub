@@ -150,6 +150,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       // designer's first action are part of the brief, not separate
       // events worth surfacing on the ribbon.
       let previewLine: string | null = null;
+      let unreadBody: string | null = null;
       if (hasUnreadExternal && latestExternalActivity) {
         if (b.state === "sent" && !designerAt) {
           previewLine = "New design request";
@@ -162,6 +163,13 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             ordinal: fileId ? ordinalsByFileId[fileId] || null : null,
             messageBody: (latestExternalActivity as any).messageBody || null,
           });
+        }
+        // Note + message activity carry actual body text — surface it for
+        // a second muted line on the tile.
+        if ((latestExternalActivity.type === "note" || latestExternalActivity.type === "message")
+            && (latestExternalActivity as any).messageBody) {
+          const trimmed = String((latestExternalActivity as any).messageBody).trim().replace(/\s+/g, " ");
+          unreadBody = trimmed.length > 120 ? trimmed.slice(0, 120).trimEnd() + "…" : trimmed;
         }
       }
 
@@ -181,6 +189,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         unread_type: hasUnreadExternal ? latestExternalActivity?.type || null : null,
         unread_kind: hasUnreadExternal ? latestExternalActivity?.kind || null : null,
         preview_line: previewLine,
+        unread_body: unreadBody,
       };
     });
 

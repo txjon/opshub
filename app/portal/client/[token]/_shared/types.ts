@@ -28,6 +28,7 @@ export type Brief = {
   has_latest_draft?: boolean;
   unread_kind?: string | null;
   preview_line?: string | null;
+  unread_body?: string | null;
 };
 
 export type OrdersSummary = {

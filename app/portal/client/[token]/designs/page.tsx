@@ -282,11 +282,23 @@ function BriefTile({ brief, meta, onOpen }: {
         <div style={{
           padding: "6px 14px", background: highlight, color: "#fff",
           fontSize: 11, fontWeight: 700, letterSpacing: "0.02em",
-          display: "flex", alignItems: "center", gap: 8,
+          display: "flex", alignItems: "flex-start", gap: 8,
         }}>
-          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", padding: "1px 5px", borderRadius: 2, background: C.purple, color: "#fff" }}>NEW</span>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {brief.preview_line || "New activity"}
+          <span style={{ flexShrink: 0, marginTop: 1, fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", padding: "1px 5px", borderRadius: 2, background: C.purple, color: "#fff" }}>NEW</span>
+          <span style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {brief.preview_line || "New activity"}
+            </span>
+            {brief.unread_body && (
+              <span style={{
+                fontSize: 11, fontWeight: 500, lineHeight: 1.35,
+                opacity: 0.92,
+                display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}>
+                {brief.unread_body}
+              </span>
+            )}
           </span>
         </div>
       )}

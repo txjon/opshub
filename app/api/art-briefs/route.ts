@@ -189,6 +189,17 @@ export async function GET(req: NextRequest) {
               messageBody: externalActivity.messageBody || null,
             })
           : null;
+        // Note + message activity carry actual body text — surface it for
+        // a second muted line on the tile so HPD can read the latest
+        // comment without opening the modal.
+        if (b.has_unread_external && externalActivity
+            && (externalActivity.type === "note" || externalActivity.type === "message")
+            && externalActivity.messageBody) {
+          const trimmed = String(externalActivity.messageBody).trim().replace(/\s+/g, " ");
+          b.unread_body = trimmed.length > 120 ? trimmed.slice(0, 120).trimEnd() + "…" : trimmed;
+        } else {
+          b.unread_body = null;
+        }
         b.last_activity_at = [clientAt, designerAt, hpdAt].filter(Boolean).sort().pop() || b.updated_at || b.created_at;
       });
     }

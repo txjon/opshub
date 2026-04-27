@@ -142,6 +142,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       // the designer + HPD see on the same brief ("HPD uploaded REF 3",
       // "Designer uploaded 2nd Draft", etc.).
       let previewLine: string | null = null;
+      let unreadBody: string | null = null;
       if (hasUnreadExternal && externalActivity) {
         const fileId = (externalActivity as any).fileId;
         previewLine = formatActivityText({
@@ -151,6 +152,13 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           ordinal: fileId ? ordinalsByFileId[fileId] || null : null,
           messageBody: (externalActivity as any).messageBody || null,
         });
+        // Note + message activity carry actual body text — surface it
+        // separately so the tile can render it as a second muted line.
+        // Uploads don't have bodies; activity preview is enough.
+        if ((externalActivity.type === "note" || externalActivity.type === "message") && (externalActivity as any).messageBody) {
+          const trimmed = String((externalActivity as any).messageBody).trim().replace(/\s+/g, " ");
+          unreadBody = trimmed.length > 120 ? trimmed.slice(0, 120).trimEnd() + "…" : trimmed;
+        }
       }
       // Sort timestamp — "latest activity by anyone", newest to top
       const latestAt = [clientAt, designerAt, hpdAt].filter(Boolean).sort().pop() || b.updated_at || b.created_at;
@@ -175,6 +183,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         has_latest_draft: hasLatestDraft,
         unread_kind: hasUnreadExternal ? externalActivity?.kind || null : null,
         preview_line: previewLine,
+        unread_body: unreadBody,
       };
     });
 
