@@ -156,7 +156,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
     }, 500);
   }, [project?.id]);
 
-  const HPD_WAREHOUSE = "House Party Distro\n4670 W Silverado Ranch Blvd. STE 120\nLas Vegas, NV 89118";
+  const HPD_WAREHOUSE = "House Party Distro\n4670 W Silverado Ranch Blvd. STE 120\nLas Vegas, NV 89139";
   const clientAddress = project?.type_meta?.venue_address || "";
   const shippingRoute = project?.shipping_route || "ship_through";
   const defaultShipTo = shippingRoute === "drop_ship" ? clientAddress : HPD_WAREHOUSE;

@@ -170,7 +170,7 @@ function renderRFQHTML(data: any): string {
     <div>
       ${HPD_LOGO_SVG}
       <div style="font-size:11px;color:#666;line-height:1.7;margin-top:8px">
-        4670 W Silverado Ranch Blvd, STE 120 · Las Vegas, NV 89118<br/>hello@housepartydistro.com
+        4670 W Silverado Ranch Blvd, STE 120 · Las Vegas, NV 89139<br/>hello@housepartydistro.com
       </div>
     </div>
     <div style="text-align:right">
@@ -187,7 +187,7 @@ function renderRFQHTML(data: any): string {
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;font-size:10px">
     <div>
       <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">From</div>
-      <div style="line-height:1.7">House Party Distro<br/>hello@housepartydistro.com<br/>4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89118</div>
+      <div style="line-height:1.7">House Party Distro<br/>hello@housepartydistro.com<br/>4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89139</div>
     </div>
     <div>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
@@ -309,7 +309,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // they'll later receive on the actual purchase order. For drop-ship jobs
     // that's the client's venue; for ship-through/stage it's HPD's warehouse.
     // If a per-vendor override has already been entered on the PO tab, use that.
-    const HPD_WAREHOUSE = "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89118";
+    const HPD_WAREHOUSE = "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89139";
     const route = (job as any).shipping_route || "ship_through";
     const perVendorShipTo = (job.type_meta as any)?.po_ship_to?.[vendorName];
     const shipToAddress = perVendorShipTo
