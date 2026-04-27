@@ -336,6 +336,14 @@ export default function ProductionPage() {
     const diff = Math.ceil((new Date(it.target_ship_date).getTime() - now.getTime()) / 86400000);
     return diff >= 0 && diff <= 7;
   }).length;
+  // Production-pipeline KPIs ported from the old Command Center. These
+  // belong here per "vanity counts live on their domain page."
+  const needsBlanks = allItems.filter((it: any) =>
+    !it.blanks_order_number && it.garment_type !== "accessory"
+  ).length;
+  const shippedEnRoute = allItems.filter((it: any) =>
+    it.pipeline_stage === "shipped" && !it.received_at_hpd
+  ).length;
   const decorators = useMemo(() => [...new Set(allItems.map(it => it.decorator_name).filter(Boolean))].sort(), [projects]);
 
   // ── Filter & split active vs completed ──
@@ -405,16 +413,31 @@ export default function ProductionPage() {
         <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>{allItems.length} items across {projects.length} projects</div>
       </div>
 
-      {/* Stats */}
-      <div style={{ display: "flex", gap: 8 }}>
+      {/* Stats — production-pipeline KPI strip. Same tile style as the
+          Projects page strip (number left, label right) for consistency
+          across domain pages. */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+        gap: 10,
+      }}>
         {[
-          { label: "At decorator", count: atDecorator, color: T.accent },
-          { label: "Stalled 7+ days", count: stalled, color: stalled > 0 ? T.red : T.faint },
-          { label: "Shipping this week", count: shippingThisWeek, color: T.accent },
+          { label: "Needs blanks",       count: needsBlanks,      tone: needsBlanks > 0 ? T.amber : T.muted },
+          { label: "At decorator",       count: atDecorator,      tone: T.text },
+          { label: "Stalled 7+ days",    count: stalled,          tone: stalled > 0 ? T.red : T.muted },
+          { label: "Shipping this week", count: shippingThisWeek, tone: T.blue },
+          { label: "Shipped en route",   count: shippedEnRoute,   tone: T.purple },
         ].map(s => (
-          <div key={s.label} style={{ flex: 1, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px" }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: s.count > 0 ? s.color : T.faint, fontFamily: mono }}>{s.count}</div>
-            <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{s.label}</div>
+          <div key={s.label} style={{
+            background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
+            padding: "10px 14px", display: "flex", alignItems: "center", gap: 10,
+          }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.count > 0 ? s.tone : T.faint, lineHeight: 1, fontFamily: mono }}>
+              {s.count}
+            </div>
+            <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+              {s.label}
+            </div>
           </div>
         ))}
       </div>
