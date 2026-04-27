@@ -43,6 +43,16 @@ export async function GET(req: NextRequest) {
       // hpdAt, so unread ribbons clear once HPD has glanced at the brief.
       supabase.from("art_briefs").update({ hpd_last_seen_at: new Date().toISOString() }).eq("id", id).then(() => {});
       if (briefRes.error) return NextResponse.json({ error: briefRes.error.message }, { status: 404 });
+      // Client contacts — needed by the HPD modal so it can show a
+      // confirm dialog listing email recipients before forward_to_client
+      // / send_to_client fires the actual email.
+      const clientId = (briefRes.data as any)?.client_id || null;
+      const { data: clientContacts } = clientId
+        ? await supabase.from("contacts")
+            .select("id, name, email, role_label")
+            .eq("client_id", clientId)
+            .not("email", "is", null)
+        : { data: [] as any[] };
       // Per-kind 1-based ordinal so the file badge can render "REF 3" /
       // "2nd Draft" instead of just "REF" / "REV".
       const ordinals = computeFileOrdinals(filesRes.data || []);
@@ -66,6 +76,7 @@ export async function GET(req: NextRequest) {
         brief: briefRes.data,
         files: filesWithOrd,
         messages: msgsRes.data || [],
+        client_contacts: clientContacts || [],
       });
     }
 

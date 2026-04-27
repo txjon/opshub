@@ -788,6 +788,10 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   const [sending, setSending] = useState(false);
   const [assignedDesignerId, setAssignedDesignerId] = useState<string | null>((brief as any).assigned_designer_id || null);
   const [sentAt, setSentAt] = useState<string | null>((brief as any).sent_to_designer_at || null);
+  // Client contacts loaded with the brief — fed into the forward-confirm
+  // dialog so HPD can verify recipients before /action fires the email.
+  const [clientContacts, setClientContacts] = useState<Array<{ id: string; name: string | null; email: string; role_label: string | null }>>([]);
+  const [pendingForwardAction, setPendingForwardAction] = useState<PrimaryActionKind | null>(null);
 
   // Derived: references subset (for annotation UI + uploads)
   const references = useMemo(() => allFiles.filter(f => f.kind === "reference"), [allFiles]);
@@ -817,6 +821,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
           setSentAt(data.brief.sent_to_designer_at || null);
         }
         setAllFiles(data.files || []);
+        setClientContacts(data.client_contacts || []);
       });
     };
     loadBrief();
@@ -831,8 +836,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   const finals = useMemo(() => allFiles.filter(f => f.kind === "final").sort((a, b) => (b.version || 0) - (a.version || 0)), [allFiles]);
   const wips = useMemo(() => allFiles.filter(f => f.kind === "wip").sort((a, b) => (b.version || 0) - (a.version || 0)), [allFiles]);
 
-  async function runPrimaryAction(action: PrimaryActionKind) {
-    if (action === "open") return;
+  async function executeAction(action: PrimaryActionKind) {
     setActionPending(action);
     try {
       const res = await fetch(`/api/art-briefs/${brief.id}/action`, {
@@ -852,6 +856,24 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     } finally {
       setActionPending(null);
     }
+  }
+
+  async function runPrimaryAction(action: PrimaryActionKind) {
+    if (action === "open") return;
+    // Forwarding to client also fires a Resend email to the client's
+    // contacts. Confirm recipients first instead of auto-sending.
+    if (action === "forward_to_client" || action === "send_to_client") {
+      setPendingForwardAction(action);
+      return;
+    }
+    await executeAction(action);
+  }
+
+  async function confirmForward() {
+    const action = pendingForwardAction;
+    if (!action) return;
+    setPendingForwardAction(null);
+    await executeAction(action);
   }
 
   async function promoteFinalToPrintReady(fileId: string) {
@@ -1299,6 +1321,45 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
               </div>
             )}
             <button onClick={() => setShowSendModal(false)} style={{ marginTop: 14, width: "100%", padding: "8px", background: "transparent", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 6, fontSize: 12, cursor: "pointer", fontFamily: font }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {pendingForwardAction && (
+        <div onClick={(e) => { if (e.target === e.currentTarget && !actionPending) setPendingForwardAction(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: font }}>
+          <div style={{ background: T.card, padding: 24, borderRadius: 12, width: "min(460px, 100%)", boxShadow: "0 10px 40px rgba(0,0,0,0.4)", border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 6 }}>Forward to client?</div>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
+              The brief will move to <strong>client review</strong> and an email with a portal link will go to the contacts below.
+            </div>
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, marginBottom: 16, maxHeight: 200, overflowY: "auto" }}>
+              {clientContacts.length === 0 ? (
+                <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>
+                  No client contacts with emails on file. The brief will move to client review but no email will be sent.
+                </div>
+              ) : (
+                clientContacts.map(c => (
+                  <div key={c.id} style={{ fontSize: 12, color: T.text, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", gap: 12 }}>
+                    <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {c.name || "—"}
+                      {c.role_label && <span style={{ fontWeight: 400, color: T.muted, marginLeft: 6 }}>· {c.role_label}</span>}
+                    </span>
+                    <span style={{ color: T.muted, fontSize: 11, fontFamily: mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email}</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setPendingForwardAction(null)} disabled={!!actionPending}
+                style={{ padding: "8px 14px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: actionPending ? "wait" : "pointer", fontFamily: font }}>
+                Cancel
+              </button>
+              <button onClick={confirmForward} disabled={!!actionPending}
+                style={{ padding: "8px 16px", background: T.text, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: font }}>
+                {actionPending ? "Sending…" : clientContacts.length === 0 ? "Forward (no email)" : "Forward & email"}
+              </button>
+            </div>
           </div>
         </div>
       )}
