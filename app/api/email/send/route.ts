@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const resend = new Resend(process.env.RESEND_API_KEY);
-    const { type, jobId, vendor, recipientEmail, ccEmails, recipientName, subject, customBody } = await req.json();
+    const { type, jobId, vendor, recipientEmail, ccEmails, recipientName, subject, customBody, rfqItemIds } = await req.json();
 
     if (!recipientEmail || !type) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -61,6 +61,12 @@ export async function POST(req: NextRequest) {
       const clientName = (jobData as any)?.clients?.name || "";
       defaultSubject = subject || `Invoice — ${clientName}${qbInvNum ? ` · Invoice ${qbInvNum}` : ""} · ${projectTitle}`.trim();
       filename = `invoice-${qbInvNum || jobId.slice(0, 8)}.pdf`;
+    } else if (type === "rfq") {
+      const itemsQs = Array.isArray(rfqItemIds) && rfqItemIds.length > 0 ? `&items=${encodeURIComponent(rfqItemIds.join(","))}` : "";
+      pdfUrl = `${baseUrl}/api/pdf/rfq/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}${itemsQs}`;
+      fromAddress = process.env.EMAIL_FROM_PO || "onboarding@resend.dev";
+      defaultSubject = subject || `Quote request — ${jobNum || ""} — ${projectTitle || ""}`.trim();
+      filename = `rfq-${jobNum || jobId.slice(0, 8)}.pdf`;
     } else {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }
@@ -101,13 +107,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const portalUrl = type !== "po" ? await getPortalUrl(jobId) : null;
+    const portalUrl = type !== "po" && type !== "rfq" ? await getPortalUrl(jobId) : null;
     const vendorPortalUrl = type === "po" && vendor ? await getVendorPortalUrl(vendor) : null;
 
     // Reply-to with plus-addressing for Gmail poller matching
     let replyTo: string | undefined;
     if (type === "po" && jobId) {
       replyTo = `production+po.${jobId}@housepartydistro.com`;
+    } else if (type === "rfq" && jobId) {
+      replyTo = `production+rfq.${jobId}@housepartydistro.com`;
     } else if (jobId) {
       replyTo = `hello+c.${jobId}@housepartydistro.com`;
     }
@@ -137,6 +145,14 @@ export async function POST(req: NextRequest) {
             cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
             secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
           })
+        : type === "rfq"
+        ? renderBrandedEmail({
+            heading: `Quote request — ${jobNum || ""}`.trim(),
+            greeting: `Hi ${vendor || "there"},`,
+            bodyHtml: `We're working on a project for <strong>${(jobData as any)?.clients?.name || "a client"}</strong> and would love a quote from you. The attached PDF lays out each item with the decoration spec — please reply with your pricing, any setup fees, and expected lead time.`,
+            hint: `Reach out if anything in the spec is unclear or if you need additional artwork — we'll send through whatever you need.`,
+            closing: "Thanks,\nHouse Party Distro",
+          })
         : renderBrandedEmail({
             heading: `Purchase order${qbInvNum ? ` ${qbInvNum}` : ""}`,
             greeting: `Hi ${vendor || "there"},`,
@@ -160,16 +176,16 @@ export async function POST(req: NextRequest) {
     // Save to email_messages for thread view (fire-and-forget)
     try {
       const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-      // Look up decorator ID for PO emails
+      // Look up decorator ID for PO/RFQ emails
       let emailDecId = null;
-      if (type === "po" && vendor) {
+      if ((type === "po" || type === "rfq") && vendor) {
         const { data: dec2 } = await adminClient.from("decorators").select("id").or(`name.eq.${vendor},short_code.eq.${vendor}`).single();
         emailDecId = dec2?.id || null;
       }
       await adminClient.from("email_messages").insert({
         job_id: jobId,
         direction: "outbound",
-        channel: type === "po" ? "production" : "client",
+        channel: (type === "po" || type === "rfq") ? "production" : "client",
         decorator_id: emailDecId,
         from_email: fromAddress,
         from_name: "House Party Distro",
@@ -178,6 +194,8 @@ export async function POST(req: NextRequest) {
         subject: defaultSubject,
         body_text: type === "po"
           ? `Purchase order attached (${filename})\n\nPlease find the attached purchase order. Let us know if you have any questions or need clarification on any items.`
+          : type === "rfq"
+          ? `Quote request attached (${filename})\n\nWe'd love a quote on the attached items — please reply with pricing, setup fees, and lead time.`
           : type === "quote"
           ? `Quote attached (${filename})\n\nHere's your quote — take a look and let us know if you have any questions or want to make changes.`
           : type === "invoice"
@@ -193,11 +211,27 @@ export async function POST(req: NextRequest) {
         if (type === "quote") updateData.quote_rejection_notes = null;
         await adminClient.from("jobs").update(updateData).eq("id", jobId);
       }
+      // RFQ history — append to type_meta.rfq_history so the Costing tab
+      // can show "RFQ sent to X · Y days ago" badges next to affected items.
+      if (type === "rfq" && vendor) {
+        const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
+        const prevHistory = ((jd?.type_meta as any)?.rfq_history || []) as any[];
+        const entry = {
+          vendor,
+          item_ids: Array.isArray(rfqItemIds) ? rfqItemIds : [],
+          recipient: recipientEmail,
+          cc: ccEmails || [],
+          sent_at: new Date().toISOString(),
+        };
+        const newMeta = { ...(jd?.type_meta || {}), rfq_history: [...prevHistory, entry] };
+        await adminClient.from("jobs").update({ type_meta: newMeta }).eq("id", jobId);
+      }
       // Log activity server-side — works from dashboard, quote tab, anywhere
       const activityMsg =
         type === "quote" ? `Quote sent to client (${recipientEmail})`
         : type === "invoice" ? `Invoice sent to client (${recipientEmail})`
         : type === "po" ? `PO sent to ${vendor || "decorator"} (${recipientEmail})`
+        : type === "rfq" ? `Quote request sent to ${vendor || "decorator"} (${recipientEmail}${Array.isArray(rfqItemIds) && rfqItemIds.length ? ` · ${rfqItemIds.length} item${rfqItemIds.length !== 1 ? "s" : ""}` : ""})`
         : `Email sent (${type})`;
       await adminClient.from("job_activity").insert({
         job_id: jobId, user_id: null, type: "auto", message: activityMsg,

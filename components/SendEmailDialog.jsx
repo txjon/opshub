@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { T, font } from "@/lib/theme";
 
-export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, onSent, type, jobId, vendor, contacts, customBody }) {
+export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, onSent, type, jobId, vendor, contacts, customBody, extraPayload }) {
   // contacts: [{name, email}] — optional, for multi-recipient (PO to decorator)
   const hasContacts = contacts && contacts.length > 0;
   const [selected, setSelected] = useState(() => {
@@ -44,6 +44,7 @@ export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, onSent,
           recipientName: "",
           subject: subject.trim(),
           customBody: customBody || undefined,
+          ...(extraPayload || {}),
         }),
       });
       const data = await res.json();
@@ -77,7 +78,7 @@ export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, onSent,
   return (
     <div style={{ padding:"12px 14px", background:T.card, border:`1px solid ${T.border}`, borderRadius:8, display:"flex", flexDirection:"column", gap:8 }}>
       <div style={{ fontSize:11, fontWeight:700, color:T.muted, fontFamily:font, textTransform:"uppercase", letterSpacing:"0.06em" }}>
-        Send {type === "quote" ? "Quote" : type === "invoice" ? "Invoice" : type === "po" ? "Purchase Order" : "Email"} via Email
+        Send {type === "quote" ? "Quote" : type === "invoice" ? "Invoice" : type === "po" ? "Purchase Order" : type === "rfq" ? "Quote Request" : "Email"} via Email
       </div>
 
       {hasContacts ? (

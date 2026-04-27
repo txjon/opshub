@@ -145,9 +145,56 @@ const CToggle=({label,value,onChange})=>(
   </div>
 );
 
-const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onUpdateProject})=>{
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onUpdateProject})=>{
   const [costTab,setCostTab]=useState(initialTab||"calc");
   const [showSendEmail,setShowSendEmail]=useState(false);
+  const [showRfqPicker,setShowRfqPicker]=useState(false); // step 1: pick vendor + items
+  const [showRfqSend,setShowRfqSend]=useState(false);     // step 2: SendEmailDialog
+  const [rfqVendor,setRfqVendor]=useState("");
+  const [rfqSelected,setRfqSelected]=useState({});         // { itemId: bool }
+  const rfqHistory = project?.type_meta?.rfq_history || [];
+  const getDecRecord = (vendorKey) => decoratorRecords.find(d => d.short_code === vendorKey || d.name === vendorKey);
+  // Latest RFQ entry referencing this item (or empty array if none).
+  const latestRfqForItem = (itemId) => {
+    let latest = null;
+    for (const e of rfqHistory) {
+      if (Array.isArray(e.item_ids) && e.item_ids.includes(itemId)) {
+        if (!latest || new Date(e.sent_at) > new Date(latest.sent_at)) latest = e;
+      }
+    }
+    return latest;
+  };
+  const fmtAgo = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    const ms = Date.now() - d.getTime();
+    const days = Math.floor(ms / 86400000);
+    if (days === 0) return "today";
+    if (days === 1) return "1d ago";
+    if (days < 30) return `${days}d ago`;
+    const months = Math.floor(days / 30);
+    return `${months}mo ago`;
+  };
+  const RfqBadge = ({ itemId }) => {
+    const e = latestRfqForItem(itemId);
+    if (!e) return null;
+    return (
+      <span title={`Quote requested from ${e.vendor} on ${new Date(e.sent_at).toLocaleString()}`}
+        style={{fontSize:9,fontWeight:600,padding:"2px 6px",borderRadius:99,background:T.amberDim,color:T.amber,fontFamily:font,whiteSpace:"nowrap"}}>
+        RFQ → {e.vendor} · {fmtAgo(e.sent_at)}
+      </span>
+    );
+  };
+  // Pre-check items whose costing-vendor matches the picked decorator.
+  // Re-runs every time the user picks a different vendor in the modal.
+  React.useEffect(() => {
+    if (!rfqVendor) { setRfqSelected({}); return; }
+    const next = {};
+    (costProds || []).forEach(p => {
+      if ((p.totalQty || 0) > 0 && p.printVendor === rfqVendor) next[p.id] = true;
+    });
+    setRfqSelected(next);
+  }, [rfqVendor]);
   const [collapsed,setCollapsed]=useState(()=>{ const c={}; (costProds||[]).forEach(p=>{ c[p.id]=true; }); return c; });
   const [localCosts,setLocalCosts]=useState({});
   const getCostDisplay=(pid,sz,val)=>{ const k=pid+"_"+sz; return localCosts[k]!==undefined?localCosts[k]:val>0?String(val):""; };
@@ -205,6 +252,11 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             </button>
           ))}
         </div>
+        <button onClick={()=>{ setRfqVendor(""); setRfqSelected({}); setShowRfqPicker(true); }}
+          style={{marginLeft:"auto",background:"transparent",border:`1px solid ${T.accent}`,borderRadius:6,color:T.accent,fontFamily:font,fontSize:12,fontWeight:600,padding:"6px 14px",cursor:"pointer"}}
+          title="Send a quote request to a decorator for selected items">
+          Request Pricing
+        </button>
       </div>
       )}
 
@@ -258,9 +310,10 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                     {/* Header: Letter + Name + Qty + Sell $/unit override */}
                     <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
                       <span style={{width:24,height:24,borderRadius:5,background:T.purpleDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.purple,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
-                      <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8}}>
+                      <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
                         <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||"Accessory"}</span>
                         <span style={{fontSize:10,color:T.purple,fontWeight:600}}>Accessory</span>
+                        <RfqBadge itemId={p.id} />
                       </div>
                       <div style={{display:"flex",gap:0,alignItems:"center"}}>
                         <div style={{textAlign:"right",width:70,flexShrink:0,marginRight:16}}>
@@ -409,9 +462,10 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
                   <div onClick={()=>toggleCollapse(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
                     <span style={{width:24,height:24,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
-                    <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8}}>
+                    <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
                       <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||("Product "+(i+1))}</span>
                       {(p.style||p.color)&&<span style={{fontSize:11,color:T.muted,fontFamily:font}}>{p.style}{p.color?` · ${p.color}`:""}</span>}
+                      <RfqBadge itemId={p.id} />
                     </div>
                     <div style={{display:"flex",gap:0,alignItems:"center"}}>
                       <div style={{textAlign:"right",width:70,flexShrink:0,marginRight:16}}>
@@ -859,6 +913,152 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 
       {/* PO */}
 
+      {/* RFQ — step 1: pick decorator + items */}
+      {showRfqPicker && (() => {
+        const eligible = (costProds || []).filter(p => (p.totalQty || 0) > 0);
+        const selectedIds = Object.keys(rfqSelected).filter(id => rfqSelected[id]);
+        const selectedCount = selectedIds.length;
+        const canContinue = !!rfqVendor && selectedCount > 0;
+        const dec = getDecRecord(rfqVendor);
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowRfqPicker(false)}>
+            <div style={{background:T.card,borderRadius:12,width:"95vw",maxWidth:680,maxHeight:"90vh",overflow:"auto",padding:0}} onClick={e=>e.stopPropagation()}>
+              {/* Header */}
+              <div style={{padding:"16px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{fontSize:15,fontWeight:700,color:T.text,fontFamily:font}}>Request Pricing</div>
+                  <div style={{fontSize:11,color:T.muted,marginTop:2}}>Send a quote request to a decorator for the selected items</div>
+                </div>
+                <button onClick={()=>setShowRfqPicker(false)} style={{background:"none",border:"none",color:T.faint,fontSize:18,cursor:"pointer",padding:"0 4px"}}>×</button>
+              </div>
+
+              {/* Body */}
+              <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
+                {/* Decorator */}
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Decorator</div>
+                  <select value={rfqVendor} onChange={e=>setRfqVendor(e.target.value)}
+                    style={{width:"100%",background:T.surface,border:`1px solid ${rfqVendor?T.accent+"66":T.border}`,borderRadius:6,color:rfqVendor?T.text:T.muted,fontFamily:font,fontSize:13,padding:"8px 10px",outline:"none",cursor:"pointer"}}>
+                    <option value="">— select decorator —</option>
+                    {decoratorRecords.map(d => (
+                      <option key={d.id} value={d.short_code || d.name}>{d.name}{d.short_code ? ` (${d.short_code})` : ""}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Items */}
+                <div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5}}>
+                    <div style={{fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Items</div>
+                    {eligible.length > 0 && (
+                      <div style={{display:"flex",gap:8}}>
+                        <button onClick={()=>{ const all={}; eligible.forEach(p=>{all[p.id]=true;}); setRfqSelected(all); }}
+                          style={{fontSize:10,color:T.accent,background:"none",border:"none",cursor:"pointer",fontFamily:font}}>Select all</button>
+                        <button onClick={()=>setRfqSelected({})}
+                          style={{fontSize:10,color:T.faint,background:"none",border:"none",cursor:"pointer",fontFamily:font}}>Clear</button>
+                      </div>
+                    )}
+                  </div>
+                  {eligible.length === 0 ? (
+                    <div style={{padding:"12px",fontSize:11,color:T.faint,textAlign:"center",border:`1px dashed ${T.border}`,borderRadius:6}}>
+                      No items with quantities yet — add items in the Buy Sheet first.
+                    </div>
+                  ) : (
+                    <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:280,overflow:"auto"}}>
+                      {eligible.map((p,idx) => {
+                        const checked = !!rfqSelected[p.id];
+                        const itemVendor = p.printVendor || "";
+                        const matchesVendor = rfqVendor && itemVendor === rfqVendor;
+                        return (
+                          <label key={p.id}
+                            style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",background:checked?T.accentDim:T.surface,border:`1px solid ${checked?T.accent+"66":T.border}`,borderRadius:6,cursor:"pointer"}}>
+                            <input type="checkbox" checked={checked}
+                              onChange={e=>setRfqSelected(prev=>({...prev,[p.id]:e.target.checked}))}
+                              style={{accentColor:T.accent,flexShrink:0}} />
+                            <span style={{width:22,height:22,borderRadius:4,background:T.purpleDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:T.purple,fontFamily:mono,flexShrink:0}}>
+                              {String.fromCharCode(65+idx)}
+                            </span>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,fontWeight:600,color:T.text}}>{p.name || "—"}</div>
+                              <div style={{fontSize:10,color:T.muted}}>
+                                {(p.totalQty || 0).toLocaleString()} units
+                                {p.style ? ` · ${p.style}` : ""}
+                                {p.color ? ` · ${p.color}` : ""}
+                              </div>
+                            </div>
+                            <div style={{fontSize:10,color:matchesVendor?T.green:itemVendor?T.muted:T.faint,fontFamily:mono,flexShrink:0}}>
+                              {itemVendor || "no vendor"}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Decorator preview info */}
+                {rfqVendor && dec && (
+                  <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,padding:"8px 10px",fontSize:11,color:T.muted}}>
+                    Will send to: <span style={{color:T.text,fontWeight:600}}>{dec.name}</span>
+                    {(dec.contacts_list?.length > 0)
+                      ? ` · ${dec.contacts_list.filter(c=>c.email).length} contact${dec.contacts_list.filter(c=>c.email).length !== 1 ? "s" : ""}`
+                      : dec.contact_email ? ` · ${dec.contact_email}` : " · no contacts on file"}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div style={{padding:"12px 20px",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{fontSize:11,color:T.muted}}>
+                  {selectedCount} item{selectedCount !== 1 ? "s" : ""} selected
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>setShowRfqPicker(false)}
+                    style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,padding:"7px 14px",fontSize:12,fontFamily:font,cursor:"pointer"}}>
+                    Cancel
+                  </button>
+                  <button disabled={!canContinue} onClick={()=>{ setShowRfqPicker(false); setShowRfqSend(true); }}
+                    style={{background:canContinue?T.accent:T.surface,border:"none",borderRadius:6,color:canContinue?"#fff":T.faint,padding:"7px 16px",fontSize:12,fontFamily:font,fontWeight:700,cursor:canContinue?"pointer":"default",opacity:canContinue?1:0.6}}>
+                    Continue →
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* RFQ — step 2: send dialog */}
+      {showRfqSend && rfqVendor && (() => {
+        const dec = getDecRecord(rfqVendor);
+        const selectedIds = Object.keys(rfqSelected).filter(id => rfqSelected[id]);
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowRfqSend(false)}>
+            <div style={{background:T.card,borderRadius:12,width:"95vw",maxWidth:600,maxHeight:"90vh",overflow:"auto",padding:0}} onClick={e=>e.stopPropagation()}>
+              <SendEmailDialog
+                type="rfq"
+                jobId={project.id}
+                vendor={rfqVendor}
+                contacts={dec?.contacts_list || []}
+                defaultEmail={dec?.contact_email || ""}
+                defaultSubject={`Quote request — ${project.job_number || ""} — ${project.clients?.name || project.title || ""}`.trim()}
+                extraPayload={{ rfqItemIds: selectedIds }}
+                onClose={()=>setShowRfqSend(false)}
+                onSent={()=>{
+                  // type_meta.rfq_history is updated server-side in /api/email/send.
+                  // Refresh local project state via onUpdateProject if a callback exists,
+                  // so the inline "RFQ sent" badge appears without a page reload.
+                  if (onUpdateProject) {
+                    const newEntry = { vendor: rfqVendor, item_ids: selectedIds, sent_at: new Date().toISOString() };
+                    onUpdateProject({ type_meta: { ...(project?.type_meta || {}), rfq_history: [...rfqHistory, newEntry] } });
+                  }
+                }}
+              />
+            </div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 };
@@ -868,21 +1068,25 @@ export { CostingTab };
 
 export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false, selectedItemId, onUpdateProject }) {
   const [pricingReady, setPricingReady] = useState(false);
+  const [decoratorRecords, setDecoratorRecords] = useState([]);
   const vendorIdMapRef = React.useRef({});
   const lastBuyItemsRef = React.useRef("");
 
-  // Load decorator pricing + IDs from DB on mount
+  // Load decorator pricing + IDs from DB on mount.
+  // Also keep the full records around (with contacts_list) so the
+  // RFQ modal can populate vendor + contact dropdowns without re-fetching.
   useEffect(() => {
     async function loadPricing() {
       try {
         const { createClient } = await import("@/lib/supabase/client");
         const supabase = createClient();
-        const { data } = await supabase.from("decorators").select("id, name, short_code, pricing_data").order("name");
+        const { data } = await supabase.from("decorators").select("id, name, short_code, pricing_data, contacts_list, contact_email").order("name");
         if (data) {
           loadPricingFromDecorators(data);
           const idMap = {};
           data.forEach(d => { idMap[d.short_code || d.name] = d.id; });
           vendorIdMapRef.current = idMap;
+          setDecoratorRecords(data);
         }
       } catch(e) { console.error("Failed to load decorator pricing", e); }
       setPricingReady(true);
@@ -1224,6 +1428,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       inclShip={inclShip} setInclShip={setInclShip}
       inclCC={inclCC} setInclCC={setInclCC}
       orderInfo={orderInfo} setOrderInfo={setOrderInfo}
+      decoratorRecords={decoratorRecords}
       costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs} selectedItemId={selectedItemId} onUpdateProject={onUpdateProject}
     />
   );
