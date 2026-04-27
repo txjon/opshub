@@ -290,29 +290,32 @@ function BriefTile({ brief, meta, onOpen }: {
           </span>
         </div>
       )}
-      {/* Mosaic with optional 30% darken overlay when unread. Status dot
-          removed — the ribbon above carries the unread signal, and the
-          state pill on the parent list shows broader status.
-          Action strip overlays the bottom of the image when a move is
-          owed — persists past "open" until the action is taken. */}
+      {/* Mosaic with optional 30% darken overlay when unread.
+          Centered banner card always shows whatever the client's
+          next-step is for this state — bold + amber for action,
+          softer for info/done so the client can scan status at a
+          glance without it shouting on every tile. */}
       <div style={{ aspectRatio: "1", position: "relative", overflow: "hidden" }}>
         <TileMosaic thumbs={brief.thumbs || []} total={brief.thumb_total ?? (brief.thumbs?.length || 0)} />
         {brief.has_unread_external && (
           <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.30)", pointerEvents: "none", zIndex: 1 }} />
         )}
-        {actionPending && next && (
+        {next && (
           <div style={{
             position: "absolute", inset: 0,
             display: "flex", alignItems: "center", justifyContent: "center",
             padding: 14, zIndex: 2, pointerEvents: "none",
           }}>
             <div style={{
-              background: "rgba(20,20,28,0.92)", color: "#fff",
-              padding: "10px 14px", borderRadius: 8,
-              fontSize: 12, fontWeight: 700, lineHeight: 1.4,
-              textAlign: "center",
-              border: `2px solid ${C.amber}`,
-              boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+              background: actionPending ? "rgba(20,20,28,0.92)" : "rgba(20,20,28,0.72)",
+              color: "#fff",
+              padding: actionPending ? "10px 14px" : "8px 12px",
+              borderRadius: 8,
+              fontSize: actionPending ? 12 : 11,
+              fontWeight: 700, lineHeight: 1.4, textAlign: "center",
+              border: actionPending ? `2px solid ${C.amber}` :
+                next.tone === "done" ? `1px solid ${C.green}` : "1px solid rgba(255,255,255,0.18)",
+              boxShadow: actionPending ? "0 4px 16px rgba(0,0,0,0.3)" : "0 2px 8px rgba(0,0,0,0.2)",
               maxWidth: "100%",
             }}>
               {next.text}
