@@ -146,13 +146,20 @@ export async function POST(req: NextRequest) {
             secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
           })
         : type === "rfq"
-        ? renderBrandedEmail({
-            heading: `Quote request — ${jobNum || ""}`.trim(),
-            greeting: `Hi ${vendor || "there"},`,
-            bodyHtml: `We're working on a project for <strong>${(jobData as any)?.clients?.name || "a client"}</strong> and would love a quote from you. The attached PDF lays out each item with the decoration spec — please reply with your pricing, any setup fees, and expected lead time.`,
-            hint: `Reach out if anything in the spec is unclear or if you need additional artwork — we'll send through whatever you need.`,
-            closing: "Thanks,\nHouse Party Distro",
-          })
+        ? (() => {
+            const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            const customExtra = customBody && customBody.trim()
+              ? `<div style="margin:16px 0;padding:14px 16px;background:#f7f7f7;border-left:3px solid #222;border-radius:4px;font-size:14px;color:#333;line-height:1.55;">${escapeHtml(customBody.trim()).replace(/\n/g, "<br/>")}</div>`
+              : "";
+            return renderBrandedEmail({
+              heading: `Quote request — ${jobNum || ""}`.trim(),
+              greeting: `Hi ${vendor || "there"},`,
+              bodyHtml: `We're working on a project for <strong>${(jobData as any)?.clients?.name || "a client"}</strong> and would love a quote from you. The attached PDF lays out each item with the decoration spec — please reply with your pricing, any setup fees, and expected lead time.`,
+              extraHtml: customExtra,
+              hint: `Reach out if anything in the spec is unclear or if you need additional artwork — we'll send through whatever you need.`,
+              closing: "Thanks,\nHouse Party Distro",
+            });
+          })()
         : renderBrandedEmail({
             heading: `Purchase order${qbInvNum ? ` ${qbInvNum}` : ""}`,
             greeting: `Hi ${vendor || "there"},`,
