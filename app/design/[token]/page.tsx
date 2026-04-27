@@ -367,6 +367,11 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: () => void }) {
     : null;
   const ribbonLabel = event?.label || "NEW";
   const ribbonText = event ? (event.kind === "approval" ? "Client approved" : "Client requested changes") : (unreadPreview || "New activity");
+  // Persistent action banner: derives from designerNextStep, only shown
+  // when tone === "action" (a move is genuinely owed). Survives modal
+  // open — clears only when the brief moves out of an action state.
+  const next = isClientAborted ? null : designerNextStep(brief.state);
+  const actionPending = next?.tone === "action";
   return (
     <div onClick={onOpen} style={{
       background: C.card,
@@ -410,9 +415,22 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: () => void }) {
         {brief.has_unread_external && !isClientAborted && (
           <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.30)", pointerEvents: "none", zIndex: 1 }} />
         )}
-        {kindLabel && !noWorkYet && (
+        {kindLabel && !noWorkYet && !actionPending && (
           <div style={{ position: "absolute", bottom: 10, right: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 9, fontWeight: 700, fontFamily: C.mono, zIndex: 2 }}>
             {kindLabel}
+          </div>
+        )}
+        {actionPending && next && (
+          <div style={{
+            position: "absolute", left: 0, right: 0, bottom: 0,
+            padding: "8px 12px",
+            background: "rgba(20,20,28,0.88)", color: "#fff",
+            fontSize: 11, fontWeight: 700, lineHeight: 1.35,
+            zIndex: 2, pointerEvents: "none",
+            borderTop: `2px solid ${C.amber}`,
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          }}>
+            {next.text}
           </div>
         )}
       </div>

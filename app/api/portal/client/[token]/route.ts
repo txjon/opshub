@@ -119,6 +119,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         drive_link: f.drive_link,
         kind: f.kind,
       }));
+      // Tile-level action-banner needs to know whether this brief has a
+      // formal draft to approve (vs a forwarded WIP that's just a
+      // direction check). Keeps banner copy honest at client_review.
+      const hasLatestDraft = files.some((f: any) => f.kind === "first_draft" || f.kind === "revision");
       const intakeRequested = !!b.client_intake_token && !b.client_intake_submitted_at;
       const la = lastByRole[b.id] || {};
       // clientAt = max(actual client activity, client_last_seen_at).
@@ -168,6 +172,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         updated_at: b.updated_at,
         last_activity_at: latestAt,
         has_unread_external: hasUnreadExternal,
+        has_latest_draft: hasLatestDraft,
         unread_kind: hasUnreadExternal ? externalActivity?.kind || null : null,
         preview_line: previewLine,
       };

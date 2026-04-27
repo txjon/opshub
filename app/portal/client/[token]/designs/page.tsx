@@ -257,6 +257,12 @@ function BriefTile({ brief, meta, onOpen }: {
 }) {
   const due = daysUntil(brief.deadline);
   const highlight = brief.has_unread_external ? unreadHighlightFor(brief.unread_kind) : null;
+  // Persistent action-banner: derives from clientNextStep, only shown
+  // when tone === "action" (a move is genuinely owed). Survives modal
+  // open — clears only when the brief moves out of an action state
+  // (approve, comment-as-revision-trigger, designer uploads next, etc.).
+  const next = clientNextStep(brief.state, { hasLatestDraft: !!brief.has_latest_draft });
+  const actionPending = next?.tone === "action";
   return (
     <div onClick={onOpen}
       style={{
@@ -286,11 +292,25 @@ function BriefTile({ brief, meta, onOpen }: {
       )}
       {/* Mosaic with optional 30% darken overlay when unread. Status dot
           removed — the ribbon above carries the unread signal, and the
-          state pill on the parent list shows broader status. */}
+          state pill on the parent list shows broader status.
+          Action strip overlays the bottom of the image when a move is
+          owed — persists past "open" until the action is taken. */}
       <div style={{ aspectRatio: "1", position: "relative", overflow: "hidden" }}>
         <TileMosaic thumbs={brief.thumbs || []} total={brief.thumb_total ?? (brief.thumbs?.length || 0)} />
         {brief.has_unread_external && (
           <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.30)", pointerEvents: "none", zIndex: 1 }} />
+        )}
+        {actionPending && next && (
+          <div style={{
+            position: "absolute", left: 0, right: 0, bottom: 0,
+            padding: "8px 12px",
+            background: "rgba(20,20,28,0.88)", color: "#fff",
+            fontSize: 11, fontWeight: 700, lineHeight: 1.35,
+            zIndex: 2, pointerEvents: "none",
+            borderTop: `2px solid ${C.amber}`,
+          }}>
+            {next.text}
+          </div>
         )}
       </div>
       <div style={{ padding: "10px 14px 12px", display: "flex", flexDirection: "column", gap: 2 }}>

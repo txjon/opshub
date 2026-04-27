@@ -25,6 +25,7 @@ export type Brief = {
   updated_at: string;
   last_activity_at?: string | null;
   has_unread_external?: boolean;
+  has_latest_draft?: boolean;
   unread_kind?: string | null;
   preview_line?: string | null;
 };
