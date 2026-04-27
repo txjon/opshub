@@ -170,7 +170,7 @@ function renderRFQHTML(data: any): string {
     <div>
       ${HPD_LOGO_SVG}
       <div style="font-size:11px;color:#666;line-height:1.7;margin-top:8px">
-        4670 W Silverado Ranch Blvd, STE 120 · Las Vegas, NV 89139<br/>hello@housepartydistro.com
+        4670 W Silverado Ranch Blvd, STE 120 · Las Vegas, NV 89139<br/>production@housepartydistro.com
       </div>
     </div>
     <div style="text-align:right">
@@ -184,18 +184,12 @@ function renderRFQHTML(data: any): string {
     ${[["Date",today],["Target ship",shipDate],["Vendor",data.vendor_short_code||data.vendor_name],["Items",String(data.items.length)],["Total units",data.items.reduce((a: number, it: any) => a + it.totalQty, 0).toLocaleString()]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;font-size:10px">
-    <div>
-      <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">From</div>
-      <div style="line-height:1.7">House Party Distro<br/>hello@housepartydistro.com<br/>4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89139</div>
+  <div style="margin-bottom:16px;font-size:10px">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+      <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa">Ship to <span style="color:#666">(for shipping cost estimate)</span></span>
+      <span style="font-size:8px;padding:1px 6px;border-radius:99;background:${data.shipping_route === "drop_ship" ? "#dcfce7" : "#dbeafe"};color:${data.shipping_route === "drop_ship" ? "#15803d" : "#1d4ed8"};font-weight:600">${data.shipping_route === "drop_ship" ? "Drop ship" : "HPD warehouse"}</span>
     </div>
-    <div>
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-        <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa">Ship to <span style="color:#666">(for shipping cost estimate)</span></span>
-        <span style="font-size:8px;padding:1px 6px;border-radius:99;background:${data.shipping_route === "drop_ship" ? "#dcfce7" : "#dbeafe"};color:${data.shipping_route === "drop_ship" ? "#15803d" : "#1d4ed8"};font-weight:600">${data.shipping_route === "drop_ship" ? "Drop ship" : "HPD warehouse"}</span>
-      </div>
-      <div style="line-height:1.7;white-space:pre-wrap">${data.ship_to_address || "—"}</div>
-    </div>
+    <div style="line-height:1.7;white-space:pre-wrap">${data.ship_to_address || "—"}</div>
   </div>
 
   <div style="background:#fffbe6;border:0.5px solid #f0d000;padding:8px 12px;border-radius:4px;margin-bottom:16px;font-size:10px;color:#5a4400;line-height:1.5">
