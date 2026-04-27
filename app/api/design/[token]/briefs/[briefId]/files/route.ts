@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getDriveToken, getReceivingFolderId } from "@/lib/drive-token";
 import { notifyTeamServer, logJobActivityServer } from "@/lib/notify-server";
+import { recomputeBriefState } from "@/lib/art-brief-state";
 
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -144,7 +145,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { token: st
   if (!fileId) return NextResponse.json({ error: "fileId required" }, { status: 400 });
 
   // Only allow deleting designer's own uploads
-  const { data: file } = await ctx.db.from("art_brief_files").select("id, uploader_role, drive_file_id").eq("id", fileId).eq("brief_id", ctx.brief.id).single();
+  const { data: file } = await ctx.db.from("art_brief_files").select("id, uploader_role, drive_file_id, kind").eq("id", fileId).eq("brief_id", ctx.brief.id).single();
   if (!file || file.uploader_role !== "designer") return NextResponse.json({ error: "Not allowed" }, { status: 403 });
 
   if (file.drive_file_id) {
@@ -157,5 +158,31 @@ export async function DELETE(req: NextRequest, { params }: { params: { token: st
   }
 
   await ctx.db.from("art_brief_files").delete().eq("id", fileId);
+
+  // Recompute brief state from remaining designer deliverables. The
+  // upload route advances state forward (in_progress → wip_review →
+  // client_review → pending_prep); this is the matching backstop so a
+  // delete of the only WIP / draft / final demotes the brief and the
+  // banner copy + filter buckets revert in lockstep.
+  const { data: remaining } = await ctx.db
+    .from("art_brief_files")
+    .select("kind")
+    .eq("brief_id", ctx.brief.id);
+  const newState = recomputeBriefState(ctx.brief.state, remaining || []);
+  if (newState && newState !== ctx.brief.state) {
+    await ctx.db.from("art_briefs")
+      .update({ state: newState, updated_at: new Date().toISOString() })
+      .eq("id", ctx.brief.id);
+    try {
+      const kindLabel = (file.kind || "file").toUpperCase();
+      await notifyTeamServer(
+        `Designer deleted ${kindLabel} on "${ctx.brief.title || "brief"}" — state reverted to ${newState.replace(/_/g, " ")}`,
+        "production",
+        ctx.brief.id,
+        "art_brief",
+      );
+    } catch {}
+  }
+
   return NextResponse.json({ success: true });
 }

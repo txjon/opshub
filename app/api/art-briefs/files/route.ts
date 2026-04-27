@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { deleteFile } from "@/lib/google-drive";
+import { recomputeBriefState } from "@/lib/art-brief-state";
 
 // POST — register a file uploaded to Drive as part of a brief
 export async function POST(req: NextRequest) {
@@ -79,13 +80,36 @@ export async function DELETE(req: NextRequest) {
     const id = req.nextUrl.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-    const { data: file } = await supabase.from("art_brief_files").select("drive_file_id").eq("id", id).single();
+    const { data: file } = await supabase.from("art_brief_files").select("brief_id, drive_file_id").eq("id", id).single();
     if (file?.drive_file_id) {
       try { await deleteFile(file.drive_file_id); } catch {}
     }
 
     const { error } = await supabase.from("art_brief_files").delete().eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Recompute brief state from remaining designer deliverables —
+    // matches the designer DELETE route's backstop.
+    if (file?.brief_id) {
+      const { data: brief } = await supabase
+        .from("art_briefs")
+        .select("state")
+        .eq("id", file.brief_id)
+        .single();
+      if (brief) {
+        const { data: remaining } = await supabase
+          .from("art_brief_files")
+          .select("kind")
+          .eq("brief_id", file.brief_id);
+        const newState = recomputeBriefState((brief as any).state, remaining || []);
+        if (newState && newState !== (brief as any).state) {
+          await supabase.from("art_briefs")
+            .update({ state: newState, updated_at: new Date().toISOString() })
+            .eq("id", file.brief_id);
+        }
+      }
+    }
+
     return NextResponse.json({ success: true });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
