@@ -433,19 +433,24 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: () => void }) {
             {kindLabel}
           </div>
         )}
-        {actionPending && next && (
+        {next && (
           <div style={{
             position: "absolute", inset: 0,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            padding: 14, zIndex: 2, pointerEvents: "none",
+            display: "flex",
+            alignItems: actionPending ? "center" : "flex-end",
+            justifyContent: "center",
+            padding: 12, zIndex: 2, pointerEvents: "none",
           }}>
             <div style={{
-              background: "rgba(20,20,28,0.92)", color: "#fff",
-              padding: "10px 14px", borderRadius: 8,
-              fontSize: 12, fontWeight: 700, lineHeight: 1.4,
-              textAlign: "center",
-              border: `2px solid ${C.amber}`,
-              boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+              background: actionPending ? "rgba(20,20,28,0.92)" : "rgba(20,20,28,0.72)",
+              color: "#fff",
+              padding: actionPending ? "10px 14px" : "8px 12px",
+              borderRadius: 8,
+              fontSize: actionPending ? 12 : 11,
+              fontWeight: 700, lineHeight: 1.4, textAlign: "center",
+              border: actionPending ? `2px solid ${C.amber}` :
+                next.tone === "done" ? `1px solid ${C.green}` : "1px solid rgba(255,255,255,0.18)",
+              boxShadow: actionPending ? "0 4px 16px rgba(0,0,0,0.3)" : "0 2px 8px rgba(0,0,0,0.2)",
               maxWidth: "100%",
             }}>
               {next.text}
