@@ -303,8 +303,10 @@ function BriefTile({ brief, meta, onOpen }: {
         {next && (
           <div style={{
             position: "absolute", inset: 0,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            padding: 14, zIndex: 2, pointerEvents: "none",
+            display: "flex",
+            alignItems: actionPending ? "center" : "flex-end",
+            justifyContent: "center",
+            padding: 12, zIndex: 2, pointerEvents: "none",
           }}>
             <div style={{
               background: actionPending ? "rgba(20,20,28,0.92)" : "rgba(20,20,28,0.72)",
