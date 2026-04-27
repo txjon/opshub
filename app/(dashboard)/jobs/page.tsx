@@ -305,7 +305,19 @@ export default function JobsPage() {
             job.priority === "hot" ? { label: "HOT", color: T.red } :
             job.priority === "rush" ? { label: "RUSH", color: T.amber } : null;
 
-          const dateColor = daysLeft === null ? T.muted : daysLeft < 0 ? T.red : daysLeft <= 3 ? T.amber : T.muted;
+          // Once a project is complete/cancelled, the countdown is just
+          // historical — don't keep flagging "Xd over" in red. Active
+          // jobs still get the urgency coloring + the "Xd over" wording.
+          const isClosed = job.phase === "complete" || job.phase === "cancelled";
+          const dateColor = daysLeft === null
+            ? T.muted
+            : isClosed
+              ? T.muted
+              : daysLeft < 0
+                ? T.red
+                : daysLeft <= 3
+                  ? T.amber
+                  : T.muted;
 
           if (isMobile) {
             return (
@@ -399,10 +411,12 @@ export default function JobsPage() {
                 )}
                 {daysLeft !== null ? (
                   <>
-                    <div style={{ fontSize:13, fontWeight:700, color:dateColor, fontFamily:mono, whiteSpace:"nowrap" }}>
-                      {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Today":daysLeft+"d"}
-                    </div>
-                    <div style={{ fontSize:10, color:T.faint, whiteSpace:"nowrap" }}>
+                    {!isClosed && (
+                      <div style={{ fontSize:13, fontWeight:700, color:dateColor, fontFamily:mono, whiteSpace:"nowrap" }}>
+                        {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Today":daysLeft+"d"}
+                      </div>
+                    )}
+                    <div style={{ fontSize:isClosed?12:10, fontWeight:isClosed?600:400, color:isClosed?T.muted:T.faint, whiteSpace:"nowrap", fontFamily:isClosed?mono:undefined }}>
                       {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
                     </div>
                   </>
