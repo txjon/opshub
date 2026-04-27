@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import { T, font, mono } from "@/lib/theme";
-import { CommandCenter } from "@/components/CommandCenter";
+import { T } from "@/lib/theme";
+import { CommandCenterBuckets, type BucketCard, type BucketPayload, type BucketSection, type Urgency } from "@/components/CommandCenterBuckets";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -299,166 +299,150 @@ export default async function DashboardPage() {
   // Sort: critical first, then high, then medium
   alerts.sort((a, b) => a.priority - b.priority);
 
-  const allItems = activeJobs.flatMap(j => j.items || []);
-  const totalUnits = allItems.reduce((a: number, it: any) => a + (it.buy_sheet_lines || []).reduce((b: number, l: any) => b + (l.qty_ordered || 0), 0), 0);
+  // ── Designer-side action queue from art_briefs ──
+  // Briefs that need HPD's move (wip_review, pending_prep,
+  // production_ready) plus a count of in-flight work with the
+  // designer (sent / in_progress / revisions / final_approved). Active
+  // only — aborted briefs are filtered out via client_aborted_at, the
+  // delivered ones are simply not "active" for the team.
+  const { data: briefs } = await supabase
+    .from("art_briefs")
+    .select("id, title, state, updated_at, sent_to_designer_at, client_aborted_at, job_id, clients(name), jobs(job_number)")
+    .is("client_aborted_at", null)
+    .not("state", "in", '("delivered","draft")')
+    .order("updated_at", { ascending: false });
 
-  // Total prints: (active print locations + tag) × qty per item
-  const totalPrints = activeJobs.reduce((total: number, j: any) => {
-    const costProds = (j.costing_data?.costProds || []);
-    for (const cp of costProds) {
-      const qty = cp.totalQty || 0;
-      if (qty === 0) continue;
-      const activeLocs = [1,2,3,4,5,6].filter(loc => {
-        const ld = cp.printLocations?.[loc];
-        return ld?.screens > 0 || ld?.location;
-      }).length;
-      const hasTag = cp.tagPrint ? 1 : 0;
-      // Non-garment with custom costs = 1 decoration
-      const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
-      const decoCount = NON_GARMENT.includes(cp.garment_type) ? (cp.customCosts?.length > 0 ? 1 : 0) : activeLocs + hasTag;
-      total += decoCount * qty;
-    }
-    return total;
-  }, 0);
+  // ── Build bucket payload ──
+  const priorityToUrgency = (p: number): Urgency =>
+    p === 0 ? "critical" : p === 1 ? "action" : p === 2 ? "watch" : "ok";
 
-  // Helper: build a common list-entry shape for KPI drill-downs
-  const jobRef = (j: any, overrides: Partial<{ subtitle: string; href: string; key: string }> = {}) => ({
-    key: overrides.key ?? j.id,
-    clientName: j.clients?.name || "No client",
-    jobTitle: j.title || "Untitled",
-    jobNumber: (j.type_meta as any)?.qb_invoice_number || j.job_number || "",
-    subtitle: overrides.subtitle,
-    href: overrides.href || `/jobs/${j.id}`,
-  });
-
-  // Build per-KPI lists (counts are just .length on each)
-  const needsBlanksList = activeJobs
-    .map(j => {
-      const qa = (j as any).quote_approved;
-      const items = j.items || [];
-      const payments = paymentsByJob[j.id] || [];
-      const terms = j.payment_terms || "";
-      const paymentMet = terms === "net_15" || terms === "net_30" || payments.some((p: any) => p.status === "paid" || p.status === "partial");
-      const allProofs = items.length > 0 && items.every((it: any) => proofMap[it.id]?.allApproved || it.artwork_status === "approved");
-      const apparel = items.filter((it: any) => it.garment_type !== "accessory");
-      const blanksOrdered = apparel.filter((it: any) => it.blanks_order_number).length;
-      const missing = apparel.length - blanksOrdered;
-      if (!(qa && paymentMet && allProofs && apparel.length > 0 && missing > 0)) return null;
-      return jobRef(j, { subtitle: `${missing} item${missing !== 1 ? "s" : ""} pending blanks`, href: `/jobs/${j.id}?tab=blanks` });
-    })
-    .filter(Boolean) as any[];
-
-  const needsPOList = activeJobs
-    .map(j => {
-      const typeMeta = (j.type_meta || {}) as any;
-      const poSent = typeMeta.po_sent_vendors || [];
-      const costProds = ((j as any).costing_data?.costProds || []);
-      const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))] as string[];
-      const pending = vendors.filter(v => !poSent.includes(v));
-      if (vendors.length === 0 || pending.length === 0) return null;
-      return jobRef(j, { subtitle: `${pending.join(", ")} · ${pending.length} PO${pending.length !== 1 ? "s" : ""} pending`, href: `/jobs/${j.id}?tab=po` });
-    })
-    .filter(Boolean) as any[];
-
-  const needsProofsList = activeJobs
-    .map(j => {
-      const items = j.items || [];
-      // Exclude manually approved items — they don't need client review.
-      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0 && it.artwork_status !== "approved");
-      if (pendingItems.length === 0) return null;
-      return jobRef(j, { subtitle: `${pendingItems.length} proof${pendingItems.length !== 1 ? "s" : ""} awaiting client review`, href: `/jobs/${j.id}?tab=proofs` });
-    })
-    .filter(Boolean) as any[];
-
-  const atDecoratorList = (activeJobs.flatMap(j => (j.items || []).map((it: any) => ({ j, it }))))
-    .filter(({ it }) => it.pipeline_stage === "in_production")
-    .map(({ j, it }) => {
-      const ts = it.pipeline_timestamps?.in_production;
-      const days = ts ? Math.floor((Date.now() - new Date(ts).getTime()) / 86400000) : 0;
-      const decName = it.decorator_assignments?.[0]?.decorators?.short_code || it.decorator_assignments?.[0]?.decorators?.name || "";
-      return jobRef(j, {
-        key: `atd-${it.id}`,
-        subtitle: `${it.name}${decName ? ` · ${decName}` : ""}${ts ? ` · ${days}d in stage` : ""}`,
-        href: `/jobs/${j.id}?tab=production`,
-      });
-    });
-
-  const shippedList = (activeJobs.flatMap(j => (j.items || []).map((it: any) => ({ j, it }))))
-    .filter(({ it }) => it.pipeline_stage === "shipped" && !it.received_at_hpd)
-    .map(({ j, it }) => {
-      const decName = it.decorator_assignments?.[0]?.decorators?.short_code || it.decorator_assignments?.[0]?.decorators?.name || "";
-      return jobRef(j, {
-        key: `ship-${it.id}`,
-        subtitle: `${it.name}${decName ? ` · from ${decName}` : ""}${it.ship_tracking ? ` · ${it.ship_tracking}` : ""}`,
-        href: `/jobs/${j.id}?tab=production`,
-      });
-    });
-
-  const awaitingClientList = activeJobs
-    .map(j => {
-      const qa = (j as any).quote_approved;
-      const items = j.items || [];
-      const payments = paymentsByJob[j.id] || [];
-      const terms = j.payment_terms || "";
-      const paymentMet = terms === "net_15" || terms === "net_30" || payments.some((p: any) => p.status === "paid" || p.status === "partial");
-      const allProofs = items.length > 0 && items.every((it: any) => proofMap[it.id]?.allApproved || it.artwork_status === "approved");
-      if (qa && paymentMet && allProofs) return null;
-      const missing: string[] = [];
-      if (!qa) missing.push("quote");
-      if (!paymentMet) missing.push("payment");
-      if (!allProofs) missing.push("proof approval");
-      return jobRef(j, { subtitle: `Waiting on: ${missing.join(", ")}`, href: `/jobs/${j.id}` });
-    })
-    .filter(Boolean) as any[];
-
-  const needsBlanks = needsBlanksList.length;
-  const needsPO = needsPOList.length;
-  const needsProofs = needsProofsList.length;
-  const atDecorator = atDecoratorList.length;
-  const shipped = shippedList.length;
-  const awaitingClient = awaitingClientList.length;
-
-  // Decorator breakdown — only items currently AT the decorator. Matches the
-  // "At Decorator" KPI filter (in_production). Shipped items have left the
-  // decorator and belong in the Shipped bucket.
-  const decoratorCounts: Record<string, number> = {};
-  for (const it of allItems) {
-    if (it.pipeline_stage === "in_production") {
-      const da = (it as any).decorator_assignments?.[0]?.decorators;
-      const vendor = da?.short_code || da?.name || "Unassigned";
-      decoratorCounts[vendor] = (decoratorCounts[vendor] || 0) + 1;
-    }
-  }
-
-  const stats = {
-    active: activeJobs.length,
-    items: allItems.length,
-    units: totalUnits,
-    prints: totalPrints,
-    sales: alerts.filter(a => a.column === "sales").length,
-    production: alerts.filter(a => a.column === "production").length,
-    billing: alerts.filter(a => a.column === "billing").length,
-    shippingThisWeek: activeJobs.filter(j => {
-      if (!j.target_ship_date) return false;
-      const d = Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000);
-      return d >= -1 && d <= 7;
-    }).length,
-    needsBlanks,
-    needsPO,
-    needsProofs,
-    atDecorator,
-    shipped,
-    awaitingClient,
-    decoratorCounts,
-    pipelineLists: {
-      needsBlanks: needsBlanksList,
-      needsPO: needsPOList,
-      needsProofs: needsProofsList,
-      atDecorator: atDecoratorList,
-      shipped: shippedList,
-      awaitingClient: awaitingClientList,
-    },
+  // Mapping from alert.type → which section it belongs to within the
+  // Clients / Decorators bucket. Anything not here is dropped (billing
+  // types live on /billing, not the team dashboard).
+  const SECTION_BY_TYPE: Record<string, { bucket: "clients" | "decorators"; section: string }> = {
+    overdue:           { bucket: "clients",    section: "Past ship date" },
+    quote_rejected:    { bucket: "clients",    section: "Quote feedback" },
+    revision:          { bucket: "clients",    section: "Proof revisions" },
+    new_client:        { bucket: "clients",    section: "New leads" },
+    follow_up_proofs:  { bucket: "clients",    section: "Awaiting client" },
+    proofs_pending:    { bucket: "clients",    section: "Awaiting client" },
+    follow_up_quote:   { bucket: "clients",    section: "Awaiting client" },
+    send_quote:        { bucket: "clients",    section: "Send to client" },
+    upload_proofs:     { bucket: "clients",    section: "Send to client" },
+    order_blanks:      { bucket: "decorators", section: "Order blanks" },
+    send_po:           { bucket: "decorators", section: "Send PO" },
+    shipping_soon:     { bucket: "decorators", section: "Verify shipping" },
   };
 
-  return <CommandCenter alerts={alerts} stats={stats} />;
+  // Order in which sections appear inside each bucket — critical-tinted
+  // sections at the top so eyes land on red first.
+  const SECTION_ORDER: Record<string, string[]> = {
+    clients:    ["Past ship date", "Quote feedback", "Proof revisions", "New leads", "Send to client", "Awaiting client", "Awaiting design review"],
+    decorators: ["Send PO", "Order blanks", "Verify shipping"],
+    designers:  ["Awaiting HPD review", "Prep print-ready", "Mark delivered", "In design"],
+  };
+
+  type Grouped = Record<string, Record<string, BucketCard[]>>;
+  const grouped: Grouped = { clients: {}, decorators: {}, designers: {} };
+
+  function pushCard(bucket: keyof Grouped, section: string, card: BucketCard) {
+    if (!grouped[bucket][section]) grouped[bucket][section] = [];
+    grouped[bucket][section].push(card);
+  }
+
+  // Convert job-level alerts into cards.
+  for (const a of alerts) {
+    const map = SECTION_BY_TYPE[a.type];
+    if (!map) continue; // billing + anything we don't surface drops here
+    const titleParts = [a.clientName, a.jobTitle].filter(Boolean);
+    pushCard(map.bucket, map.section, {
+      id: `alert-${a.type}-${a.jobId || a.clientName}-${a.action.slice(0, 30)}`,
+      title: titleParts.join(" — ") || a.action,
+      subtitle: a.action,
+      meta: a.jobNumber || a.invoiceNumber || undefined,
+      urgency: priorityToUrgency(a.priority),
+      href: a.href,
+    });
+  }
+
+  // Designer-side cards from art_briefs.
+  const briefRows = (briefs || []) as any[];
+  const stateToSection: Record<string, { section: string; urgency: Urgency; subtitlePrefix: string }> = {
+    wip_review:       { section: "Awaiting HPD review", urgency: "action",  subtitlePrefix: "Designer uploaded WIP" },
+    pending_prep:     { section: "Prep print-ready",   urgency: "action",  subtitlePrefix: "Designer uploaded final · prep print-ready" },
+    production_ready: { section: "Mark delivered",     urgency: "action",  subtitlePrefix: "Print-ready uploaded · ready to close" },
+    final_approved:   { section: "In design",          urgency: "watch",   subtitlePrefix: "Client approved · awaiting designer's final" },
+    revisions:        { section: "In design",          urgency: "watch",   subtitlePrefix: "Revisions · with designer" },
+    in_progress:      { section: "In design",          urgency: "watch",   subtitlePrefix: "With designer" },
+    sent:             { section: "In design",          urgency: "watch",   subtitlePrefix: "Sent to designer" },
+    client_review:    { section: "Awaiting design review", urgency: "watch", subtitlePrefix: "With client for review" },
+  };
+
+  for (const b of briefRows) {
+    const map = stateToSection[b.state];
+    if (!map) continue;
+    const clientName = (b.clients as any)?.name || "";
+    const briefTitle = b.title || "Untitled brief";
+    const jobNumber = (b.jobs as any)?.job_number || null;
+    const card: BucketCard = {
+      id: `brief-${b.id}`,
+      title: clientName ? `${clientName} — ${briefTitle}` : briefTitle,
+      subtitle: map.subtitlePrefix,
+      meta: jobNumber || undefined,
+      urgency: map.urgency,
+      href: `/art-studio?brief=${b.id}`,
+    };
+    // client_review briefs land under Clients (it's a client-side conversation),
+    // others under Designers.
+    const bucket = b.state === "client_review" ? "clients" : "designers";
+    pushCard(bucket, map.section, card);
+  }
+
+  // Materialize buckets in display order, dropping empty sections.
+  const buckets: BucketPayload[] = [
+    {
+      key: "clients",
+      label: "Clients",
+      hint: bucketHint("clients", grouped.clients),
+      sections: orderSections("clients", grouped.clients),
+    },
+    {
+      key: "decorators",
+      label: "Decorators",
+      hint: bucketHint("decorators", grouped.decorators),
+      sections: orderSections("decorators", grouped.decorators),
+    },
+    {
+      key: "designers",
+      label: "Designers",
+      hint: bucketHint("designers", grouped.designers),
+      sections: orderSections("designers", grouped.designers),
+    },
+  ];
+
+  function orderSections(bucket: string, group: Record<string, BucketCard[]>): BucketSection[] {
+    const order = SECTION_ORDER[bucket] || [];
+    const known = order
+      .filter(name => group[name] && group[name].length > 0)
+      .map(name => ({ title: name, cards: group[name] }));
+    // Any unanticipated sections (shouldn't happen with current mapping, but
+    // safe net) appear at the end in insertion order.
+    const extras = Object.keys(group)
+      .filter(name => !order.includes(name) && group[name].length > 0)
+      .map(name => ({ title: name, cards: group[name] }));
+    return [...known, ...extras];
+  }
+
+  function bucketHint(bucket: string, group: Record<string, BucketCard[]>): string {
+    const order = SECTION_ORDER[bucket] || [];
+    const parts: string[] = [];
+    for (const name of order) {
+      const n = group[name]?.length || 0;
+      if (n === 0) continue;
+      parts.push(`${n} ${name.toLowerCase()}`);
+    }
+    return parts.join(" · ") || "All clear";
+  }
+
+  return <CommandCenterBuckets buckets={buckets} />;
 }
