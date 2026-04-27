@@ -170,7 +170,7 @@ function renderRFQHTML(data: any): string {
     <div>
       ${HPD_LOGO_SVG}
       <div style="font-size:11px;color:#666;line-height:1.7;margin-top:8px">
-        3945 W Reno Ave, Ste A · Las Vegas, NV 89118<br/>jon@housepartydistro.com
+        4670 W Silverado Ranch Blvd, STE 120 · Las Vegas, NV 89118<br/>hello@housepartydistro.com
       </div>
     </div>
     <div style="text-align:right">
@@ -182,6 +182,20 @@ function renderRFQHTML(data: any): string {
 
   <div style="display:flex;gap:0;border:0.5px solid #ccc;margin-bottom:16px">
     ${[["Date",today],["Target ship",shipDate],["Vendor",data.vendor_short_code||data.vendor_name],["Items",String(data.items.length)],["Total units",data.items.reduce((a: number, it: any) => a + it.totalQty, 0).toLocaleString()]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;font-size:10px">
+    <div>
+      <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">From</div>
+      <div style="line-height:1.7">House Party Distro<br/>hello@housepartydistro.com<br/>4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89118</div>
+    </div>
+    <div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa">Ship to <span style="color:#666">(for shipping cost estimate)</span></span>
+        <span style="font-size:8px;padding:1px 6px;border-radius:99;background:${data.shipping_route === "drop_ship" ? "#dcfce7" : "#dbeafe"};color:${data.shipping_route === "drop_ship" ? "#15803d" : "#1d4ed8"};font-weight:600">${data.shipping_route === "drop_ship" ? "Drop ship" : "HPD warehouse"}</span>
+      </div>
+      <div style="line-height:1.7;white-space:pre-wrap">${data.ship_to_address || "—"}</div>
+    </div>
   </div>
 
   <div style="background:#fffbe6;border:0.5px solid #f0d000;padding:8px 12px;border-radius:4px;margin-bottom:16px;font-size:10px;color:#5a4400;line-height:1.5">
@@ -291,12 +305,26 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const itemLetters = mappedItems.map((it: any) => it.letter).join("");
 
+    // Ship-to logic mirrors the PO route so decorators see the same address
+    // they'll later receive on the actual purchase order. For drop-ship jobs
+    // that's the client's venue; for ship-through/stage it's HPD's warehouse.
+    // If a per-vendor override has already been entered on the PO tab, use that.
+    const HPD_WAREHOUSE = "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89118";
+    const route = (job as any).shipping_route || "ship_through";
+    const perVendorShipTo = (job.type_meta as any)?.po_ship_to?.[vendorName];
+    const shipToAddress = perVendorShipTo
+      || (route === "drop_ship"
+        ? ((job.type_meta as any)?.venue_address || "Drop ship address — to be confirmed")
+        : HPD_WAREHOUSE);
+
     const rfqData = {
       job_number: (job.job_number || "—") + (itemLetters ? `-${itemLetters}` : ""),
       client_name: (job.clients as any)?.name || "—",
       target_ship_date: job.target_ship_date,
       vendor_name: vendorName,
       vendor_short_code: (decoratorRecord as any)?.short_code || vendorName,
+      ship_to_address: shipToAddress,
+      shipping_route: route,
       items: mappedItems,
     };
 

@@ -158,6 +158,7 @@ export async function POST(req: NextRequest) {
               extraHtml: customExtra,
               hint: `Reach out if anything in the spec is unclear or if you need additional info — we'll send through whatever you need.`,
               closing: "Thanks,\nHouse Party Distro",
+              align: "left",
             });
           })()
         : renderBrandedEmail({
