@@ -66,7 +66,7 @@ export default function DesignsPage() {
   const withBucket = briefs.map(b => ({ b, meta: clientStateFor(b) }));
 
   // Client lifecycle:
-  //   Pending → HPD asked for input the client hasn't filled out yet
+  //   Pending → draft / revision is up for review (client_review)
   //   Working → in design (sent through revisions)
   //   Done    → client approved (final_approved+)
   const DONE_STATES = ["final_approved", "pending_prep", "production_ready", "delivered"];
