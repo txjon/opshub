@@ -25,10 +25,6 @@ type Bucket = {
   label: string;
   /** Plain-English single-line read of the bucket's overall state. */
   hint: string;
-  /** Tone for the count chip in the column header. */
-  tone: "amber" | "red" | "muted" | "green";
-  /** Mini stats above the cards — quick metric tiles per bucket. */
-  stats: { label: string; value: number | string; tone?: "amber" | "red" | "blue" | "green" | "muted" }[];
   /** Sub-sectioned cards. Most-urgent sub-section first; cards within
    *  sorted by urgency too. */
   sections: { title: string; cards: Card[] }[];
@@ -40,12 +36,6 @@ const SAMPLE: Bucket[] = [
     key: "clients",
     label: "Clients",
     hint: "1 past ship · 2 new leads · 2 awaiting client review",
-    tone: "amber",
-    stats: [
-      { label: "Awaiting client", value: 2, tone: "amber" },
-      { label: "New leads", value: 2, tone: "blue" },
-      { label: "Past ship", value: 1, tone: "red" },
-    ],
     sections: [
       {
         title: "Past ship date",
@@ -101,14 +91,7 @@ const SAMPLE: Bucket[] = [
   {
     key: "decorators",
     label: "Decorators",
-    hint: "2 POs to send, 28 in production, 3 ship-status to verify",
-    tone: "amber",
-    stats: [
-      { label: "Send PO", value: 2, tone: "amber" },
-      { label: "Needs blanks", value: 2, tone: "amber" },
-      { label: "At decorator", value: 28, tone: "blue" },
-      { label: "Verify ship", value: 3, tone: "amber" },
-    ],
+    hint: "2 POs to send · 28 in production · 3 ship-status to verify",
     sections: [
       {
         title: "PO past ship date",
@@ -205,13 +188,7 @@ const SAMPLE: Bucket[] = [
   {
     key: "designers",
     label: "Designers",
-    hint: "1 WIP awaiting your review, 2 in design",
-    tone: "amber",
-    stats: [
-      { label: "Awaiting HPD", value: 1, tone: "amber" },
-      { label: "In design", value: 2, tone: "blue" },
-      { label: "Approved", value: 4, tone: "green" },
-    ],
+    hint: "1 awaiting your review · 2 in design",
     sections: [
       {
         title: "Awaiting HPD review",
@@ -263,14 +240,6 @@ const URGENCY: Record<Urgency, { color: string; bg: string }> = {
   action:   { color: T.amber, bg: T.amberDim },
   watch:    { color: T.blue, bg: T.blueDim },
   ok:       { color: T.muted, bg: T.surface },
-};
-
-const TONE: Record<NonNullable<Bucket["stats"][number]["tone"]>, string> = {
-  amber: T.amber,
-  red:   T.red,
-  blue:  T.blue,
-  green: T.green,
-  muted: T.muted,
 };
 
 export default function CommandCenterV2() {
@@ -334,51 +303,34 @@ function BucketColumn({ bucket }: { bucket: Bucket }) {
   const total = bucket.sections.reduce((sum, s) => sum + s.cards.length, 0);
   return (
     <div style={{
-      background: T.card, border: `1px solid ${T.border}`, borderRadius: 12,
-      padding: "16px 16px 20px", display: "flex", flexDirection: "column", gap: 12,
+      background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
+      padding: "12px 12px 14px", display: "flex", flexDirection: "column", gap: 6,
     }}>
-      {/* Column header */}
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, letterSpacing: "-0.01em" }}>
+      {/* Column header — bucket name + count + plain-English read on
+          one tight block. Inbox-style: title + small meta, no chrome. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 800, letterSpacing: "-0.01em" }}>
           {bucket.label}
         </h2>
         <span style={{
-          background: T.surface, color: T.text,
-          padding: "1px 8px", borderRadius: 99,
-          fontSize: 11, fontWeight: 800,
+          color: T.faint,
+          fontSize: 11, fontWeight: 700,
         }}>
           {total}
         </span>
       </div>
-      <div style={{ fontSize: 12, color: T.muted, marginTop: -4 }}>
+      <div style={{ fontSize: 10, color: T.muted, marginTop: -2 }}>
         {bucket.hint}
       </div>
 
-      {/* Stat strip — 2-3 mini metrics relevant to this bucket */}
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${bucket.stats.length}, 1fr)`, gap: 8 }}>
-        {bucket.stats.map(s => (
-          <div key={s.label} style={{
-            background: T.surface, borderRadius: 6, padding: "8px 10px",
-            display: "flex", flexDirection: "column", gap: 2,
-          }}>
-            <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: s.tone ? TONE[s.tone] : T.text, lineHeight: 1 }}>
-              {s.value}
-            </div>
-            <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              {s.label}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Sections + cards */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 4 }}>
+      {/* Sections + rows */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
         {bucket.sections.map(section => (
           <div key={section.title}>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint, marginBottom: 6 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: T.faint, marginBottom: 3, paddingLeft: 2 }}>
               {section.title}
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "column" }}>
               {section.cards.map(c => <CardRow key={c.id} card={c} />)}
             </div>
           </div>
@@ -392,40 +344,47 @@ function CardRow({ card }: { card: Card }) {
   const u = URGENCY[card.urgency];
   return (
     <div style={{
-      background: T.card, border: `1px solid ${T.border}`,
-      borderLeft: `3px solid ${u.color}`,
-      borderRadius: 6, padding: "10px 12px",
-      display: "flex", alignItems: "center", gap: 10,
+      borderTop: `1px solid ${T.border}`,
+      padding: "6px 4px 6px 8px",
+      display: "flex", alignItems: "center", gap: 8,
       cursor: card.href ? "pointer" : "default",
-      transition: "border-color 0.12s",
+      position: "relative",
+      minHeight: 36,
     }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: 13, fontWeight: 700,
+      {/* urgency dot — small, on the left, replaces the heavy left border */}
+      <span style={{
+        flexShrink: 0,
+        width: 6, height: 6, borderRadius: 99,
+        background: u.color,
+      }} />
+      <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 6 }}>
+        <span style={{
+          fontSize: 12, fontWeight: 700, color: T.text,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          marginBottom: 2,
+          flexShrink: 1, minWidth: 0,
         }}>
           {card.title}
-        </div>
-        <div style={{
-          fontSize: 11, color: u.color, fontWeight: 600,
+        </span>
+        <span style={{
+          fontSize: 11, color: u.color, fontWeight: 500,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          flexShrink: 1, minWidth: 0,
         }}>
-          {card.subtitle}
-        </div>
+          · {card.subtitle}
+        </span>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
         {card.badge && (
           <span style={{
-            background: u.bg, color: u.color,
-            padding: "2px 7px", borderRadius: 4,
-            fontSize: 10, fontWeight: 800, letterSpacing: "0.04em",
+            color: u.color,
+            fontSize: 9, fontWeight: 800, letterSpacing: "0.04em",
+            textTransform: "uppercase",
           }}>
             {card.badge}
           </span>
         )}
         {card.meta && (
-          <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>
+          <span style={{ fontSize: 9, color: T.faint, fontFamily: mono }}>
             {card.meta}
           </span>
         )}
