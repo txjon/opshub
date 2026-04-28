@@ -19,7 +19,7 @@ export type BrandedEmailOptions = {
   extraHtml?: string;         // injected between body and CTAs (e.g., inline tracking, alert banner)
   eyebrow?: string;           // defaults to "House Party Distro"
   closing?: string;           // defaults to "Welcome to the party,\nHouse Party Distro"
-  align?: "center" | "left";  // wrapper alignment — defaults to "center" (margin:0 auto)
+  align?: "center" | "left";  // wrapper alignment — defaults to "left" (margin:0)
 };
 
 function ctaButton({ label, url, style = "dark" }: Cta): string {
@@ -50,7 +50,7 @@ export function renderBrandedEmail(opts: BrandedEmailOptions): string {
     : "";
   const closing = `<p style="font-size:14px;color:#444;line-height:1.55;margin:24px 0 0;">${closingRaw.replace(/\n/g, "<br/>")}</p>`;
 
-  const wrapperMargin = opts.align === "left" ? "margin:0;" : "margin:0 auto;";
+  const wrapperMargin = opts.align === "center" ? "margin:0 auto;" : "margin:0;";
   return `
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;max-width:560px;${wrapperMargin}padding:24px 20px;color:#111;">
   <div style="font-size:11px;color:#888;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">${eyebrow}</div>
