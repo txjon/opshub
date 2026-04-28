@@ -322,7 +322,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           input on the right with variance pill. */}
       <div style={{ ...card }}>
         {/* Column headers */}
-        <div style={{ display: "grid", gridTemplateColumns: "32px 90px 1fr 280px 180px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "32px 90px 1fr 150px 160px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
           <div></div>
           <div>QB Invoice</div>
           <div>Brand · Style · Color · Sizes</div>
@@ -348,7 +348,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
 
           return (
             <div key={item.id} style={{
-              display: "grid", gridTemplateColumns: "32px 90px 1fr 280px 180px",
+              display: "grid", gridTemplateColumns: "32px 90px 1fr 150px 160px",
               gap: 12, padding: "10px 14px", alignItems: "center",
               borderBottom: isLast ? "none" : `1px solid ${T.border}`,
               background: hasOrder ? T.greenDim + "33" : "transparent",
@@ -371,11 +371,11 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                   <span style={{ color: T.faint }}>· {totalUnits.toLocaleString()} units</span>
                 </div>
               </div>
-              {/* Order total input */}
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {/* Order total input — sized for $100,000.00, right-aligned */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>$</span>
-                  <input style={{ flex: 1, minWidth: 0, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 600, outline: "none" }} type="text" inputMode="decimal" value={f.blanks_order_cost || ""} placeholder="0.00"
+                  <input style={{ width: 110, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 600, outline: "none", textAlign: "right" }} type="text" inputMode="decimal" value={f.blanks_order_cost || ""} placeholder="0.00"
                     onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
                     onFocus={e => e.target.select()} />
                 </div>
