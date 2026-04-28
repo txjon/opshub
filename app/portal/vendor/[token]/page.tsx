@@ -533,20 +533,25 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                           return (
                             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
                               {/* Blanks Received — outlined-grey by default,
-                                  filled-green once clicked. Same shape as
-                                  Report Discrepancy. Status update only;
-                                  HPD does not get notified. */}
+                                  filled-green once clicked. Click again to
+                                  undo. Same shape as Report Discrepancy.
+                                  Status update only — HPD is not notified. */}
                               {!isShipped && (
                                 <button
-                                  onClick={() => setConfirmAction({ itemId: item.id, action: "confirm_received", label: `Mark ${item.name} blanks as received?` })}
-                                  disabled={alreadyReceived}
+                                  onClick={() => setConfirmAction({
+                                    itemId: item.id,
+                                    action: alreadyReceived ? "undo_received" : "confirm_received",
+                                    label: alreadyReceived
+                                      ? `Undo — mark ${item.name} blanks as NOT received?`
+                                      : `Mark ${item.name} blanks as received?`,
+                                  })}
                                   style={{
                                     padding: "8px 16px", borderRadius: 8,
                                     background: alreadyReceived ? C.green : "transparent",
                                     color: alreadyReceived ? "#fff" : C.muted,
                                     border: alreadyReceived ? "none" : `1px solid ${C.border}`,
                                     fontSize: 12, fontWeight: 600,
-                                    cursor: alreadyReceived ? "default" : "pointer",
+                                    cursor: "pointer",
                                   }}>
                                   {alreadyReceived ? "✓ Blanks Received" : "Mark Blanks Received"}
                                 </button>

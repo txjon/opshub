@@ -421,6 +421,23 @@ export async function POST(
       return NextResponse.json({ success: true });
     }
 
+    // ── UNDO RECEIVED: Decorator clicked Blanks Received by mistake ──
+    // Reverts pipeline_stage back to "pending" so the button flips
+    // back to its outlined state. Same status-only / no-notify rule.
+    if (action === "undo_received" && itemId) {
+      await sb.from("items").update({ pipeline_stage: "pending" }).eq("id", itemId);
+      await sb.from("decorator_assignments").update({ pipeline_stage: "pending" }).eq("item_id", itemId).eq("decorator_id", decorator.id);
+
+      const ctx = await getItemContext(itemId);
+      if (ctx) {
+        await sb.from("job_activity").insert({
+          job_id: ctx.job.id, user_id: null, type: "auto",
+          message: `${decorator.name} undid receipt — ${ctx.item.name} back to PO sent`,
+        });
+      }
+      return NextResponse.json({ success: true });
+    }
+
     // ── ENTER TRACKING: Item shipped from decorator ──
     if (action === "enter_tracking" && itemId && tracking) {
       const updates: any = {
