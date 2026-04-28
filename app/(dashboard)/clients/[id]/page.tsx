@@ -8,7 +8,7 @@ import { SkeletonRows } from "@/components/Skeleton";
 import Link from "next/link";
 import { effectiveRevenue } from "@/lib/revenue";
 
-type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; };
+type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
 type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; payment_records:any[]; };
 
@@ -251,6 +251,29 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   <input type="checkbox" checked={client.tax_exempt||false} onChange={e=>updateClient({tax_exempt:e.target.checked} as any)} style={{accentColor:T.accent,width:18,height:18}}/>
                   Tax Exempt
                 </label>
+
+                {/* QB online payment-method toggles. Default true so
+                    behavior matches today; flip off per client if e.g.
+                    they should only see Bank Transfer on the QB payment
+                    page. Pushed to QB on the next Update QB Invoice. */}
+                <div>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginTop:6,marginBottom:6}}>QB Online Payment Methods</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.text,cursor:"pointer",padding:"6px 10px",background:T.surface,borderRadius:6}}>
+                      <input type="checkbox" checked={client.allow_cc !== false} onChange={e=>updateClient({allow_cc:e.target.checked} as any)} style={{accentColor:T.accent,width:16,height:16}}/>
+                      <span style={{fontWeight:600}}>Accept credit card</span>
+                      <span style={{fontSize:10,color:T.faint,marginLeft:"auto"}}>2.99% per txn</span>
+                    </label>
+                    <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.text,cursor:"pointer",padding:"6px 10px",background:T.surface,borderRadius:6}}>
+                      <input type="checkbox" checked={client.allow_ach !== false} onChange={e=>updateClient({allow_ach:e.target.checked} as any)} style={{accentColor:T.accent,width:16,height:16}}/>
+                      <span style={{fontWeight:600}}>Accept bank transfer (ACH)</span>
+                      <span style={{fontSize:10,color:T.faint,marginLeft:"auto"}}>1%, max $20</span>
+                    </label>
+                  </div>
+                  <div style={{fontSize:10,color:T.faint,marginTop:6,lineHeight:1.4}}>
+                    Pushed to QB on the next Update QB Invoice. Existing invoices keep whatever was set when they were created until re-pushed.
+                  </div>
+                </div>
               </div>
             </div>
 

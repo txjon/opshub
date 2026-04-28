@@ -260,6 +260,8 @@ export async function createInvoice(
     shipAddress?: string;
     memo?: string;
     email?: string;
+    allowCC?: boolean;       // defaults true
+    allowACH?: boolean;      // defaults true
   } = {}
 ): Promise<{ invoiceId: string; invoiceNumber: string; paymentLink: string; taxAmount: number; totalWithTax: number }> {
   // Look up QB item IDs for each product/service name
@@ -300,8 +302,11 @@ export async function createInvoice(
   const body: any = {
     CustomerRef: { value: customerId },
     Line: lines,
-    AllowOnlineCreditCardPayment: true,
-    AllowOnlineACHPayment: true,
+    // Per-client toggles flow through here. Default true preserves the
+    // pre-flag behavior; set false on options to disable that rail in
+    // QB's hosted payment page (e.g., ACH-only client).
+    AllowOnlineCreditCardPayment: options.allowCC !== false,
+    AllowOnlineACHPayment: options.allowACH !== false,
   };
 
   if (options.terms && termsMap[options.terms]) {
@@ -463,7 +468,7 @@ export async function refreshPaymentLink(invoiceId: string, customerEmail?: stri
 export async function updateInvoice(
   invoiceId: string,
   lineItems: QBLineItem[],
-  options: { memo?: string; shipAddress?: string; email?: string } = {}
+  options: { memo?: string; shipAddress?: string; email?: string; allowCC?: boolean; allowACH?: boolean } = {}
 ): Promise<{ taxAmount: number; totalWithTax: number; paymentLink: string }> {
   // Fetch existing invoice to get SyncToken (required for updates)
   const existing = await qbFetch(`/invoice/${invoiceId}`);
@@ -503,6 +508,11 @@ export async function updateInvoice(
     sparse: true,
     Line: lines,
   };
+  // Carry through payment-method flags on every update so changes made
+  // in OpsHub propagate to QB. If callers don't pass flags, leave the
+  // existing values on the invoice alone.
+  if (options.allowCC !== undefined) body.AllowOnlineCreditCardPayment = options.allowCC;
+  if (options.allowACH !== undefined) body.AllowOnlineACHPayment = options.allowACH;
   if (options.memo) body.CustomerMemo = { value: options.memo };
   if (options.shipAddress) {
     const parts = options.shipAddress.split(",").map(s => s.trim());

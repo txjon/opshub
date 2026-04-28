@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     // Load job + items + client shipping address
-    const { data: job } = await admin.from("jobs").select("*, clients(name, default_terms, shipping_address)").eq("id", jobId).single();
+    const { data: job } = await admin.from("jobs").select("*, clients(name, default_terms, shipping_address, allow_cc, allow_ach)").eq("id", jobId).single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
     const { data: items } = await admin.from("items")
@@ -149,12 +149,21 @@ export async function POST(req: NextRequest) {
     const shipAddr = (job.type_meta as any)?.venue_address
       || (job.clients as any)?.shipping_address || undefined;
 
+    // Per-client payment-method flags. Default true if columns are
+    // unset (e.g., migration hasn't been applied yet) — preserves the
+    // pre-flag behavior.
+    const clientRow = (job.clients as any) || {};
+    const allowCC = clientRow.allow_cc !== false;
+    const allowACH = clientRow.allow_ach !== false;
+
     if (existingInvoiceId) {
       // Update existing QB invoice
       const updated = await updateInvoice(existingInvoiceId, lineItems, {
         memo: `${job.title} — ${job.job_number}`,
         shipAddress: shipAddr,
         email: primaryEmail || undefined,
+        allowCC,
+        allowACH,
       });
 
       // Update tax/total in type_meta. Also record variance-finalized timestamp
@@ -211,6 +220,8 @@ export async function POST(req: NextRequest) {
       memo: `${job.title} — ${job.job_number}`,
       email: primaryEmail || undefined,
       shipAddress: shipAddr,
+      allowCC,
+      allowACH,
     });
 
     // Save QB invoice data to job
