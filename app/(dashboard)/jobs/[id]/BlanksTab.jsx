@@ -316,96 +316,86 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
         );
       })()}
 
-      {/* Item list — built as a reference layout for ordering blanks
-          outside OpsHub. Big readable header (name, HPD-#, brand, style,
-          color, per-size qtys); single input for order total once placed. */}
-      {items.map((item, i) => {
-        if (selectedItemId && item.id !== selectedItemId) return null;
-        const f = localFields[item.id] || {};
-        const totalUnits = tQty(item.qtys || {});
-        const calcCost = item.cost_per_unit != null ? (item.cost_per_unit * totalUnits) : null;
-        const actualCost = f.blanks_order_cost ? parseFloat(String(f.blanks_order_cost).replace(/[^0-9.\-]/g, "")) : null;
-        const costDiff = calcCost !== null && actualCost !== null ? actualCost - calcCost : null;
-        // Order total > 0 is the new "ordered" signal — order # field
-        // was removed since it's tracked outside OpsHub.
-        const hasOrder = (actualCost ?? 0) > 0;
-        const projectRef = `${job?.job_number || ""}${String.fromCharCode(65 + i)}`;
-        const itemLetter = String.fromCharCode(65 + i);
+      {/* Item list — single tight row per item. QB invoice # is the
+          primary identifier (front and center), brand/style/color
+          combined with no individual labels, sizes inline, order total
+          input on the right with variance pill. */}
+      <div style={{ ...card }}>
+        {/* Column headers */}
+        <div style={{ display: "grid", gridTemplateColumns: "32px 90px 1fr 280px 180px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          <div></div>
+          <div>QB Invoice</div>
+          <div>Brand · Style · Color · Sizes</div>
+          <div>Order total</div>
+          <div style={{ textAlign: "right" }}>Status</div>
+        </div>
+        {items.map((item, i) => {
+          if (selectedItemId && item.id !== selectedItemId) return null;
+          const f = localFields[item.id] || {};
+          const totalUnits = tQty(item.qtys || {});
+          const calcCost = item.cost_per_unit != null ? (item.cost_per_unit * totalUnits) : null;
+          const actualCost = f.blanks_order_cost ? parseFloat(String(f.blanks_order_cost).replace(/[^0-9.\-]/g, "")) : null;
+          const costDiff = calcCost !== null && actualCost !== null ? actualCost - calcCost : null;
+          const hasOrder = (actualCost ?? 0) > 0;
+          const itemLetter = String.fromCharCode(65 + i);
+          // QB invoice # is the primary reference for ordering. Format
+          // matches the PO PDF naming: invoice number + item letter.
+          const qbInvNum = job?.type_meta?.qb_invoice_number;
+          const qbRef = qbInvNum ? `#${qbInvNum}${itemLetter}` : null;
+          const fallbackRef = `${job?.job_number || ""}${itemLetter}`;
+          const blankInfo = [item.blank_vendor, item.blank_sku, item.color || item.blank_color].filter(Boolean).join(" · ");
+          const isLast = i === items.length - 1;
 
-        return (
-          <div key={item.id} style={{ ...card, border: `1px solid ${hasOrder ? T.green + "44" : T.border}` }}>
-            {/* Header — large, scannable */}
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "16px 18px", borderBottom: `1px solid ${T.border}` }}>
-              <span style={{ width: 32, height: 32, borderRadius: 6, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
+          return (
+            <div key={item.id} style={{
+              display: "grid", gridTemplateColumns: "32px 90px 1fr 280px 180px",
+              gap: 12, padding: "10px 14px", alignItems: "center",
+              borderBottom: isLast ? "none" : `1px solid ${T.border}`,
+              background: hasOrder ? T.greenDim + "33" : "transparent",
+            }}>
+              {/* Letter */}
+              <span style={{ width: 28, height: 28, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: mono }}>
                 {itemLetter}
               </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: T.text, lineHeight: 1.2, marginBottom: 4 }}>{item.name}</div>
-                <div style={{ fontSize: 14, color: T.accent, fontFamily: mono, fontWeight: 600 }}>{projectRef}</div>
+              {/* QB invoice ref */}
+              <div style={{ fontSize: 14, fontWeight: 700, color: qbInvNum ? T.text : T.faint, fontFamily: mono }}>
+                {qbRef || <span title={`OpsHub job number — push to QB to get an invoice #`} style={{ fontSize: 11 }}>{fallbackRef}</span>}
               </div>
-              {hasOrder && <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 99, background: T.greenDim, color: T.green, flexShrink: 0, marginTop: 4 }}>Ordered ✓</span>}
-            </div>
-
-            {/* Brand / Style / Color — big bold rows */}
-            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "grid", gridTemplateColumns: "auto 1fr", gap: "8px 24px", alignItems: "baseline" }}>
-              {item.blank_vendor && (
-                <>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Brand</div>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{item.blank_vendor}</div>
-                </>
-              )}
-              {item.blank_sku && (
-                <>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Style</div>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: T.text, fontFamily: mono }}>{item.blank_sku}</div>
-                </>
-              )}
-              {(item.color || item.blank_color) && (
-                <>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Color</div>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{item.color || item.blank_color}</div>
-                </>
-              )}
-            </div>
-
-            {/* Per-size qty pills — big & legible */}
-            {(item.sizes || []).length > 0 && (
-              <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}` }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Quantities</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: mono }}>{totalUnits.toLocaleString()} <span style={{ fontSize: 11, fontWeight: 500, color: T.muted }}>units</span></div>
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {/* Blank info + sizes inline — the meat of the row */}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{blankInfo || "—"}</div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12, color: T.muted, fontFamily: mono, flexWrap: "wrap" }}>
                   {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
-                    <div key={sz} style={{ display: "flex", alignItems: "baseline", gap: 6, padding: "8px 14px", background: T.surface, borderRadius: 8, border: `1px solid ${T.border}` }}>
-                      <span style={{ fontSize: 12, color: T.muted, fontFamily: mono, fontWeight: 600 }}>{sz}</span>
-                      <span style={{ fontSize: 18, fontWeight: 700, color: T.text, fontFamily: mono }}>{(item.qtys || {})[sz].toLocaleString()}</span>
-                    </div>
+                    <span key={sz}><span style={{ color: T.faint, marginRight: 3 }}>{sz}</span><span style={{ color: T.text, fontWeight: 600 }}>{(item.qtys || {})[sz].toLocaleString()}</span></span>
                   ))}
+                  <span style={{ color: T.faint }}>· {totalUnits.toLocaleString()} units</span>
                 </div>
               </div>
-            )}
-
-            {/* Order total entry */}
-            <div style={{ padding: "14px 18px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Order total</label>
-                {calcCost !== null && <div style={{ fontSize: 11, color: T.faint }}>Calculated: <span style={{ fontFamily: mono, fontWeight: 600 }}>${calcCost.toFixed(2)}</span></div>}
+              {/* Order total input */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>$</span>
+                  <input style={{ flex: 1, minWidth: 0, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 600, outline: "none" }} type="text" inputMode="decimal" value={f.blanks_order_cost || ""} placeholder="0.00"
+                    onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
+                    onFocus={e => e.target.select()} />
+                </div>
+                {calcCost !== null && (
+                  <div style={{ fontSize: 9, color: T.faint, marginTop: 3, fontFamily: mono }}>calc ${calcCost.toFixed(2)}</div>
+                )}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <input style={{ ...ic, fontFamily: mono, fontSize: 16, fontWeight: 600, padding: "10px 14px" }} type="text" inputMode="decimal" value={f.blanks_order_cost || ""} placeholder="0.00"
-                  onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
-                  onFocus={e => e.target.select()} />
-                {calcCost !== null && actualCost !== null && (
-                  <span style={{ fontSize: 12, fontFamily: mono, fontWeight: 700, flexShrink: 0, color: costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.muted, padding: "6px 10px", background: costDiff === 0 ? "transparent" : (costDiff > 0 ? T.redDim : T.greenDim), borderRadius: 6 }}>
+              {/* Variance + Ordered badge */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+                {calcCost !== null && actualCost !== null && actualCost > 0 && (
+                  <span style={{ fontSize: 11, fontFamily: mono, fontWeight: 700, color: costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.muted, padding: "3px 8px", background: costDiff === 0 ? T.surface : (costDiff > 0 ? T.redDim : T.greenDim), borderRadius: 4 }}>
                     {costDiff === 0 ? "match" : (costDiff > 0 ? "+" : "") + "$" + Math.abs(costDiff).toFixed(2)}
                   </span>
                 )}
+                {hasOrder && <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: T.greenDim, color: T.green, whiteSpace: "nowrap" }}>Ordered ✓</span>}
               </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
       {/* Summary — counts items where the order total has been entered. */}
       <div style={{ fontSize: 11, color: T.muted, textAlign: "center" }}>
