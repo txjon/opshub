@@ -33,7 +33,7 @@ export async function GET(
     // Also check decorator_assignments table
     const { data: assignments } = await sb
       .from("decorator_assignments")
-      .select("item_id, pipeline_stage, tracking_number, notes, sent_to_decorator_date, est_completion_date, actual_completion_date, received_by_vendor_at")
+      .select("item_id, pipeline_stage, tracking_number, notes, sent_to_decorator_date, est_completion_date, actual_completion_date")
       .eq("decorator_id", decorator.id);
 
     const assignedItemIds = (assignments || []).map((a: any) => a.item_id);
@@ -151,12 +151,6 @@ export async function GET(
         const supplier = costProd?.supplier || item.blank_vendor || "";
         const incoming = item.incoming_goods || (supplier ? "Blanks from " + supplier : "");
 
-        // Vendor-side acknowledgement flag (Blanks Received button) is
-        // tracked on decorator_assignments.received_by_vendor_at — kept
-        // independent from items.pipeline_stage so the click doesn't
-        // move HPD's production view.
-        const vendorAck = (assignments || []).find((a: any) => a.item_id === item.id && a.received_by_vendor_at);
-
         return {
           id: item.id,
           name: item.name,
@@ -165,7 +159,6 @@ export async function GET(
           blankVendor: item.blank_vendor,
           blankSku: item.blank_sku || costProd?.color || "",
           pipelineStage: item.pipeline_stage || "pending",
-          vendorAcknowledgedReceived: !!vendorAck,
           driveLink: item.drive_link,
           incomingGoods: incoming,
           productionNotes: item.production_notes_po,
@@ -311,7 +304,6 @@ export async function GET(
         grandTotal += itemTotal;
         const supplier = costProd?.supplier || item.blank_vendor || "";
         const incoming = item.incoming_goods || (supplier ? "Blanks from " + supplier : "");
-        const vendorAck = (assignments || []).find((a: any) => a.item_id === item.id && a.received_by_vendor_at);
         return {
           id: item.id,
           name: item.name,
@@ -320,7 +312,6 @@ export async function GET(
           blankVendor: item.blank_vendor,
           blankSku: item.blank_sku || costProd?.color || "",
           pipelineStage: item.pipeline_stage || "complete",
-          vendorAcknowledgedReceived: !!vendorAck,
           driveLink: item.drive_link,
           incomingGoods: incoming,
           productionNotes: item.production_notes_po,
@@ -413,42 +404,10 @@ export async function POST(
       return { item, job };
     }
 
-    // ── CONFIRM RECEIVED: Vendor-side acknowledgement only ──
-    // Sets decorator_assignments.received_by_vendor_at. Does NOT touch
-    // items.pipeline_stage — HPD's production view stays at "PO sent"
-    // until the vendor enters tracking (the real progress signal).
-    // No team notification.
-    if (action === "confirm_received" && itemId) {
-      await sb.from("decorator_assignments")
-        .update({ received_by_vendor_at: new Date().toISOString() })
-        .eq("item_id", itemId).eq("decorator_id", decorator.id);
-
-      const ctx = await getItemContext(itemId);
-      if (ctx) {
-        await sb.from("job_activity").insert({
-          job_id: ctx.job.id, user_id: null, type: "auto",
-          message: `${decorator.name} acknowledged blanks received — ${ctx.item.name}`,
-        });
-      }
-      return NextResponse.json({ success: true });
-    }
-
-    // ── UNDO RECEIVED: Vendor clears their own acknowledgement ──
-    // Clears the timestamp. Same vendor-only / no-notify rule.
-    if (action === "undo_received" && itemId) {
-      await sb.from("decorator_assignments")
-        .update({ received_by_vendor_at: null })
-        .eq("item_id", itemId).eq("decorator_id", decorator.id);
-
-      const ctx = await getItemContext(itemId);
-      if (ctx) {
-        await sb.from("job_activity").insert({
-          job_id: ctx.job.id, user_id: null, type: "auto",
-          message: `${decorator.name} unmarked blanks received — ${ctx.item.name}`,
-        });
-      }
-      return NextResponse.json({ success: true });
-    }
+    // (confirm_received / undo_received actions removed — HPD doesn't
+    // need that vendor-side acknowledgement and the button was deleted
+    // from the portal. Discrepancy reporting is the only flag vendors
+    // actively send back.)
 
     // ── ENTER TRACKING: Item shipped from decorator ──
     if (action === "enter_tracking" && itemId && tracking) {

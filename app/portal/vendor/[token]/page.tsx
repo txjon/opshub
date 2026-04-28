@@ -62,7 +62,6 @@ type OrderItem = {
   shipQtys: Record<string, number> | null; sizes: string[]; qtys: Record<string, number>;
   totalQty: number; decoLines: DecoLine[]; itemTotal: number;
   mockupThumb: string | null; blanksOrdered: boolean;
-  vendorAcknowledgedReceived?: boolean;
 };
 
 const STAGE_LABELS: Record<string, { label: string; bg: string; color: string }> = {
@@ -530,36 +529,13 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                         {/* ── Actions ── */}
                         {(() => {
                           const isShipped = item.pipelineStage === "shipped" || item.pipelineStage === "complete" || !!item.shipTracking;
-                          // Vendor-only acknowledgement — independent of
-                          // HPD's pipeline_stage so undoing/redoing
-                          // doesn't move the production view.
-                          const alreadyReceived = !!item.vendorAcknowledgedReceived || isShipped;
                           return (
                             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
-                              {/* Blanks Received — outlined-grey by default,
-                                  filled-green once clicked. Click again to
-                                  undo. Same shape as Report Discrepancy.
-                                  Status update only — HPD is not notified. */}
-                              {!isShipped && (
-                                <button
-                                  onClick={() => setConfirmAction({
-                                    itemId: item.id,
-                                    action: alreadyReceived ? "undo_received" : "confirm_received",
-                                    label: alreadyReceived
-                                      ? `Undo — mark ${item.name} blanks as NOT received?`
-                                      : `Mark ${item.name} blanks as received?`,
-                                  })}
-                                  style={{
-                                    padding: "8px 16px", borderRadius: 8,
-                                    background: alreadyReceived ? C.green : "transparent",
-                                    color: alreadyReceived ? "#fff" : C.muted,
-                                    border: alreadyReceived ? "none" : `1px solid ${C.border}`,
-                                    fontSize: 12, fontWeight: 600,
-                                    cursor: "pointer",
-                                  }}>
-                                  {alreadyReceived ? "✓ Blanks Received" : "Mark Blanks Received"}
-                                </button>
-                              )}
+                              {/* Two actions only: ship the item, or report
+                                  a discrepancy. Vendor-only "blanks received"
+                                  acknowledgement was removed — HPD doesn't
+                                  need that signal, and discrepancies are the
+                                  only thing vendors actively need to flag. */}
 
                               {/* Enter Tracking — opens panel; auto-closes
                                   the Discrepancy panel so only one panel is
@@ -803,13 +779,6 @@ export default function VendorPortalPage({ params }: { params: { token: string }
             boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
           }}>
             <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>{confirmAction.label}</div>
-            <div style={{ fontSize: 12, color: C.muted, marginBottom: 20 }}>
-              {confirmAction.action === "undo_received"
-                ? "Clears your acknowledgement on this item. HPD's view is unaffected."
-                : confirmAction.action === "confirm_received"
-                ? "Marks the blanks as received on your end. HPD's view doesn't change — they'll still show this as PO Sent until you enter tracking."
-                : "This will update the status."}
-            </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => setConfirmAction(null)} style={{
                 padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600,
