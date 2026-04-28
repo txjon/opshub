@@ -532,25 +532,24 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                           const alreadyReceived = item.pipelineStage === "in_production" || item.pipelineStage === "blanks_received" || isShipped;
                           return (
                             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
-                              {/* Blanks Received — actionable button when not
-                                  yet received; static status text when done.
-                                  Avoids the "disabled green button looks dead"
-                                  problem. */}
-                              {!isShipped && !alreadyReceived && (
+                              {/* Blanks Received — outlined-grey by default,
+                                  filled-green once clicked. Same shape as
+                                  Report Discrepancy. Status update only;
+                                  HPD does not get notified. */}
+                              {!isShipped && (
                                 <button
                                   onClick={() => setConfirmAction({ itemId: item.id, action: "confirm_received", label: `Mark ${item.name} blanks as received?` })}
+                                  disabled={alreadyReceived}
                                   style={{
                                     padding: "8px 16px", borderRadius: 8,
-                                    background: C.accent, color: "#fff", border: "none",
-                                    fontSize: 12, fontWeight: 600, cursor: "pointer",
+                                    background: alreadyReceived ? C.green : "transparent",
+                                    color: alreadyReceived ? "#fff" : C.muted,
+                                    border: alreadyReceived ? "none" : `1px solid ${C.border}`,
+                                    fontSize: 12, fontWeight: 600,
+                                    cursor: alreadyReceived ? "default" : "pointer",
                                   }}>
-                                  Mark Blanks Received
+                                  {alreadyReceived ? "✓ Blanks Received" : "Mark Blanks Received"}
                                 </button>
-                              )}
-                              {!isShipped && alreadyReceived && (
-                                <span style={{ fontSize: 11, fontWeight: 700, color: C.green, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                                  ✓ Blanks Received
-                                </span>
                               )}
 
                               {/* Enter Tracking — opens panel; auto-closes

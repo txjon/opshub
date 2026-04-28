@@ -405,6 +405,8 @@ export async function POST(
     }
 
     // ── CONFIRM RECEIVED: Decorator acknowledges the PO ──
+    // Status-only update — does not notify HPD. Activity log entry
+    // gives Jon a trace if he needs it, but no team alert fires.
     if (action === "confirm_received" && itemId) {
       await sb.from("items").update({ pipeline_stage: "in_production" }).eq("id", itemId);
       await sb.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("item_id", itemId).eq("decorator_id", decorator.id);
@@ -415,10 +417,6 @@ export async function POST(
           job_id: ctx.job.id, user_id: null, type: "auto",
           message: `${decorator.name} confirmed receipt — ${ctx.item.name} is in production`,
         });
-        await notify(
-          `In production — ${ctx.item.name} · ${ctx.job.title} (${decorator.name})`,
-          "production", ctx.job.id
-        );
       }
       return NextResponse.json({ success: true });
     }
