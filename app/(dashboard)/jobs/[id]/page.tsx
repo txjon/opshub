@@ -328,6 +328,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         id: it.id,
         pipeline_stage: it.pipeline_stage || null,
         blanks_order_number: (it as any).blanks_order_number || null,
+        blanks_order_cost: (it as any).blanks_order_cost ?? null,
         ship_tracking: (it as any).ship_tracking || null,
         received_at_hpd: (it as any).received_at_hpd || false,
         artwork_status: (it as any).artwork_status || null,
@@ -585,7 +586,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           </div>
           {items.map((item: any, i: number) => {
             const proofOk = proofStatus[item.id]?.allApproved || item.artwork_status === "approved";
-            const hasBlanks = !!item.blanks_order_number;
+            const hasBlanks = ((item as any).blanks_order_cost ?? 0) > 0;
             const stage = item.pipeline_stage;
             const isSelected = selectedItemId === item.id;
             return (
@@ -703,7 +704,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       {(()=>{
                         const r=calculatePhase({
                           job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
-                          items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
+                          items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,blanks_order_cost:(it as any).blanks_order_cost ?? null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
                           payments:payments.map(p=>({amount:p.amount,status:p.status})),
                           proofStatus,
                           poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
@@ -783,7 +784,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   {(()=>{
                     const r=calculatePhase({
                       job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
-                      items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
+                      items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,blanks_order_cost:(it as any).blanks_order_cost ?? null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
                       payments:payments.map(p=>({amount:p.amount,status:p.status})),
                       proofStatus,
                       poSentVendors:(job as any).type_meta?.po_sent_vendors||[],

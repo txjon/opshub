@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
       { data: allProofs },
     ] = await Promise.all([
       sb.from("payment_records").select("id, job_id, amount, status, due_date, type").in("job_id", jobIds),
-      sb.from("items").select("id, job_id, name, pipeline_stage, pipeline_timestamps, blanks_order_number, artwork_status").in("job_id", jobIds),
+      sb.from("items").select("id, job_id, name, pipeline_stage, pipeline_timestamps, blanks_order_number, blanks_order_cost, artwork_status").in("job_id", jobIds),
       sb.from("item_files").select("id, item_id, stage, approval, created_at").in("stage", ["proof"]).eq("approval", "pending").is("superseded_at", null),
     ]);
 
@@ -122,8 +122,9 @@ export async function GET(req: NextRequest) {
       }
 
       // ── BLANKS NOT ORDERED (ready phase) ──
+      // Order total > 0 = ordered. Order # field was removed from UI.
       if (job.phase === "ready") {
-        const unordered = items.filter(i => !i.blanks_order_number);
+        const unordered = items.filter(i => ((i as any).blanks_order_cost ?? 0) <= 0);
         if (unordered.length > 0) {
           alerts.push({
             priority: 2,
@@ -138,7 +139,7 @@ export async function GET(req: NextRequest) {
       if (job.phase === "ready" || job.phase === "production") {
         const poSent = (job.type_meta as any)?.po_sent_vendors || [];
         const hasItems = items.length > 0;
-        const allBlanksOrdered = items.every(i => i.blanks_order_number);
+        const allBlanksOrdered = items.every(i => ((i as any).blanks_order_cost ?? 0) > 0);
         if (hasItems && allBlanksOrdered && poSent.length === 0) {
           alerts.push({
             priority: 2,

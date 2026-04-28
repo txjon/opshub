@@ -50,7 +50,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
   // pins, etc., so a job with 2 garments + 4 accessories displayed 2/6
   // here while the in-tab summary correctly showed 2/2.
   const apparelItems = items.filter(it => !NON_GARMENT.includes(it.garment_type));
-  const blanksOrdered = apparelItems.filter(it => it.blanks_order_number).length;
+  const blanksOrdered = apparelItems.filter(it => (it.blanks_order_cost ?? 0) > 0).length;
   const allBlanksOrdered = items.length > 0 && (apparelItems.length === 0 || blanksOrdered === apparelItems.length);
   const poSentVendors = job.type_meta?.po_sent_vendors || [];
   const costProds = job.costing_data?.costProds || [];

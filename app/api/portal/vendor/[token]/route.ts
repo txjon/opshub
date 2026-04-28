@@ -90,7 +90,7 @@ export async function GET(
       // Fetch full item data
       const { data: items } = await sb
         .from("items")
-        .select("id, name, garment_type, blank_vendor, blank_sku, pipeline_stage, drive_link, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, sort_order, buy_sheet_lines(size, qty_ordered)")
+        .select("id, name, garment_type, blank_vendor, blank_sku, pipeline_stage, drive_link, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, blanks_order_cost, sort_order, buy_sheet_lines(size, qty_ordered)")
         .in("id", itemIds)
         .order("sort_order");
 
@@ -171,7 +171,7 @@ export async function GET(
           decoLines,
           itemTotal,
           mockupThumb: mockupByItem[item.id] ? `/api/files/thumbnail?id=${mockupByItem[item.id]}` : null,
-          blanksOrdered: !!item.blanks_order_number,
+          blanksOrdered: ((item as any).blanks_order_cost ?? 0) > 0,
         };
       });
 
@@ -253,7 +253,7 @@ export async function GET(
       const itemIds = decItems.map((cp: any) => cp.id);
       const { data: cItems } = await sb
         .from("items")
-        .select("id, name, garment_type, blank_vendor, blank_sku, pipeline_stage, drive_link, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, sort_order, buy_sheet_lines(size, qty_ordered)")
+        .select("id, name, garment_type, blank_vendor, blank_sku, pipeline_stage, drive_link, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, blanks_order_cost, sort_order, buy_sheet_lines(size, qty_ordered)")
         .in("id", itemIds)
         .order("sort_order");
 
@@ -324,7 +324,7 @@ export async function GET(
           decoLines,
           itemTotal,
           mockupThumb: cMockupByItem[item.id] ? `/api/files/thumbnail?id=${cMockupByItem[item.id]}` : null,
-          blanksOrdered: !!item.blanks_order_number,
+          blanksOrdered: ((item as any).blanks_order_cost ?? 0) > 0,
         };
       });
 

@@ -16,6 +16,7 @@ export type LifecycleInput = {
     id: string;
     pipeline_stage: string | null;
     blanks_order_number: string | null;
+    blanks_order_cost: number | null;
     ship_tracking: string | null;
     received_at_hpd: boolean;
     artwork_status?: string | null;
@@ -54,8 +55,12 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   const atDecorator = items.filter(it => it.pipeline_stage === "in_production").length;
   const shippedFromDecorator = items.filter(it => it.pipeline_stage === "shipped").length;
   const receivedAtHpd = items.filter(it => it.received_at_hpd).length;
-  const apparelItems = items.filter(it => it.garment_type !== "accessory");
-  const blanksOrdered = apparelItems.filter(it => it.blanks_order_number).length;
+  // Match BlanksTab + ProjectProgress: only real garments need blanks.
+  // "Ordered" signal is order total > 0 (entered after ordering externally) —
+  // the order # field was removed from the UI.
+  const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
+  const apparelItems = items.filter(it => !NON_GARMENT.includes(it.garment_type || ""));
+  const blanksOrdered = apparelItems.filter(it => (it.blanks_order_cost ?? 0) > 0).length;
   const allProofsApproved = items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
 
   // ── COMPLETE

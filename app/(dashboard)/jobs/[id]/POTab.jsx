@@ -239,7 +239,11 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const allFilled = vItems.every(it=>itemFields[it.id]?.packing_notes?.trim());
 
   // Blanks gate: check if all items for current vendor have blanks ordered
-  const blanksNotOrdered = vItems.filter(it => !it.blanks_order_number && it.garment_type !== "accessory");
+  // Items still missing a blanks order. Same NON_GARMENT list used
+  // elsewhere — patches/stickers/etc. are priced via custom-cost lines
+  // and don't have a blanks order at all.
+  const NON_GARMENT_PO = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
+  const blanksNotOrdered = vItems.filter(it => (it.blanks_order_cost ?? 0) <= 0 && !NON_GARMENT_PO.includes(it.garment_type));
 
   // PO sent tracker: stored in job type_meta
   const poSentVendors = project?.type_meta?.po_sent_vendors || [];

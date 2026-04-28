@@ -207,7 +207,7 @@ async function recalcPhase(db: ReturnType<typeof admin>, jobId: string) {
 
   const { data: jobItems } = await db
     .from("items")
-    .select("id, pipeline_stage, blanks_order_number, ship_tracking, received_at_hpd, artwork_status, garment_type")
+    .select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type")
     .eq("job_id", jobId);
 
   const { data: payments } = await db
@@ -247,6 +247,7 @@ async function recalcPhase(db: ReturnType<typeof admin>, jobId: string) {
       id: it.id,
       pipeline_stage: it.pipeline_stage,
       blanks_order_number: it.blanks_order_number,
+      blanks_order_cost: it.blanks_order_cost ?? null,
       ship_tracking: it.ship_tracking,
       received_at_hpd: it.received_at_hpd || false,
       artwork_status: it.artwork_status,

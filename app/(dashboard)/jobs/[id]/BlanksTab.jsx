@@ -79,11 +79,11 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
       const dbVal = field === "blanks_order_cost" ? (parseFloat(String(value).replace(/[^0-9.\-]/g, "")) || null) : (value || null);
       await supabase.from("items").update({ [field]: dbVal }).eq("id", itemId);
       if (onUpdateItem) onUpdateItem(itemId, { [field]: dbVal });
-      if (field === "blanks_order_number" && value) {
+      if (field === "blanks_order_cost" && dbVal && dbVal > 0) {
         const item = items.find(it => it.id === itemId);
         if (item) {
-          const supplier = item.blank_vendor?.startsWith("AS Colour") ? "AS Colour" : item.blank_vendor?.startsWith("LA Apparel") ? "LA Apparel" : "S&S";
-          logJobActivity(job.id, `Blanks ordered for ${item.name} — ${supplier} #${value}`);
+          const supplier = item.blank_vendor || "blank vendor";
+          logJobActivity(job.id, `Blanks ordered for ${item.name} — ${supplier} · $${Number(dbVal).toFixed(2)}`);
         }
       }
       if (onRecalcPhase) onRecalcPhase();
@@ -143,7 +143,11 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
         } else {
           // Multiple items, no letter suffix — try to match by line items in order
           // For now, apply to all S&S items that don't have an order yet
-          matchedItems = ssItems.filter(it => !localFields[it.id]?.blanks_order_number);
+          matchedItems = ssItems.filter(it => {
+            const v = localFields[it.id]?.blanks_order_cost;
+            const n = v ? parseFloat(String(v).replace(/[^0-9.\-]/g, "")) : 0;
+            return n <= 0;
+          });
           if (matchedItems.length === 0) matchedItems = ssItems;
         }
 
@@ -312,7 +316,9 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
         );
       })()}
 
-      {/* Item list */}
+      {/* Item list — built as a reference layout for ordering blanks
+          outside OpsHub. Big readable header (name, HPD-#, brand, style,
+          color, per-size qtys); single input for order total once placed. */}
       {items.map((item, i) => {
         if (selectedItemId && item.id !== selectedItemId) return null;
         const f = localFields[item.id] || {};
@@ -320,63 +326,94 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
         const calcCost = item.cost_per_unit != null ? (item.cost_per_unit * totalUnits) : null;
         const actualCost = f.blanks_order_cost ? parseFloat(String(f.blanks_order_cost).replace(/[^0-9.\-]/g, "")) : null;
         const costDiff = calcCost !== null && actualCost !== null ? actualCost - calcCost : null;
-        const hasOrder = !!f.blanks_order_number;
+        // Order total > 0 is the new "ordered" signal — order # field
+        // was removed since it's tracked outside OpsHub.
+        const hasOrder = (actualCost ?? 0) > 0;
+        const projectRef = `${job?.job_number || ""}${String.fromCharCode(65 + i)}`;
+        const itemLetter = String.fromCharCode(65 + i);
 
         return (
           <div key={item.id} style={{ ...card, border: `1px solid ${hasOrder ? T.green + "44" : T.border}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
-              <span style={{ width: 22, height: 22, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
-                {String.fromCharCode(65 + i)}
+            {/* Header — large, scannable */}
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "16px 18px", borderBottom: `1px solid ${T.border}` }}>
+              <span style={{ width: 32, height: 32, borderRadius: 6, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
+                {itemLetter}
               </span>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</span>
-                  <span style={{ fontSize: 10, color: T.text, fontFamily: mono }}>{job?.job_number}{String.fromCharCode(65 + i)}</span>
-                </div>
-                <div style={{ fontSize: 10, color: T.muted }}>{[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ")} · {totalUnits.toLocaleString()} units</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: T.text, lineHeight: 1.2, marginBottom: 4 }}>{item.name}</div>
+                <div style={{ fontSize: 14, color: T.accent, fontFamily: mono, fontWeight: 600 }}>{projectRef}</div>
               </div>
-              {hasOrder && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>Ordered</span>}
+              {hasOrder && <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 99, background: T.greenDim, color: T.green, flexShrink: 0, marginTop: 4 }}>Ordered ✓</span>}
             </div>
-            <div style={{ padding: "10px 14px" }}>
-              {(item.sizes || []).length > 0 && (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+
+            {/* Brand / Style / Color — big bold rows */}
+            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "grid", gridTemplateColumns: "auto 1fr", gap: "8px 24px", alignItems: "baseline" }}>
+              {item.blank_vendor && (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Brand</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{item.blank_vendor}</div>
+                </>
+              )}
+              {item.blank_sku && (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Style</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: T.text, fontFamily: mono }}>{item.blank_sku}</div>
+                </>
+              )}
+              {(item.color || item.blank_color) && (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Color</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{item.color || item.blank_color}</div>
+                </>
+              )}
+            </div>
+
+            {/* Per-size qty pills — big & legible */}
+            {(item.sizes || []).length > 0 && (
+              <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Quantities</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: mono }}>{totalUnits.toLocaleString()} <span style={{ fontSize: 11, fontWeight: 500, color: T.muted }}>units</span></div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
-                    <div key={sz} style={{ display: "flex", alignItems: "center", gap: 3, padding: "3px 8px", background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                      <span style={{ fontSize: 10, color: T.muted, fontFamily: mono }}>{sz}</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: T.text, fontFamily: mono }}>{(item.qtys || {})[sz]}</span>
+                    <div key={sz} style={{ display: "flex", alignItems: "baseline", gap: 6, padding: "8px 14px", background: T.surface, borderRadius: 8, border: `1px solid ${T.border}` }}>
+                      <span style={{ fontSize: 12, color: T.muted, fontFamily: mono, fontWeight: 600 }}>{sz}</span>
+                      <span style={{ fontSize: 18, fontWeight: 700, color: T.text, fontFamily: mono }}>{(item.qtys || {})[sz].toLocaleString()}</span>
                     </div>
                   ))}
                 </div>
-              )}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <div>
-                  <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>{(item.blank_vendor?.startsWith("AS Colour") ? "AS Colour" : item.blank_vendor?.startsWith("LA Apparel") ? "LA Apparel" : "S&S")} Order #</label>
-                  <input style={ic} value={f.blanks_order_number || ""} placeholder="e.g. SO-123456"
-                    onChange={e => updateField(item.id, "blanks_order_number", e.target.value)} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Order total</label>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <input style={{ ...ic, fontFamily: mono }} type="text" inputMode="decimal" value={f.blanks_order_cost || ""} placeholder="0.00"
-                      onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
-                      onFocus={e => e.target.select()} />
-                    {calcCost !== null && actualCost !== null && (
-                      <span style={{ fontSize: 10, fontFamily: mono, fontWeight: 600, flexShrink: 0, color: costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.faint }}>
-                        {costDiff === 0 ? "match" : (costDiff > 0 ? "+" : "") + "$" + Math.abs(costDiff).toFixed(2)}
-                      </span>
-                    )}
-                  </div>
-                  {calcCost !== null && <div style={{ fontSize: 9, color: T.faint, marginTop: 2 }}>Calculated: ${calcCost.toFixed(2)}</div>}
-                </div>
+              </div>
+            )}
+
+            {/* Order total entry */}
+            <div style={{ padding: "14px 18px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Order total</label>
+                {calcCost !== null && <div style={{ fontSize: 11, color: T.faint }}>Calculated: <span style={{ fontFamily: mono, fontWeight: 600 }}>${calcCost.toFixed(2)}</span></div>}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <input style={{ ...ic, fontFamily: mono, fontSize: 16, fontWeight: 600, padding: "10px 14px" }} type="text" inputMode="decimal" value={f.blanks_order_cost || ""} placeholder="0.00"
+                  onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
+                  onFocus={e => e.target.select()} />
+                {calcCost !== null && actualCost !== null && (
+                  <span style={{ fontSize: 12, fontFamily: mono, fontWeight: 700, flexShrink: 0, color: costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.muted, padding: "6px 10px", background: costDiff === 0 ? "transparent" : (costDiff > 0 ? T.redDim : T.greenDim), borderRadius: 6 }}>
+                    {costDiff === 0 ? "match" : (costDiff > 0 ? "+" : "") + "$" + Math.abs(costDiff).toFixed(2)}
+                  </span>
+                )}
               </div>
             </div>
           </div>
         );
       })}
 
-      {/* Summary */}
+      {/* Summary — counts items where the order total has been entered. */}
       <div style={{ fontSize: 11, color: T.muted, textAlign: "center" }}>
-        {items.filter(it => localFields[it.id]?.blanks_order_number).length}/{items.length} items ordered
+        {items.filter(it => {
+          const v = localFields[it.id]?.blanks_order_cost;
+          const n = v ? parseFloat(String(v).replace(/[^0-9.\-]/g, "")) : 0;
+          return n > 0;
+        }).length}/{items.length} items ordered
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ export default async function DashboardPage() {
   // ── Data Loading ──
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("*, clients(name), quote_approved, quote_approved_at, type_meta, costing_data, costing_summary, payment_terms, shipping_route, fulfillment_status, quote_rejection_notes, items(id, name, pipeline_stage, blanks_order_number, ship_tracking, artwork_status, garment_type, received_at_hpd, pipeline_timestamps, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
+    .select("*, clients(name), quote_approved, quote_approved_at, type_meta, costing_data, costing_summary, payment_terms, shipping_route, fulfillment_status, quote_rejection_notes, items(id, name, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, artwork_status, garment_type, received_at_hpd, pipeline_timestamps, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
     .not("phase", "in", '("complete","cancelled","on_hold")')
     .order("target_ship_date", { ascending: true, nullsFirst: false });
 
@@ -256,9 +256,10 @@ export default async function DashboardPage() {
 
     // ═══════════ PRODUCTION ALERTS ═══════════
 
-    // 8. Order blanks
+    // 8. Order blanks. Signal is order_total entered, not order #
+    // (the # field is gone — orders are placed outside OpsHub).
     if (quoteApproved && paymentGateMet && allProofsApproved) {
-      const needsBlanks = apparelItems.filter((it: any) => !it.blanks_order_number);
+      const needsBlanks = apparelItems.filter((it: any) => (it.blanks_order_cost ?? 0) <= 0);
       if (needsBlanks.length > 0) {
         alerts.push({ ...base, priority: 1, type: "order_blanks", color: T.accent,
           action: `Order blanks · ${needsBlanks.length} item${needsBlanks.length !== 1 ? "s" : ""}`,
@@ -267,7 +268,7 @@ export default async function DashboardPage() {
     }
 
     // 9. Send PO — fixed: fires for accessory-only (no blanks needed)
-    const allBlanksHandled = apparelItems.length === 0 || apparelItems.every((it: any) => it.blanks_order_number);
+    const allBlanksHandled = apparelItems.length === 0 || apparelItems.every((it: any) => (it.blanks_order_cost ?? 0) > 0);
     if (quoteApproved && paymentGateMet && allProofsApproved && allBlanksHandled && unsentVendors.length > 0) {
       alerts.push({ ...base, priority: 1, type: "send_po", color: T.accent,
         action: `Send PO · ${unsentVendors.join(", ")}`,
