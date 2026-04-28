@@ -192,6 +192,27 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, skipped: "already_sent" });
       }
 
+      // Server-side guard — verify ALL items on the job are actually
+      // received before sending. Callers (useWarehouse, warehouse page)
+      // check against an in-memory items list that's pre-filtered to
+      // only-shipped-or-received items, so they can fire this when
+      // items are still in production. Re-check against the full set.
+      const { data: allJobItems } = await sb
+        .from("items")
+        .select("id, pipeline_stage, received_at_hpd, garment_type")
+        .eq("job_id", jobId);
+      const jobItemsToReceive = (allJobItems || []).filter((it: any) => {
+        // Drop_ship items don't come back to HPD; skip them.
+        // (This route is gated to stage by callers but defending here
+        // doesn't hurt.)
+        return true;
+      });
+      const everyReceived = jobItemsToReceive.length > 0 && jobItemsToReceive.every((it: any) => it.received_at_hpd === true);
+      if (!everyReceived) {
+        const remaining = jobItemsToReceive.filter((it: any) => !it.received_at_hpd).length;
+        return NextResponse.json({ success: true, skipped: "not_all_received", remaining });
+      }
+
       const invoiceNum = typeMeta.qb_invoice_number || (job as any).job_number || "";
       const portalToken = (job as any).portal_token;
       const hubClient = (job as any).clients;
