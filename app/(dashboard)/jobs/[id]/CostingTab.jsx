@@ -1437,8 +1437,19 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       const updated = prev.filter(cp => buyIds.has(cp.id)).map(cp => {
         const bi = buyItems.find(b => b.id === cp.id);
         if (!bi) return cp;
-        const totalQty = bi.totalQty || Object.values(bi.qtys || {}).reduce((a, v) => a + v, 0);
-        const updates = { name: bi.name || cp.name, sizes: sortSizes(bi.sizes || []), qtys: bi.qtys || cp.qtys, totalQty, garment_type: bi.garment_type || cp.garment_type || null };
+        // Only override cp.qtys when buyItems actually has buy_sheet_lines
+        // for this item. Empty {} (no rows in DB) MUST NOT wipe qtys that
+        // were entered via Costing's per-size grid — that's how the data
+        // got lost on refresh before this guard was here.
+        const biHasQtyKeys = bi.qtys && Object.keys(bi.qtys).length > 0;
+        const totalQty = biHasQtyKeys
+          ? (bi.totalQty || Object.values(bi.qtys).reduce((a, v) => a + v, 0))
+          : cp.totalQty;
+        const updates = { name: bi.name || cp.name, sizes: sortSizes(bi.sizes || []), garment_type: bi.garment_type || cp.garment_type || null };
+        if (biHasQtyKeys) {
+          updates.qtys = bi.qtys;
+          updates.totalQty = totalQty;
+        }
         // Sync blank info if assigned/changed on buy sheet
         if (bi.blank_vendor && bi.blank_vendor !== cp.style) { updates.style = bi.blank_vendor; updates.color = bi.blank_sku || cp.color; }
         if (bi.blankCosts && Object.keys(bi.blankCosts).length > 0 && JSON.stringify(bi.blankCosts) !== JSON.stringify(cp.blankCosts)) { updates.blankCosts = bi.blankCosts; updates.blankCostPerUnit = Object.values(bi.blankCosts).filter(v=>v>0).reduce((a,v,_,arr)=>a+v/arr.length,0); }
@@ -1516,6 +1527,19 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           }
           if (Object.keys(itemUpdates).length > 0) {
             await supabase.from("items").update(itemUpdates).eq("id", cp.id);
+          }
+          // Persist per-size qtys to buy_sheet_lines (the source of truth
+          // every other surface reads — PO PDF, Quote PDF, portal,
+          // Production, Warehouse). Without this, qty edits in the Blanks
+          // grid only land in jobs.costing_data and get wiped by the next
+          // sync from empty buy_sheet_lines on refresh.
+          if (cp.qtys && Object.keys(cp.qtys).length > 0) {
+            const rows = Object.entries(cp.qtys).map(([size, qty]) => ({
+              item_id: cp.id, size, qty_ordered: Number(qty) || 0,
+            }));
+            if (rows.length > 0) {
+              await supabase.from("buy_sheet_lines").upsert(rows, { onConflict: "item_id,size" });
+            }
           }
           // Auto-create/update decorator assignment when vendor is selected
           if (cp.printVendor && vendorIdMapRef.current[cp.printVendor]) {
