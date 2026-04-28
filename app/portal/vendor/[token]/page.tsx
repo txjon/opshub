@@ -531,28 +531,38 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                           const isShipped = item.pipelineStage === "shipped" || item.pipelineStage === "complete" || !!item.shipTracking;
                           const alreadyReceived = item.pipelineStage === "in_production" || item.pipelineStage === "blanks_received" || isShipped;
                           return (
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-                              {/* Mark Blanks Received — visible until shipped */}
-                              {!isShipped && (
+                            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
+                              {/* Blanks Received — actionable button when not
+                                  yet received; static status text when done.
+                                  Avoids the "disabled green button looks dead"
+                                  problem. */}
+                              {!isShipped && !alreadyReceived && (
                                 <button
                                   onClick={() => setConfirmAction({ itemId: item.id, action: "confirm_received", label: `Mark ${item.name} blanks as received?` })}
-                                  disabled={alreadyReceived}
                                   style={{
                                     padding: "8px 16px", borderRadius: 8,
-                                    background: alreadyReceived ? C.greenBg : C.accent,
-                                    color: alreadyReceived ? C.green : "#fff",
-                                    border: alreadyReceived ? `1px solid ${C.greenBorder}` : "none",
-                                    fontSize: 12, fontWeight: 600,
-                                    cursor: alreadyReceived ? "default" : "pointer",
+                                    background: C.accent, color: "#fff", border: "none",
+                                    fontSize: 12, fontWeight: 600, cursor: "pointer",
                                   }}>
-                                  {alreadyReceived ? "✓ Blanks Received" : "Mark Blanks Received"}
+                                  Mark Blanks Received
                                 </button>
                               )}
+                              {!isShipped && alreadyReceived && (
+                                <span style={{ fontSize: 11, fontWeight: 700, color: C.green, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                                  ✓ Blanks Received
+                                </span>
+                              )}
 
-                              {/* Enter Tracking — visible until shipped */}
+                              {/* Enter Tracking — opens panel; auto-closes
+                                  the Discrepancy panel so only one panel is
+                                  open at a time (one "Cancel" max). */}
                               {!isShipped && (
                                 <button
-                                  onClick={() => setShowTracking(showTracking === item.id ? null : item.id)}
+                                  onClick={() => {
+                                    const next = showTracking === item.id ? null : item.id;
+                                    setShowTracking(next);
+                                    if (next) setShowIssue(null);
+                                  }}
                                   style={{
                                     padding: "8px 16px", borderRadius: 8,
                                     background: C.green, color: "#fff", border: "none",
@@ -569,10 +579,15 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                                 </div>
                               )}
 
-                              {/* Report Discrepancy — always visible on unshipped items */}
+                              {/* Report Discrepancy — opens panel; auto-closes
+                                  Tracking so only one is visible. */}
                               {!isShipped && (
                                 <button
-                                  onClick={() => setShowIssue(showIssue === item.id ? null : item.id)}
+                                  onClick={() => {
+                                    const next = showIssue === item.id ? null : item.id;
+                                    setShowIssue(next);
+                                    if (next) setShowTracking(null);
+                                  }}
                                   style={{
                                     padding: "8px 16px", borderRadius: 8,
                                     background: "transparent", color: C.amber, border: `1px solid ${C.amberBorder}`,
