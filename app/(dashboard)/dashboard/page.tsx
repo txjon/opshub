@@ -108,7 +108,11 @@ export default async function DashboardPage() {
     const costingSet = (costingSummary.grossRev || 0) > 0;
     const terms = j.payment_terms || "";
     const paymentGateMet = terms === "net_15" || terms === "net_30" || hasPaidPayment;
-    const apparelItems = items.filter((it: any) => it.garment_type !== "accessory");
+    // Match BlanksTab + ProjectProgress + lifecycle: only real garments
+    // count toward blanks alerts. Patches/stickers/totes/etc. are
+    // priced via custom-cost lines and don't have a blanks order.
+    const NON_GARMENT_TYPES = new Set(["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]);
+    const apparelItems = items.filter((it: any) => !NON_GARMENT_TYPES.has(it.garment_type));
 
     const base = {
       jobId: j.id, jobTitle: j.title, clientName, invoiceNumber: invoiceNum,
@@ -256,9 +260,10 @@ export default async function DashboardPage() {
 
     // ═══════════ PRODUCTION ALERTS ═══════════
 
-    // 8. Order blanks. Signal is order_total entered, not order #
-    // (the # field is gone — orders are placed outside OpsHub).
-    if (quoteApproved && paymentGateMet && allProofsApproved) {
+    // 8. Order blanks. Only fires while the job is in the ready phase —
+    // once it's moved to production / receiving / fulfillment, blanks
+    // are obviously ordered and this alert is just stale noise.
+    if (j.phase === "ready" && quoteApproved && paymentGateMet && allProofsApproved) {
       const needsBlanks = apparelItems.filter((it: any) => (it.blanks_order_cost ?? 0) <= 0);
       if (needsBlanks.length > 0) {
         alerts.push({ ...base, priority: 1, type: "order_blanks", color: T.accent,
@@ -267,9 +272,9 @@ export default async function DashboardPage() {
       }
     }
 
-    // 9. Send PO — fixed: fires for accessory-only (no blanks needed)
+    // 9. Send PO — same phase gate as order_blanks.
     const allBlanksHandled = apparelItems.length === 0 || apparelItems.every((it: any) => (it.blanks_order_cost ?? 0) > 0);
-    if (quoteApproved && paymentGateMet && allProofsApproved && allBlanksHandled && unsentVendors.length > 0) {
+    if (j.phase === "ready" && quoteApproved && paymentGateMet && allProofsApproved && allBlanksHandled && unsentVendors.length > 0) {
       alerts.push({ ...base, priority: 1, type: "send_po", color: T.accent,
         action: `Send PO · ${unsentVendors.join(", ")}`,
         href: `/jobs/${j.id}?tab=po`, column: "production", vendors: unsentVendors });
