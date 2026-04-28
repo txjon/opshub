@@ -1052,7 +1052,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       )}
 
       {tab==="proofs"&&(
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"2fr 3fr",gap:20,alignItems:"start"}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"3fr 2fr",gap:20,alignItems:"start"}}>
           <ApprovalsTab
             job={job}
             items={items}

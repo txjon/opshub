@@ -186,7 +186,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                 {/* Name + inline meta actions */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
-                    fontSize: 13, fontWeight: 600, color: T.text,
+                    fontSize: 12, fontWeight: 600, color: T.text,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                     letterSpacing: "-0.01em",
                   }} title={item.name}>
