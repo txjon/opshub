@@ -276,17 +276,37 @@ export default function ReceivingPage() {
                 );
               })()}
 
-              <div style={{ padding: "6px 12px" }}>
-                <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                      {["Item", "Tracking", "Shipped → Received", "Condition", ""].map(h =>
-                        <th key={h} style={{ padding: "5px 8px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {job.items.map((item, i) => {
+              {/* Items grouped by decorator (mirrors Production page) so
+                  it's clear which vendor's shipment you're receiving. If
+                  every item is from one decorator, the sub-header still
+                  shows their name as a useful at-a-glance reference. */}
+              {(() => {
+                const groups = new Map<string, { name: string; shortCode: string | null; items: typeof job.items }>();
+                for (const it of job.items) {
+                  const key = it.decorator_name || "Unassigned";
+                  if (!groups.has(key)) groups.set(key, { name: key, shortCode: it.decorator_short_code || null, items: [] });
+                  groups.get(key)!.items.push(it);
+                }
+                const groupArr = Array.from(groups.values());
+                return groupArr.map((group, gi) => (
+                  <div key={group.name} style={{ borderTop: gi === 0 ? "none" : `1px solid ${T.border}` }}>
+                    <div style={{ padding: "6px 12px", background: T.surface, display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>From</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{group.name}</span>
+                      {group.shortCode && <span style={{ fontSize: 10, color: T.muted, fontFamily: mono }}>· {group.shortCode}</span>}
+                      <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{group.items.length} item{group.items.length !== 1 ? "s" : ""}</span>
+                    </div>
+                    <div style={{ padding: "6px 12px" }}>
+                      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                            {["Item", "Tracking", "Shipped → Received", "Condition", ""].map(h =>
+                              <th key={h} style={{ padding: "5px 8px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.items.map((item, i) => {
                       const shippedQty = tQty(item.ship_qtys);
                       const totalQty = tQty(item.qtys);
                       const receivedTotal = tQty(item.received_qtys);
@@ -413,9 +433,12 @@ export default function ReceivingPage() {
                         </tr>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
           ))
         )

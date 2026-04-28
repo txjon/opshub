@@ -30,6 +30,8 @@ export type WarehouseItem = {
   received_qtys: Record<string, number>;
   ship_notes: string;
   decorator_assignment_id: string | null;
+  decorator_name: string | null;
+  decorator_short_code: string | null;
   receiving_data?: { condition?: string; notes?: string; received_by?: string | null; received_by_email?: string | null; received_at?: string } | null;
 };
 
@@ -78,10 +80,18 @@ export function useWarehouse() {
     const allItems = itemsRes.data;
     const allContacts = contactsRes.data || [];
     const assignmentMap: Record<string, string> = {};
+    const decoratorMap: Record<string, { name: string; short_code: string | null }> = {};
     if (allItems?.length) {
       const itemIds = allItems.map((it: any) => it.id);
-      const { data: assignments } = await supabase.from("decorator_assignments").select("id, item_id").in("item_id", itemIds);
-      for (const a of (assignments || [])) assignmentMap[a.item_id] = a.id;
+      const { data: assignments } = await supabase.from("decorator_assignments")
+        .select("id, item_id, decorators(name, short_code)")
+        .in("item_id", itemIds);
+      for (const a of (assignments || []) as any[]) {
+        assignmentMap[a.item_id] = a.id;
+        if (a.decorators?.name) {
+          decoratorMap[a.item_id] = { name: a.decorators.name, short_code: a.decorators.short_code || null };
+        }
+      }
     }
 
     const mapped: WarehouseJob[] = [];
@@ -123,6 +133,8 @@ export function useWarehouse() {
             ship_qtys: it.ship_qtys || {},
             received_qtys: it.received_qtys || {},
             decorator_assignment_id: assignmentMap[it.id] || null,
+            decorator_name: decoratorMap[it.id]?.name || null,
+            decorator_short_code: decoratorMap[it.id]?.short_code || null,
             receiving_data: it.receiving_data || null,
           };
         }),
