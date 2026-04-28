@@ -297,6 +297,37 @@ export default async function DashboardPage() {
     // 15. No ship date set — removed, not mandatory
   }
 
+  // ── Open vendor discrepancies ──
+  // Pulled from decorator_assignments where the vendor flagged an issue
+  // that hasn't been resolved yet. Surfaces in the Decorators bucket so
+  // the team can address before it becomes a shipping problem.
+  const { data: openDiscrepancies } = await supabase
+    .from("decorator_assignments")
+    .select("item_id, decorator_id, last_issue_note, last_issue_at, items(id, name, job_id, jobs(id, title, job_number, type_meta, clients(name))), decorators(name, short_code)")
+    .not("last_issue_at", "is", null)
+    .is("issue_resolved_at", null);
+  for (const d of (openDiscrepancies || []) as any[]) {
+    const item = d.items;
+    const job = item?.jobs;
+    if (!item || !job) continue;
+    const clientName = job.clients?.name || "";
+    const decoratorName = d.decorators?.name || d.decorators?.short_code || "Vendor";
+    const invNum = (job.type_meta as any)?.qb_invoice_number || null;
+    alerts.push({
+      priority: 0,
+      type: "vendor_discrepancy",
+      color: T.red,
+      action: `${decoratorName} flagged ${item.name}: "${(d.last_issue_note || "").slice(0, 80)}${(d.last_issue_note || "").length > 80 ? "…" : ""}"`,
+      jobId: job.id,
+      jobNumber: job.job_number,
+      jobTitle: job.title,
+      clientName,
+      invoiceNumber: invNum,
+      href: `/jobs/${job.id}?tab=po`,
+      column: "production",
+    });
+  }
+
   // Sort: critical first, then high, then medium
   alerts.sort((a, b) => a.priority - b.priority);
 
@@ -333,13 +364,14 @@ export default async function DashboardPage() {
     order_blanks:      { bucket: "decorators", section: "Order blanks" },
     send_po:           { bucket: "decorators", section: "Send PO" },
     shipping_soon:     { bucket: "decorators", section: "Verify shipping" },
+    vendor_discrepancy:{ bucket: "decorators", section: "Discrepancies" },
   };
 
   // Order in which sections appear inside each bucket — critical-tinted
   // sections at the top so eyes land on red first.
   const SECTION_ORDER: Record<string, string[]> = {
     clients:    ["Past ship date", "Quote feedback", "Proof revisions", "New leads", "Send to client", "Awaiting client", "Awaiting design review"],
-    decorators: ["Send PO", "Order blanks", "Verify shipping"],
+    decorators: ["Discrepancies", "Send PO", "Order blanks", "Verify shipping"],
     designers:  ["Awaiting HPD review", "Prep print-ready", "Mark delivered", "In design"],
   };
 

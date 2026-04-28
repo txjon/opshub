@@ -314,7 +314,6 @@ export default function VendorPortalPage({ params }: { params: { token: string }
           const order = [...orders, ...completedOrders].find(o => o.jobId === selectedOrderId);
           if (!order) return <div style={{ padding: 40, textAlign: "center", color: C.muted }}>Select an order</div>;
           const shipInfo = order.shipDate ? daysUntil(order.shipDate) : null;
-          const pendingItems = order.items.filter(i => i.pipelineStage === "pending");
           const expanded = true;
           return (<div>
         <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -330,22 +329,6 @@ export default function VendorPortalPage({ params }: { params: { token: string }
 
               {/* PO detail content */}
                 <div style={{ padding: isMobile ? "12px 16px" : "20px 24px" }}>
-
-                  {/* Bulk confirm button if multiple pending */}
-                  {pendingItems.length > 1 && (
-                    <button
-                      onClick={() => doAction("bulk_confirm", { itemIds: pendingItems.map(i => i.id) })}
-                      disabled={actionLoading === "bulk_confirm" + pendingItems[0].id}
-                      style={{
-                        width: "100%", padding: "10px 0", borderRadius: 8, marginBottom: 16,
-                        background: C.accent, color: "#fff", border: "none",
-                        fontSize: 13, fontWeight: 600, cursor: "pointer",
-                        opacity: actionLoading ? 0.6 : 1,
-                      }}
-                    >
-                      Confirm All {pendingItems.length} Items Received
-                    </button>
-                  )}
 
                   {/* ── Info Strip — softer card-row style ── */}
                   <div style={{

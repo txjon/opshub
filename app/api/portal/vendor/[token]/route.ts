@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendClientNotification } from "@/lib/auto-email";
 import { buildPrintersMap, calcDecorationLines } from "@/lib/pricing";
+import { Resend } from "resend";
+import { renderBrandedEmail } from "@/lib/email-template";
 
 const admin = () =>
   createClient(
@@ -472,41 +474,60 @@ export async function POST(
       return NextResponse.json({ success: true });
     }
 
-    // ── FLAG ISSUE: Decorator reports a problem ──
+    // ── FLAG ISSUE: Vendor reports a discrepancy ──
+    // Three places it surfaces for HPD:
+    //   1. decorator_assignments.last_issue_note + last_issue_at — the
+    //      structured signal the Command Center decorators bucket reads.
+    //   2. job_activity entry — historical trace on the project page.
+    //   3. Email to production@housepartydistro.com — so the team sees
+    //      the alert immediately even if no one's looking at the dashboard.
     if (action === "flag_issue" && itemId && note) {
+      await sb.from("decorator_assignments").update({
+        last_issue_note: note,
+        last_issue_at: new Date().toISOString(),
+        issue_resolved_at: null,
+      }).eq("item_id", itemId).eq("decorator_id", decorator.id);
+
       const ctx = await getItemContext(itemId);
       if (ctx) {
         await sb.from("job_activity").insert({
           job_id: ctx.job.id, user_id: null, type: "auto",
           message: `Issue flagged by ${decorator.name} for ${ctx.item.name}: "${note}"`,
         });
-        await notify(
-          `Issue flagged — ${ctx.item.name} · ${ctx.job.title} · ${decorator.name}: "${note}"`,
-          "alert", ctx.job.id
-        );
+
+        // Email production@ — same address PO emails use as their
+        // From, so replies thread back to the right inbox.
+        try {
+          const resendKey = process.env.RESEND_API_KEY;
+          if (resendKey) {
+            const resend = new Resend(resendKey);
+            const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
+              || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+            const projectRef = ctx.job.job_number || ctx.job.title;
+            await resend.emails.send({
+              from: process.env.EMAIL_FROM_PO || "production@housepartydistro.com",
+              to: "production@housepartydistro.com",
+              subject: `Vendor discrepancy — ${decorator.name} · ${ctx.item.name} · ${projectRef}`,
+              html: renderBrandedEmail({
+                heading: `Vendor flagged a discrepancy`,
+                bodyHtml: `<strong>${decorator.name}</strong> reported an issue on <strong>${ctx.item.name}</strong> (${projectRef}):<br/><br/><em>"${note.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}"</em>`,
+                cta: { label: "Open project", url: `${baseUrl}/jobs/${ctx.job.id}`, style: "dark" },
+                hint: "Reply directly to this thread to follow up with the vendor on next steps.",
+                closing: "House Party Distro",
+                align: "left",
+              }),
+            });
+          }
+        } catch (e) {
+          console.error("[vendor portal] discrepancy email failed:", (e as any)?.message);
+        }
       }
       return NextResponse.json({ success: true });
     }
 
-    // ── BULK CONFIRM: Multiple items at once ──
-    if (action === "bulk_confirm" && body.itemIds?.length) {
-      for (const iId of body.itemIds) {
-        await sb.from("items").update({ pipeline_stage: "in_production" }).eq("id", iId);
-        await sb.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("item_id", iId).eq("decorator_id", decorator.id);
-      }
-      const ctx = await getItemContext(body.itemIds[0]);
-      if (ctx) {
-        await sb.from("job_activity").insert({
-          job_id: ctx.job.id, user_id: null, type: "auto",
-          message: `${decorator.name} confirmed receipt of ${body.itemIds.length} item(s) — in production`,
-        });
-        await notify(
-          `In production — ${body.itemIds.length} items · ${ctx.job.title} (${decorator.name})`,
-          "production", ctx.job.id
-        );
-      }
-      return NextResponse.json({ success: true });
-    }
+    // (bulk_confirm action removed — was the bulk equivalent of the
+    // deleted Mark Blanks Received button. Vendor portal no longer
+    // surfaces a bulk action.)
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (e: any) {
