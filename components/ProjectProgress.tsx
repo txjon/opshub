@@ -19,7 +19,11 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
   activeTab: string;
 }) {
   const hasItems = items.length > 0;
-  const NON_GARMENT = ["patch","sticker","custom","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","key_chain","woven_labels","bandana","socks","tote"];
+  // Keep aligned with lib/pricing.ts + BlanksTab.jsx + CostingTab.jsx +
+  // jobs/page.tsx. Anything in this list isn't a real garment blank —
+  // it's priced via custom-cost lines and should be excluded from the
+  // blanks denominator and from the "needs a blank" gate.
+  const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
   const itemReady = (it: any) => {
     const hasBlank = it.blank_vendor || NON_GARMENT.includes(it.garment_type);
     const qty = it.totalQty || Object.values(it.qtys || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
@@ -41,7 +45,11 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
   else if (terms === "deposit_balance") paymentMet = payments.some((p: any) => p.status === "paid" || p.status === "partial");
   else paymentMet = false;
 
-  const apparelItems = items.filter(it => it.garment_type !== "accessory");
+  // Match BlanksTab's filter — only real garments count toward the blanks
+  // denominator. Filtering on just "accessory" missed patches, stickers,
+  // pins, etc., so a job with 2 garments + 4 accessories displayed 2/6
+  // here while the in-tab summary correctly showed 2/2.
+  const apparelItems = items.filter(it => !NON_GARMENT.includes(it.garment_type));
   const blanksOrdered = apparelItems.filter(it => it.blanks_order_number).length;
   const allBlanksOrdered = items.length > 0 && (apparelItems.length === 0 || blanksOrdered === apparelItems.length);
   const poSentVendors = job.type_meta?.po_sent_vendors || [];
