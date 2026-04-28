@@ -367,11 +367,11 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                 <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
                   {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
                     <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
-                      <span style={{ fontSize: 10, color: T.faint, fontFamily: mono, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>{sz}</span>
+                      <span style={{ fontSize: 13, color: T.muted, fontFamily: mono, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>{sz}</span>
                       <span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: mono }}>{(item.qtys || {})[sz].toLocaleString()}</span>
                     </div>
                   ))}
-                  <span style={{ fontSize: 11, color: T.faint, fontFamily: mono, paddingBottom: 2 }}>· {totalUnits.toLocaleString()} units</span>
+                  <span style={{ fontSize: 14, color: T.muted, fontFamily: mono, fontWeight: 600, paddingBottom: 1 }}>· {totalUnits.toLocaleString()} units</span>
                 </div>
               </div>
               {/* Order total input — sized for $100,000.00, right-aligned */}
@@ -383,7 +383,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                     onFocus={e => e.target.select()} />
                 </div>
                 {calcCost !== null && (
-                  <div style={{ fontSize: 9, color: T.faint, marginTop: 3, fontFamily: mono }}>calc ${calcCost.toFixed(2)}</div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4, fontFamily: mono }}>calc ${calcCost.toFixed(2)}</div>
                 )}
               </div>
               {/* Variance + Ordered badge */}
