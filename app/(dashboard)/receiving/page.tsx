@@ -365,29 +365,27 @@ export default function ReceivingPage() {
                             {item.ship_notes && <div style={{ fontSize: 10, color: T.amber, marginTop: 2 }}>{item.ship_notes}</div>}
                           </td>
                           <td style={{ padding: "6px 8px" }}>
-                            {/* Horizontal compact size grid:
-                                S 99 → [99]  M 347 → [347]  …
-                                Each size in one row instead of stacked
-                                vertically saves ~30px per item. */}
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                            {/* Per-size receiving cells — size label + shipped
+                                qty stack above a larger input box. Easier to
+                                read at a glance and easier to tap on touch. */}
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                               {item.sizes.map(sz => {
                                 const shipped = item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0;
                                 const received = item.received_qtys?.[sz] ?? shipped;
                                 const mismatch = item.received_at_hpd && received !== shipped;
                                 return (
-                                  <div key={sz} style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: mono, fontSize: 10 }}>
-                                    <span style={{ color: T.faint, fontWeight: 600 }}>{sz}</span>
-                                    <span style={{ color: T.muted }}>{shipped}</span>
-                                    <span style={{ color: T.faint }}>→</span>
+                                  <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, fontFamily: mono }}>
+                                    <span style={{ fontSize: 11, color: T.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{sz}</span>
+                                    <span style={{ fontSize: 11, color: T.muted, fontWeight: 600 }}>{shipped}</span>
                                     <input type="number" min="0" value={received}
                                       onChange={e => updateReceivedQty(item, sz, parseInt(e.target.value) || 0)}
                                       onFocus={e => e.target.select()}
-                                      style={{ width: 38, textAlign: "center", padding: "2px 3px", border: `1px solid ${mismatch ? T.red : T.border}`, borderRadius: 3, background: T.surface, color: mismatch ? T.red : T.text, fontSize: 10, fontFamily: mono, outline: "none" }} />
+                                      style={{ width: 60, textAlign: "center", padding: "6px 8px", border: `1px solid ${mismatch ? T.red : T.border}`, borderRadius: 5, background: T.surface, color: mismatch ? T.red : T.text, fontSize: 14, fontWeight: 600, fontFamily: mono, outline: "none" }} />
                                   </div>
                                 );
                               })}
                             </div>
-                            {hasVariance && <div style={{ fontSize: 9, color: T.red, marginTop: 3 }}>Variance: {receivedTotal - (shippedQty ?? totalQty)} units</div>}
+                            {hasVariance && <div style={{ fontSize: 10, color: T.red, marginTop: 4, fontWeight: 600 }}>Variance: {receivedTotal - (shippedQty ?? totalQty)} units</div>}
                           </td>
                           <td style={{ padding: "6px 8px" }}>
                             {item.received_at_hpd ? (
