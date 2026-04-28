@@ -800,7 +800,9 @@ export default function VendorPortalPage({ params }: { params: { token: string }
           }}>
             <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>{confirmAction.label}</div>
             <div style={{ fontSize: 12, color: C.muted, marginBottom: 20 }}>
-              This will update the status to &quot;In Production&quot;.
+              {confirmAction.action === "undo_received"
+                ? "This will revert the status to “PO Sent”."
+                : "This will update the status to “In Production”."}
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => setConfirmAction(null)} style={{
