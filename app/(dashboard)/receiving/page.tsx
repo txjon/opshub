@@ -37,6 +37,16 @@ export default function ReceivingPage() {
   const [tab, setTab] = useState<"production" | "outside">("production");
   const [conditionNote, setConditionNote] = useState<Record<string, string>>({});
   const [itemCondition, setItemCondition] = useState<Record<string, string>>({});
+  // Collapsed-by-default decorator groups, mirroring the Production
+  // page pattern. Click the header bar to expand. Key = jobId-decName.
+  const [expandedDecorators, setExpandedDecorators] = useState<Set<string>>(new Set());
+  const toggleDecorator = (key: string) => {
+    setExpandedDecorators(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
   const [packingSlips, setPackingSlips] = useState<Record<string, { file_name: string; drive_link: string; drive_file_id: string | null; mime_type: string | null }[]>>({});
   const [receivingPhotos, setReceivingPhotos] = useState<Record<string, { file_name: string; drive_link: string; drive_file_id: string | null; mime_type: string | null }[]>>({});
   const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
@@ -288,14 +298,27 @@ export default function ReceivingPage() {
                   groups.get(key)!.items.push(it);
                 }
                 const groupArr = Array.from(groups.values());
-                return groupArr.map((group, gi) => (
+                return groupArr.map((group, gi) => {
+                  const decKey = `${job.id}-${group.name}`;
+                  const isExpanded = expandedDecorators.has(decKey);
+                  const receivedCount = group.items.filter(it => it.received_at_hpd).length;
+                  const pendingCount = group.items.length - receivedCount;
+                  return (
                   <div key={group.name} style={{ borderTop: gi === 0 ? "none" : `1px solid ${T.border}` }}>
-                    <div style={{ padding: "6px 12px", background: T.surface, display: "flex", alignItems: "center", gap: 6 }}>
+                    {/* Decorator header — click to toggle */}
+                    <div onClick={() => toggleDecorator(decKey)}
+                      style={{ padding: "8px 12px", background: T.surface, display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <span style={{ fontSize: 10, color: T.faint, transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block", width: 10 }}>▶</span>
                       <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>From</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{group.name}</span>
                       {group.shortCode && <span style={{ fontSize: 10, color: T.muted, fontFamily: mono }}>· {group.shortCode}</span>}
-                      <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{group.items.length} item{group.items.length !== 1 ? "s" : ""}</span>
+                      <span style={{ fontSize: 10, color: T.muted }}>· {group.items.length} item{group.items.length !== 1 ? "s" : ""}</span>
+                      <div style={{ marginLeft: "auto", display: "flex", gap: 10, fontSize: 10, fontWeight: 700 }}>
+                        {pendingCount > 0 && <span style={{ color: T.amber }}>{pendingCount} pending</span>}
+                        {receivedCount > 0 && <span style={{ color: T.green }}>{receivedCount} received</span>}
+                      </div>
                     </div>
+                    {isExpanded && (
                     <div style={{ padding: "6px 12px" }}>
                       <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
                         <thead>
@@ -436,8 +459,10 @@ export default function ReceivingPage() {
                         </tbody>
                       </table>
                     </div>
+                    )}
                   </div>
-                ));
+                  );
+                });
               })()}
             </div>
           ))
