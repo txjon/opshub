@@ -57,10 +57,14 @@ export async function POST(req: NextRequest) {
     } else if (type === "invoice") {
       pdfUrl = `${baseUrl}/api/pdf/invoice/${jobId}?download=1`;
       fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-      // Standard post-invoice subject format: "Invoice — [Client] · Invoice [#] · [Project]"
+      // Subject + filename track whether this is a first send or a
+      // re-send after a previous one. invoice_sent_at is the marker —
+      // if it's already set, this is a revised send.
       const clientName = (jobData as any)?.clients?.name || "";
-      defaultSubject = subject || `Invoice — ${clientName}${qbInvNum ? ` · Invoice ${qbInvNum}` : ""} · ${projectTitle}`.trim();
-      filename = `invoice-${qbInvNum || jobId.slice(0, 8)}.pdf`;
+      const isRevisedInvoice = !!(jobData as any)?.type_meta?.invoice_sent_at;
+      const invoiceLabel = isRevisedInvoice ? "Revised invoice" : "Invoice";
+      defaultSubject = subject || `${invoiceLabel} — ${clientName}${qbInvNum ? ` · Invoice ${qbInvNum}` : ""} · ${projectTitle}`.trim();
+      filename = `invoice-${qbInvNum || jobId.slice(0, 8)}${isRevisedInvoice ? "-revised" : ""}.pdf`;
     } else if (type === "rfq") {
       const itemsQs = Array.isArray(rfqItemIds) && rfqItemIds.length > 0 ? `&items=${encodeURIComponent(rfqItemIds.join(","))}` : "";
       pdfUrl = `${baseUrl}/api/pdf/rfq/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}${itemsQs}`;
@@ -136,15 +140,20 @@ export async function POST(req: NextRequest) {
             secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
           })
         : type === "invoice"
-        ? renderBrandedEmail({
-            heading: `Invoice${qbInvNum ? ` #${qbInvNum}` : ""}`,
-            greeting: `Hi ${clientGreeting},`,
-            bodyHtml: qbInvNum && projectTitle
-              ? `Your invoice for <strong>Invoice ${qbInvNum} · ${projectTitle}</strong> is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`
-              : `Your invoice${qbInvNum ? ` #${qbInvNum}` : ""} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`,
-            cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
-            secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
-          })
+        ? (() => {
+            const isRevised = !!(jobData as any)?.type_meta?.invoice_sent_at;
+            const invoiceWord = isRevised ? "revised invoice" : "invoice";
+            const headingWord = isRevised ? "Revised invoice" : "Invoice";
+            return renderBrandedEmail({
+              heading: `${headingWord}${qbInvNum ? ` #${qbInvNum}` : ""}`,
+              greeting: `Hi ${clientGreeting},`,
+              bodyHtml: qbInvNum && projectTitle
+                ? `Your ${invoiceWord} for <strong>Invoice ${qbInvNum} · ${projectTitle}</strong> is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`
+                : `Your ${invoiceWord}${qbInvNum ? ` #${qbInvNum}` : ""} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`,
+              cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
+              secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
+            });
+          })()
         : type === "rfq"
         ? (() => {
             const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -207,7 +216,7 @@ export async function POST(req: NextRequest) {
           : type === "quote"
           ? `Quote attached (${filename})\n\nHere's your quote — take a look and let us know if you have any questions or want to make changes.`
           : type === "invoice"
-          ? `Invoice attached (${filename})\n\nAttached is your invoice. Let us know if you have any questions.`
+          ? `${(jobData as any)?.type_meta?.invoice_sent_at ? "Revised invoice" : "Invoice"} attached (${filename})\n\nAttached is your ${(jobData as any)?.type_meta?.invoice_sent_at ? "revised invoice" : "invoice"}. Let us know if you have any questions.`
           : `${type} attached (${filename})`,
         resend_message_id: data?.id || null,
       });
@@ -237,7 +246,7 @@ export async function POST(req: NextRequest) {
       // Log activity server-side — works from dashboard, quote tab, anywhere
       const activityMsg =
         type === "quote" ? `Quote sent to client (${recipientEmail})`
-        : type === "invoice" ? `Invoice sent to client (${recipientEmail})`
+        : type === "invoice" ? `${(jobData as any)?.type_meta?.invoice_sent_at ? "Revised invoice" : "Invoice"} sent to client (${recipientEmail})`
         : type === "po" ? `PO sent to ${vendor || "decorator"} (${recipientEmail})`
         : type === "rfq" ? `Quote request sent to ${vendor || "decorator"} (${recipientEmail}${Array.isArray(rfqItemIds) && rfqItemIds.length ? ` · ${rfqItemIds.length} item${rfqItemIds.length !== 1 ? "s" : ""}` : ""})`
         : `Email sent (${type})`;
