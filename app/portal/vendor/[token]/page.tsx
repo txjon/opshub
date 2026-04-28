@@ -805,8 +805,10 @@ export default function VendorPortalPage({ params }: { params: { token: string }
             <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>{confirmAction.label}</div>
             <div style={{ fontSize: 12, color: C.muted, marginBottom: 20 }}>
               {confirmAction.action === "undo_received"
-                ? "This will revert the status to “PO Sent”."
-                : "This will update the status to “In Production”."}
+                ? "Clears your acknowledgement on this item. HPD's view is unaffected."
+                : confirmAction.action === "confirm_received"
+                ? "Marks the blanks as received on your end. HPD's view doesn't change — they'll still show this as PO Sent until you enter tracking."
+                : "This will update the status."}
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => setConfirmAction(null)} style={{
