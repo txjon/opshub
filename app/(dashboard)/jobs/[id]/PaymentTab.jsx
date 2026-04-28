@@ -137,218 +137,152 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
 
-      {/* ── Action Buttons ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-        <button onClick={pushToQB} disabled={pushingToQB || isManualInvoice}
-          style={{ flex: 1, minWidth: 100, height: 60, borderRadius: 8,
-            border: invoiceStale ? `2px solid ${T.red}` : qbInvoiceNumber ? `2px solid ${T.green}` : "none",
-            cursor: pushingToQB ? "default" : isManualInvoice ? "default" : "pointer",
-            background: invoiceStale ? T.redDim : qbInvoiceNumber ? T.greenDim : T.blue,
-            color: invoiceStale ? T.red : qbInvoiceNumber ? T.green : "#fff",
-            fontSize: 11, fontWeight: 700, fontFamily: font,
-            opacity: pushingToQB ? 0.6 : 1, transition: "opacity 0.15s", textAlign: "center",
-            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 8, gap: 2 }}
-          onMouseEnter={e => { if (!pushingToQB && !isManualInvoice) e.currentTarget.style.opacity = "0.85"; }}
-          onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
-          {pushingToQB ? (qbInvoiceNumber ? "Updating..." : "Creating...") : isManualInvoice ? (
-            <><span>✓ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500, opacity: 0.8 }}>Invoice # added manually</span></>
-          ) : invoiceStale ? (
-            <><span>⚠ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500 }}>Pricing changed — click to update</span></>
-          ) : qbInvoiceNumber ? (
-            <><span>✓ QB #{qbInvoiceNumber}</span><span style={{ fontSize: 9, fontWeight: 500, opacity: 0.8 }}>Click to update</span></>
-          ) : "Create QB Invoice"}
-        </button>
-        <span style={{ fontSize: 14, color: qbInvoiceNumber ? T.accent : T.faint, flexShrink: 0 }}>→</span>
-        <button onClick={() => { setShowPreview(true); setPreviewed(true); }} disabled={!qbInvoiceNumber}
-          style={{ flex: 1, minWidth: 100, height: 60, borderRadius: 8, border: previewed ? `2px solid ${T.accent}` : "none", cursor: !qbInvoiceNumber ? "default" : "pointer",
-            background: !qbInvoiceNumber ? T.surface : previewed ? T.accentDim : T.accent, color: !qbInvoiceNumber ? T.faint : previewed ? T.accent : "#fff", fontSize: 11, fontWeight: 700, fontFamily: font,
-            opacity: !qbInvoiceNumber ? 0.4 : 1, transition: "opacity 0.15s", textAlign: "center",
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}
-          onMouseEnter={e => { if (qbInvoiceNumber) e.currentTarget.style.opacity = "0.85"; }}
-          onMouseLeave={e => { e.currentTarget.style.opacity = !qbInvoiceNumber ? "0.4" : "1"; }}>
-          {previewed ? "✓ Preview Invoice" : "Preview Invoice"}
-        </button>
-        <span style={{ fontSize: 14, color: previewed ? T.accent : T.faint, flexShrink: 0 }}>→</span>
-        <button onClick={handleSendInvoiceClick} disabled={!previewed}
-          style={{ flex: 1, minWidth: 100, height: 60, borderRadius: 8, border: "none", cursor: !previewed ? "default" : "pointer",
-            background: !previewed ? T.surface : T.accent, color: !previewed ? T.faint : "#fff", fontSize: 11, fontWeight: 700, fontFamily: font,
-            opacity: !previewed ? 0.4 : 1, transition: "opacity 0.15s", textAlign: "center",
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}
-          onMouseEnter={e => { if (previewed) e.currentTarget.style.opacity = "0.85"; }}
-          onMouseLeave={e => { e.currentTarget.style.opacity = !previewed ? "0.4" : "1"; }}>
-          Send Invoice + Portal Link
-        </button>
-      </div>
+      {/* ── INVOICING card — wraps action buttons, invoice metadata,
+          variance review, and payment records into one panel. ── */}
+      <div style={card}>
 
-      {/* Invoice Preview Modal — shared component */}
-      {showPreview && (
-        <PdfPreviewModal
-          src={`/api/pdf/invoice/${job.id}`}
-          title="Invoice Preview"
-          downloadHref={`/api/pdf/invoice/${job.id}?download=1`}
-          onClose={() => setShowPreview(false)}
-        />
-      )}
+        {/* Card header */}
+        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Invoicing</div>
+          {qbInvoiceNumber && <div style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>QB #{qbInvoiceNumber}</div>}
+        </div>
 
-      {/* Manual invoice number */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
-        <label style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>Invoice #</label>
-        <input
-          type="text"
-          value={job.type_meta?.qb_invoice_number || ""}
-          onChange={e => {
-            const num = e.target.value;
-            if (onUpdateJob) onUpdateJob({ type_meta: { ...(job.type_meta || {}), qb_invoice_number: num || null } });
-          }}
-          onBlur={async e => {
-            const num = e.target.value.trim();
-            const meta = { ...(job.type_meta || {}), qb_invoice_number: num || null };
-            await supabase.from("jobs").update({ type_meta: meta }).eq("id", job.id);
-            if (num) logJobActivity(job.id, `Invoice number manually set to #${num}`);
-          }}
-          placeholder="Enter QB invoice #"
-          style={{ ...ic, width: 160, textAlign: "center", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}
-        />
-      </div>
-      {/* Pay link chip — only shown once a QB invoice exists. Amber = no
-          link yet (click to create); green = link ready (click chip to
-          update, click label to open); red = last attempt failed (click
-          to retry). Working = in flight. */}
-      {qbInvoiceId && (() => {
-        const working = refreshingLink;
-        const hasLink = !!qbPaymentLink;
-        const failed = !hasLink && !!linkError;
-        const bg = working ? T.surface : hasLink ? T.greenDim : failed ? T.redDim : T.amberDim;
-        const fg = working ? T.muted : hasLink ? T.green : failed ? T.red : T.amber;
-        const borderColor = working ? T.border : hasLink ? `${T.green}66` : failed ? `${T.red}66` : `${T.amber}66`;
-        const label = working
-          ? "Working…"
-          : hasLink
-          ? "QB Payment link"
-          : failed
-          ? "Pay link failed"
-          : "No pay link";
-        const subLabel = working
-          ? ""
-          : hasLink
-          ? "Click to update"
-          : failed
-          ? "Click to retry"
-          : "Click to create";
-        return (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-            <div style={{ display: "flex", alignItems: "stretch", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${borderColor}` }}>
-              <button
-                onClick={refreshLink}
-                disabled={working}
-                title={failed ? linkError : subLabel}
-                style={{
-                  background: bg, color: fg, border: "none",
-                  padding: "6px 12px", fontSize: 11, fontWeight: 700, fontFamily: font,
-                  cursor: working ? "default" : "pointer",
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 1,
-                  transition: "opacity 0.15s",
-                }}
-                onMouseEnter={e => { if (!working) e.currentTarget.style.opacity = "0.85"; }}
-                onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
-              >
-                <span>{hasLink ? "✓" : failed ? "✕" : working ? "…" : "○"} {label}</span>
-                {subLabel && <span style={{ fontSize: 9, fontWeight: 500, opacity: 0.8 }}>{subLabel}</span>}
-              </button>
-              {hasLink && !working && (
-                <a
-                  href={qbPaymentLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Open pay link"
-                  style={{
-                    background: bg, color: fg, borderLeft: `1px solid ${borderColor}`,
-                    padding: "0 12px", fontSize: 14, fontWeight: 700, fontFamily: font,
-                    display: "flex", alignItems: "center", textDecoration: "none",
-                  }}
-                >
-                  →
-                </a>
-              )}
-            </div>
-            {failed && (
-              <div style={{ fontSize: 10, color: T.red, maxWidth: 420, textAlign: "center", lineHeight: 1.3 }}>
-                {linkError}
-              </div>
-            )}
-          </div>
-        );
-      })()}
-      {qbError && <div style={{ background: T.redDim, border: `1px solid ${T.red}44`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: T.red }}>{qbError}</div>}
-
-      {/* Variance review — appears once invoice exists AND job is fully shipped.
-          Once variance has been pushed, we flip to a subtle "✓ finalized" row
-          with an option to re-review if needed. */}
-      {qbInvoiceNumber && isFullyShipped && !variancePushedAt && (
-        <button onClick={() => setShowVarianceModal(true)}
-          style={{ width: "100%", padding: "12px", borderRadius: 10, border: `1px solid ${T.amber}66`, cursor: "pointer",
-            background: T.amberDim, color: T.amber, fontSize: 13, fontWeight: 700, fontFamily: font,
-            transition: "opacity 0.15s" }}
-          onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
-          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-          Update QB Invoice with {isShipThrough ? "Received" : "Shipped"} Qtys — Review Variance
-        </button>
-      )}
-      {qbInvoiceNumber && variancePushedAt && (
-        <div style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.green}44`, background: T.greenDim, color: T.green, fontSize: 12, fontWeight: 600, fontFamily: font, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <span>✓ Invoice finalized with {isShipThrough ? "received" : "shipped"} qtys · {new Date(variancePushedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-          <button onClick={() => setShowVarianceModal(true)}
-            style={{ padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.green}`, background: "transparent", color: T.green, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
-            Re-review
+        {/* Action buttons — slimmer 3-step row, no big arrow icons */}
+        <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={pushToQB} disabled={pushingToQB || isManualInvoice}
+            style={{ flex: 1, height: 38, borderRadius: 7,
+              border: invoiceStale ? `1.5px solid ${T.red}` : qbInvoiceNumber ? `1.5px solid ${T.green}` : "none",
+              cursor: pushingToQB ? "default" : isManualInvoice ? "default" : "pointer",
+              background: invoiceStale ? T.redDim : qbInvoiceNumber ? T.greenDim : T.blue,
+              color: invoiceStale ? T.red : qbInvoiceNumber ? T.green : "#fff",
+              fontSize: 12, fontWeight: 700, fontFamily: font,
+              opacity: pushingToQB ? 0.6 : 1, transition: "opacity 0.15s", padding: "0 12px",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            title={pushingToQB ? "Working…" : invoiceStale ? "Pricing changed — click to update" : qbInvoiceNumber ? "Click to update" : "Push invoice to QuickBooks"}
+            onMouseEnter={e => { if (!pushingToQB && !isManualInvoice) e.currentTarget.style.opacity = "0.85"; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
+            {pushingToQB ? (qbInvoiceNumber ? "Updating…" : "Creating…")
+              : isManualInvoice ? `✓ QB #${qbInvoiceNumber}`
+              : invoiceStale ? `⚠ QB #${qbInvoiceNumber}`
+              : qbInvoiceNumber ? `✓ QB #${qbInvoiceNumber}`
+              : "Create QB Invoice"}
+          </button>
+          <button onClick={() => { setShowPreview(true); setPreviewed(true); }} disabled={!qbInvoiceNumber}
+            style={{ flex: 1, height: 38, borderRadius: 7,
+              border: previewed ? `1.5px solid ${T.accent}` : "none",
+              cursor: !qbInvoiceNumber ? "default" : "pointer",
+              background: !qbInvoiceNumber ? T.surface : previewed ? T.accentDim : T.accent,
+              color: !qbInvoiceNumber ? T.faint : previewed ? T.accent : "#fff",
+              fontSize: 12, fontWeight: 700, fontFamily: font,
+              opacity: !qbInvoiceNumber ? 0.4 : 1, transition: "opacity 0.15s", padding: "0 12px" }}
+            onMouseEnter={e => { if (qbInvoiceNumber) e.currentTarget.style.opacity = "0.85"; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = !qbInvoiceNumber ? "0.4" : "1"; }}>
+            {previewed ? "✓ Preview" : "Preview"}
+          </button>
+          <button onClick={handleSendInvoiceClick} disabled={!previewed}
+            style={{ flex: 1, height: 38, borderRadius: 7, border: "none",
+              cursor: !previewed ? "default" : "pointer",
+              background: !previewed ? T.surface : T.accent, color: !previewed ? T.faint : "#fff",
+              fontSize: 12, fontWeight: 700, fontFamily: font,
+              opacity: !previewed ? 0.4 : 1, transition: "opacity 0.15s", padding: "0 12px" }}
+            onMouseEnter={e => { if (previewed) e.currentTarget.style.opacity = "0.85"; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = !previewed ? "0.4" : "1"; }}>
+            Send Invoice
           </button>
         </div>
-      )}
-      {showVarianceModal && (
-        <InvoiceVarianceReviewModal
-          jobId={job.id}
-          shippingRoute={job.shipping_route}
-          jobTitle={job.title}
-          clientName={job.clients?.name || ""}
-          onClose={() => setShowVarianceModal(false)}
-          onApproved={() => {
-            logJobActivity(job.id, "QB invoice updated with actual qtys — revised invoice emailed to client");
-            if (onReload) onReload();
-          }}
-        />
-      )}
 
-      {showInvoiceEmail && (() => {
-        const isRevised = !!job.type_meta?.invoice_sent_at;
-        const invoiceLabel = isRevised ? "Revised invoice" : "Invoice";
-        return (
-          <SendEmailDialog
-            type="invoice"
-            jobId={job.id}
-            contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
-            defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
-            defaultSubject={`${invoiceLabel} — ${job.clients?.name || ""}${job.type_meta?.qb_invoice_number ? ` · Invoice ${job.type_meta.qb_invoice_number}` : ""} · ${job.title}`}
-            onClose={() => setShowInvoiceEmail(false)}
-            onSent={() => { logJobActivity(job.id, `${invoiceLabel} sent to client`); setShowInvoiceEmail(false); }}
-          />
-        );
-      })()}
-
-      <ConfirmDialog
-        open={showSendAnywayConfirm}
-        title="No pay link available"
-        message="QuickBooks hasn't returned a pay link for this invoice yet. Sending now means the client won't see a 'Pay Online' button in the email or the portal. Click the amber chip to create the link first, or send anyway and the client will still get the PDF and portal link."
-        confirmLabel="Send anyway"
-        confirmColor={T.amber}
-        onConfirm={() => { setShowSendAnywayConfirm(false); setShowInvoiceEmail(true); }}
-        onCancel={() => setShowSendAnywayConfirm(false)}
-      />
-
-      {/* ── Payment Records ── */}
-      <div style={card}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Payment Records</div>
-          <button onClick={() => setAddingPayment(!addingPayment)} style={{ background: T.accent, border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 600, padding: "5px 14px", cursor: "pointer" }}>+ Add Payment</button>
+        {/* Invoice # + Pay link — compact inline row */}
+        <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Invoice #</label>
+            <input
+              type="text"
+              value={job.type_meta?.qb_invoice_number || ""}
+              onChange={e => {
+                const num = e.target.value;
+                if (onUpdateJob) onUpdateJob({ type_meta: { ...(job.type_meta || {}), qb_invoice_number: num || null } });
+              }}
+              onBlur={async e => {
+                const num = e.target.value.trim();
+                const meta = { ...(job.type_meta || {}), qb_invoice_number: num || null };
+                await supabase.from("jobs").update({ type_meta: meta }).eq("id", job.id);
+                if (num) logJobActivity(job.id, `Invoice number manually set to #${num}`);
+              }}
+              placeholder="—"
+              style={{ ...ic, width: 110, textAlign: "center", fontFamily: mono, fontWeight: 600 }}
+            />
+          </div>
+          {/* Pay link inline (when invoice exists) */}
+          {qbInvoiceId && (() => {
+            const working = refreshingLink;
+            const hasLink = !!qbPaymentLink;
+            const failed = !hasLink && !!linkError;
+            const bg = working ? T.surface : hasLink ? T.greenDim : failed ? T.redDim : T.amberDim;
+            const fg = working ? T.muted : hasLink ? T.green : failed ? T.red : T.amber;
+            const borderColor = working ? T.border : hasLink ? `${T.green}66` : failed ? `${T.red}66` : `${T.amber}66`;
+            const label = working ? "Working…" : hasLink ? "Pay link" : failed ? "Pay link failed" : "No pay link";
+            const subLabel = working ? "" : hasLink ? "click to refresh" : failed ? "click to retry" : "click to create";
+            return (
+              <div style={{ display: "flex", alignItems: "stretch", gap: 0, borderRadius: 7, overflow: "hidden", border: `1px solid ${borderColor}`, marginLeft: "auto" }}>
+                <button onClick={refreshLink} disabled={working}
+                  title={failed ? linkError : subLabel}
+                  style={{ background: bg, color: fg, border: "none", padding: "6px 12px", fontSize: 11, fontWeight: 700, fontFamily: font, cursor: working ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                  onMouseEnter={e => { if (!working) e.currentTarget.style.opacity = "0.85"; }}
+                  onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
+                  <span>{hasLink ? "✓" : failed ? "✕" : working ? "…" : "○"}</span>
+                  <span>{label}</span>
+                  <span style={{ fontSize: 9, fontWeight: 500, opacity: 0.7 }}>· {subLabel}</span>
+                </button>
+                {hasLink && !working && (
+                  <a href={qbPaymentLink} target="_blank" rel="noopener noreferrer" title="Open pay link"
+                    style={{ background: bg, color: fg, borderLeft: `1px solid ${borderColor}`, padding: "0 10px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", textDecoration: "none" }}>→</a>
+                )}
+              </div>
+            );
+          })()}
         </div>
+        {linkError && qbInvoiceId && !qbPaymentLink && (
+          <div style={{ padding: "6px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 10, color: T.red, lineHeight: 1.4 }}>
+            {linkError}
+          </div>
+        )}
+        {qbError && (
+          <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 12, color: T.red, background: T.redDim }}>{qbError}</div>
+        )}
+
+        {/* Variance review — appears once invoice exists AND job is fully shipped.
+            Once variance has been pushed, we flip to a subtle "✓ finalized" row
+            with an option to re-review if needed. */}
+        {qbInvoiceNumber && isFullyShipped && !variancePushedAt && (
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+            <button onClick={() => setShowVarianceModal(true)}
+              style={{ width: "100%", padding: "10px", borderRadius: 7, border: `1px solid ${T.amber}66`, cursor: "pointer",
+                background: T.amberDim, color: T.amber, fontSize: 12, fontWeight: 700, fontFamily: font,
+                transition: "opacity 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+              onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+              Update QB Invoice with {isShipThrough ? "Received" : "Shipped"} Qtys — Review Variance
+            </button>
+          </div>
+        )}
+        {qbInvoiceNumber && variancePushedAt && (
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ width: "100%", padding: "8px 12px", borderRadius: 7, border: `1px solid ${T.green}44`, background: T.greenDim, color: T.green, fontSize: 11, fontWeight: 600, fontFamily: font, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <span>✓ Invoice finalized with {isShipThrough ? "received" : "shipped"} qtys · {new Date(variancePushedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+              <button onClick={() => setShowVarianceModal(true)}
+                style={{ padding: "3px 9px", borderRadius: 4, border: `1px solid ${T.green}`, background: "transparent", color: T.green, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                Re-review
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Payment Records — inside the Invoicing card */}
+        <div style={{ padding: "12px 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Payment Records</div>
+            <button onClick={() => setAddingPayment(!addingPayment)} style={{ background: T.accent, border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 600, padding: "5px 14px", cursor: "pointer" }}>+ Add Payment</button>
+          </div>
 
         {/* Aggregate paid summary — shows project-level partial state so
             individual "Deposit" rows make sense in context. */}
@@ -452,7 +386,59 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
             })}</tbody>
           </table>
         )}
+        </div>
       </div>
+      {/* ── End Invoicing card ── */}
+
+      {/* Modals — outside the card */}
+      {showPreview && (
+        <PdfPreviewModal
+          src={`/api/pdf/invoice/${job.id}`}
+          title="Invoice Preview"
+          downloadHref={`/api/pdf/invoice/${job.id}?download=1`}
+          onClose={() => setShowPreview(false)}
+        />
+      )}
+
+      {showVarianceModal && (
+        <InvoiceVarianceReviewModal
+          jobId={job.id}
+          shippingRoute={job.shipping_route}
+          jobTitle={job.title}
+          clientName={job.clients?.name || ""}
+          onClose={() => setShowVarianceModal(false)}
+          onApproved={() => {
+            logJobActivity(job.id, "QB invoice updated with actual qtys — revised invoice emailed to client");
+            if (onReload) onReload();
+          }}
+        />
+      )}
+
+      {showInvoiceEmail && (() => {
+        const isRevised = !!job.type_meta?.invoice_sent_at;
+        const invoiceLabel = isRevised ? "Revised invoice" : "Invoice";
+        return (
+          <SendEmailDialog
+            type="invoice"
+            jobId={job.id}
+            contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
+            defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
+            defaultSubject={`${invoiceLabel} — ${job.clients?.name || ""}${job.type_meta?.qb_invoice_number ? ` · Invoice ${job.type_meta.qb_invoice_number}` : ""} · ${job.title}`}
+            onClose={() => setShowInvoiceEmail(false)}
+            onSent={() => { logJobActivity(job.id, `${invoiceLabel} sent to client`); setShowInvoiceEmail(false); }}
+          />
+        );
+      })()}
+
+      <ConfirmDialog
+        open={showSendAnywayConfirm}
+        title="No pay link available"
+        message="QuickBooks hasn't returned a pay link for this invoice yet. Sending now means the client won't see a 'Pay Online' button in the email or the portal. Click the amber chip to create the link first, or send anyway and the client will still get the PDF and portal link."
+        confirmLabel="Send anyway"
+        confirmColor={T.amber}
+        onConfirm={() => { setShowSendAnywayConfirm(false); setShowInvoiceEmail(true); }}
+        onCancel={() => setShowSendAnywayConfirm(false)}
+      />
     </div>
   );
 }
