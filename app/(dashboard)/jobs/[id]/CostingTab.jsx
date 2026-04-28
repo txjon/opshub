@@ -1458,7 +1458,16 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       return newItems.length > 0 ? [...updated, ...newItems] : updated;
     };
     setCostProds(applySync);
-    setSavedCostProds(applySync);
+    // Do NOT also reset savedCostProds here. The sync fires whenever
+    // buyItems changes — including when Costing's own qty edit calls
+    // onUpdateBuyItems. Resetting savedCostProds in that case marks
+    // the in-memory state as "matches DB" while the actual write
+    // hasn't happened yet, killing costingDirty and skipping the
+    // autosave. Costs persist because cost edits don't propagate
+    // through buyItems; qtys do, which is why qtys silently dropped.
+    // The autosave's own setSavedCostProds (after writing) is the only
+    // legit path to "saved". Buy-Sheet-originated changes will trigger
+    // a redundant Costing save on next tick — minor cost, correctness wins.
   }, [buyItems]);
 
   // Debounced auto-save — fires 1.5s after any change
