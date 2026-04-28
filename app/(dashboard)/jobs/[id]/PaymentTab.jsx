@@ -148,7 +148,7 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
         </div>
 
         {/* Action buttons — slimmer 3-step row, no big arrow icons */}
-        <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 6 }}>
           <button onClick={pushToQB} disabled={pushingToQB || isManualInvoice}
             style={{ flex: 1, height: 38, borderRadius: 7,
               border: invoiceStale ? `1.5px solid ${T.red}` : qbInvoiceNumber ? `1.5px solid ${T.green}` : "none",
@@ -191,9 +191,9 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
           </button>
         </div>
 
-        {/* Invoice # + Pay link — compact inline row */}
-        <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {/* Invoice # + Pay link — one tight row, no wrap */}
+        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Invoice #</label>
             <input
               type="text"
@@ -209,7 +209,7 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
                 if (num) logJobActivity(job.id, `Invoice number manually set to #${num}`);
               }}
               placeholder="—"
-              style={{ ...ic, width: 110, textAlign: "center", fontFamily: mono, fontWeight: 600 }}
+              style={{ width: 90, padding: "5px 8px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.card, color: T.text, fontSize: 12, fontFamily: mono, fontWeight: 600, textAlign: "center", outline: "none" }}
             />
           </div>
           {/* Pay link inline (when invoice exists) */}
@@ -221,21 +221,19 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
             const fg = working ? T.muted : hasLink ? T.green : failed ? T.red : T.amber;
             const borderColor = working ? T.border : hasLink ? `${T.green}66` : failed ? `${T.red}66` : `${T.amber}66`;
             const label = working ? "Working…" : hasLink ? "Pay link" : failed ? "Pay link failed" : "No pay link";
-            const subLabel = working ? "" : hasLink ? "click to refresh" : failed ? "click to retry" : "click to create";
             return (
-              <div style={{ display: "flex", alignItems: "stretch", gap: 0, borderRadius: 7, overflow: "hidden", border: `1px solid ${borderColor}`, marginLeft: "auto" }}>
+              <div style={{ display: "flex", alignItems: "stretch", gap: 0, borderRadius: 6, overflow: "hidden", border: `1px solid ${borderColor}` }}>
                 <button onClick={refreshLink} disabled={working}
-                  title={failed ? linkError : subLabel}
-                  style={{ background: bg, color: fg, border: "none", padding: "6px 12px", fontSize: 11, fontWeight: 700, fontFamily: font, cursor: working ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                  title={failed ? linkError : (hasLink ? "Click to refresh" : working ? "" : failed ? "Click to retry" : "Click to create")}
+                  style={{ background: bg, color: fg, border: "none", padding: "5px 10px", fontSize: 11, fontWeight: 700, fontFamily: font, cursor: working ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5 }}
                   onMouseEnter={e => { if (!working) e.currentTarget.style.opacity = "0.85"; }}
                   onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}>
                   <span>{hasLink ? "✓" : failed ? "✕" : working ? "…" : "○"}</span>
                   <span>{label}</span>
-                  <span style={{ fontSize: 9, fontWeight: 500, opacity: 0.7 }}>· {subLabel}</span>
                 </button>
                 {hasLink && !working && (
                   <a href={qbPaymentLink} target="_blank" rel="noopener noreferrer" title="Open pay link"
-                    style={{ background: bg, color: fg, borderLeft: `1px solid ${borderColor}`, padding: "0 10px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", textDecoration: "none" }}>→</a>
+                    style={{ background: bg, color: fg, borderLeft: `1px solid ${borderColor}`, padding: "0 9px", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", textDecoration: "none" }}>→</a>
                 )}
               </div>
             );
