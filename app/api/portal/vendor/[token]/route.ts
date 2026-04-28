@@ -212,6 +212,12 @@ export async function GET(
 
       if (!isAllComplete) {
         orders.push(order);
+      } else {
+        // Vendor's items are all shipped, but the JOB might still be
+        // in production/receiving/fulfillment because HPD hasn't
+        // received them yet. From the vendor's POV their work is done,
+        // so show this order under Completed regardless of job phase.
+        completed.push(order);
       }
     }
 
@@ -358,11 +364,25 @@ export async function GET(
       });
     }
 
+    // Merge vendor-done-but-job-not-complete orders into the completed
+    // list. They appear first (most recent activity) since they're
+    // freshly shipped. Search applies to them too so the search field
+    // doesn't show non-matching results above matches.
+    const completedSearchLower = completedSearch.toLowerCase();
+    const completedFromActive = completedSearch
+      ? completed.filter(o =>
+          (o.jobNumber || "").toLowerCase().includes(completedSearchLower) ||
+          (o.jobTitle || "").toLowerCase().includes(completedSearchLower))
+      : completed;
+    const mergedCompleted = completedOffset === 0
+      ? [...completedFromActive, ...completedOrders]
+      : completedOrders;
+
     return NextResponse.json({
       decorator: { name: decorator.name, shortCode: decorator.short_code },
       orders,
-      completed: completedOrders,
-      completedTotal: completedTotal || 0,
+      completed: mergedCompleted,
+      completedTotal: (completedTotal || 0) + (completedOffset === 0 ? completedFromActive.length : 0),
       completedOffset,
     });
   } catch (e: any) {
