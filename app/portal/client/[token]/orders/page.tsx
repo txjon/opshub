@@ -34,6 +34,7 @@ type Order = {
   paid_at?: string | null;
   qb_invoice_number: string | null;
   qb_payment_link: string | null;
+  pricing_visible?: boolean;
   has_invoice: boolean;
   period_label?: string;
 };
@@ -300,9 +301,14 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, fontFamily: C.mono }}>
-            ${order.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
+          {/* Hide the dollar amount until the client has actually been
+              shown a number — quote sent, invoice sent, or a manual
+              payment record exists. Server zeros total in that state. */}
+          {order.pricing_visible !== false && (order.total || 0) > 0.01 && (
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.text, fontFamily: C.mono }}>
+              ${order.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          )}
           <div style={{ fontSize: 14, color: C.muted, transform: (navigatesToDetail ? false : expanded) ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>
             ›
           </div>
@@ -424,7 +430,8 @@ function OrderDetail({ order, token }: { order: Order; token: string }) {
           </div>
         </div>
 
-        {/* RIGHT — invoice + pay */}
+        {/* RIGHT — invoice + pay. Hidden until pricing is visible to client. */}
+        {order.pricing_visible !== false ? (
         <div style={{
           background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
           padding: "14px 16px", height: "fit-content",
@@ -481,6 +488,7 @@ function OrderDetail({ order, token }: { order: Order; token: string }) {
             </div>
           )}
         </div>
+        ) : null}
       </div>
     </div>
   );

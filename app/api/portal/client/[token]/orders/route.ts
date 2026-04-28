@@ -205,7 +205,6 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       const hasIssued = jobPays.some((p: any) =>
         p.status && !["draft", "void"].includes(p.status)
       );
-      const balance = Math.max(0, total - paidAmount);
       // Only treat the invoice as "visible to client" once it's actually
       // been sent from OpsHub (invoice_sent_at) OR a manual payment record
       // already exists (legacy / out-of-band invoices). Pushing to QB alone
@@ -213,6 +212,14 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       // step before review-and-send.
       const isInvoiceSent = !!typeMeta.invoice_sent_at || hasIssued;
       const isInvoiced = isInvoiceSent;
+      // Pricing visible once the client has seen a number — quote sent,
+      // invoice sent, or a manual payment record exists. Before that the
+      // order shows in the list (so the client knows it's in flight) but
+      // no dollar amount.
+      const isPricingVisible = !!typeMeta.quote_sent_at || isInvoiceSent;
+      const visibleTotal = isPricingVisible ? total : 0;
+      const visiblePaidAmount = isPricingVisible ? paidAmount : 0;
+      const balance = Math.max(0, visibleTotal - visiblePaidAmount);
 
       let paymentStatus: "paid" | "unpaid" | "partial" | "deposit" | "none" = "none";
       // Zero-total orders (voided, migrated history, etc.) carry no
@@ -246,14 +253,18 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
           thumb_id: thumbByItem[it.id] || null,
         })),
         total_qty: totalQty,
-        total,
-        paid_amount: paidAmount,
+        // total / paid_amount / balance gated on isPricingVisible —
+        // before quote/invoice has been sent, client sees the order
+        // and items but no dollar amount.
+        total: visibleTotal,
+        paid_amount: visiblePaidAmount,
         balance,
         payment_status: paymentStatus,
         paid_at: paidAt,
         qb_invoice_number: isInvoiceSent ? (typeMeta.qb_invoice_number || null) : null,
         qb_payment_link: isInvoiceSent ? (typeMeta.qb_payment_link || null) : null,
         has_invoice: isInvoiced,
+        pricing_visible: isPricingVisible,
       };
     });
 
