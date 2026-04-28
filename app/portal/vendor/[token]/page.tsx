@@ -323,7 +323,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
             <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{order.items.length} item{order.items.length !== 1 ? "s" : ""} · {order.totalUnits.toLocaleString()} units</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-            {shipInfo && <div style={{ padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: shipInfo.urgent ? (shipInfo.color === C.red ? C.redBg : C.amberBg) : C.greenBg, color: shipInfo.color }}>Ship {fmtDate(order.shipDate!)} · {shipInfo.text}</div>}
+            {shipInfo && <div style={{ fontSize: 12, fontWeight: 600, color: shipInfo.color }}>Ship {fmtDate(order.shipDate!)} · {shipInfo.text}</div>}
             {order.shipMethod && <div style={{ fontSize: 10, color: C.faint }}>{order.shipMethod}{order.shippingAccount ? ` · ${order.shippingAccount}` : ""}</div>}
           </div>
         </div>
@@ -426,12 +426,9 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                           <div style={{ fontSize: 15, fontWeight: 700 }}>
                             {item.letter} — {item.name}
                           </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                             <span style={{ fontSize: 11, color: C.muted }}>{item.totalQty.toLocaleString()} units</span>
-                            <span style={{
-                              fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99,
-                              background: stage.bg, color: stage.color,
-                            }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: stage.color, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                               {stage.label}
                             </span>
                           </div>
