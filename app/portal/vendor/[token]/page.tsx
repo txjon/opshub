@@ -62,6 +62,7 @@ type OrderItem = {
   shipQtys: Record<string, number> | null; sizes: string[]; qtys: Record<string, number>;
   totalQty: number; decoLines: DecoLine[]; itemTotal: number;
   mockupThumb: string | null; blanksOrdered: boolean;
+  vendorAcknowledgedReceived?: boolean;
 };
 
 const STAGE_LABELS: Record<string, { label: string; bg: string; color: string }> = {
@@ -529,7 +530,10 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                         {/* ── Actions ── */}
                         {(() => {
                           const isShipped = item.pipelineStage === "shipped" || item.pipelineStage === "complete" || !!item.shipTracking;
-                          const alreadyReceived = item.pipelineStage === "in_production" || item.pipelineStage === "blanks_received" || isShipped;
+                          // Vendor-only acknowledgement — independent of
+                          // HPD's pipeline_stage so undoing/redoing
+                          // doesn't move the production view.
+                          const alreadyReceived = !!item.vendorAcknowledgedReceived || isShipped;
                           return (
                             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
                               {/* Blanks Received — outlined-grey by default,
