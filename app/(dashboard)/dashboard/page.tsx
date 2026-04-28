@@ -375,7 +375,7 @@ export default async function DashboardPage() {
   // Order in which sections appear inside each bucket — critical-tinted
   // sections at the top so eyes land on red first.
   const SECTION_ORDER: Record<string, string[]> = {
-    clients:    ["Past ship date", "Quote feedback", "Proof revisions", "New leads", "Send to client", "Awaiting client", "Awaiting design review"],
+    clients:    ["Past ship date", "Quote feedback", "Proof revisions", "New leads", "Send to client", "Awaiting client"],
     decorators: ["Discrepancies", "Send PO", "Order blanks", "Verify shipping"],
     designers:  ["Awaiting HPD review", "Prep print-ready", "Mark delivered", "In design"],
   };
@@ -417,7 +417,11 @@ export default async function DashboardPage() {
     revisions:        { section: "In design",          urgency: "watch",   subtitlePrefix: "Revisions · with designer" },
     in_progress:      { section: "In design",          urgency: "watch",   subtitlePrefix: "With designer" },
     sent:             { section: "In design",          urgency: "watch",   subtitlePrefix: "Sent to designer" },
-    client_review:    { section: "Awaiting design review", urgency: "watch", subtitlePrefix: "With client for review" },
+    // client_review briefs intentionally NOT mapped here — designs
+    // sitting with the client for review aren't a team call-to-action,
+    // and one card per brief drowns the column on big jobs (saw 14
+    // FOG cards stacked). Visible in Art Studio if anyone needs to
+    // check; not a Command Center concern.
   };
 
   for (const b of briefRows) {
