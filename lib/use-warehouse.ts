@@ -28,6 +28,7 @@ export type WarehouseItem = {
   qtys: Record<string, number>;
   ship_qtys: Record<string, number>;
   received_qtys: Record<string, number>;
+  sample_qtys: Record<string, number>;
   ship_notes: string;
   decorator_assignment_id: string | null;
   decorator_name: string | null;
@@ -132,6 +133,7 @@ export function useWarehouse() {
             qtys: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered])),
             ship_qtys: it.ship_qtys || {},
             received_qtys: it.received_qtys || {},
+            sample_qtys: it.sample_qtys || {},
             decorator_assignment_id: assignmentMap[it.id] || null,
             decorator_name: decoratorMap[it.id]?.name || null,
             decorator_short_code: decoratorMap[it.id]?.short_code || null,
@@ -180,6 +182,18 @@ export function useWarehouse() {
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
     saveTimers.current[key] = setTimeout(async () => {
       await supabase.from("items").update({ received_qtys: updated }).eq("id", item.id);
+    }, 800);
+  }
+
+  async function updateSampleQty(item: WarehouseItem, size: string, qty: number) {
+    const updated = { ...(item.sample_qtys || {}), [size]: qty };
+    setJobs(prev => prev.map(j => ({
+      ...j, items: j.items.map(it => it.id === item.id ? { ...it, sample_qtys: updated } : it),
+    })));
+    const key = `sx_${item.id}`;
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(async () => {
+      await supabase.from("items").update({ sample_qtys: updated }).eq("id", item.id);
     }, 800);
   }
 
@@ -277,7 +291,7 @@ export function useWarehouse() {
 
   return {
     loading, jobs, setJobs, incoming, shipThrough, fulfillment,
-    updateReceivedQty, markReceived, undoReceived, returnToProduction,
+    updateReceivedQty, updateSampleQty, markReceived, undoReceived, returnToProduction,
     updateFulfillment, debounceFulfillmentTracking,
     supabase, logJobActivity,
   };

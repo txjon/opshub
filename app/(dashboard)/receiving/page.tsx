@@ -23,7 +23,7 @@ type OutsideShipment = {
 };
 
 export default function ReceivingPage() {
-  const { loading, incoming, updateReceivedQty, markReceived, undoReceived, returnToProduction } = useWarehouse();
+  const { loading, incoming, updateReceivedQty, updateSampleQty, markReceived, undoReceived, returnToProduction } = useWarehouse();
   const supabase = createClient();
 
   const [outsideShipments, setOutsideShipments] = useState<OutsideShipment[]>([]);
@@ -365,13 +365,15 @@ export default function ReceivingPage() {
                             {item.ship_notes && <div style={{ fontSize: 10, color: T.amber, marginTop: 2 }}>{item.ship_notes}</div>}
                           </td>
                           <td style={{ padding: "6px 8px" }}>
-                            {/* Per-size receiving cells — size label + shipped
-                                qty stack above a larger input box. Easier to
-                                read at a glance and easier to tap on touch. */}
+                            {/* Per-size receiving cell. Three rows per size:
+                                  shipped (read-only) → received (input) →
+                                  samples pulled (input). Continuing qty
+                                  for fulfillment = received - samples. */}
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
                               {item.sizes.map(sz => {
                                 const shipped = item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0;
                                 const received = item.received_qtys?.[sz] ?? shipped;
+                                const samples = item.sample_qtys?.[sz] ?? 0;
                                 const mismatch = item.received_at_hpd && received !== shipped;
                                 return (
                                   <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, fontFamily: mono }}>
@@ -380,12 +382,29 @@ export default function ReceivingPage() {
                                     <input type="number" min="0" value={received}
                                       onChange={e => updateReceivedQty(item, sz, parseInt(e.target.value) || 0)}
                                       onFocus={e => e.target.select()}
+                                      title="Received"
                                       style={{ width: 60, textAlign: "center", padding: "6px 8px", border: `1px solid ${mismatch ? T.red : T.border}`, borderRadius: 5, background: T.surface, color: mismatch ? T.red : T.text, fontSize: 14, fontWeight: 600, fontFamily: mono, outline: "none" }} />
+                                    <span style={{ fontSize: 8, color: T.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 2 }}>Samples</span>
+                                    <input type="number" min="0" value={samples}
+                                      onChange={e => updateSampleQty(item, sz, parseInt(e.target.value) || 0)}
+                                      onFocus={e => e.target.select()}
+                                      title="Samples pulled (deducts from continuing qty)"
+                                      style={{ width: 60, textAlign: "center", padding: "5px 8px", border: `1px solid ${samples > 0 ? T.amber : T.border}`, borderRadius: 5, background: samples > 0 ? T.amberDim : T.surface, color: samples > 0 ? T.amber : T.faint, fontSize: 12, fontWeight: 600, fontFamily: mono, outline: "none" }} />
                                   </div>
                                 );
                               })}
                             </div>
                             {hasVariance && <div style={{ fontSize: 10, color: T.red, marginTop: 4, fontWeight: 600 }}>Variance: {receivedTotal - (shippedQty ?? totalQty)} units</div>}
+                            {(() => {
+                              const sampleTotal = tQty(item.sample_qtys);
+                              if (sampleTotal === 0) return null;
+                              const continuing = receivedTotal - sampleTotal;
+                              return (
+                                <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>
+                                  <span style={{ color: T.amber, fontWeight: 600 }}>{sampleTotal}</span> sample{sampleTotal !== 1 ? "s" : ""} pulled · <span style={{ color: T.text, fontWeight: 700, fontFamily: mono }}>{continuing}</span> continuing
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td style={{ padding: "6px 8px" }}>
                             {item.received_at_hpd ? (
