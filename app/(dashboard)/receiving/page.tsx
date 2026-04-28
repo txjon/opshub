@@ -190,46 +190,37 @@ export default function ReceivingPage() {
   if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading...</div>;
 
   return (
-    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Receiving</h1>
-
-      {/* Stats strip */}
-      <div style={{ display: "flex", gap: 10 }}>
-        {[
-          { label: "Expected", value: expectedCount, color: T.accent },
-          { label: "Received Today", value: receivedToday, color: T.green },
-          { label: "Unrouted", value: unroutedOutside, color: unroutedOutside > 0 ? T.amber : T.faint },
-        ].map(s => (
-          <div key={s.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 16px", flex: 1 }}>
-            <div style={{ fontSize: 9, color: T.faint, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{s.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, fontFamily: mono, color: s.color }}>{s.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, padding: 4, background: T.surface, borderRadius: 8 }}>
-        {([
-          { id: "production" as const, label: "From Production", count: expectedCount },
-          { id: "outside" as const, label: "Outside Shipments", count: outsideShipments.length },
-        ]).map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            style={{
-              flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", cursor: "pointer",
-              fontSize: 12, fontWeight: 600, fontFamily: font,
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              background: tab === t.id ? T.accent : "transparent",
-              color: tab === t.id ? "#fff" : T.muted,
-            }}>
-            {t.label}
-            {t.count > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, padding: "1px 6px", borderRadius: 99,
-                background: tab === t.id ? "rgba(255,255,255,0.2)" : T.card,
-                color: tab === t.id ? "#fff" : T.accent,
-              }}>{t.count}</span>
-            )}
-          </button>
-        ))}
+    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* Compact page header — title + inline stats + tabs in one row.
+          The big stacked H1 / stats / tabs trio was eating 150px before
+          any content showed; this fits all of it in ~60px. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <h1 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Receiving</h1>
+        <div style={{ display: "flex", gap: 14, alignItems: "baseline", fontSize: 11 }}>
+          <span style={{ color: T.muted }}>Expected <strong style={{ color: T.accent, fontFamily: mono, fontSize: 13 }}>{expectedCount}</strong></span>
+          <span style={{ color: T.muted }}>Received today <strong style={{ color: T.green, fontFamily: mono, fontSize: 13 }}>{receivedToday}</strong></span>
+          {unroutedOutside > 0 && <span style={{ color: T.muted }}>Unrouted <strong style={{ color: T.amber, fontFamily: mono, fontSize: 13 }}>{unroutedOutside}</strong></span>}
+        </div>
+        <div style={{ display: "flex", gap: 4, marginLeft: "auto", padding: 3, background: T.surface, borderRadius: 6 }}>
+          {([
+            { id: "production" as const, label: "From Production", count: expectedCount },
+            { id: "outside" as const, label: "Outside", count: outsideShipments.length },
+          ]).map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              style={{
+                padding: "5px 12px", borderRadius: 4, border: "none", cursor: "pointer",
+                fontSize: 11, fontWeight: 600, fontFamily: font,
+                display: "flex", alignItems: "center", gap: 5,
+                background: tab === t.id ? T.accent : "transparent",
+                color: tab === t.id ? "#fff" : T.muted,
+              }}>
+              {t.label}
+              {t.count > 0 && (
+                <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, opacity: 0.85 }}>{t.count}</span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* ── PRODUCTION RETURNS ── */}
@@ -241,7 +232,7 @@ export default function ReceivingPage() {
         ) : (
           incoming.map(job => (
             <div key={job.id} style={card}>
-              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ padding: "8px 12px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
                 <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
                 <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
                 <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.display_number}</span>
@@ -285,7 +276,7 @@ export default function ReceivingPage() {
                 );
               })()}
 
-              <div style={{ padding: "10px 14px" }}>
+              <div style={{ padding: "6px 12px" }}>
                 <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -302,7 +293,7 @@ export default function ReceivingPage() {
                       const hasVariance = item.received_at_hpd && receivedTotal > 0 && receivedTotal !== (shippedQty ?? totalQty);
                       return (
                         <tr key={item.id} style={{ borderBottom: i < job.items.length - 1 ? `1px solid ${T.border}` : "none", verticalAlign: "top" }}>
-                          <td style={{ padding: "8px", fontWeight: 600 }}>
+                          <td style={{ padding: "6px 8px", fontWeight: 600 }}>
                             <span style={{ fontSize: 10, fontWeight: 700, color: T.purple, fontFamily: mono, marginRight: 6 }}>{item.letter}</span>{item.name}
                             <div style={{ fontSize: 10, color: T.faint, fontWeight: 400 }}>{[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ")}</div>
                             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 3, alignItems: "center" }}>
@@ -326,31 +317,36 @@ export default function ReceivingPage() {
                               )}
                             </div>
                           </td>
-                          <td style={{ padding: "8px" }}>
+                          <td style={{ padding: "6px 8px" }}>
                             <div style={{ fontFamily: mono, fontSize: 11, color: T.muted }}>{item.ship_tracking || "—"}</div>
                             {item.ship_notes && <div style={{ fontSize: 10, color: T.amber, marginTop: 2 }}>{item.ship_notes}</div>}
                           </td>
-                          <td style={{ padding: "8px" }}>
-                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                          <td style={{ padding: "6px 8px" }}>
+                            {/* Horizontal compact size grid:
+                                S 99 → [99]  M 347 → [347]  …
+                                Each size in one row instead of stacked
+                                vertically saves ~30px per item. */}
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                               {item.sizes.map(sz => {
                                 const shipped = item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0;
                                 const received = item.received_qtys?.[sz] ?? shipped;
                                 const mismatch = item.received_at_hpd && received !== shipped;
                                 return (
-                                  <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-                                    <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{sz}</span>
-                                    <span style={{ fontSize: 10, color: T.muted, fontFamily: mono }}>{shipped}</span>
+                                  <div key={sz} style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: mono, fontSize: 10 }}>
+                                    <span style={{ color: T.faint, fontWeight: 600 }}>{sz}</span>
+                                    <span style={{ color: T.muted }}>{shipped}</span>
+                                    <span style={{ color: T.faint }}>→</span>
                                     <input type="number" min="0" value={received}
                                       onChange={e => updateReceivedQty(item, sz, parseInt(e.target.value) || 0)}
                                       onFocus={e => e.target.select()}
-                                      style={{ width: 36, textAlign: "center", padding: "2px", border: `1px solid ${mismatch ? T.red : T.border}`, borderRadius: 3, background: T.surface, color: mismatch ? T.red : T.text, fontSize: 10, fontFamily: mono, outline: "none" }} />
+                                      style={{ width: 38, textAlign: "center", padding: "2px 3px", border: `1px solid ${mismatch ? T.red : T.border}`, borderRadius: 3, background: T.surface, color: mismatch ? T.red : T.text, fontSize: 10, fontFamily: mono, outline: "none" }} />
                                   </div>
                                 );
                               })}
                             </div>
-                            {hasVariance && <div style={{ fontSize: 9, color: T.red, marginTop: 4 }}>Variance: {receivedTotal - (shippedQty ?? totalQty)} units</div>}
+                            {hasVariance && <div style={{ fontSize: 9, color: T.red, marginTop: 3 }}>Variance: {receivedTotal - (shippedQty ?? totalQty)} units</div>}
                           </td>
-                          <td style={{ padding: "8px" }}>
+                          <td style={{ padding: "6px 8px" }}>
                             {item.received_at_hpd ? (
                               <div>
                                 <span style={{
@@ -396,7 +392,7 @@ export default function ReceivingPage() {
                               </div>
                             )}
                           </td>
-                          <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                          <td style={{ padding: "6px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
                             <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
                               {item.received_at_hpd ? (
                                 <>
