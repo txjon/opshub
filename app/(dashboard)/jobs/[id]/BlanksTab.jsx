@@ -361,14 +361,17 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
               <div style={{ fontSize: 14, fontWeight: 700, color: qbInvNum ? T.text : T.faint, fontFamily: mono }}>
                 {qbRef || <span title={`OpsHub job number — push to QB to get an invoice #`} style={{ fontSize: 11 }}>{fallbackRef}</span>}
               </div>
-              {/* Blank info + sizes inline — the meat of the row */}
+              {/* Blank info + sizes — sizes stacked label-over-number, bigger */}
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{blankInfo || "—"}</div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12, color: T.muted, fontFamily: mono, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{blankInfo || "—"}</div>
+                <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
                   {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
-                    <span key={sz}><span style={{ color: T.faint, marginRight: 3 }}>{sz}</span><span style={{ color: T.text, fontWeight: 600 }}>{(item.qtys || {})[sz].toLocaleString()}</span></span>
+                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
+                      <span style={{ fontSize: 10, color: T.faint, fontFamily: mono, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>{sz}</span>
+                      <span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: mono }}>{(item.qtys || {})[sz].toLocaleString()}</span>
+                    </div>
                   ))}
-                  <span style={{ color: T.faint }}>· {totalUnits.toLocaleString()} units</span>
+                  <span style={{ fontSize: 11, color: T.faint, fontFamily: mono, paddingBottom: 2 }}>· {totalUnits.toLocaleString()} units</span>
                 </div>
               </div>
               {/* Order total input — sized for $100,000.00, right-aligned */}
