@@ -330,12 +330,12 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 
       {/* Lock In Pricing */}
       {costTab==="calc"&&(
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,padding:"8px 14px",background:project?.type_meta?.costing_locked?T.greenDim:T.amberDim,borderRadius:8,border:`1px solid ${project?.type_meta?.costing_locked?T.green+"44":T.amber+"44"}`}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,paddingBottom:8,borderBottom:`1px solid ${T.border}`}}>
           <div>
-            <span style={{fontSize:12,fontWeight:700,color:project?.type_meta?.costing_locked?T.green:T.amber}}>
+            <span style={{fontSize:11,fontWeight:700,color:project?.type_meta?.costing_locked?T.green:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>
               {project?.type_meta?.costing_locked?"Pricing locked":"Pricing not locked"}
             </span>
-            <span style={{fontSize:11,color:T.muted,marginLeft:8}}>
+            <span style={{fontSize:11,color:T.muted,marginLeft:10}}>
               {project?.type_meta?.costing_locked?"Ready to quote":"Lock in pricing when all items are costed"}
             </span>
           </div>
