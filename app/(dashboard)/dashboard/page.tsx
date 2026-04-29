@@ -144,7 +144,11 @@ export default async function DashboardPage() {
       if (proofMap[it.id]?.hasRevision) {
         alerts.push({ ...base, priority: 0, type: "revision", color: T.red,
           action: `Proof revision requested — ${it.name}`, notes: proofMap[it.id]?.revisionNotes || null,
-          href: `/jobs/${j.id}?tab=art`, column: "sales" });
+          href: `/jobs/${j.id}?tab=proofs`, column: "sales",
+          // Used by the Command Center to open a per-revision modal with
+          // mockup thumbnail + client message.
+          itemId: it.id, itemName: it.name,
+        });
       }
     }
 
@@ -404,6 +408,14 @@ export default async function DashboardPage() {
       metaKind,
       urgency: priorityToUrgency(a.priority),
       href: a.href,
+      // Revision cards open a per-revision preview modal instead of a navigation
+      revision: a.type === "revision" && a.itemId && a.jobId ? {
+        jobId: a.jobId,
+        itemId: a.itemId,
+        itemName: a.itemName || a.action,
+        notes: a.notes || null,
+        href: a.href,
+      } : undefined,
     });
   }
 
