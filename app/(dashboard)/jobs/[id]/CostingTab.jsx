@@ -722,8 +722,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           </table>
                       </div>}
                       <div>
-                        <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Item notes</div>
-                        <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})}                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:72,boxSizing:"border-box"}}/>
+                        <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Production notes</div>
+                        <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})} placeholder="Special instructions for the decorator (also shown on PO tab)"
+                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:72,boxSizing:"border-box"}}/>
                       </div>
                       {r&&(
                         <div style={{background:T.card,borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden",marginTop:4}}>
@@ -1247,6 +1248,11 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       const updates = { sizes: sortSizes(it.sizes || []), qtys: it.qtys || saved.qtys || {}, garment_type: it.garment_type || saved.garment_type || null };
       if (it.blank_vendor && it.blank_vendor !== saved.style) { updates.style = it.blank_vendor; updates.color = it.blank_sku || saved.color; }
       if (it.blankCosts && Object.keys(it.blankCosts).length > 0 && (!saved.blankCosts || Object.keys(saved.blankCosts).length === 0)) { updates.blankCosts = it.blankCosts; updates.blankCostPerUnit = Object.values(it.blankCosts).filter(v=>v>0).reduce((a,v,_,arr)=>a+v/arr.length,0); }
+      // Production notes — items.production_notes_po is source of truth.
+      // Falls back to legacy costing_data.itemNotes for jobs created before
+      // the consolidation. Tab unmounts on switch (autosave flushes), so
+      // POTab edits are picked up on next mount.
+      updates.itemNotes = it.production_notes_po || saved.itemNotes || "";
       return { ...saved, ...updates };
     }
     let blankCosts = {};
@@ -1284,6 +1290,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       blankCostPerUnit,
       totalQty: Object.values(it.qtys || {}).reduce((a, v) => a + v, 0),
       garment_type: it.garment_type || null,
+      itemNotes: it.production_notes_po || "",
       ...((()=>{ const NG=["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]; return NG.includes(it.garment_type) && !saved ? { customCosts: [{desc:"",perUnit:0,flat:false},{desc:"",perUnit:0,flat:false}] } : {}; })()),
     };
   });
@@ -1549,6 +1556,10 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           if (r2 && r2.qty > 0 && r2.totalCost >= 0) {
             itemUpdates.cost_per_unit_all_in = Math.round((r2.totalCost / r2.qty) * 100) / 100;
           }
+          // Production notes — single source of truth on items, mirrors
+          // the field exposed on POTab. Always written so PO tab sees the
+          // latest from costing without waiting on a separate save.
+          itemUpdates.production_notes_po = (cp.itemNotes || "").trim() || null;
           if (Object.keys(itemUpdates).length > 0) {
             await supabase.from("items").update(itemUpdates).eq("id", cp.id);
           }
