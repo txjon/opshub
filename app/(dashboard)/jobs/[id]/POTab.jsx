@@ -291,22 +291,22 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               ))}
             </div>
           </div>
-          {/* Ship By Date — per vendor */}
-          <div style={{display:"flex",flexDirection:"column",gap:4,alignSelf:"center"}}>
-            <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
-            <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
-              onChange={e=>{
-                const val=e.target.value;
-                const updated={...poShipDates,[active]:val};
-                setPoShipDates(updated);
-                saveTypeMeta({ po_ship_dates: updated });
-              }}
-              style={{background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}} />
-          </div>
-          {/* Ship Method */}
-          <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180,alignSelf:"center"}}>
-            <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
-            <select value={shipMethods[active]||""} onChange={e=>{
+          {/* Ship by date + Ship method — stacked next to Ship To */}
+          <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:"flex-start"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
+              <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
+                onChange={e=>{
+                  const val=e.target.value;
+                  const updated={...poShipDates,[active]:val};
+                  setPoShipDates(updated);
+                  saveTypeMeta({ po_ship_dates: updated });
+                }}
+                style={{background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}} />
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180}}>
+              <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
+              <select value={shipMethods[active]||""} onChange={e=>{
               const val=e.target.value;
               const updated={...shipMethods,[active]:val};
               setShipMethods(updated);
@@ -316,6 +316,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               <option value="">— select —</option>
               {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
+            </div>
           </div>
           {/* Ship To */}
           <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
