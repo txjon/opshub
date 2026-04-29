@@ -170,13 +170,18 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
     supabase.from("decorators").select("*").order("name").then(({data})=>setDecorators(data||[]));
   },[]);
 
+  // Default suggestion for packing/shipping notes — pre-filled when no
+  // value is set so the decorator gets sensible instructions even on
+  // a quick send. User can edit; blur saves whatever's in the field.
+  const DEFAULT_PACKING_NOTES = "Bulk pack in cartons by size. Label each carton with item name, color, and size. Include packing slip in carton #1.";
+
   useEffect(()=>{
     setItemFields(prev => {
       const fields = {...prev};
       items.forEach(it=>{
         if (!fields[it.id]) {
           fields[it.id] = {
-            packing_notes: it.packing_notes||"",
+            packing_notes: it.packing_notes || DEFAULT_PACKING_NOTES,
             drive_link: it.drive_link||"",
             incoming_goods: it.incoming_goods || it.blanks_order_number || "",
             production_notes_po: it.production_notes_po||"",
@@ -184,6 +189,15 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
         }
       });
       return fields;
+    });
+
+    // Persist the default packing note to DB for items that don't have
+    // one yet — so the PO PDF carries the suggestion even if the user
+    // sends without touching the field.
+    items.forEach(it => {
+      if (!it.packing_notes && typeof it.id === "string" && it.id.length > 20) {
+        supabase.from("items").update({ packing_notes: DEFAULT_PACKING_NOTES }).eq("id", it.id);
+      }
     });
   },[items]);
 
