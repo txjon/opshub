@@ -341,11 +341,20 @@ function RevisionPreviewModal({ payload, onClose }: { payload: NonNullable<Bucke
         const r = await fetch(`/api/files?itemId=${payload.itemId}`);
         if (!r.ok) { if (!cancelled) setLoading(false); return; }
         const d = await r.json();
-        const proofs = (d.files || []).filter((f: any) => f.stage === "proof");
-        // Latest revision-requested proof first; otherwise latest proof
-        const sorted = [...proofs].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
-        const file = sorted.find((f: any) => f.approval === "revision_requested") || sorted[0] || null;
-        if (!cancelled) { setProofFile(file); setLoading(false); }
+        // Prefer the mockup image — that's what the team revises. Falls back
+        // to the latest proof if no mockup is on file. Then to any image.
+        const all = (d.files || []) as any[];
+        const sortDesc = (arr: any[]) => [...arr].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+        const file =
+          sortDesc(all.filter(f => f.stage === "mockup"))[0] ||
+          sortDesc(all.filter(f => f.stage === "proof"))[0] ||
+          null;
+        // Pull the client message from the latest revision-requested proof
+        const revisedProof = sortDesc(all.filter(f => f.stage === "proof" && f.approval === "revision_requested"))[0];
+        if (!cancelled) {
+          setProofFile(file ? { ...file, notes: revisedProof?.notes ?? file.notes } : null);
+          setLoading(false);
+        }
       } catch { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
