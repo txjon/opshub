@@ -169,17 +169,18 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
           const isActive = ld.location && ld.screens > 0;
 
           return (
-            <div key={loc} style={{background:isActive?T.surface:"transparent",border:`1px solid ${isActive?T.border:T.border+"66"}`,borderRadius:8,padding:"8px 10px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                {/* Location name */}
-                <div style={{flex:1,position:"relative"}}>
-                  <input value={ld.location||""} onChange={e=>updateLoc(loc,{location:e.target.value,printer:p.printVendor})}
-                    list={`loc-presets-${i}-${loc}`}
-                    style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontWeight:600,fontFamily:font,width:"100%",padding:0}}
-                    placeholder="Location..." />
-                  <datalist id={`loc-presets-${i}-${loc}`}>{LOCATION_PRESETS.map(l=><option key={l} value={l}/>)}</datalist>
-                </div>
+            <div key={loc} style={{background:isActive?T.surface:"transparent",border:`1px solid ${isActive?T.border:T.border+"66"}`,borderRadius:8,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
+              {/* Row 1: Location name */}
+              <div style={{position:"relative"}}>
+                <input value={ld.location||""} onChange={e=>updateLoc(loc,{location:e.target.value,printer:p.printVendor})}
+                  list={`loc-presets-${i}-${loc}`}
+                  style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:font,width:"100%",padding:0}}
+                  placeholder="Location..." />
+                <datalist id={`loc-presets-${i}-${loc}`}>{LOCATION_PRESETS.map(l=><option key={l} value={l}/>)}</datalist>
+              </div>
 
+              {/* Row 2: colors + share + cost */}
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
                 {/* Color/screen count */}
                 <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
                   <input type="text" inputMode="numeric" value={ld.screens||""} onChange={e=>updateLoc(loc,{screens:parseInt(e.target.value)||0,printer:p.printVendor})}
