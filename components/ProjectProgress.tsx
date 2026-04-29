@@ -71,20 +71,20 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
     { id: "po", label: "PO", done: allPosSent, active: allBlanksOrdered && !allPosSent },
   ];
 
+  // Documents step lives on the Overview tab as a link now (next to
+  // Project notes), not in the progress nav.
   const steps: Step[] = isArchived
     ? [
         { id: "overview", label: "Overview", done: true, active: false },
-        { id: "documents", label: "Documents", done: true, active: false },
       ]
     : [
         { id: "overview", label: "Overview", done: true, active: false },
         ...workingSteps,
-        { id: "documents", label: "Documents", done: true, active: false },
       ];
 
   const completedCount = steps.filter(s => s.done).length;
-  const denom = Math.max(1, steps.length - 2); // exclude Overview + Documents from progress calc
-  const pct = isArchived ? 100 : Math.round(((completedCount - 2) / denom) * 100);
+  const denom = Math.max(1, steps.length - 1); // exclude Overview from progress calc
+  const pct = isArchived ? 100 : Math.round(((completedCount - 1) / denom) * 100);
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>

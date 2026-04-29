@@ -723,8 +723,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       })()}
                     </div>
                   </div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
-                    <textarea style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
+                    <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Documents</label>
+                    <button onClick={()=>switchTab("documents")}
+                      style={{...ic,background:T.surface,minHeight:90,cursor:"pointer",textAlign:"left",display:"flex",flexDirection:"column",alignItems:"flex-start",justifyContent:"center",gap:4,fontFamily:font}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;}}
+                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                      <span style={{fontSize:11,color:T.faint,lineHeight:1.4}}>Quote · Invoice · Packing Slip · POs · Item files</span>
+                      <span style={{fontSize:12,fontWeight:700,color:T.text}}>Open documents →</span>
+                    </button>
                   </div>
                 </div>
               </div>
