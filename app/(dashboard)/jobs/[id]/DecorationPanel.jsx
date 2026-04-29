@@ -100,22 +100,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
     const fmtMoney = n => `$${(n || 0).toFixed(2)}`;
     const perUnit = n => qty > 0 ? n / qty : 0;
 
-    const Section = ({ label, children, total, perUnitNote }) => (
-      <div>
-        <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4,paddingBottom:4,borderBottom:`1px solid ${T.border}`}}>
-          <span>{label}</span>
-          {(total !== undefined || perUnitNote) && (
-            <span style={{fontFamily:mono,color:T.text,fontSize:10,fontWeight:700,letterSpacing:"normal",textTransform:"none"}}>
-              {perUnitNote ? perUnitNote : fmtMoney(total) + " total"}
-            </span>
-          )}
-        </div>
-        <div style={{display:"flex",flexDirection:"column",gap:3,marginBottom:10}}>{children}</div>
-      </div>
-    );
-
     const LineRow = ({ left, right, sublabel }) => (
-      <div style={{display:"flex",alignItems:"baseline",gap:8,fontSize:12,padding:"2px 0"}}>
+      <div style={{display:"flex",alignItems:"baseline",gap:8,fontSize:12,padding:"5px 0",borderBottom:`1px solid ${T.border}33`}}>
         <span style={{color:T.text,fontWeight:500,flex:1,minWidth:0}}>
           {left}
           {sublabel && <span style={{fontSize:11,color:T.faint,marginLeft:6}}>{sublabel}</span>}
@@ -152,57 +138,26 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
           {fleecePresent && headerRow("Fleece", "Yes")}
         </div>
 
-        {locLines.length > 0 && (
-          <Section label="Print Locations" perUnitNote={fmtMoney(perUnit(sumLines(locLines))) + " / unit"}>
-            {locLines.map((ln, idx) => {
-              const matchingLoc = Object.values(p.printLocations || {}).find(l => l?.location === ln.label);
-              const screens = matchingLoc?.screens || 0;
-              const shareGroup = matchingLoc?.shared && matchingLoc?.shareGroup ? matchingLoc.shareGroup : null;
-              const sub = `${screens} ${screens===1?"color":"colors"}` + (shareGroup ? ` · Group ${shareGroup}` : "");
-              return <LineRow key={idx} left={ln.label} sublabel={sub} right={fmtMoney(ln.rate)} />;
-            })}
-          </Section>
-        )}
-
-        {tagLines.length > 0 && (
-          <Section label={`Tag${p.tagRepeat ? " (Repeat)" : ""}`} perUnitNote={fmtMoney(perUnit(sumLines(tagLines))) + " / unit"}>
-            {tagLines.map((ln, idx) => (
-              <LineRow key={idx} left="Tag print" sublabel={p.tagShareGroup ? `Group ${p.tagShareGroup}` : null} right={fmtMoney(ln.rate)} />
-            ))}
-          </Section>
-        )}
-
-        {pkgLines.length > 0 && (
-          <Section label="Packaging" perUnitNote={fmtMoney(perUnit(sumLines(pkgLines))) + " / unit"}>
-            {pkgLines.map((ln, idx) => <LineRow key={idx} left={ln.label} right={fmtMoney(ln.rate)} />)}
-          </Section>
-        )}
-
-        {finLines.length > 0 && (
-          <Section label="Finishing" perUnitNote={fmtMoney(perUnit(sumLines(finLines))) + " / unit"}>
-            {finLines.map((ln, idx) => <LineRow key={idx} left={ln.label} right={fmtMoney(ln.rate)} />)}
-          </Section>
-        )}
-
-        {specLines.length > 0 && (
-          <Section label="Specialty" perUnitNote={fmtMoney(perUnit(sumLines(specLines))) + " / unit"}>
-            {specLines.map((ln, idx) => <LineRow key={idx} left={ln.label} right={fmtMoney(ln.rate)} />)}
-          </Section>
-        )}
-
-        {setupLines.length > 0 && (
-          <Section label="Setup Fees" total={sumLines(setupLines)}>
-            {setupLines.map((ln, idx) => <LineRow key={idx} left={ln.label} right={fmtMoney(ln.total)} />)}
-          </Section>
-        )}
-
-        {customLines.length > 0 && (
-          <Section label="Custom Costs" total={sumLines(customLines)}>
-            {customLines.map((ln, idx) => (
-              <LineRow key={idx} left={ln.label} sublabel={ln.isFlat ? "flat" : `${fmtMoney(ln.rate)} / unit`} right={fmtMoney(ln.total)} />
-            ))}
-          </Section>
-        )}
+        {/* Flat line list — every cost in one read, no section chrome */}
+        <div style={{display:"flex",flexDirection:"column",marginBottom:6}}>
+          {locLines.map((ln, idx) => {
+            const matchingLoc = Object.values(p.printLocations || {}).find(l => l?.location === ln.label);
+            const screens = matchingLoc?.screens || 0;
+            const shareGroup = matchingLoc?.shared && matchingLoc?.shareGroup ? matchingLoc.shareGroup : null;
+            const sub = `${screens} ${screens===1?"color":"colors"}` + (shareGroup ? ` · Group ${shareGroup}` : "");
+            return <LineRow key={"loc"+idx} left={ln.label} sublabel={sub} right={fmtMoney(ln.rate)} />;
+          })}
+          {tagLines.map((ln, idx) => (
+            <LineRow key={"tag"+idx} left={`Tag${p.tagRepeat ? " (Repeat)" : ""}`} sublabel={p.tagShareGroup ? `Group ${p.tagShareGroup}` : null} right={fmtMoney(ln.rate)} />
+          ))}
+          {pkgLines.map((ln, idx) => <LineRow key={"pkg"+idx} left={ln.label} right={fmtMoney(ln.rate)} />)}
+          {finLines.map((ln, idx) => <LineRow key={"fin"+idx} left={ln.label} right={fmtMoney(ln.rate)} />)}
+          {specLines.map((ln, idx) => <LineRow key={"spec"+idx} left={ln.label} right={fmtMoney(ln.rate)} />)}
+          {setupLines.map((ln, idx) => <LineRow key={"setup"+idx} left={ln.label} right={fmtMoney(ln.total)} />)}
+          {customLines.map((ln, idx) => (
+            <LineRow key={"cust"+idx} left={ln.label} sublabel={ln.isFlat ? "flat" : `${fmtMoney(ln.rate)} / unit`} right={fmtMoney(ln.total)} />
+          ))}
+        </div>
 
         {/* Grand total */}
         <div style={{marginTop:6,paddingTop:10,borderTop:`2px solid ${T.text}`,display:"flex",alignItems:"baseline",justifyContent:"space-between"}}>
