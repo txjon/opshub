@@ -565,10 +565,30 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   Open in Drive
                 </a>
               )}
+              <button onClick={()=>setPreviewFile(null)}
+                style={{background:"none",border:"none",fontSize:18,color:T.muted,cursor:"pointer",lineHeight:1,padding:"0 6px"}}
+                onMouseEnter={e=>e.currentTarget.style.color=T.text}
+                onMouseLeave={e=>e.currentTarget.style.color=T.muted}>✕</button>
             </div>
             {previewFile.drive_file_id ? (
-              <iframe src={`https://drive.google.com/file/d/${previewFile.drive_file_id}/preview`}
-                style={{flex:1,border:"none",background:"#000",minHeight:0}}/>
+              (previewFile.mime_type || "").startsWith("image/") ? (
+                // Render image directly — no Drive iframe chrome (i.e. that
+                // pop-out icon Google bakes into /preview).
+                <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"#000",minHeight:0,padding:8}}>
+                  <img src={`https://drive.google.com/thumbnail?id=${previewFile.drive_file_id}&sz=w2400`}
+                    alt={previewFile.file_name}
+                    style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>
+                </div>
+              ) : (
+                // PDFs / docs / etc — Drive iframe is the cleanest cross-format
+                // preview, but it ships its own pop-out icon top-right.
+                // Cover it with a small overlay matching the iframe bg.
+                <div style={{flex:1,position:"relative",background:"#525659",minHeight:0}}>
+                  <iframe src={`https://drive.google.com/file/d/${previewFile.drive_file_id}/preview`}
+                    style={{position:"absolute",inset:0,width:"100%",height:"100%",border:"none"}}/>
+                  <div style={{position:"absolute",top:0,right:0,width:56,height:56,background:"#525659",pointerEvents:"none"}}/>
+                </div>
+              )
             ) : (
               <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:13}}>
                 File not available — Drive link missing.
