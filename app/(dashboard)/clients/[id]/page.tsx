@@ -557,10 +557,14 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                 {previewFile.file_name}
               </div>
-              <button onClick={()=>setPreviewFile(null)}
-                style={{background:"none",border:"none",fontSize:18,color:T.muted,cursor:"pointer",lineHeight:1,padding:"0 6px"}}
-                onMouseEnter={e=>e.currentTarget.style.color=T.text}
-                onMouseLeave={e=>e.currentTarget.style.color=T.muted}>✕</button>
+              {previewFile.drive_link && (
+                <a href={previewFile.drive_link} target="_blank" rel="noopener noreferrer"
+                  style={{fontSize:11,color:T.muted,textDecoration:"none",padding:"4px 10px",borderRadius:5,border:`1px solid ${T.border}`,fontFamily:font}}
+                  onMouseEnter={(e:any)=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.accent;}}
+                  onMouseLeave={(e:any)=>{e.currentTarget.style.color=T.muted;e.currentTarget.style.borderColor=T.border;}}>
+                  Open in Drive
+                </a>
+              )}
             </div>
             {previewFile.drive_file_id ? (
               <iframe src={`https://drive.google.com/file/d/${previewFile.drive_file_id}/preview`}
