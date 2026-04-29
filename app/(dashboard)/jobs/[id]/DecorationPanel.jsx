@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { T, font, mono } from "@/lib/theme";
+import { calcDecorationLines } from "@/lib/pricing";
 
 const LOCATION_PRESETS = ["Front","Back","Left Sleeve","Right Sleeve","Left Chest","Right Chest","Neck","Hood","Pocket"];
 const SHARE_GROUPS = ["A","B","C","D","E","F","G","H","I","J"];
@@ -52,31 +53,89 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
     updateProd(i, {...p, printLocations: newLocs});
   };
 
-  // Locked summary view — read-only scannable digest of the decoration setup.
-  // Shown by default when costing is locked; expand toggle reveals the full
-  // editable layout for verification (still gated on lock for editing).
+  // Locked summary view — read-only scannable digest of every decoration cost.
+  // Sourced from calcDecorationLines so the breakdown matches what's been
+  // costed. Grouped into sections so it's easy to scan.
   if (costingLocked && !forceExpanded) {
-    const activeLocations = Object.values(p.printLocations||{})
-      .filter(l => l?.location && l?.screens > 0);
-    const packagingVariant = p.finishingQtys?.Packaging_on>0 ? p.finishingQtys?.Packaging_variant : null;
-    const finishingItems = Object.entries(p.finishingQtys||{})
-      .filter(([k,v]) => k.endsWith("_on") && v>0 && k!=="Packaging_on")
-      .map(([k]) => k.replace(/_on$/,""));
-    const specialtyItems = Object.entries(p.specialtyQtys||{})
-      .filter(([k,v]) => k.endsWith("_on") && v>0)
-      .map(([k]) => k.replace(/_on$/,""));
-    const tagLabel = p.tagPrint ? (p.tagRepeat ? "Repeat" : "Yes") : null;
+    const lines = calcDecorationLines(p, costProds, PRINTERS) || [];
+    const qty = p.totalQty || 0;
+    const fleecePresent = !!p.isFleece;
 
-    const Row = ({ label, value, mono: useMono }) => (
-      <div style={{display:"flex",alignItems:"baseline",gap:8,padding:"3px 0",borderBottom:`1px solid ${T.border}33`}}>
-        <span style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",minWidth:90,flexShrink:0}}>{label}</span>
-        <span style={{fontSize:12,color:T.text,fontFamily:useMono?mono:font,fontWeight:useMono?600:500,flex:1}}>{value || "—"}</span>
+    // Categorize lines by source so we can render section headers
+    const activeLocLabels = new Set(
+      Object.values(p.printLocations||{})
+        .filter(l => l?.location && l?.screens > 0)
+        .map(l => l.location)
+    );
+    const finishingKeys = new Set(Object.keys(pr.finishing || {}));
+    const specialtyKeys = new Set(Object.keys(pr.specialty || {}));
+
+    const locLines = [];
+    const tagLines = [];
+    const pkgLines = [];
+    const finLines = [];
+    const specLines = [];
+    const setupLines = [];
+    const otherLines = [];
+
+    for (const ln of lines) {
+      if (activeLocLabels.has(ln.label)) locLines.push(ln);
+      else if (ln.label === "Tag print") tagLines.push(ln);
+      else if (ln.label.startsWith("Packaging")) pkgLines.push(ln);
+      else if (finishingKeys.has(ln.label)) finLines.push(ln);
+      else if (specialtyKeys.has(ln.label) || ln.label === "Fleece Upcharge") specLines.push(ln);
+      else if (/^Screen fees|^Tag screen fees|\([\d]+( [a-z]+)?\)$/.test(ln.label)) setupLines.push(ln);
+      else otherLines.push(ln);
+    }
+
+    // Custom costs from p.customCosts (these aren't returned by calcDecorationLines)
+    const customLines = (p.customCosts || [])
+      .filter(c => (parseFloat(c.perUnit)||parseFloat(c.amount)||0) > 0 && (c.desc || "").trim())
+      .map(c => {
+        const rate = parseFloat(c.perUnit) || parseFloat(c.amount) || 0;
+        return { label: c.desc, rate, total: c.flat ? rate : rate * qty, isFlat: !!c.flat };
+      });
+
+    const sumLines = arr => arr.reduce((a, l) => a + (l.total || 0), 0);
+    const fmtMoney = n => `$${(n || 0).toFixed(2)}`;
+    const perUnit = n => qty > 0 ? n / qty : 0;
+
+    const Section = ({ label, children, total, perUnitNote }) => (
+      <div>
+        <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4,paddingBottom:4,borderBottom:`1px solid ${T.border}`}}>
+          <span>{label}</span>
+          {(total !== undefined || perUnitNote) && (
+            <span style={{fontFamily:mono,color:T.text,fontSize:10,fontWeight:700,letterSpacing:"normal",textTransform:"none"}}>
+              {perUnitNote ? perUnitNote : fmtMoney(total) + " total"}
+            </span>
+          )}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:3,marginBottom:10}}>{children}</div>
       </div>
     );
 
+    const LineRow = ({ left, right, sublabel }) => (
+      <div style={{display:"flex",alignItems:"baseline",gap:8,fontSize:12,padding:"2px 0"}}>
+        <span style={{color:T.text,fontWeight:500,flex:1,minWidth:0}}>
+          {left}
+          {sublabel && <span style={{fontSize:11,color:T.faint,marginLeft:6}}>{sublabel}</span>}
+        </span>
+        <span style={{color:T.text,fontFamily:mono,fontWeight:700,flexShrink:0}}>{right}</span>
+      </div>
+    );
+
+    const headerRow = (label, value, valueMono) => (
+      <div style={{display:"flex",alignItems:"baseline",gap:12,padding:"4px 0"}}>
+        <span style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",minWidth:70,flexShrink:0}}>{label}</span>
+        <span style={{fontSize:13,color:T.text,fontFamily:valueMono?mono:font,fontWeight:600}}>{value || "—"}</span>
+      </div>
+    );
+
+    const decorationTotal = sumLines(lines) + sumLines(customLines);
+
     return (
-      <div style={{display:"flex",flexDirection:"column",gap:8,paddingLeft:20}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:8,borderBottom:`2px solid ${T.text}`}}>
+      <div style={{display:"flex",flexDirection:"column",gap:0,paddingLeft:20}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:8,borderBottom:`2px solid ${T.text}`,marginBottom:10}}>
           <div style={{fontSize:11,fontWeight:800,color:T.text,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Decoration · Locked</div>
           <button onClick={()=>setForceExpanded(true)}
             style={{fontSize:10,fontFamily:font,fontWeight:600,color:T.muted,background:"none",border:`1px solid ${T.border}`,borderRadius:5,cursor:"pointer",padding:"3px 10px"}}
@@ -86,37 +145,79 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
           </button>
         </div>
 
-        <Row label="Vendor" value={p.printVendor || "Not set"} />
-        {p.decorationType && <Row label="Type" value={p.decorationType} />}
+        {/* Vendor / type — compact header strip */}
+        <div style={{marginBottom:10}}>
+          {headerRow("Vendor", p.printVendor || "Not set")}
+          {p.decorationType && headerRow("Type", p.decorationType)}
+          {fleecePresent && headerRow("Fleece", "Yes")}
+        </div>
 
-        {activeLocations.length > 0 && (
-          <div style={{padding:"3px 0",borderBottom:`1px solid ${T.border}33`}}>
-            <div style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Print Locations</div>
-            <div style={{display:"flex",flexDirection:"column",gap:3}}>
-              {activeLocations.map((l,idx) => {
-                const eff = l.shared && l.shareGroup ? getSharedQty(l.shareGroup) : (p.totalQty||0);
-                const cost = p.printVendor ? lookupPrintPrice(p.printVendor, eff, l.screens) : 0;
-                return (
-                  <div key={idx} style={{display:"flex",alignItems:"baseline",gap:8,fontSize:12}}>
-                    <span style={{color:T.text,fontWeight:600,minWidth:120}}>{l.location}</span>
-                    <span style={{color:T.muted,fontFamily:mono,fontSize:11}}>{l.screens} {l.screens===1?"color":"colors"}</span>
-                    {l.shared && l.shareGroup && <span style={{color:T.faint,fontSize:11}}>· Group {l.shareGroup}</span>}
-                    <span style={{marginLeft:"auto",color:T.text,fontFamily:mono,fontWeight:700}}>${cost>0?cost.toFixed(2):"—"}</span>
-                  </div>
-                );
-              })}
-            </div>
+        {locLines.length > 0 && (
+          <Section label="Print Locations" perUnitNote={fmtMoney(perUnit(sumLines(locLines))) + " / unit"}>
+            {locLines.map((ln, idx) => {
+              const matchingLoc = Object.values(p.printLocations || {}).find(l => l?.location === ln.label);
+              const screens = matchingLoc?.screens || 0;
+              const shareGroup = matchingLoc?.shared && matchingLoc?.shareGroup ? matchingLoc.shareGroup : null;
+              const sub = `${screens} ${screens===1?"color":"colors"}` + (shareGroup ? ` · Group ${shareGroup}` : "");
+              return <LineRow key={idx} left={ln.label} sublabel={sub} right={fmtMoney(ln.rate)} />;
+            })}
+          </Section>
+        )}
+
+        {tagLines.length > 0 && (
+          <Section label={`Tag${p.tagRepeat ? " (Repeat)" : ""}`} perUnitNote={fmtMoney(perUnit(sumLines(tagLines))) + " / unit"}>
+            {tagLines.map((ln, idx) => (
+              <LineRow key={idx} left="Tag print" sublabel={p.tagShareGroup ? `Group ${p.tagShareGroup}` : null} right={fmtMoney(ln.rate)} />
+            ))}
+          </Section>
+        )}
+
+        {pkgLines.length > 0 && (
+          <Section label="Packaging" perUnitNote={fmtMoney(perUnit(sumLines(pkgLines))) + " / unit"}>
+            {pkgLines.map((ln, idx) => <LineRow key={idx} left={ln.label} right={fmtMoney(ln.rate)} />)}
+          </Section>
+        )}
+
+        {finLines.length > 0 && (
+          <Section label="Finishing" perUnitNote={fmtMoney(perUnit(sumLines(finLines))) + " / unit"}>
+            {finLines.map((ln, idx) => <LineRow key={idx} left={ln.label} right={fmtMoney(ln.rate)} />)}
+          </Section>
+        )}
+
+        {specLines.length > 0 && (
+          <Section label="Specialty" perUnitNote={fmtMoney(perUnit(sumLines(specLines))) + " / unit"}>
+            {specLines.map((ln, idx) => <LineRow key={idx} left={ln.label} right={fmtMoney(ln.rate)} />)}
+          </Section>
+        )}
+
+        {setupLines.length > 0 && (
+          <Section label="Setup Fees" total={sumLines(setupLines)}>
+            {setupLines.map((ln, idx) => <LineRow key={idx} left={ln.label} right={fmtMoney(ln.total)} />)}
+          </Section>
+        )}
+
+        {customLines.length > 0 && (
+          <Section label="Custom Costs" total={sumLines(customLines)}>
+            {customLines.map((ln, idx) => (
+              <LineRow key={idx} left={ln.label} sublabel={ln.isFlat ? "flat" : `${fmtMoney(ln.rate)} / unit`} right={fmtMoney(ln.total)} />
+            ))}
+          </Section>
+        )}
+
+        {otherLines.length > 0 && (
+          <Section label="Other">
+            {otherLines.map((ln, idx) => <LineRow key={idx} left={ln.label} right={fmtMoney(ln.total)} />)}
+          </Section>
+        )}
+
+        {/* Grand total */}
+        <div style={{marginTop:6,paddingTop:10,borderTop:`2px solid ${T.text}`,display:"flex",alignItems:"baseline",justifyContent:"space-between"}}>
+          <span style={{fontSize:11,fontWeight:800,color:T.text,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Decoration Total</span>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:1}}>
+            <span style={{fontSize:14,fontWeight:800,color:T.text,fontFamily:mono}}>{fmtMoney(decorationTotal)}</span>
+            {qty > 0 && <span style={{fontSize:10,color:T.muted,fontFamily:mono}}>{fmtMoney(decorationTotal / qty)} / unit · {qty.toLocaleString()} units</span>}
           </div>
-        )}
-
-        {tagLabel && (
-          <Row label="Tag" value={tagLabel + (p.tagShareGroup ? ` · Group ${p.tagShareGroup}` : "") + (p.printVendor && !p.tagRepeat ? ` · $${(lookupTagPrice(p.printVendor, p.tagShareGroup ? getTagSharedQty() : (p.totalQty||0)) || 0).toFixed(2)}` : "")} />
-        )}
-
-        {packagingVariant && <Row label="Packaging" value={packagingVariant} />}
-        {finishingItems.length > 0 && <Row label="Finishing" value={finishingItems.join(" · ")} />}
-        {specialtyItems.length > 0 && <Row label="Specialty" value={specialtyItems.join(" · ")} />}
-        {p.isFleece && <Row label="Fleece" value="Yes" />}
+        </div>
       </div>
     );
   }
