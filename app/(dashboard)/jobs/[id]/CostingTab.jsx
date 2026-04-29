@@ -614,9 +614,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                     </div>
                     {!selectedItemId && <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>}
                   </div>
-                  <div style={{padding:16,display:bodyDisplay,gridTemplateColumns:"280px 1fr",gap:0,alignItems:"start",position:"relative",...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}}>
-                    {/* BLANKS PANEL */}
-                    <div style={{display:"flex",flexDirection:"column",gap:12,paddingRight:20,borderRight:"1px solid "+T.border,flexShrink:0}}>
+                  <div style={{padding:16,display:bodyDisplay,gridTemplateColumns:"280px 1fr",gap:0,alignItems:"start",position:"relative"}}>
+                    {/* BLANKS PANEL — dimmed when locked (no summary view here yet) */}
+                    <div style={{display:"flex",flexDirection:"column",gap:12,paddingRight:20,borderRight:"1px solid "+T.border,flexShrink:0,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}}>
                       {/* BLANKS HEADER */}
                       <div style={{fontSize:11,fontWeight:800,color:T.text,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",paddingBottom:8,borderBottom:`2px solid ${T.text}`}}>Blanks</div>
 
@@ -767,7 +767,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       )}
                     </div>{/* end blanks panel */}
                     {/* DECORATION PANEL */}
-                    <DecorationPanel p={p} i={i} costProds={costProds} PRINTERS={PRINTERS} updateProd={updateProd} setCostProds={setCostProds} lookupPrintPrice={lookupPrintPrice} lookupTagPrice={lookupTagPrice} />
+                    <DecorationPanel p={p} i={i} costProds={costProds} PRINTERS={PRINTERS} updateProd={updateProd} setCostProds={setCostProds} lookupPrintPrice={lookupPrintPrice} lookupTagPrice={lookupTagPrice} costingLocked={!!project?.type_meta?.costing_locked} />
                   </div>
                 </div>
               );

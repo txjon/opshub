@@ -6,8 +6,9 @@ const LOCATION_PRESETS = ["Front","Back","Left Sleeve","Right Sleeve","Left Ches
 const SHARE_GROUPS = ["A","B","C","D","E","F","G","H","I","J"];
 const TAG_SHARE_GROUPS = ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10"];
 
-export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice }) {
+export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice, costingLocked = false }) {
   const pr = PRINTERS[p.printVendor] || {};
+  const [forceExpanded, setForceExpanded] = useState(false);
   const activeLocsRaw = Object.values(p.printLocations||{}).filter(l=>l?.location&&l?.screens>0).length;
   // Deduplicated: shared locations in same group count as one
   const activeLocsDeduped = (()=>{
@@ -51,11 +52,88 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
     updateProd(i, {...p, printLocations: newLocs});
   };
 
+  // Locked summary view — read-only scannable digest of the decoration setup.
+  // Shown by default when costing is locked; expand toggle reveals the full
+  // editable layout for verification (still gated on lock for editing).
+  if (costingLocked && !forceExpanded) {
+    const activeLocations = Object.values(p.printLocations||{})
+      .filter(l => l?.location && l?.screens > 0);
+    const packagingVariant = p.finishingQtys?.Packaging_on>0 ? p.finishingQtys?.Packaging_variant : null;
+    const finishingItems = Object.entries(p.finishingQtys||{})
+      .filter(([k,v]) => k.endsWith("_on") && v>0 && k!=="Packaging_on")
+      .map(([k]) => k.replace(/_on$/,""));
+    const specialtyItems = Object.entries(p.specialtyQtys||{})
+      .filter(([k,v]) => k.endsWith("_on") && v>0)
+      .map(([k]) => k.replace(/_on$/,""));
+    const tagLabel = p.tagPrint ? (p.tagRepeat ? "Repeat" : "Yes") : null;
+
+    const Row = ({ label, value, mono: useMono }) => (
+      <div style={{display:"flex",alignItems:"baseline",gap:8,padding:"3px 0",borderBottom:`1px solid ${T.border}33`}}>
+        <span style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",minWidth:90,flexShrink:0}}>{label}</span>
+        <span style={{fontSize:12,color:T.text,fontFamily:useMono?mono:font,fontWeight:useMono?600:500,flex:1}}>{value || "—"}</span>
+      </div>
+    );
+
+    return (
+      <div style={{display:"flex",flexDirection:"column",gap:8,paddingLeft:20}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:8,borderBottom:`2px solid ${T.text}`}}>
+          <div style={{fontSize:11,fontWeight:800,color:T.text,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Decoration · Locked</div>
+          <button onClick={()=>setForceExpanded(true)}
+            style={{fontSize:10,fontFamily:font,fontWeight:600,color:T.muted,background:"none",border:`1px solid ${T.border}`,borderRadius:5,cursor:"pointer",padding:"3px 10px"}}
+            onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.accent;}}
+            onMouseLeave={e=>{e.currentTarget.style.color=T.muted;e.currentTarget.style.borderColor=T.border;}}>
+            Expand details
+          </button>
+        </div>
+
+        <Row label="Vendor" value={p.printVendor || "Not set"} />
+        {p.decorationType && <Row label="Type" value={p.decorationType} />}
+
+        {activeLocations.length > 0 && (
+          <div style={{padding:"3px 0",borderBottom:`1px solid ${T.border}33`}}>
+            <div style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Print Locations</div>
+            <div style={{display:"flex",flexDirection:"column",gap:3}}>
+              {activeLocations.map((l,idx) => {
+                const eff = l.shared && l.shareGroup ? getSharedQty(l.shareGroup) : (p.totalQty||0);
+                const cost = p.printVendor ? lookupPrintPrice(p.printVendor, eff, l.screens) : 0;
+                return (
+                  <div key={idx} style={{display:"flex",alignItems:"baseline",gap:8,fontSize:12}}>
+                    <span style={{color:T.text,fontWeight:600,minWidth:120}}>{l.location}</span>
+                    <span style={{color:T.muted,fontFamily:mono,fontSize:11}}>{l.screens} {l.screens===1?"color":"colors"}</span>
+                    {l.shared && l.shareGroup && <span style={{color:T.faint,fontSize:11}}>· Group {l.shareGroup}</span>}
+                    <span style={{marginLeft:"auto",color:T.text,fontFamily:mono,fontWeight:700}}>${cost>0?cost.toFixed(2):"—"}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {tagLabel && (
+          <Row label="Tag" value={tagLabel + (p.tagShareGroup ? ` · Group ${p.tagShareGroup}` : "") + (p.printVendor && !p.tagRepeat ? ` · $${(lookupTagPrice(p.printVendor, p.tagShareGroup ? getTagSharedQty() : (p.totalQty||0)) || 0).toFixed(2)}` : "")} />
+        )}
+
+        {packagingVariant && <Row label="Packaging" value={packagingVariant} />}
+        {finishingItems.length > 0 && <Row label="Finishing" value={finishingItems.join(" · ")} />}
+        {specialtyItems.length > 0 && <Row label="Specialty" value={specialtyItems.join(" · ")} />}
+        {p.isFleece && <Row label="Fleece" value="Yes" />}
+      </div>
+    );
+  }
+
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:10,paddingLeft:20}}>
+    <div style={{display:"flex",flexDirection:"column",gap:10,paddingLeft:20,...(costingLocked?{pointerEvents:"none",opacity:0.6}:{})}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:8,borderBottom:"2px solid "+T.text}}>
-        <div style={{fontSize:11,fontWeight:800,color:T.text,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Decoration</div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{fontSize:11,fontWeight:800,color:T.text,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Decoration</div>
+          {costingLocked && (
+            <button onClick={()=>setForceExpanded(false)}
+              style={{fontSize:10,fontFamily:font,fontWeight:600,color:T.muted,background:"none",border:`1px solid ${T.border}`,borderRadius:5,cursor:"pointer",padding:"3px 10px",pointerEvents:"auto"}}>
+              ← Collapse
+            </button>
+          )}
+        </div>
         {i>0&&costProds[i-1]&&<button onClick={()=>{const prev=costProds[i-1];updateProd(i,{...p,
           printVendor:prev.printVendor,
           decorationType:prev.decorationType||"",
