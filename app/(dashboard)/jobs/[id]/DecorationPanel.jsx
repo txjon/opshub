@@ -243,16 +243,20 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
 
       </div>
 
-      {/* Tag Print — inline row */}
-      <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:T.surface,borderRadius:6,border:`1px solid ${T.border}`}}>
-        <span style={{fontSize:11,fontWeight:600,color:T.text,fontFamily:font,minWidth:30}}>Tag</span>
-        <div style={{display:"flex",gap:2}}>
-          {[{label:"No",val:()=>({tagPrint:false,tagRepeat:false})},{label:"Yes",val:()=>({tagPrint:true,tagRepeat:false})},{label:"Repeat",val:()=>({tagPrint:true,tagRepeat:true})}].map(opt=>{
-            const sel = opt.label==="No"?!p.tagPrint : opt.label==="Yes"?(p.tagPrint&&!p.tagRepeat) : (p.tagPrint&&p.tagRepeat);
-            return <button key={opt.label} onClick={()=>updateProd(i,{...p,...opt.val()})}
-              style={{padding:"2px 8px",fontSize:10,fontWeight:600,borderRadius:4,cursor:"pointer",border:`1px solid ${sel?T.accent:T.border}`,background:sel?T.accent:"transparent",color:sel?"#fff":T.faint}}>{opt.label}</button>;
-          })}
-        </div>
+      {/* Tag Print — inline row, no border/bg, just buttons */}
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0"}}>
+        <button onClick={()=>updateProd(i,{...p,tagPrint:!p.tagPrint,tagRepeat:p.tagPrint?false:p.tagRepeat})}
+          style={{padding:"6px 14px",fontSize:13,fontWeight:700,fontFamily:font,borderRadius:6,cursor:"pointer",border:"none",
+            background:p.tagPrint?T.green:T.surface,color:p.tagPrint?"#fff":T.text}}>
+          {p.tagPrint?"Tag":"Tag?"}
+        </button>
+        {p.tagPrint && (
+          <button onClick={()=>updateProd(i,{...p,tagRepeat:!p.tagRepeat})}
+            style={{padding:"6px 14px",fontSize:13,fontWeight:700,fontFamily:font,borderRadius:6,cursor:"pointer",border:"none",
+              background:p.tagRepeat?T.green:T.surface,color:p.tagRepeat?"#fff":T.text}}>
+            Repeat
+          </button>
+        )}
         {p.tagPrint && (
           <>
             <div style={{display:"flex",alignItems:"center",gap:2,marginLeft:"auto"}}>
