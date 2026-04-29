@@ -170,34 +170,15 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
 
           return (
             <div key={loc} style={{background:isActive?T.surface:"transparent",border:`1px solid ${isActive?T.border:T.border+"66"}`,borderRadius:8,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
-              {/* Row 1: Location name */}
-              <div style={{position:"relative"}}>
-                <input value={ld.location||""} onChange={e=>updateLoc(loc,{location:e.target.value,printer:p.printVendor})}
-                  list={`loc-presets-${i}-${loc}`}
-                  style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:font,width:"100%",padding:0}}
-                  placeholder="Location..." />
-                <datalist id={`loc-presets-${i}-${loc}`}>{LOCATION_PRESETS.map(l=><option key={l} value={l}/>)}</datalist>
-              </div>
-
-              {/* Row 2: colors + share + cost */}
+              {/* Row 1: Location name (left) + Share group (right) */}
               <div style={{display:"flex",alignItems:"center",gap:8}}>
-                {/* Color/screen count */}
-                <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
-                  <input type="text" inputMode="numeric" value={ld.screens||""} onChange={e=>updateLoc(loc,{screens:parseInt(e.target.value)||0,printer:p.printVendor})}
-                    style={{width:24,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:11,fontFamily:mono,outline:"none",padding:"2px"}}/>
-                  <span style={{fontSize:9,color:T.faint}}>colors</span>
+                <div style={{flex:1,position:"relative"}}>
+                  <input value={ld.location||""} onChange={e=>updateLoc(loc,{location:e.target.value,printer:p.printVendor})}
+                    list={`loc-presets-${i}-${loc}`}
+                    style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:font,width:"100%",padding:0}}
+                    placeholder="Location..." />
+                  <datalist id={`loc-presets-${i}-${loc}`}>{LOCATION_PRESETS.map(l=><option key={l} value={l}/>)}</datalist>
                 </div>
-
-                {/* Puff colors — only shown when puff specialty is active and location has screens */}
-                {isActive && p.specialtyQtys && Object.keys(p.specialtyQtys).some(k=>k.toLowerCase().includes("puff")&&k.endsWith("_on")&&p.specialtyQtys[k]) && (
-                  <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
-                    <input type="text" inputMode="numeric" value={ld.puffColors||""} onChange={e=>updateLoc(loc,{puffColors:parseInt(e.target.value)||0})}
-                      style={{width:24,textAlign:"center",background:T.card,border:`1px solid ${T.amber}44`,borderRadius:4,color:T.amber,fontSize:11,fontFamily:mono,outline:"none",padding:"2px"}}/>
-                    <span style={{fontSize:9,color:T.amber}}>puff</span>
-                  </div>
-                )}
-
-                {/* Share group */}
                 <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
                   {!isShared ? (
                     <button onClick={()=>updateLoc(loc,{shared:true,shareGroup:""})}
@@ -227,12 +208,31 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                     </>
                   )}
                 </div>
+              </div>
+
+              {/* Row 2: colors + puff + cost */}
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                {/* Color/screen count */}
+                <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+                  <input type="text" inputMode="numeric" value={ld.screens||""} onChange={e=>updateLoc(loc,{screens:parseInt(e.target.value)||0,printer:p.printVendor})}
+                    style={{width:38,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:14,fontWeight:700,fontFamily:mono,outline:"none",padding:"4px 6px"}}/>
+                  <span style={{fontSize:10,color:T.muted}}>colors</span>
+                </div>
+
+                {/* Puff colors — only shown when puff specialty is active and location has screens */}
+                {isActive && p.specialtyQtys && Object.keys(p.specialtyQtys).some(k=>k.toLowerCase().includes("puff")&&k.endsWith("_on")&&p.specialtyQtys[k]) && (
+                  <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+                    <input type="text" inputMode="numeric" value={ld.puffColors||""} onChange={e=>updateLoc(loc,{puffColors:parseInt(e.target.value)||0})}
+                      style={{width:38,textAlign:"center",background:T.card,border:`1px solid ${T.amber}44`,borderRadius:5,color:T.amber,fontSize:14,fontWeight:700,fontFamily:mono,outline:"none",padding:"4px 6px"}}/>
+                    <span style={{fontSize:10,color:T.amber}}>puff</span>
+                  </div>
+                )}
 
                 {/* Cost */}
                 {isActive && (
-                  <span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0,minWidth:50,textAlign:"right"}}>
+                  <span style={{fontSize:11,color:T.muted,fontFamily:mono,flexShrink:0,marginLeft:"auto",textAlign:"right"}}>
                     ${unitCost>0?unitCost.toFixed(2):"—"}
-                    {isShared&&shareGroup&&<span style={{fontSize:8,color:T.faint,marginLeft:2}}>({effectiveQty})</span>}
+                    {isShared&&shareGroup&&<span style={{fontSize:9,color:T.faint,marginLeft:2}}>({effectiveQty})</span>}
                   </span>
                 )}
               </div>
