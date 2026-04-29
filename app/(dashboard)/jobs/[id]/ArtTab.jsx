@@ -282,7 +282,8 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     })();
   }, []);
 
-  const toggleMethod = (m) => setMethods(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m]);
+  // Print method is single-select — clicking a method makes it the only choice
+  const toggleMethod = (m) => setMethods([m]);
   const toggleInstruction = (i) => setSelInstructions(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]);
 
   // Load mockup image once on mount — convert to JPEG for reliable PDF rendering
