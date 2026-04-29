@@ -85,6 +85,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     }
     return "overview";
   });
+
+  // useState initializer doesn't re-read on hydration (window is undefined
+  // on SSR), so deep-links like /jobs/{id}?tab=proofs would otherwise land
+  // on overview. Sync tab from the URL once on mount.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get("tab");
+    if (p && p !== tab) setTab(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const saveBuySheetRef = useRef<(() => Promise<void>) | null>(null);
   const saveCostingRef = useRef<(() => Promise<void>) | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
