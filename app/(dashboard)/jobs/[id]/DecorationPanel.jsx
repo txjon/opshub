@@ -312,7 +312,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                   if (on) updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),Packaging_on:0,Packaging_variant:""}});
                   else updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),Packaging_on:1,Packaging_variant:k}});
                 }}
-                  style={{padding:"2px 8px",fontSize:10,fontWeight:on?600:400,borderRadius:4,cursor:"pointer",border:`1px solid ${on?T.accent:T.border}`,background:on?T.accentDim:"transparent",color:on?T.accent:T.faint,fontFamily:font}}>
+                  style={{padding:"6px 14px",fontSize:13,fontWeight:700,fontFamily:font,borderRadius:6,cursor:"pointer",border:"none",
+                    background:on?T.green:T.card,color:on?"#fff":T.text}}>
                   {k}
                 </button>
               );
@@ -330,7 +331,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
               const on = p.finishingQtys?.[key+"_on"]>0;
               return (
                 <button key={key} onClick={()=>updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),[key+"_on"]:on?0:1}})}
-                  style={{padding:"2px 8px",fontSize:10,fontWeight:on?600:400,borderRadius:4,cursor:"pointer",border:`1px solid ${on?T.accent:T.border}`,background:on?T.accentDim:"transparent",color:on?T.accent:T.faint,fontFamily:font}}>
+                  style={{padding:"6px 14px",fontSize:13,fontWeight:700,fontFamily:font,borderRadius:6,cursor:"pointer",border:"none",
+                    background:on?T.green:T.card,color:on?"#fff":T.text}}>
                   {key}
                 </button>
               );
