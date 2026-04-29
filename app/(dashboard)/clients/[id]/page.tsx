@@ -572,10 +572,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             </div>
             {previewFile.drive_file_id ? (
               (previewFile.mime_type || "").startsWith("image/") ? (
-                // Render image directly — no Drive iframe chrome (i.e. that
-                // pop-out icon Google bakes into /preview).
+                // Render image directly via the service-account proxy — no
+                // Drive iframe chrome (i.e. that pop-out icon Google bakes
+                // into /preview). Public Drive thumbnail URLs don't work
+                // here because the service account doesn't share files.
                 <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"#000",minHeight:0,padding:8}}>
-                  <img src={`https://drive.google.com/thumbnail?id=${previewFile.drive_file_id}&sz=w2400`}
+                  <img src={`/api/files/thumbnail?id=${previewFile.drive_file_id}`}
                     alt={previewFile.file_name}
                     style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>
                 </div>
