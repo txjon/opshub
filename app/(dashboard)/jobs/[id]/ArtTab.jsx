@@ -505,11 +505,11 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <input value={p.widthInches} onChange={e => update("widthInches", e.target.value)}
                           type="text" inputMode="decimal" placeholder="W"
-                          style={{ ...ic, fontSize: 11, width: 56, textAlign: "center", fontFamily: mono }} />
+                          style={{ ...ic, fontSize: 12, width: 60 }} />
                         <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>×</span>
                         <input value={p.heightInches} onChange={e => update("heightInches", e.target.value)}
                           type="text" inputMode="decimal" placeholder="H"
-                          style={{ ...ic, fontSize: 11, width: 56, textAlign: "center", fontFamily: mono }} />
+                          style={{ ...ic, fontSize: 12, width: 60 }} />
                         <span style={{ fontSize: 10, color: T.faint }}>in</span>
                         <input value={p.colorsText} onChange={e => update("colorsText", e.target.value)}
                           placeholder="Colors: Black, White, Red"
