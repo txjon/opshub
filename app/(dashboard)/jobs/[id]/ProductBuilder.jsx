@@ -876,9 +876,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               {!hasBlank && item.garment_type !== "accessory" && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
               <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono, flexShrink: 0, minWidth: 50, textAlign: "right", color: item.totalQty > 0 ? T.text : T.faint }}>{item.totalQty > 0 ? item.totalQty : "—"}</span>
               <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                {fileSummary[item.id]?.printReady && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: T.greenDim, color: T.green }}>Print-ready</span>}
-                {fileSummary[item.id]?.hasProof && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: T.purpleDim, color: T.purple }}>Proof</span>}
-                {fileSummary[item.id]?.fileCount > 0 && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: T.accentDim, color: T.accent }}>{fileSummary[item.id].fileCount} files</span>}
+                {fileSummary[item.id]?.printReady && <span style={{ fontSize: 9, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>Print-ready</span>}
+                {fileSummary[item.id]?.hasProof && <span style={{ fontSize: 9, fontWeight: 700, color: T.purple, letterSpacing: "0.06em", textTransform: "uppercase" }}>Proof</span>}
+                {fileSummary[item.id]?.fileCount > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }}>{fileSummary[item.id].fileCount} files</span>}
               </div>
             </div>
 
@@ -1068,7 +1068,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                 {(item.color || item.blank_sku) && <span style={{ fontSize: 14, color: T.muted }}>{item.color || item.blank_sku}</span>}
                 <select value={item.garment_type || ""} onClick={e => e.stopPropagation()}
                   onChange={e => { e.stopPropagation(); onUpdateItem(item.id, { garment_type: e.target.value || null }); }}
-                  style={{ fontSize: 10, padding: "3px 8px", borderRadius: 99, background: T.card, color: T.muted, border: `1px solid ${T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
+                  style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, background: T.card, color: T.muted, border: `1px solid ${T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
                   <option value="">type</option>
                   {["bandana","banner","beanie","crewneck","custom","flag","hat","hoodie","jacket","koozie","lighter","longsleeve","pants","patch","pin","poster","samples","shorts","socks","sticker","tee","tote","towel","water_bottle"].map(t => (
                     <option key={t} value={t}>{t}</option>
