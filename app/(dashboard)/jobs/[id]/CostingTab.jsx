@@ -187,7 +187,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
     if (!e) return null;
     return (
       <span title={`Quote requested from ${e.vendor} on ${new Date(e.sent_at).toLocaleString()}`}
-        style={{fontSize:9,fontWeight:600,padding:"2px 6px",borderRadius:99,background:T.amberDim,color:T.amber,fontFamily:font,whiteSpace:"nowrap"}}>
+        style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase",fontFamily:font,whiteSpace:"nowrap"}}>
         RFQ → {e.vendor} · {fmtAgo(e.sent_at)}
       </span>
     );
@@ -314,15 +314,16 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
   return(
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
       {!hideSubTabs && (
-      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginTop:-20}}>
-        <div style={{display:"flex",gap:4,background:T.surface,padding:4,borderRadius:8}}>
-          {[["calc","Calculator"],["quote","Client Quote"]].map(([k,l])=>(
+      <div style={{display:"flex",alignItems:"center",gap:18,flexWrap:"wrap",marginTop:-20,borderBottom:`1px solid ${T.border}`,paddingBottom:6}}>
+        {[["calc","Calculator"],["quote","Client Quote"]].map(([k,l])=>{
+          const active = costTab===k;
+          return (
             <button key={k} onClick={()=>setCostTab(k)}
-              style={{background:costTab===k?T.accent:"transparent",color:costTab===k?"#fff":T.muted,border:"none",borderRadius:6,padding:"5px 14px",fontSize:12,fontFamily:font,fontWeight:600,cursor:"pointer"}}>
+              style={{background:"transparent",border:"none",padding:"4px 0",cursor:"pointer",fontFamily:font,fontSize:13,fontWeight:active?800:600,color:active?T.text:T.muted,borderBottom:active?`2px solid ${T.accent}`:"2px solid transparent",marginBottom:-7,transition:"color 0.15s"}}>
               {l}
             </button>
-          ))}
-        </div>
+          );
+        })}
       </div>
       )}
 
