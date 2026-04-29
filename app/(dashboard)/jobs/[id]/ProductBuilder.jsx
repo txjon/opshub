@@ -281,23 +281,41 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [accName, setAccName] = useState("");
   const [accQty, setAccQty] = useState("");
   const [accCatalog, setAccCatalog] = useState([]);
+  // Mirrors NON_GARMENT in lib/pricing.ts / lib/lifecycle.ts —
+  // every non-apparel garment_type the codebase recognizes, with
+  // friendly display labels. Patch + Pin get common variants
+  // expanded since those are the most-typed sub-types.
   const SEED_ACC_TYPES = [
-    "Patch - PVC",
-    "Patch - Embroidered",
-    "Patch - Woven",
-    "Patch - Leather",
-    "Sticker",
-    "Pin - Enamel",
-    "Pin - Lapel",
+    "Balloons",
+    "Bandana",
+    "Banner",
+    "Custom",
+    "Custom Bag",
     "Flag",
     "Keychain",
     "Koozie",
     "Lighter",
-    "Magnet",
-    "Bottle Opener",
+    "Napkins",
+    "Patch",
+    "Patch - Embroidered",
+    "Patch - Leather",
+    "Patch - PVC",
+    "Patch - Woven",
+    "Pens",
+    "Pillow",
+    "Pin",
+    "Pin - Enamel",
+    "Pin - Lapel",
+    "Poster",
+    "Rug",
+    "Samples",
+    "Socks",
+    "Stencils",
+    "Sticker",
     "Tote Bag",
-    "Banner",
-    "Custom",
+    "Towel",
+    "Water Bottle",
+    "Woven Labels",
   ];
   const [accTypes, setAccTypes] = useState(SEED_ACC_TYPES);
 
