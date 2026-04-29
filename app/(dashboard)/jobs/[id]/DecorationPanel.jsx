@@ -300,13 +300,12 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
         )}
       </div>
 
-      {/* Finishing & Packaging — compact inline */}
-      {p.printVendor && (pr.finishing || pr.packaging) && (
+      {/* Packaging — single-select variant (reads pr.packaging from decorator pricing sheet) */}
+      {p.printVendor && pr.packaging && Object.keys(pr.packaging).length > 0 && (
         <div style={{padding:"8px 10px",background:T.surface,borderRadius:6,border:`1px solid ${T.border}`}}>
-          <div style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Packaging & Finishing</div>
+          <div style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Packaging</div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-            {/* Packaging */}
-            {pr.packaging && Object.keys(pr.packaging).map(k=>{
+            {Object.keys(pr.packaging).map(k=>{
               const on = p.finishingQtys?.Packaging_on>0 && p.finishingQtys?.Packaging_variant===k;
               return (
                 <button key={k} onClick={()=>{
@@ -318,8 +317,16 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                 </button>
               );
             })}
-            {/* Finishing items */}
-            {pr.finishing && Object.keys(pr.finishing).map(key=>{
+          </div>
+        </div>
+      )}
+
+      {/* Finishing — multi-select toggles (reads pr.finishing from decorator pricing sheet) */}
+      {p.printVendor && pr.finishing && Object.keys(pr.finishing).length > 0 && (
+        <div style={{padding:"8px 10px",background:T.surface,borderRadius:6,border:`1px solid ${T.border}`}}>
+          <div style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Finishing</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            {Object.keys(pr.finishing).map(key=>{
               const on = p.finishingQtys?.[key+"_on"]>0;
               return (
                 <button key={key} onClick={()=>updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),[key+"_on"]:on?0:1}})}
