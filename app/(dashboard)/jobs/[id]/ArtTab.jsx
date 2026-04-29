@@ -237,6 +237,21 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       }));
   });
 
+  // Best-effort name → hex resolution so manual entries get colored swatches
+  // on the PDF. Unrecognized names fall through to gray (handled in proof-client).
+  const COLOR_HEX = {
+    black: "#000000", white: "#ffffff", red: "#d32f2f", blue: "#1565c0",
+    navy: "#001f5c", royal: "#1c3faa", green: "#2e7d32", forest: "#194d20",
+    olive: "#6b6b1a", yellow: "#fbc02d", gold: "#bf9000", orange: "#ef6c00",
+    purple: "#6a1b9a", pink: "#ec407a", magenta: "#c2185b", maroon: "#7b1f1f",
+    brown: "#5d3a1a", tan: "#b89572", khaki: "#a39160", cream: "#f4e9c8",
+    gray: "#7a7a82", grey: "#7a7a82", silver: "#bfbfc6", charcoal: "#36363c",
+    teal: "#00838f", aqua: "#26a3a5", cyan: "#00bcd4",
+    heather: "#a3a3ab", "heather grey": "#a3a3ab", "heather gray": "#a3a3ab",
+    natural: "#ece2cc", sand: "#dcc8a8", coral: "#e5734a",
+  };
+  const resolveHex = (name) => COLOR_HEX[(name || "").toLowerCase().trim()] || null;
+
   // Use PSD info when available, manual entries otherwise.
   const effectivePrintInfo = (psdPrintInfo && psdPrintInfo.length > 0)
     ? psdPrintInfo
@@ -246,7 +261,10 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
           placement: p.placement.trim(),
           widthInches: parseFloat(p.widthInches) || null,
           heightInches: parseFloat(p.heightInches) || null,
-          colors: (p.colorsText || "").split(",").map(s => s.trim()).filter(Boolean).map(name => ({ name })),
+          colors: (p.colorsText || "").split(",").map(s => s.trim()).filter(Boolean).map(name => {
+            const hex = resolveHex(name);
+            return hex ? { name, hex } : { name };
+          }),
           callout: p.callout || "",
         }));
 
