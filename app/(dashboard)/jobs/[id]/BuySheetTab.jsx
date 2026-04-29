@@ -191,15 +191,13 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, default
 
   return (
     <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden", marginBottom:8 }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 14px", borderBottom:`1px solid ${T.border}` }}>
-        <span style={{ fontSize:12, fontWeight:700, color:T.text, fontFamily:font }}>Browse S&amp;S Catalog</span>
-        <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search style # or keyword..." autoFocus style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", flex:1 }} />
-          {loading && <span style={{ fontSize:10, color:T.muted }}>Searching...</span>}
-          <input value={itemName} onChange={e=>setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", width:180 }} />
-          <button onClick={doAdd} disabled={!canAdd} style={{ background:canAdd?T.accent:T.surface, color:canAdd?"#fff":T.muted, border:"none", borderRadius:6, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:canAdd?"pointer":"default", transition:"all 0.15s" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", lineHeight:1 }}>×</button>
-        </div>
+      <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 14px", borderBottom:`1px solid ${T.border}` }}>
+        <span style={{ fontSize:12, fontWeight:700, color:T.text, fontFamily:font, whiteSpace:"nowrap" }}>S&amp;S Activewear</span>
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search styles..." autoFocus style={{ flex:1, fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none" }} />
+        {loading && <span style={{ fontSize:10, color:T.muted }}>Searching...</span>}
+        <input value={itemName} onChange={e=>setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", width:180 }} />
+        <button onClick={doAdd} disabled={!canAdd} style={{ background:canAdd?T.accent:T.surface, color:canAdd?"#fff":T.muted, border:"none", borderRadius:6, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:canAdd?"pointer":"default", transition:"all 0.15s" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
+        <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", lineHeight:1 }}>×</button>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1.5fr 1fr", height:300 }}>
         <div style={{ borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
@@ -390,14 +388,12 @@ export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode, d
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font }}>Browse AS Colour</span>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search style # or name..." style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 200 }} />
-          <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
-          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", transition: "all 0.15s" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font, whiteSpace: "nowrap" }}>AS Colour</span>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search styles..." autoFocus style={{ flex: 1, fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none" }} />
+        <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
+        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", transition: "all 0.15s" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
       </div>
       {loading ? (
         <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: T.muted, fontFamily: font }}>Loading AS Colour catalog...</div>
@@ -564,14 +560,12 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, 
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font }}>Browse LA Apparel</span>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search style # or name..." style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
-          <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 160 }} />
-          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font, whiteSpace: "nowrap" }}>LA Apparel</span>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search styles..." autoFocus style={{ flex: 1, fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none" }} />
+        <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
+        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
       </div>
       {loading ? (
         <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: T.muted }}>Loading LA Apparel catalog...</div>
@@ -783,13 +777,12 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: "#5795b2", fontFamily: font }}>House Party Favorites</span>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
-          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font, whiteSpace: "nowrap" }}>House Party Favorites</span>
+        <div style={{ flex: 1 }} />
+        <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
+        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "0.8fr 1.4fr 1fr 1fr", height: 300 }}>
         {/* Category column */}
@@ -995,15 +988,13 @@ export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font }}>Other Suppliers</span>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 140 }} />
-          <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 140 }} />
-          <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>Add →</button>
-          <button onClick={() => setShowNewForm(!showNewForm)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>+ New</button>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font, whiteSpace: "nowrap" }}>Other</span>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search styles..." autoFocus style={{ flex: 1, fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none" }} />
+        <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
+        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
+        <button onClick={() => setShowNewForm(!showNewForm)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>+ New</button>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
       </div>
 
       {/* New entry form */}
@@ -1520,7 +1511,7 @@ export function BuySheetTab({ items, jobId, onRegisterSave, onSaveStatus, onSave
           <div onClick={e => e.stopPropagation()} style={{ width:"95vw", maxWidth:1000, maxHeight:"90vh", display:"flex", flexDirection:"column" }}>
             <div style={{ marginBottom:8, display:"flex", gap:8, alignItems:"center" }}>
               <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); if (!assignBlankTo) setShowAddModal(true); setAssignBlankTo(null); }}
-                style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, fontSize:11, fontWeight:600, padding:"4px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}>
+                style={{ background:T.text, border:"none", borderRadius:6, color:"#fff", fontSize:12, fontWeight:600, padding:"6px 14px", cursor:"pointer", display:"flex", alignItems:"center", gap:4, fontFamily:font }}>
                 ← {assignBlankTo ? "Cancel" : "Sources"}
               </button>
               {assignBlankTo && <span style={{ fontSize:11, color:T.amber, fontWeight:600 }}>{Array.isArray(assignBlankTo) ? `Assigning blank to ${assignBlankTo.length} items` : `Assigning blank to: ${(workingItems||[]).find(it=>it.id===assignBlankTo)?.name || "item"}`}</span>}
@@ -1878,7 +1869,7 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
     <div style={{ background: T.card, borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "80vh" }}>
       {/* Header */}
       <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: "#2d6b4f", fontFamily: font }}>Cotton Collective</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font, whiteSpace: "nowrap" }}>Cotton Collective</span>
         <input value={search} onChange={e => { setSearch(e.target.value); setSelStyle(null); setSelColor(null); setSelSizes({}); }}
           placeholder="Search styles..." autoFocus
           style={{ flex: 1, fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none" }} />
