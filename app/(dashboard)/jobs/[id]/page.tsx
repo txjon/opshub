@@ -7,7 +7,6 @@ import { POTab } from "./POTab.jsx";
 import { BlanksTab } from "./BlanksTab";
 import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
-import { DocumentsTab } from "./DocumentsTab";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { EmailThread } from "@/components/EmailThread";
 import { ProductBuilder } from "./ProductBuilder";
@@ -1212,10 +1211,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
         />
       )}
-      {tab==="documents"&&(
-        <DocumentsTab job={job} items={items} />
-      )}
-
         </div>{/* end tab content */}
       </div>{/* end flex layout */}
 
