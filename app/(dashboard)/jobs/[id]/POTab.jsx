@@ -281,7 +281,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
           {/* Vendor */}
           <div style={{display:"flex",flexDirection:"column",gap:4,alignSelf:"center"}}>
             <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Vendor</div>
-            <div style={{display:"flex",gap:6}}>
+            <div style={{display:"flex",gap:12}}>
               {vendors.length===0&&<div style={{fontSize:11,color:T.faint,padding:"6px 0"}}>No vendors assigned</div>}
               {vendors.map(v=>(
                 <button key={v} onClick={()=>setSelectedVendor(v)}
@@ -292,9 +292,10 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             </div>
           </div>
           {/* Ship by date + Ship method — stacked next to Ship To.
-              Width matches what the two side-by-side fields took before
-              so Ship To doesn't expand into the freed space. */}
-          <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:"flex-start",width:310,flexShrink:0}}>
+              Pinned width keeps Ship To from absorbing freed space;
+              alignItems:flex-start keeps the inputs at natural width
+              instead of stretching to fill the column. */}
+          <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:"flex-start",alignItems:"flex-start",width:310,flexShrink:0}}>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
               <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
