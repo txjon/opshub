@@ -457,7 +457,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           {Object.keys(PRINTERS).map(pr=><option key={pr} value={pr}>{pr}</option>)}
                         </select>
                       </div>
-                      <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden",marginBottom:10}}>
+                      <div style={{display:"grid",gridTemplateColumns:"3fr 2fr",gap:12,alignItems:"start"}}>
+                      <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                         <div style={{padding:"6px 10px",background:T.surface,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                           <span style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Custom Costs</span>
                           <span style={{fontSize:10,color:T.faint}}>{(p.customCosts||[]).length}/6</span>
@@ -534,6 +535,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           </table>
                         </div>
                       )}
+                      </div>
                     </div>
                   </div>
                 );
