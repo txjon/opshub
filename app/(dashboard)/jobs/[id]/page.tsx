@@ -427,9 +427,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                 <span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(job as any).type_meta?.qb_invoice_number || job.job_number}</span>
                 {(job as any).type_meta?.qb_invoice_number && <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>{job.job_number}</span>}
-                <span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>{job.phase.replace(/_/g," ")}</span>
-                {job.priority==="rush"&&<span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:T.amberDim,color:T.amber}}>Rush</span>}
-                {job.priority==="hot"&&<span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:T.redDim,color:T.red}}>Hot</span>}
+                <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>
+                {job.priority==="rush"&&<span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Rush</span>}
+                {job.priority==="hot"&&<span style={{fontSize:10,fontWeight:700,color:T.red,letterSpacing:"0.06em",textTransform:"uppercase"}}>Hot</span>}
                 {saving&&<span style={{fontSize:10,color:T.muted}}>Saving...</span>}
               </div>
               <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:2,flexWrap:"wrap"}}>
@@ -700,7 +700,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Phase</label>
                     <div style={{...ic,background:T.card,display:"flex",alignItems:"center",gap:6}}>
-                      <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>{job.phase.replace(/_/g," ")}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>
                       {(()=>{
                         const r=calculatePhase({
                           job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
@@ -941,12 +941,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     if (rowStatus === "paid" && isPartial) return "partial paid";
                     return rowStatus;
                   };
-                  const rowPillBg = (rowStatus: string) => {
-                    if (rowStatus === "paid" && isPartial) return T.amberDim;
-                    if (rowStatus === "paid") return T.greenDim;
-                    if (rowStatus === "void") return T.redDim;
-                    return T.amberDim;
-                  };
                   const rowPillFg = (rowStatus: string) => {
                     if (rowStatus === "paid" && isPartial) return T.amber;
                     if (rowStatus === "paid") return T.green;
@@ -974,9 +968,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                             <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
                             <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
                             <td style={{padding:"6px"}}>
-                              <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
-                                background:rowPillBg(p.status),
-                                color:rowPillFg(p.status)}}>{rowLabel(p.status)}</span>
+                              <span style={{fontSize:10,fontWeight:700,color:rowPillFg(p.status),letterSpacing:"0.06em",textTransform:"uppercase"}}>{rowLabel(p.status)}</span>
                             </td>
                           </tr>
                         ))}</tbody>
@@ -1004,8 +996,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                           <span style={{fontSize:12,fontWeight:600,color:T.text}}>{item.name}</span>
                           <span style={{fontSize:10,color:T.muted,marginLeft:7}}>{item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}</span>
                         </div>
-                        {!isAccessory&&dc&&<span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:"nowrap",background:T.accentDim,color:T.accent}}>{dc.replace(/_/g," ")}</span>}
-                        {isAccessory&&<span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:"nowrap",background:T.purpleDim,color:T.purple}}>Accessory</span>}
+                        {!isAccessory&&dc&&<span style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{dc.replace(/_/g," ")}</span>}
+                        {isAccessory&&<span style={{fontSize:10,fontWeight:700,color:T.purple,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Accessory</span>}
                       </div>
                     );
                   })}
