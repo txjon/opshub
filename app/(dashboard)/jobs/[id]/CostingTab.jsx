@@ -457,6 +457,34 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           {Object.keys(PRINTERS).map(pr=><option key={pr} value={pr}>{pr}</option>)}
                         </select>
                       </div>
+
+                      {/* Size breakdown — compact qty editor for accessories with sizes (e.g. gloves S/M/L). No per-size cost since accessories are priced via custom costs. */}
+                      {(p.sizes||[]).length > 0 && (
+                        <div style={{marginBottom:12,padding:"8px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6}}>
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                            <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</div>
+                            <div style={{fontSize:10,color:T.muted,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()} total</div>
+                          </div>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                            {(p.sizes||[]).map(sz=>(
+                              <div key={sz} style={{display:"flex",alignItems:"center",gap:5,background:T.card,border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 6px"}}>
+                                <span style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:mono,minWidth:24}}>{sz}</span>
+                                <input type="text" inputMode="numeric" pattern="[0-9]*" value={p.qtys?.[sz]||""} placeholder="0"
+                                  onChange={e=>{
+                                    const q=parseInt(e.target.value)||0;
+                                    const newQtys={...(p.qtys||{}),[sz]:q};
+                                    const newTotal=Object.values(newQtys).reduce((a,v)=>a+v,0);
+                                    updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});
+                                    if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}
+                                  }}
+                                  onFocus={e=>e.target.select()}
+                                  style={{width:48,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,padding:"2px 4px"}}/>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       <div style={{display:"grid",gridTemplateColumns:"3fr 2fr",gap:12,alignItems:"start"}}>
                       <div style={{display:"flex",flexDirection:"column",gap:10}}>
                       <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden"}}>
