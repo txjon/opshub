@@ -430,7 +430,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                   style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
                               </div>
                             ):(
-                              <div style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box"}}>
+                              <div onClick={()=>{ if(project?.type_meta?.costing_locked) return; updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""}); }}
+                                title="Click to override"
+                                style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box",cursor:project?.type_meta?.costing_locked?"default":"pointer"}}>
                                 <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
                                 <span style={{fontSize:12,fontWeight:700,color:(p.sellOverride||r?.sellPerUnit>0)?T.text:T.faint,fontFamily:mono}}>{p.sellOverride?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
                               </div>
@@ -586,7 +588,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
                             </div>
                           ):(
-                            <div style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box"}}>
+                            <div onClick={()=>{ if(project?.type_meta?.costing_locked) return; updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""}); }}
+                              title="Click to override"
+                              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box",cursor:project?.type_meta?.costing_locked?"default":"pointer"}}>
                               <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
                               <span style={{fontSize:12,fontWeight:700,color:(p.sellOverride||r?.sellPerUnit>0)?T.text:T.faint,fontFamily:mono}}>{p.sellOverride?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
                             </div>
