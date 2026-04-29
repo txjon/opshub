@@ -520,7 +520,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                               ].map(([l,v,c],idx)=>{
                                 const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
                                 return (
-                                <tr key={l} style={{background:isProfit?(mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim):T.card,borderBottom:`1px solid ${T.border}22`}}>
+                                <tr key={l} style={{background:T.card,borderTop:l==="Net Profit"?`1px solid ${T.border}`:"none",borderBottom:`1px solid ${T.border}22`}}>
                                   <td style={{padding:"5px 10px",color:T.muted,fontFamily:font,fontWeight:500}}>{l}</td>
                                   <td style={{padding:"5px 10px",color:c,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{v}</td>
                                 </tr>
@@ -742,7 +742,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                               ].map(([l,v,c],idx)=>{
                                 const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
                                 return (
-                                <tr key={l} style={{background:isProfit?(mc2===T.green?T.greenDim:mc2===T.amber?T.amberDim:T.redDim):T.card,borderBottom:`1px solid ${T.border}22`}}>
+                                <tr key={l} style={{background:T.card,borderTop:l==="Net Profit"?`1px solid ${T.border}`:"none",borderBottom:`1px solid ${T.border}22`}}>
                                   <td style={{padding:"5px 10px",color:T.muted,fontFamily:font,fontWeight:500}}>{l}</td>
                                   <td style={{padding:"5px 10px",color:c,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{v}</td>
                                 </tr>
@@ -806,7 +806,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
                       const isVendorSub=l.startsWith("  ");
                       return (
-                      <tr key={l+idx} style={{background:isProfit?(mc===T.green?T.greenDim:mc===T.amber?T.amberDim:T.redDim):T.card,borderBottom:`1px solid ${T.border}22`}}>
+                      <tr key={l+idx} style={{background:T.card,borderTop:l==="Net Profit"?`1px solid ${T.border}`:"none",borderBottom:`1px solid ${T.border}22`}}>
                         <td style={{padding:isVendorSub?"3px 10px 3px 18px":"5px 10px",color:isVendorSub?T.faint:T.muted,fontFamily:font,fontWeight:isVendorSub?400:500,fontSize:isVendorSub?10:11}}>{l}</td>
                         <td style={{padding:isVendorSub?"3px 10px":"5px 10px",color:c,fontFamily:mono,fontWeight:isVendorSub?500:700,textAlign:"right",fontSize:isVendorSub?10:11}}>{v}</td>
                       </tr>

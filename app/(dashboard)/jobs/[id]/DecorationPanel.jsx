@@ -92,13 +92,16 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
           {Object.keys(PRINTERS).map(pr=><option key={pr} value={pr}>{pr}</option>)}
         </select>
         <button onClick={()=>setCostProds(prev=>prev.map((cp,ci)=>ci>i?{...cp,printVendor:p.printVendor,printLocations:Object.fromEntries(Object.entries(cp.printLocations||{}).map(([k,v])=>([k,{...v,printer:p.printVendor}])))}:cp))}
-          style={{fontSize:10,color:T.amber,fontFamily:font,background:T.amberDim,border:"1px solid "+T.amber+"44",borderRadius:5,cursor:"pointer",padding:"5px 10px",fontWeight:600,flexShrink:0}}>↓ All</button>
+          title="Set this vendor on every item below"
+          style={{fontSize:11,fontFamily:font,fontWeight:600,color:T.muted,background:"none",border:`1px solid ${T.border}`,borderRadius:6,cursor:"pointer",padding:"6px 14px",flexShrink:0,whiteSpace:"nowrap"}}
+          onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.accent;}}
+          onMouseLeave={e=>{e.currentTarget.style.color=T.muted;e.currentTarget.style.borderColor=T.border;}}>↓ Apply to all</button>
         {p.printVendor&&pr.capabilities?.length>0&&(
-          <div style={{display:"flex",gap:3,marginLeft:4}}>
+          <div style={{display:"flex",gap:4,marginLeft:4}}>
             {pr.capabilities.map(cap=>{
               const sel=(p.decorationType||"")===cap;
               return <button key={cap} onClick={()=>updateProd(i,{...p,decorationType:cap})}
-                style={{padding:"3px 10px",borderRadius:99,fontSize:10,fontWeight:600,cursor:"pointer",border:`1px solid ${sel?T.accent:T.border}`,background:sel?T.accent:"transparent",color:sel?"#fff":T.faint}}>
+                style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:600,cursor:"pointer",border:`1px solid ${sel?T.accent:T.border}`,background:sel?T.accent:"transparent",color:sel?"#fff":T.faint}}>
                 {cap}
               </button>;
             })}
