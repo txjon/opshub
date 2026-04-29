@@ -7,7 +7,7 @@ export const T = {
   accentDim: "#e8e8e8",
   blue: "#73b6c9",
   blueDim: "#e3f1f5",
-  green: "#4ddb88",
+  green: "#47b12b",
   greenDim: "#e5f9ed",
   amber: "#f4b22b",
   amberDim: "#fef5e0",
