@@ -281,7 +281,24 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [accName, setAccName] = useState("");
   const [accQty, setAccQty] = useState("");
   const [accCatalog, setAccCatalog] = useState([]);
-  const SEED_ACC_TYPES = ["Patch - PVC", "Patch - Embroidered", "Flag", "Keychain"];
+  const SEED_ACC_TYPES = [
+    "Patch - PVC",
+    "Patch - Embroidered",
+    "Patch - Woven",
+    "Patch - Leather",
+    "Sticker",
+    "Pin - Enamel",
+    "Pin - Lapel",
+    "Flag",
+    "Keychain",
+    "Koozie",
+    "Lighter",
+    "Magnet",
+    "Bottle Opener",
+    "Tote Bag",
+    "Banner",
+    "Custom",
+  ];
   const [accTypes, setAccTypes] = useState(SEED_ACC_TYPES);
 
   useEffect(() => {
@@ -519,7 +536,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       {(showPicker || showASColour || showLAApparel || showFavorites || showOtherPicker || showCCPicker || showAddType === "accessory") && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
           onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); setShowCCPicker(false); setShowAddType(null); setAssignBlankTo(null); }}>
-          <div onClick={e => e.stopPropagation()} style={{ width: "95vw", maxWidth: 1000, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "95vw", maxWidth: showAddType === "accessory" ? 700 : 1000, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
             <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
               <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); setShowCCPicker(false); setShowAddType(null); if (!assignBlankTo) setShowAddModal(true); setAssignBlankTo(null); }}
                 style={{ background: T.text, border: "none", borderRadius: 6, color: "#fff", fontSize: 12, fontWeight: 600, padding: "6px 14px", cursor: "pointer", fontFamily: font }}>
@@ -537,6 +554,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
             {showAddType === "accessory" && (() => {
               const assignItem = assignBlankTo ? (workingItems||[]).find(it => it.id === assignBlankTo) : null;
               if (assignItem && !accName) setAccName(assignItem.name || "");
+              const q = accType.trim().toLowerCase();
+              const filteredTypes = q ? accTypes.filter(t => t.toLowerCase().includes(q)) : accTypes;
               const canAdd = !!(assignItem || accName.trim());
               const doAdd = () => {
                 if (!canAdd) return;
@@ -552,25 +571,47 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               };
               const onEnter = e => { if (e.key === "Enter") doAdd(); };
               return (
-                <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
+                <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8, display: "flex", flexDirection: "column", maxHeight: "80vh" }}>
+                  {/* Header row — same pattern as other pickers, plus Name + Qty inline */}
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font, whiteSpace: "nowrap" }}>{assignItem ? "Assign as Accessory" : "Custom Accessory"}</span>
-                    <input value={accType} onChange={e => setAccType(e.target.value)} onKeyDown={onEnter} list="pb-acc-types" placeholder="Type (Patch, Sticker, Pin...)" autoFocus
+                    <input value={accType} onChange={e => setAccType(e.target.value)} onKeyDown={onEnter} placeholder="Type or search..." autoFocus
                       style={{ flex: 1, fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none" }} />
-                    <datalist id="pb-acc-types">{accTypes.map(t => <option key={t} value={t} />)}</datalist>
                     {!assignItem && <>
                       <input value={accName} onChange={e => setAccName(e.target.value)} onKeyDown={onEnter} list="pb-acc-names" placeholder="Item name"
-                        style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
+                        style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 150 }} />
                       <datalist id="pb-acc-names">{accCatalog.map(n => <option key={n} value={n} />)}</datalist>
                     </>}
                     <input value={accQty} onChange={e => setAccQty(e.target.value)} onKeyDown={onEnter} type="text" inputMode="numeric" placeholder="Qty"
-                      style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 90, textAlign: "center" }} />
+                      style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 80, textAlign: "center" }} />
                     <button onClick={doAdd} disabled={!canAdd}
-                      style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>
-                      {assignItem ? "Assign to item →" : "Add to buy sheet →"}
+                      style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", whiteSpace: "nowrap" }}>
+                      {assignItem ? "Assign →" : "Add →"}
                     </button>
                     <button onClick={() => { setShowAddType(null); setAssignBlankTo(null); }}
                       style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
+                  </div>
+
+                  {/* Type list — single column, search-filtered */}
+                  <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                    <div style={{ padding: "5px 11px", background: T.surface, borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: font }}>Type</div>
+                    <div style={{ flex: 1, overflowY: "auto", maxHeight: 360 }}>
+                      {filteredTypes.length === 0 ? (
+                        <div style={{ padding: "12px 11px", fontSize: 11, color: T.faint, fontStyle: "italic", fontFamily: font }}>
+                          No matches{q ? ` — "${accType}" will be saved as a new type.` : "."}
+                        </div>
+                      ) : filteredTypes.map(t => {
+                        const active = accType.trim().toLowerCase() === t.toLowerCase();
+                        return (
+                          <div key={t} onClick={() => setAccType(t)}
+                            style={{ padding: "8px 11px", cursor: "pointer", fontSize: 12, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
+                            onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
+                            onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                            {t}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               );
