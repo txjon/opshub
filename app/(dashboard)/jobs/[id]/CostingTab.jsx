@@ -457,6 +457,11 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           {Object.keys(PRINTERS).map(pr=><option key={pr} value={pr}>{pr}</option>)}
                         </select>
                       </div>
+                      <div style={{marginBottom:12}}>
+                        <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Production notes</div>
+                        <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})} placeholder="Special instructions for the decorator (also shown on PO tab)" rows={1}
+                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:32,boxSizing:"border-box",lineHeight:1.4}}/>
+                      </div>
                       <div style={{display:"grid",gridTemplateColumns:"3fr 2fr",gap:12,alignItems:"start"}}>
                       <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden"}}>
                         <div style={{padding:"6px 10px",background:T.surface,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
