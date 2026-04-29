@@ -231,8 +231,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                 {/* Cost */}
                 {isActive && (
                   <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:mono,flexShrink:0,marginLeft:"auto",textAlign:"right"}}>
+                    {isShared&&shareGroup&&<span style={{fontSize:11,fontWeight:500,color:T.faint,marginRight:4}}>({effectiveQty})</span>}
                     ${unitCost>0?unitCost.toFixed(2):"—"}
-                    {isShared&&shareGroup&&<span style={{fontSize:11,fontWeight:500,color:T.faint,marginLeft:4}}>({effectiveQty})</span>}
                   </span>
                 )}
               </div>
