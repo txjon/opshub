@@ -186,6 +186,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                       onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>Share</button>
                   ) : shareGroup ? (
                     <>
+                      <span style={{fontSize:10,color:T.muted,fontFamily:font}}>Group</span>
                       <select value={SHARE_GROUPS.includes(shareGroup) ? shareGroup : ""} onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
                         style={{padding:"2px 18px 2px 8px",fontSize:11,fontFamily:mono,fontWeight:700,border:`1px solid ${SHARE_GROUPS.includes(shareGroup)?T.accent:T.red}`,borderRadius:4,cursor:"pointer",background:`${SHARE_GROUPS.includes(shareGroup)?T.accent:T.red} url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23ffffff' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 6px center`,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center"}}>
                         {!SHARE_GROUPS.includes(shareGroup) && <option value="" disabled>?</option>}
