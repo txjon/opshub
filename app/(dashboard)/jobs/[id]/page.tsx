@@ -15,6 +15,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/Skeleton";
 import { ProjectProgress } from "@/components/ProjectProgress";
+import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
 import { calculatePriority, businessDaysFromNow } from "@/lib/dates";
@@ -105,6 +106,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [loading, setLoading] = useState(true);
   const initialLoadDone = useRef(false);
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
+  const [pdfPreview, setPdfPreview] = useState<{src:string;title:string;downloadHref:string}|null>(null);
+  const [showArtFiles, setShowArtFiles] = useState(false);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
@@ -728,13 +731,40 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </div>
                   <div>
                     <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Documents</label>
-                    <button onClick={()=>switchTab("documents")}
-                      style={{...ic,background:T.surface,minHeight:90,cursor:"pointer",textAlign:"left",display:"flex",flexDirection:"column",alignItems:"flex-start",justifyContent:"center",gap:4,fontFamily:font}}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;}}
-                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
-                      <span style={{fontSize:11,color:T.faint,lineHeight:1.4}}>Quote · Invoice · Packing Slip · POs · Item files</span>
-                      <span style={{fontSize:12,fontWeight:700,color:T.text}}>Open documents →</span>
-                    </button>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {(()=>{
+                        const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
+                        const qbInvNum = (job as any).type_meta?.qb_invoice_number;
+                        const hasItems = items.length > 0;
+                        const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
+                        const docBtn = (label: string, src: string|null, available: boolean) => (
+                          <button key={label}
+                            onClick={()=>{ if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
+                            disabled={!available}
+                            title={available?undefined:"Not available yet"}
+                            style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default"}}
+                            onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
+                            onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                            {label}
+                          </button>
+                        );
+                        return (
+                          <>
+                            {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
+                            {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
+                            {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
+                            {docVendors.length === 0 && docBtn("PO", null, false)}
+                            {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
+                            <button onClick={()=>setShowArtFiles(true)}
+                              style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,fontSize:11,fontWeight:600,fontFamily:font,cursor:"pointer"}}
+                              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;}}
+                              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                              Art Files
+                            </button>
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1213,6 +1243,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
+      {pdfPreview && (
+        <PdfPreviewModal src={pdfPreview.src} title={pdfPreview.title} downloadHref={pdfPreview.downloadHref}
+          onClose={()=>setPdfPreview(null)} />
+      )}
+
+      {showArtFiles && (
+        <ArtFilesModal job={job} items={items} onClose={()=>setShowArtFiles(false)} />
+      )}
+
       <ConfirmDialog
         open={!!confirmDeletePayment}
         title="Delete payment"
@@ -1253,6 +1292,84 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         onCancel={() => setConfirmDeleteProject(false)}
       />
 
+    </div>
+  );
+}
+
+// Art Files quick-view modal — grid of mockup/proof thumbnails per item.
+// Click a thumbnail to open it full-size in a new tab.
+function ArtFilesModal({ job, items, onClose }: { job: any; items: any[]; onClose: () => void }) {
+  const supabase = createClient();
+  const [filesByItem, setFilesByItem] = useState<Record<string, any[]>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const ids = items.map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
+    if (ids.length === 0) { setLoading(false); return; }
+    let cancelled = false;
+    supabase.from("item_files")
+      .select("id, item_id, stage, file_name, drive_file_id, drive_link, mime_type, approval, created_at")
+      .in("item_id", ids)
+      .is("superseded_at", null)
+      .order("created_at", { ascending: false })
+      .then(({ data }: any) => {
+        if (cancelled) return;
+        const grouped: Record<string, any[]> = {};
+        for (const f of (data || [])) {
+          (grouped[f.item_id] ||= []).push(f);
+        }
+        setFilesByItem(grouped);
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [items.map(it => it.id).join(",")]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, width: "100%", maxWidth: 900, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: T.text }}>Art Files · {job?.title || "Project"}</div>
+          <button onClick={onClose}
+            style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 6px" }}>✕</button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+          {loading && <div style={{ fontSize: 12, color: T.muted, textAlign: "center", padding: 30 }}>Loading…</div>}
+          {!loading && items.length === 0 && (
+            <div style={{ fontSize: 12, color: T.faint, textAlign: "center", padding: 30 }}>No items on this project.</div>
+          )}
+          {!loading && items.map(it => {
+            const files = (filesByItem[it.id] || []).filter((f: any) => f.stage === "mockup" || f.stage === "proof" || f.stage === "print_ready");
+            if (files.length === 0) return null;
+            return (
+              <div key={it.id} style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{it.name}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+                  {files.map((f: any) => (
+                    <a key={f.id} href={`/api/files/thumbnail?id=${f.drive_file_id}`} target="_blank" rel="noopener noreferrer"
+                      style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden", textDecoration: "none", color: T.text, display: "flex", flexDirection: "column" }}>
+                      <div style={{ background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", height: 120, overflow: "hidden" }}>
+                        <img src={`/api/files/thumbnail?id=${f.drive_file_id}&thumb=1`} alt={f.file_name}
+                          style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}/>
+                      </div>
+                      <div style={{ padding: "6px 8px", fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>
+                        {f.stage.replace(/_/g, " ")}
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
