@@ -182,8 +182,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                 <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
                   {!isShared ? (
                     <button onClick={()=>updateLoc(loc,{shared:true,shareGroup:""})}
-                      style={{fontSize:9,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:4,padding:"2px 6px",cursor:"pointer",fontFamily:font}}
-                      onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>Share</button>
+                      style={{fontSize:11,fontWeight:600,color:T.text,background:"none",border:`1px solid ${T.border}`,borderRadius:4,padding:"3px 10px",cursor:"pointer",fontFamily:font}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>Share</button>
                   ) : shareGroup ? (
                     <>
                       <span style={{fontSize:10,color:T.muted,fontFamily:font}}>Group</span>
