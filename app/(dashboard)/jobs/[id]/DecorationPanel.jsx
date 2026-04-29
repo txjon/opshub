@@ -258,15 +258,19 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
             <div style={{display:"flex",alignItems:"center",gap:2,marginLeft:"auto"}}>
               {!p.tagShared ? (
                 <button onClick={()=>updateProd(i,{...p,tagShared:true,tagShareGroup:""})}
-                  style={{fontSize:9,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:4,padding:"2px 6px",cursor:"pointer",fontFamily:font}}>Share</button>
+                  style={{fontSize:11,fontWeight:600,color:T.text,background:"none",border:`1px solid ${T.border}`,borderRadius:4,padding:"3px 10px",cursor:"pointer",fontFamily:font}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>Share</button>
               ) : (
                 <>
                   {p.tagShareGroup ? (
-                    <select value={TAG_SHARE_GROUPS.includes(p.tagShareGroup) ? p.tagShareGroup : ""} onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value})}
-                      style={{padding:"2px 4px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${TAG_SHARE_GROUPS.includes(p.tagShareGroup)?T.amber:T.red}`,borderRadius:4,cursor:"pointer",background:TAG_SHARE_GROUPS.includes(p.tagShareGroup)?T.amber:T.red,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center",width:34}}>
-                      {!TAG_SHARE_GROUPS.includes(p.tagShareGroup) && <option value="" disabled>?</option>}
-                      {TAG_SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
-                    </select>
+                    <>
+                      <span style={{fontSize:10,color:T.muted,fontFamily:font}}>Group</span>
+                      <select value={TAG_SHARE_GROUPS.includes(p.tagShareGroup) ? p.tagShareGroup : ""} onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value})}
+                        style={{padding:"2px 18px 2px 8px",fontSize:11,fontFamily:mono,fontWeight:700,border:`1px solid ${TAG_SHARE_GROUPS.includes(p.tagShareGroup)?T.amber:T.red}`,borderRadius:4,cursor:"pointer",background:`${TAG_SHARE_GROUPS.includes(p.tagShareGroup)?T.amber:T.red} url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23ffffff' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 6px center`,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center"}}>
+                        {!TAG_SHARE_GROUPS.includes(p.tagShareGroup) && <option value="" disabled>?</option>}
+                        {TAG_SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
+                      </select>
+                    </>
                   ) : (
                     <select value="" onChange={e=>updateProd(i,{...p,tagShareGroup:e.target.value})}
                       style={{padding:"2px 4px",fontSize:10,fontFamily:font,border:`1px solid ${T.border}`,borderRadius:4,cursor:"pointer",background:"transparent",color:T.muted,outline:"none"}}>
