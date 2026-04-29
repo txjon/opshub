@@ -76,7 +76,14 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
     const finLines = [];
     const specLines = [];
     const setupLines = [];
-    const otherLines = [];
+    const customLines = [];
+
+    // Custom-cost labels (the user-typed descriptions) for matching
+    const customDescs = new Set(
+      (p.customCosts || [])
+        .filter(c => (parseFloat(c.perUnit)||parseFloat(c.amount)||0) > 0)
+        .map(c => (c.desc || c.label || "Custom"))
+    );
 
     for (const ln of lines) {
       if (activeLocLabels.has(ln.label)) locLines.push(ln);
@@ -84,17 +91,10 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
       else if (ln.label.startsWith("Packaging")) pkgLines.push(ln);
       else if (finishingKeys.has(ln.label)) finLines.push(ln);
       else if (specialtyKeys.has(ln.label) || ln.label === "Fleece Upcharge") specLines.push(ln);
-      else if (/^Screen fees|^Tag screen fees|\([\d]+( [a-z]+)?\)$/.test(ln.label)) setupLines.push(ln);
-      else otherLines.push(ln);
+      else if (/^Screen fees|^Tag screen fees|\([\d]+( [a-z]+)?\)$/.test(ln.label) || ln.label === "Setup (manual)") setupLines.push(ln);
+      else if (customDescs.has(ln.label)) customLines.push({ ...ln, isFlat: ln.qty === 1 });
+      else customLines.push({ ...ln, isFlat: ln.qty === 1 });
     }
-
-    // Custom costs from p.customCosts (these aren't returned by calcDecorationLines)
-    const customLines = (p.customCosts || [])
-      .filter(c => (parseFloat(c.perUnit)||parseFloat(c.amount)||0) > 0 && (c.desc || "").trim())
-      .map(c => {
-        const rate = parseFloat(c.perUnit) || parseFloat(c.amount) || 0;
-        return { label: c.desc, rate, total: c.flat ? rate : rate * qty, isFlat: !!c.flat };
-      });
 
     const sumLines = arr => arr.reduce((a, l) => a + (l.total || 0), 0);
     const fmtMoney = n => `$${(n || 0).toFixed(2)}`;
@@ -131,7 +131,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
       </div>
     );
 
-    const decorationTotal = sumLines(lines) + sumLines(customLines);
+    const decorationTotal = sumLines(lines);
 
     return (
       <div style={{display:"flex",flexDirection:"column",gap:0,paddingLeft:20}}>
@@ -201,12 +201,6 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
             {customLines.map((ln, idx) => (
               <LineRow key={idx} left={ln.label} sublabel={ln.isFlat ? "flat" : `${fmtMoney(ln.rate)} / unit`} right={fmtMoney(ln.total)} />
             ))}
-          </Section>
-        )}
-
-        {otherLines.length > 0 && (
-          <Section label="Other">
-            {otherLines.map((ln, idx) => <LineRow key={idx} left={ln.label} right={fmtMoney(ln.total)} />)}
           </Section>
         )}
 
