@@ -155,7 +155,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       </button>
 
       {/* Header */}
-      <div style={{marginBottom:16,display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+      <div style={{marginBottom:16,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
         <div>
           <h1 style={{fontSize:24,fontWeight:700,margin:"0 0 6px",letterSpacing:"-0.02em"}}>{client.name}</h1>
           <div style={{display:"flex",gap:16,fontSize:12,color:T.muted}}>
@@ -164,6 +164,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             <span>{totalUnits.toLocaleString()} total units</span>
           </div>
         </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {/* + New Project — pre-fills this client on the new project form. */}
+          <a href={`/jobs/new?client=${client.id}`}
+            style={{padding:"7px 14px",borderRadius:7,background:T.accent,color:"#fff",fontSize:12,fontWeight:700,textDecoration:"none",fontFamily:font}}>
+            + New Project
+          </a>
         <button onClick={async()=>{
           const jobCount = jobs.length;
           const msg = jobCount > 0
@@ -194,6 +200,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.faint;}}>
           Delete Client
         </button>
+        </div>
       </div>
 
       {/* Financial summary */}

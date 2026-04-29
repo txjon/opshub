@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 import { useIsMobile } from "@/lib/useIsMobile";
 
@@ -9,8 +9,13 @@ type ClientOption = { id: string; name: string; default_terms: string | null; };
 
 export default function NewJobPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const isMobile = useIsMobile();
+  // Optional ?client=<id> to pre-select a client. Used by the "+ New
+  // Project" button on the client detail page so the user lands here
+  // with the client + payment terms already filled in.
+  const prefilledClientId = searchParams.get("client");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -44,8 +49,16 @@ export default function NewJobPage() {
   useEffect(() => {
     supabase.from("clients").select("id, name, default_terms").order("name").then(({ data }) => {
       setClients(data || []);
+      // Auto-select if ?client=<id> matches a known client.
+      if (prefilledClientId) {
+        const match = (data || []).find(c => c.id === prefilledClientId);
+        if (match) {
+          setSelectedClient(match);
+          setForm(f => ({ ...f, payment_terms: match.default_terms || f.payment_terms }));
+        }
+      }
     });
-  }, []);
+  }, [prefilledClientId]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
