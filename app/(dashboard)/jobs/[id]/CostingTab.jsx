@@ -527,8 +527,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
                                 return (
                                 <tr key={l} style={{background:T.card,borderTop:l==="Net Profit"?`1px solid ${T.border}`:"none",borderBottom:`1px solid ${T.border}22`}}>
-                                  <td style={{padding:"5px 10px",color:T.muted,fontFamily:font,fontWeight:500}}>{l}</td>
-                                  <td style={{padding:"5px 10px",color:c,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{v}</td>
+                                  <td style={{padding:"3px 10px",color:T.muted,fontFamily:font,fontWeight:500}}>{l}</td>
+                                  <td style={{padding:"3px 10px",color:c,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{v}</td>
                                 </tr>
                               );})}
                             </tbody>
@@ -750,8 +750,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
                                 return (
                                 <tr key={l} style={{background:T.card,borderTop:l==="Net Profit"?`1px solid ${T.border}`:"none",borderBottom:`1px solid ${T.border}22`}}>
-                                  <td style={{padding:"5px 10px",color:T.muted,fontFamily:font,fontWeight:500}}>{l}</td>
-                                  <td style={{padding:"5px 10px",color:c,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{v}</td>
+                                  <td style={{padding:"3px 10px",color:T.muted,fontFamily:font,fontWeight:500}}>{l}</td>
+                                  <td style={{padding:"3px 10px",color:c,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{v}</td>
                                 </tr>
                               );})}
                             </tbody>
