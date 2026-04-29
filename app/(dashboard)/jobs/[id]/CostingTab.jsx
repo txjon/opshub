@@ -729,8 +729,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       </div>}
                       <div>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Production notes</div>
-                        <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})} placeholder="Special instructions for the decorator (also shown on PO tab)"
-                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:72,boxSizing:"border-box"}}/>
+                        <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})} placeholder="Special instructions for the decorator (also shown on PO tab)" rows={1}
+                          style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:32,boxSizing:"border-box",lineHeight:1.4}}/>
                       </div>
                       {r&&(
                         <div style={{background:T.card,borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden",marginTop:4}}>
