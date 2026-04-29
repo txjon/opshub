@@ -255,8 +255,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
 
       {/* In-hands date notice */}
       {project.target_ship_date && (
-        <div style={{background:T.amberDim,border:`1px solid ${T.amber}44`,borderRadius:8,padding:"8px 14px",display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:11,fontWeight:600,color:"#a07008"}}>Client requested in-hands: {new Date(project.target_ship_date+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span>
+        <div style={{display:"flex",alignItems:"center",gap:8,paddingBottom:8,borderBottom:`1px solid ${T.border}`}}>
+          <span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Client in-hands</span>
+          <span style={{fontSize:11,color:T.text,fontWeight:600}}>{new Date(project.target_ship_date+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span>
         </div>
       )}
 
@@ -306,7 +307,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
           <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship to</span>
-              <span style={{fontSize:9,padding:"1px 6px",borderRadius:99,background:shippingRoute==="drop_ship"?T.greenDim:T.accentDim,color:shippingRoute==="drop_ship"?T.green:T.accent}}>
+              <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:shippingRoute==="drop_ship"?T.green:T.accent}}>
                 {shippingRoute==="drop_ship"?"Client address":"HPD warehouse"}
               </span>
             </div>
@@ -391,8 +392,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
 
       {/* Warnings and status */}
       {active && blanksNotOrdered.length > 0 && (
-        <div style={{background:T.amberDim,border:`1px solid ${T.amber}44`,borderRadius:8,padding:"10px 14px",fontSize:12,color:T.amber}}>
-          {blanksNotOrdered.length} item{blanksNotOrdered.length!==1?"s":""} without blanks ordered — complete the Blanks tab first
+        <div style={{display:"flex",alignItems:"center",gap:8,paddingBottom:8,borderBottom:`1px solid ${T.border}`}}>
+          <span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Blanks pending</span>
+          <span style={{fontSize:11,color:T.muted}}>{blanksNotOrdered.length} item{blanksNotOrdered.length!==1?"s":""} without blanks ordered — complete the Blanks tab first</span>
         </div>
       )}
 
@@ -436,13 +438,13 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 if(onRecalcPhase) setTimeout(onRecalcPhase, 300);
               }
             }}
-              style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:99,cursor:"pointer",border:"none",
-                background:sent?T.greenDim:T.surface,
-                color:sent?T.green:T.faint}}>
-              {v} {sent?"✓ Sent":"— Not sent"}
+              style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:6,cursor:"pointer",border:`1px solid ${sent?T.green:T.border}`,
+                background:"transparent",
+                color:sent?T.green:T.muted,fontFamily:font}}>
+              {v} <span style={{fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",fontSize:9,marginLeft:4}}>{sent?"✓ Sent":"Not sent"}</span>
             </button>
           );})}
-          {allVendorsPoSent && <span style={{fontSize:10,color:T.green,fontWeight:600}}>All POs sent</span>}
+          {allVendorsPoSent && <span style={{fontSize:10,fontWeight:700,color:T.green,letterSpacing:"0.06em",textTransform:"uppercase"}}>All POs sent</span>}
         </div>
       )}
 
