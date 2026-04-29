@@ -292,10 +292,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             </div>
           </div>
           {/* Ship by date + Ship method — stacked next to Ship To.
-              Pinned width keeps Ship To from absorbing freed space;
-              alignItems:flex-start keeps the inputs at natural width
-              instead of stretching to fill the column. */}
-          <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:"flex-start",alignItems:"flex-start",width:310,flexShrink:0}}>
+              Both inputs explicit width:200 so the column sizes uniformly
+              and sits flush against Ship To. */}
+          <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:"flex-start",flexShrink:0}}>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
               <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
@@ -305,9 +304,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                   setPoShipDates(updated);
                   saveTypeMeta({ po_ship_dates: updated });
                 }}
-                style={{background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}} />
+                style={{background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:200,boxSizing:"border-box"}} />
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180}}>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
               <select value={shipMethods[active]||""} onChange={e=>{
               const val=e.target.value;
@@ -315,7 +314,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               setShipMethods(updated);
               saveTypeMeta({ po_ship_methods: updated });
             }}
-              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
+              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:200,boxSizing:"border-box"}}>
               <option value="">— select —</option>
               {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
