@@ -10,6 +10,7 @@ import { effectiveRevenue } from "@/lib/revenue";
 
 type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
+type ClientFile = { id:string; file_name:string; drive_file_id:string|null; drive_link:string|null; mime_type:string|null; file_size:number|null; kind:string; notes:string|null; created_at:string; };
 type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; payment_records:any[]; };
 
 const PHASE_COLORS: Record<string,{bg:string,text:string}> = {
@@ -27,9 +28,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [client, setClient] = useState<Client|null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [files, setFiles] = useState<ClientFile[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [addingContact, setAddingContact] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<Contact|null>(null);
+  const [confirmDeleteFile, setConfirmDeleteFile] = useState<ClientFile|null>(null);
   const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
 
@@ -46,6 +50,43 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
     if (jRes.data) setJobs(jRes.data as Job[]);
     setLoading(false);
+    loadFiles();
+  }
+
+  async function loadFiles() {
+    try {
+      const r = await fetch(`/api/clients/${params.id}/files`);
+      if (!r.ok) return;
+      const d = await r.json();
+      setFiles(d.files || []);
+    } catch {}
+  }
+
+  async function uploadFile(file: File, kind: string) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("kind", kind);
+      const r = await fetch(`/api/clients/${params.id}/files`, { method: "POST", body: fd });
+      const d = await r.json();
+      if (!r.ok) {
+        alert(d.error || "Upload failed");
+      } else {
+        loadFiles();
+      }
+    } catch (e: any) {
+      alert(e.message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function deleteFile(fileId: string) {
+    try {
+      await fetch(`/api/clients/${params.id}/files?fileId=${fileId}`, { method: "DELETE" });
+      loadFiles();
+    } catch {}
   }
 
   const pendingClientUpdates = useRef<Partial<Client>>({});
@@ -259,6 +300,46 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   Tax Exempt
                 </label>
 
+                {/* Tax documents — resale certs, non-profit determinations,
+                    W9s, MSAs. Files live in Drive under
+                    OpsHub Files / Clients / {Client Name} / {Tax Documents | W9 | MSAs | Other} */}
+                <div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:6,marginBottom:6}}>
+                    <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Tax Documents</div>
+                    <label style={{cursor:uploading?"default":"pointer",fontSize:10,padding:"3px 9px",borderRadius:5,background:uploading?T.faint:T.accent,color:"#fff",fontWeight:600,opacity:uploading?0.7:1}}>
+                      {uploading ? "Uploading…" : "+ Upload"}
+                      <input type="file" style={{display:"none"}} disabled={uploading} onChange={async e => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        await uploadFile(f, "tax_exempt");
+                        e.target.value = "";
+                      }}/>
+                    </label>
+                  </div>
+                  {files.length === 0 && <div style={{fontSize:11,color:T.faint,padding:"8px 10px",background:T.surface,borderRadius:6,textAlign:"center"}}>No documents on file.</div>}
+                  {files.length > 0 && (
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      {files.map(f => {
+                        const sizeKb = f.file_size ? f.file_size / 1024 : 0;
+                        const sizeStr = sizeKb >= 1024 ? `${(sizeKb/1024).toFixed(1)} MB` : sizeKb >= 1 ? `${Math.round(sizeKb)} KB` : "";
+                        return (
+                          <div key={f.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:T.surface,borderRadius:6}}>
+                            <a href={f.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{flex:1,minWidth:0,fontSize:12,color:T.text,textDecoration:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                              onMouseEnter={(e:any)=>e.currentTarget.style.color=T.accent}
+                              onMouseLeave={(e:any)=>e.currentTarget.style.color=T.text}>
+                              {f.file_name}
+                            </a>
+                            {sizeStr && <span style={{fontSize:10,color:T.faint,fontFamily:mono,flexShrink:0}}>{sizeStr}</span>}
+                            <button onClick={()=>setConfirmDeleteFile(f)} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11,padding:0,lineHeight:1}}
+                              onMouseEnter={e=>e.currentTarget.style.color=T.red}
+                              onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 {/* QB online payment-method toggles. Default true so
                     behavior matches today; flip off per client if e.g.
                     they should only see Bank Transfer on the QB payment
@@ -443,6 +524,20 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           load();
         }}
         onCancel={() => setConfirmRemove(null)}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDeleteFile}
+        title="Delete document"
+        message={confirmDeleteFile ? `Delete "${confirmDeleteFile.file_name}"? This removes it from Drive too.` : ""}
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          if (!confirmDeleteFile) return;
+          const id = confirmDeleteFile.id;
+          setConfirmDeleteFile(null);
+          await deleteFile(id);
+        }}
+        onCancel={() => setConfirmDeleteFile(null)}
       />
     </div>
   );
