@@ -661,7 +661,6 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             <span style={{fontSize:10,fontWeight:700,color:p._blankOpen?T.accent:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</span>
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            {!p._blankOpen&&(()=>{const total=(p.sizes||[]).reduce((a,sz)=>{const q=p.qtys?.[sz]||0;const c=p.blankCosts?.[sz]||0;return a+q*c;},0);return total>0?<span style={{fontSize:12,fontWeight:600,color:T.text,fontFamily:mono}}>${total.toFixed(2)}</span>:null;})()}
                             <span style={{fontSize:11,color:p._blankOpen?T.accent:T.faint,display:"inline-block",transform:p._blankOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.15s"}}>v</span>
                           </div>
                         </div>
