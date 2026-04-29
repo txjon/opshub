@@ -12,7 +12,7 @@ export const C = {
   muted: "#6b6b78",     // T.muted
   faint: "#a0a0ad",     // T.faint
   accent: "#000000",    // T.accent
-  green: "#4ddb88",     // T.green
+  green: "#47b12b",     // T.green
   greenBg: "#e5f9ed",   // T.greenDim
   greenBorder: "#bdebd0",
   amber: "#f4b22b",     // T.amber

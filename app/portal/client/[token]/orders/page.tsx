@@ -78,10 +78,10 @@ export default function OrdersPage() {
 
   return (
     <div>
-      {/* Filter pills + archive toggle */}
+      {/* Filter tabs + archive toggle */}
       <div style={{
-        display: "flex", gap: 8, alignItems: "center", marginBottom: 18,
-        flexWrap: "wrap",
+        display: "flex", gap: 18, alignItems: "center", marginBottom: 18,
+        flexWrap: "wrap", borderBottom: `1px solid ${C.border}`, paddingBottom: 6,
       }}>
         <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
           All {orders && `· ${orders.length}`}
@@ -176,12 +176,14 @@ function FilterPill({ active, onClick, children }: { active: boolean; onClick: (
   return (
     <button onClick={onClick}
       style={{
-        padding: "8px 14px", minHeight: 40,
-        background: active ? C.text : "transparent",
-        color: active ? "#fff" : C.muted,
-        border: `1px solid ${active ? C.text : C.border}`,
-        borderRadius: 99, fontSize: 12, fontWeight: 600,
+        padding: "8px 0", minHeight: 40,
+        background: "transparent",
+        color: active ? C.text : C.muted,
+        border: "none",
+        borderBottom: active ? `2px solid ${C.text}` : "2px solid transparent",
+        fontSize: 13, fontWeight: active ? 800 : 600,
         cursor: "pointer", fontFamily: C.font,
+        marginBottom: -7,
       }}>
       {children}
     </button>
