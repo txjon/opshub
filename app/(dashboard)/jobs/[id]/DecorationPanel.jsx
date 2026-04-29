@@ -170,7 +170,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
 
           return (
             <div key={loc} style={{background:isActive?T.surface:"transparent",border:`1px solid ${isActive?T.border:T.border+"66"}`,borderRadius:8,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
-              {/* Row 1: Location name (left) + Share group (right) */}
+              {/* Row 1: Location name (left) + Share button when not shared (right) */}
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <div style={{flex:1,position:"relative"}}>
                   <input value={ld.location||""} onChange={e=>updateLoc(loc,{location:e.target.value,printer:p.printVendor})}
@@ -179,38 +179,14 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                     placeholder="Location..." />
                   <datalist id={`loc-presets-${i}-${loc}`}>{LOCATION_PRESETS.map(l=><option key={l} value={l}/>)}</datalist>
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
-                  {!isShared ? (
-                    <button onClick={()=>updateLoc(loc,{shared:true,shareGroup:""})}
-                      style={{fontSize:9,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:4,padding:"2px 6px",cursor:"pointer",fontFamily:font}}
-                      onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>Share</button>
-                  ) : shareGroup ? (
-                    <>
-                      <select value={SHARE_GROUPS.includes(shareGroup) ? shareGroup : ""} onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
-                        style={{padding:"2px 4px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${SHARE_GROUPS.includes(shareGroup)?T.accent:T.red}`,borderRadius:4,cursor:"pointer",background:SHARE_GROUPS.includes(shareGroup)?T.accent:T.red,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center",width:28}}>
-                        {!SHARE_GROUPS.includes(shareGroup) && <option value="" disabled>?</option>}
-                        {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
-                      </select>
-                      <button onClick={()=>updateLoc(loc,{shared:false,shareGroup:""})}
-                        style={{fontSize:10,color:T.faint,background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}
-                        onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
-                    </>
-                  ) : (
-                    <>
-                      <select value="" onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
-                        style={{padding:"2px 4px",fontSize:10,fontFamily:font,border:`1px solid ${T.border}`,borderRadius:4,cursor:"pointer",background:"transparent",color:T.muted,outline:"none"}}>
-                        <option value="" disabled>Group</option>
-                        {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
-                      </select>
-                      <button onClick={()=>updateLoc(loc,{shared:false,shareGroup:""})}
-                        style={{fontSize:10,color:T.faint,background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}
-                        onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
-                    </>
-                  )}
-                </div>
+                {!isShared && (
+                  <button onClick={()=>updateLoc(loc,{shared:true,shareGroup:""})}
+                    style={{fontSize:9,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:4,padding:"2px 6px",cursor:"pointer",fontFamily:font,flexShrink:0}}
+                    onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>Share</button>
+                )}
               </div>
 
-              {/* Row 2: colors + puff + cost */}
+              {/* Row 2: colors + puff + (share group when shared) + cost */}
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 {/* Color/screen count */}
                 <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
@@ -228,9 +204,31 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                   </div>
                 )}
 
+                {/* Share group selector — sits next to the price when shared */}
+                {isShared && (
+                  <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0,marginLeft:"auto"}}>
+                    {shareGroup ? (
+                      <select value={SHARE_GROUPS.includes(shareGroup) ? shareGroup : ""} onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
+                        style={{padding:"2px 4px",fontSize:10,fontFamily:mono,fontWeight:700,border:`1px solid ${SHARE_GROUPS.includes(shareGroup)?T.accent:T.red}`,borderRadius:4,cursor:"pointer",background:SHARE_GROUPS.includes(shareGroup)?T.accent:T.red,color:"#fff",outline:"none",appearance:"none",WebkitAppearance:"none",textAlign:"center",width:28}}>
+                        {!SHARE_GROUPS.includes(shareGroup) && <option value="" disabled>?</option>}
+                        {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
+                      </select>
+                    ) : (
+                      <select value="" onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
+                        style={{padding:"2px 4px",fontSize:10,fontFamily:font,border:`1px solid ${T.border}`,borderRadius:4,cursor:"pointer",background:"transparent",color:T.muted,outline:"none"}}>
+                        <option value="" disabled>Group</option>
+                        {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
+                      </select>
+                    )}
+                    <button onClick={()=>updateLoc(loc,{shared:false,shareGroup:""})}
+                      style={{fontSize:10,color:T.faint,background:"none",border:"none",cursor:"pointer",padding:"0 2px"}}
+                      onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                  </div>
+                )}
+
                 {/* Cost */}
                 {isActive && (
-                  <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:mono,flexShrink:0,marginLeft:"auto",textAlign:"right"}}>
+                  <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:mono,flexShrink:0,marginLeft:isShared?8:"auto",textAlign:"right"}}>
                     {isShared&&shareGroup&&<span style={{fontSize:11,fontWeight:500,color:T.faint,marginRight:4}}>({effectiveQty})</span>}
                     ${unitCost>0?unitCost.toFixed(2):"—"}
                   </span>
