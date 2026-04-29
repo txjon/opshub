@@ -731,40 +731,39 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </div>
                   <div>
                     <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Documents</label>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                      {(()=>{
-                        const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
-                        const qbInvNum = (job as any).type_meta?.qb_invoice_number;
-                        const hasItems = items.length > 0;
-                        const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
-                        const docBtn = (label: string, src: string|null, available: boolean) => (
-                          <button key={label}
-                            onClick={()=>{ if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
-                            disabled={!available}
-                            title={available?undefined:"Not available yet"}
-                            style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default"}}
-                            onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
-                            onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
-                            {label}
-                          </button>
-                        );
-                        return (
-                          <>
+                    {(()=>{
+                      const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
+                      const qbInvNum = (job as any).type_meta?.qb_invoice_number;
+                      const hasItems = items.length > 0;
+                      const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
+                      const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
+                        <button key={label}
+                          onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
+                          disabled={!available}
+                          title={available?undefined:"Not available yet"}
+                          style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",textAlign:"left"}}
+                          onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
+                          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                          {label}
+                        </button>
+                      );
+                      return (
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,alignItems:"start"}}>
+                          {/* Left column: Quote, Invoice, Packing Slip, Art Files */}
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
                             {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
                             {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
                             {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
+                            {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
+                          </div>
+                          {/* Right column: PO per vendor */}
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
                             {docVendors.length === 0 && docBtn("PO", null, false)}
                             {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
-                            <button onClick={()=>setShowArtFiles(true)}
-                              style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:T.surface,color:T.text,fontSize:11,fontWeight:600,fontFamily:font,cursor:"pointer"}}
-                              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;}}
-                              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
-                              Art Files
-                            </button>
-                          </>
-                        );
-                      })()}
-                    </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
