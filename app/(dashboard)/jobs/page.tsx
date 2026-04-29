@@ -94,10 +94,11 @@ export default function JobsPage() {
 
   // Active-pipeline KPIs (Projects · Items · Units · Prints). These
   // moved here from the team Command Center per the rule "vanity KPIs
-  // live on their domain page + the owner's insights." Active = not
-  // complete / cancelled / on_hold.
+  // live on their domain page + the owner's insights." Active = Labs
+  // domain (intake → production). Once items ship from decorator the
+  // project hands off to Distro (/warehouse) and clears from here.
   const kpis = useMemo(() => {
-    const active = jobs.filter(j => !["complete","cancelled","on_hold"].includes(j.phase));
+    const active = jobs.filter(j => !["complete","cancelled","on_hold","receiving","fulfillment"].includes(j.phase));
     const items = active.flatMap(j => (j as any).items || []);
     const units = items.reduce(
       (s: number, it: any) => s + ((it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0)),
@@ -127,10 +128,11 @@ export default function JobsPage() {
   const visible = useMemo(() => {
     const q = search.toLowerCase().trim();
     return jobs.filter(j => {
-      // Top-level filter buckets: Active (in flight) / On Hold /
-      // Complete / Cancelled. Per-phase drill-down went away when the
-      // Command Center took over urgency triage.
-      if (filter === "active" && ["complete","cancelled","on_hold"].includes(j.phase)) return false;
+      // Top-level filter buckets: Active (Labs) / On Hold / Complete /
+      // Cancelled. Active = Labs domain only — receiving + fulfillment
+      // hand off to Distro and live on /warehouse. Per-phase drill-down
+      // went away when the Command Center took over urgency triage.
+      if (filter === "active" && ["complete","cancelled","on_hold","receiving","fulfillment"].includes(j.phase)) return false;
       if (filter !== "active" && filter !== "all" && j.phase !== filter) return false;
       // Text search
       if (q && !(
@@ -222,7 +224,7 @@ export default function JobsPage() {
           per-row in the PHASE column for scanning. */}
       <div style={{ display:"flex", alignItems:"center", gap:14, flexWrap:"wrap", borderBottom:`1px solid ${T.border}`, paddingBottom:6 }}>
         {([
-          ["active",   "Active",    jobs.filter(j => !["complete","cancelled","on_hold"].includes(j.phase)).length],
+          ["active",   "Active",    jobs.filter(j => !["complete","cancelled","on_hold","receiving","fulfillment"].includes(j.phase)).length],
           ["on_hold",  "On Hold",   phaseCounts.on_hold],
           ["complete", "Complete",  phaseCounts.complete],
           ["cancelled","Cancelled", phaseCounts.cancelled],
