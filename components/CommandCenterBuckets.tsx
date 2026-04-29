@@ -389,7 +389,7 @@ function RevisionPreviewModal({ payload, onClose }: { payload: NonNullable<Bucke
           {loading && <div style={{ fontSize: 12, color: T.muted, textAlign: "center", padding: 20 }}>Loading proof…</div>}
           {!loading && proofFile?.drive_file_id && (
             <a href={`/api/files/thumbnail?id=${proofFile.drive_file_id}`} target="_blank" rel="noopener noreferrer"
-              style={{ background: "#000", borderRadius: 6, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", maxHeight: 360 }}>
+              style={{ background: T.card, borderRadius: 6, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", maxHeight: 360 }}>
               <img src={`/api/files/thumbnail?id=${proofFile.drive_file_id}&thumb=1`} alt={proofFile.file_name}
                 style={{ maxWidth: "100%", maxHeight: 360, objectFit: "contain" }} />
             </a>
