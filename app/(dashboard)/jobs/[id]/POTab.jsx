@@ -291,8 +291,10 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               ))}
             </div>
           </div>
-          {/* Ship by date + Ship method — stacked next to Ship To */}
-          <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:"flex-start"}}>
+          {/* Ship by date + Ship method — stacked next to Ship To.
+              Width matches what the two side-by-side fields took before
+              so Ship To doesn't expand into the freed space. */}
+          <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:"flex-start",width:310,flexShrink:0}}>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
               <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
