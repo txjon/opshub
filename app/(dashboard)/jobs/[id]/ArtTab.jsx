@@ -223,15 +223,16 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
 
   // Manual print-info entry — fallback when no PSD is available. Seeded from
   // costing's print locations so the user has a starting list of placements
-  // to fill in dimensions / colors / callouts on.
+  // to fill in size / colors / callouts on. `sizeText` is freeform — whatever
+  // the user types (e.g. `2.5" × 1.5"`, `12 × 18 cm`, "Full back") flows
+  // straight to the proof PDF.
   const [manualPrintInfo, setManualPrintInfo] = useState(() => {
     const locs = costProd?.printLocations || {};
     return Object.values(locs)
       .filter(l => l?.location)
       .map(l => ({
         placement: l.location,
-        widthInches: "",
-        heightInches: "",
+        sizeText: "",
         colorsText: "",
         callout: "",
       }));
@@ -259,8 +260,8 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
         .filter(p => (p.placement || "").trim())
         .map(p => ({
           placement: p.placement.trim(),
-          widthInches: parseFloat(p.widthInches) || null,
-          heightInches: parseFloat(p.heightInches) || null,
+          // Freeform size string — passed through to the proof PDF as-is
+          sizeText: (p.sizeText || "").trim(),
           colors: (p.colorsText || "").split(",").map(s => s.trim()).filter(Boolean).map(name => {
             const hex = resolveHex(name);
             return hex ? { name, hex } : { name };
@@ -503,14 +504,9 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                           onMouseLeave={e => e.currentTarget.style.color = T.faint}>✕</button>
                       </div>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <input value={p.widthInches} onChange={e => update("widthInches", e.target.value)}
-                          type="text" inputMode="decimal" placeholder="W"
-                          style={{ ...ic, fontSize: 12, width: 60 }} />
-                        <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>×</span>
-                        <input value={p.heightInches} onChange={e => update("heightInches", e.target.value)}
-                          type="text" inputMode="decimal" placeholder="H"
-                          style={{ ...ic, fontSize: 12, width: 60 }} />
-                        <span style={{ fontSize: 10, color: T.faint }}>in</span>
+                        <input value={p.sizeText} onChange={e => update("sizeText", e.target.value)}
+                          placeholder={`Size (e.g. 2.5" × 1.5")`}
+                          style={{ ...ic, fontSize: 11, width: 160 }} />
                         <input value={p.colorsText} onChange={e => update("colorsText", e.target.value)}
                           placeholder="Colors: Black, White, Red"
                           style={{ ...ic, fontSize: 11, flex: 1 }} />
