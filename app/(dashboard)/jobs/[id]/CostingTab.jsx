@@ -379,10 +379,14 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
               if (NON_GARMENT.includes(p.garment_type)) {
                 const accTotal = (p.customCosts||[]).reduce((a,cc) => a + (cc.flat ? (parseFloat(cc.perUnit)||parseFloat(cc.amount)||0) : (parseFloat(cc.perUnit)||parseFloat(cc.amount)||0) * (p.totalQty||0)), 0);
+                const isCollapsed = selectedItemId ? false : !!collapsed[p.id];
+                const headerBB = isCollapsed ? "none" : `1px solid ${T.border}`;
+                const bodyDisplay = isCollapsed ? "none" : "block";
+                const chevron = isCollapsed ? "v" : "^";
                 return (
                   <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
                     {/* Header: Letter + Name + Qty + Sell $/unit override */}
-                    <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
+                    <div onClick={()=>toggleCollapse(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
                       <span style={{width:24,height:24,borderRadius:5,background:T.purpleDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.purple,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
                       <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
                         <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||"Accessory"}</span>
@@ -440,9 +444,10 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           </div>
                         </div>
                       </div>
+                      {!selectedItemId && <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>}
                     </div>
                     {/* Vendor selector + Cost line items */}
-                    <div style={{padding:"12px 16px",...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}}>
+                    <div style={{padding:"12px 16px",display:bodyDisplay,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}}>
                       {/* Vendor / Decorator selector */}
                       <div style={{marginBottom:12}}>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Vendor</div>
