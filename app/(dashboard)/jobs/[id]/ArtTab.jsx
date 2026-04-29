@@ -100,6 +100,60 @@ export function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabe
   );
 }
 
+// Per-QB-category proof defaults. Tee/Hoodie/etc. get the standard
+// fold + ink note; Hat/Beanie default to Embroidery with no fold; patches/
+// stickers/pins default to no print method since the item itself IS the
+// print. Empty string for `method` leaves the toggle unselected.
+//
+// Future (#3 in conversation): let these be edited in settings as curated
+// per-category lists — see project_proof_category_lists.md.
+const PROOF_DEFAULTS_BY_TYPE = {
+  // Apparel — fold + ink note are the standard
+  tee:        { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  crewneck:   { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  hoodie:     { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  longsleeve: { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  tank:       { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  crop:       { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  jacket:     { method: "Embroidery",   instructions: ["Bulk Fold"] },
+  // Headwear — embroidery default, no fold
+  hat:        { method: "Embroidery",   instructions: [] },
+  beanie:     { method: "Embroidery",   instructions: [] },
+  // Bottoms
+  shorts:     { method: "Screen Print", instructions: ["Bulk Fold"] },
+  pants:      { method: "Screen Print", instructions: ["Bulk Fold"] },
+  bottoms:    { method: "Screen Print", instructions: ["Bulk Fold"] },
+  // Bags / soft accessories
+  tote:       { method: "Screen Print", instructions: [] },
+  custom_bag: { method: "Screen Print", instructions: [] },
+  bandana:    { method: "Screen Print", instructions: [] },
+  towel:      { method: "Embroidery",   instructions: [] },
+  socks:      { method: "Embroidery",   instructions: [] },
+  // Decoration IS the item — no method on the proof
+  patch:        { method: "", instructions: [] },
+  pin:          { method: "", instructions: [] },
+  sticker:      { method: "", instructions: [] },
+  woven_labels: { method: "", instructions: [] },
+  // Hard goods — leave method blank by default; Koozie skews screen print
+  koozie:        { method: "Screen Print", instructions: [] },
+  lighter:       { method: "", instructions: [] },
+  water_bottle:  { method: "", instructions: [] },
+  flag:          { method: "", instructions: [] },
+  banner:        { method: "", instructions: [] },
+  poster:        { method: "", instructions: [] },
+  pillow:        { method: "", instructions: [] },
+  rug:           { method: "", instructions: [] },
+  // Misc / unmapped — let user pick
+  accessory:    { method: "", instructions: [] },
+  samples:      { method: "", instructions: [] },
+  custom:       { method: "", instructions: [] },
+  key_chain:    { method: "", instructions: [] },
+  pens:         { method: "", instructions: [] },
+  napkins:      { method: "", instructions: [] },
+  balloons:     { method: "", instructions: [] },
+  stencils:     { method: "", instructions: [] },
+};
+
 export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved, generateAllCounter }) {
   const METHODS = ["Screen Print", "DTF", "Embroidery"];
   const INSTRUCTIONS = ["Bulk Fold", "Piece Package", "Back Design Facing Out", "Smooth Plastisol Ink"];
@@ -112,8 +166,34 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   const locationNames = Object.values(locations).map(l => (l?.location || "").toLowerCase()).filter(Boolean);
   const hasBackPrint = locationNames.some(l => l.includes("back"));
 
-  const defaultMethod = decoType === "dtf" || decoType === "DTF" ? "DTF" : decoType === "embroidery" || decoType === "Embroidery" ? "Embroidery" : "Screen Print";
+  // Per-garment-type defaults — Tee/Hoodie/etc. get fold+ink, Hat gets Embroidery,
+  // patches/pins get no method, etc. Costing's decorationType still wins for the
+  // method (user already picked it). Falls through to legacy logic for unknown types.
+  const typeDefaults = PROOF_DEFAULTS_BY_TYPE[item.garment_type] || null;
+  const isFoldable = !!(typeDefaults && typeDefaults.instructions.includes("Bulk Fold"));
+
+  const defaultMethod = (() => {
+    if (decoType === "dtf" || decoType === "DTF") return "DTF";
+    if (decoType === "embroidery" || decoType === "Embroidery") return "Embroidery";
+    if (decoType === "screen_print" || decoType === "Screen Print") return "Screen Print";
+    if (typeDefaults?.method) return typeDefaults.method;
+    return "Screen Print";
+  })();
+
   const defaultInstructions = (() => {
+    if (typeDefaults) {
+      const instr = [...typeDefaults.instructions];
+      // Apparel-specific layer: swap Bulk Fold for Piece Package when packaged,
+      // add Back Design facing out if there's a back print
+      if (isFoldable && hasPackaging) {
+        const bf = instr.indexOf("Bulk Fold");
+        if (bf >= 0) instr.splice(bf, 1);
+        if (!instr.includes("Piece Package")) instr.push("Piece Package");
+        if (hasBackPrint && !instr.includes("Back Design Facing Out")) instr.push("Back Design Facing Out");
+      }
+      return instr;
+    }
+    // Legacy fallback for items without a recognized garment_type
     const instr = [];
     if (hasPackaging) {
       instr.push("Piece Package");
