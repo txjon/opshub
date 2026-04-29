@@ -168,6 +168,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
           const unitCost = ld.screens>0 && p.printVendor ? lookupPrintPrice(p.printVendor, effectiveQty, ld.screens) : 0;
           const isActive = ld.location && ld.screens > 0;
 
+          const hasLocation = !!(ld.location && ld.location.trim());
           return (
             <div key={loc} style={{background:isActive?T.surface:"transparent",border:`1px solid ${isActive?T.border:T.border+"66"}`,borderRadius:8,padding:"8px 10px",display:"flex",flexDirection:"column",gap:6}}>
               {/* Row 1: Location name (left) + Share controls (right) */}
@@ -179,6 +180,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                     placeholder="Location..." />
                   <datalist id={`loc-presets-${i}-${loc}`}>{LOCATION_PRESETS.map(l=><option key={l} value={l}/>)}</datalist>
                 </div>
+                {hasLocation && (
                 <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
                   {!isShared ? (
                     <button onClick={()=>updateLoc(loc,{shared:true,shareGroup:""})}
@@ -209,9 +211,11 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                     </>
                   )}
                 </div>
+                )}
               </div>
 
-              {/* Row 2: colors + puff + cost */}
+              {/* Row 2: colors + puff + cost — only when a location is named */}
+              {hasLocation && (
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 {/* Color/screen count */}
                 <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
@@ -237,6 +241,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
                   </span>
                 )}
               </div>
+              )}
             </div>
           );
         })})()}
