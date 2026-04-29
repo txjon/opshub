@@ -34,10 +34,18 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [addingContact, setAddingContact] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<Contact|null>(null);
   const [confirmDeleteFile, setConfirmDeleteFile] = useState<ClientFile|null>(null);
+  const [previewFile, setPreviewFile] = useState<ClientFile|null>(null);
   const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
 
   useEffect(() => { load(); }, [params.id]);
+
+  useEffect(() => {
+    if (!previewFile) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPreviewFile(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [previewFile]);
 
   async function load() {
     setLoading(true);
@@ -324,11 +332,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                         const sizeStr = sizeKb >= 1024 ? `${(sizeKb/1024).toFixed(1)} MB` : sizeKb >= 1 ? `${Math.round(sizeKb)} KB` : "";
                         return (
                           <div key={f.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:T.surface,borderRadius:6}}>
-                            <a href={f.drive_link || "#"} target="_blank" rel="noopener noreferrer" style={{flex:1,minWidth:0,fontSize:12,color:T.text,textDecoration:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                            <button onClick={()=>setPreviewFile(f)} style={{flex:1,minWidth:0,fontSize:12,color:T.text,textAlign:"left",background:"none",border:"none",padding:0,cursor:"pointer",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:font}}
                               onMouseEnter={(e:any)=>e.currentTarget.style.color=T.accent}
                               onMouseLeave={(e:any)=>e.currentTarget.style.color=T.text}>
                               {f.file_name}
-                            </a>
+                            </button>
                             {sizeStr && <span style={{fontSize:10,color:T.faint,fontFamily:mono,flexShrink:0}}>{sizeStr}</span>}
                             <button onClick={()=>setConfirmDeleteFile(f)} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11,padding:0,lineHeight:1}}
                               onMouseEnter={e=>e.currentTarget.style.color=T.red}
@@ -539,6 +547,40 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         }}
         onCancel={() => setConfirmDeleteFile(null)}
       />
+
+      {previewFile && (
+        <div onClick={()=>setPreviewFile(null)}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",flexDirection:"column",padding:32}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{flex:1,display:"flex",flexDirection:"column",background:T.card,borderRadius:10,overflow:"hidden",border:`1px solid ${T.border}`,minHeight:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
+              <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {previewFile.file_name}
+              </div>
+              {previewFile.drive_link && (
+                <a href={previewFile.drive_link} target="_blank" rel="noopener noreferrer"
+                  style={{fontSize:11,color:T.muted,textDecoration:"none",padding:"4px 10px",borderRadius:5,border:`1px solid ${T.border}`,fontFamily:font}}
+                  onMouseEnter={(e:any)=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.accent;}}
+                  onMouseLeave={(e:any)=>{e.currentTarget.style.color=T.muted;e.currentTarget.style.borderColor=T.border;}}>
+                  Open in Drive
+                </a>
+              )}
+              <button onClick={()=>setPreviewFile(null)}
+                style={{background:"none",border:"none",fontSize:18,color:T.muted,cursor:"pointer",lineHeight:1,padding:"0 6px"}}
+                onMouseEnter={e=>e.currentTarget.style.color=T.text}
+                onMouseLeave={e=>e.currentTarget.style.color=T.muted}>✕</button>
+            </div>
+            {previewFile.drive_file_id ? (
+              <iframe src={`https://drive.google.com/file/d/${previewFile.drive_file_id}/preview`}
+                style={{flex:1,border:"none",background:"#000",minHeight:0}}/>
+            ) : (
+              <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:13}}>
+                File not available — Drive link missing.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
