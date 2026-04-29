@@ -100,6 +100,60 @@ export function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabe
   );
 }
 
+// Per-QB-category proof defaults. Tee/Hoodie/etc. get the standard
+// fold + ink note; Hat/Beanie default to Embroidery with no fold; patches/
+// stickers/pins default to no print method since the item itself IS the
+// print. Empty string for `method` leaves the toggle unselected.
+//
+// Future (#3 in conversation): let these be edited in settings as curated
+// per-category lists — see project_proof_category_lists.md.
+const PROOF_DEFAULTS_BY_TYPE = {
+  // Apparel — fold + ink note are the standard
+  tee:        { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  crewneck:   { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  hoodie:     { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  longsleeve: { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  tank:       { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  crop:       { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  jacket:     { method: "Embroidery",   instructions: ["Bulk Fold"] },
+  // Headwear — embroidery default, no fold
+  hat:        { method: "Embroidery",   instructions: [] },
+  beanie:     { method: "Embroidery",   instructions: [] },
+  // Bottoms
+  shorts:     { method: "Screen Print", instructions: ["Bulk Fold"] },
+  pants:      { method: "Screen Print", instructions: ["Bulk Fold"] },
+  bottoms:    { method: "Screen Print", instructions: ["Bulk Fold"] },
+  // Bags / soft accessories
+  tote:       { method: "Screen Print", instructions: [] },
+  custom_bag: { method: "Screen Print", instructions: [] },
+  bandana:    { method: "Screen Print", instructions: [] },
+  towel:      { method: "Embroidery",   instructions: [] },
+  socks:      { method: "Embroidery",   instructions: [] },
+  // Decoration IS the item — no method on the proof
+  patch:        { method: "", instructions: [] },
+  pin:          { method: "", instructions: [] },
+  sticker:      { method: "", instructions: [] },
+  woven_labels: { method: "", instructions: [] },
+  // Hard goods — leave method blank by default; Koozie skews screen print
+  koozie:        { method: "Screen Print", instructions: [] },
+  lighter:       { method: "", instructions: [] },
+  water_bottle:  { method: "", instructions: [] },
+  flag:          { method: "", instructions: [] },
+  banner:        { method: "", instructions: [] },
+  poster:        { method: "", instructions: [] },
+  pillow:        { method: "", instructions: [] },
+  rug:           { method: "", instructions: [] },
+  // Misc / unmapped — let user pick
+  accessory:    { method: "", instructions: [] },
+  samples:      { method: "", instructions: [] },
+  custom:       { method: "", instructions: [] },
+  key_chain:    { method: "", instructions: [] },
+  pens:         { method: "", instructions: [] },
+  napkins:      { method: "", instructions: [] },
+  balloons:     { method: "", instructions: [] },
+  stencils:     { method: "", instructions: [] },
+};
+
 export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved, generateAllCounter }) {
   const METHODS = ["Screen Print", "DTF", "Embroidery"];
   const INSTRUCTIONS = ["Bulk Fold", "Piece Package", "Back Design Facing Out", "Smooth Plastisol Ink"];
@@ -112,8 +166,34 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   const locationNames = Object.values(locations).map(l => (l?.location || "").toLowerCase()).filter(Boolean);
   const hasBackPrint = locationNames.some(l => l.includes("back"));
 
-  const defaultMethod = decoType === "dtf" || decoType === "DTF" ? "DTF" : decoType === "embroidery" || decoType === "Embroidery" ? "Embroidery" : "Screen Print";
+  // Per-garment-type defaults — Tee/Hoodie/etc. get fold+ink, Hat gets Embroidery,
+  // patches/pins get no method, etc. Costing's decorationType still wins for the
+  // method (user already picked it). Falls through to legacy logic for unknown types.
+  const typeDefaults = PROOF_DEFAULTS_BY_TYPE[item.garment_type] || null;
+  const isFoldable = !!(typeDefaults && typeDefaults.instructions.includes("Bulk Fold"));
+
+  const defaultMethod = (() => {
+    if (decoType === "dtf" || decoType === "DTF") return "DTF";
+    if (decoType === "embroidery" || decoType === "Embroidery") return "Embroidery";
+    if (decoType === "screen_print" || decoType === "Screen Print") return "Screen Print";
+    if (typeDefaults?.method) return typeDefaults.method;
+    return "Screen Print";
+  })();
+
   const defaultInstructions = (() => {
+    if (typeDefaults) {
+      const instr = [...typeDefaults.instructions];
+      // Apparel-specific layer: swap Bulk Fold for Piece Package when packaged,
+      // add Back Design facing out if there's a back print
+      if (isFoldable && hasPackaging) {
+        const bf = instr.indexOf("Bulk Fold");
+        if (bf >= 0) instr.splice(bf, 1);
+        if (!instr.includes("Piece Package")) instr.push("Piece Package");
+        if (hasBackPrint && !instr.includes("Back Design Facing Out")) instr.push("Back Design Facing Out");
+      }
+      return instr;
+    }
+    // Legacy fallback for items without a recognized garment_type
     const instr = [];
     if (hasPackaging) {
       instr.push("Piece Package");
@@ -140,6 +220,54 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   const [psdPrintInfo, setPsdPrintInfo] = useState(null);
   const [loadingPsd, setLoadingPsd] = useState(false);
   const [mockupDataUrl, setMockupDataUrl] = useState(null);
+
+  // Manual print-info entry — fallback when no PSD is available. Seeded from
+  // costing's print locations so the user has a starting list of placements
+  // to fill in size / colors / callouts on. `sizeText` is freeform — whatever
+  // the user types (e.g. `2.5" × 1.5"`, `12 × 18 cm`, "Full back") flows
+  // straight to the proof PDF.
+  const [manualPrintInfo, setManualPrintInfo] = useState(() => {
+    const locs = costProd?.printLocations || {};
+    return Object.values(locs)
+      .filter(l => l?.location)
+      .map(l => ({
+        placement: l.location,
+        sizeText: "",
+        colorsText: "",
+        callout: "",
+      }));
+  });
+
+  // Best-effort name → hex resolution so manual entries get colored swatches
+  // on the PDF. Unrecognized names fall through to gray (handled in proof-client).
+  const COLOR_HEX = {
+    black: "#000000", white: "#ffffff", red: "#d32f2f", blue: "#1565c0",
+    navy: "#001f5c", royal: "#1c3faa", green: "#2e7d32", forest: "#194d20",
+    olive: "#6b6b1a", yellow: "#fbc02d", gold: "#bf9000", orange: "#ef6c00",
+    purple: "#6a1b9a", pink: "#ec407a", magenta: "#c2185b", maroon: "#7b1f1f",
+    brown: "#5d3a1a", tan: "#b89572", khaki: "#a39160", cream: "#f4e9c8",
+    gray: "#7a7a82", grey: "#7a7a82", silver: "#bfbfc6", charcoal: "#36363c",
+    teal: "#00838f", aqua: "#26a3a5", cyan: "#00bcd4",
+    heather: "#a3a3ab", "heather grey": "#a3a3ab", "heather gray": "#a3a3ab",
+    natural: "#ece2cc", sand: "#dcc8a8", coral: "#e5734a",
+  };
+  const resolveHex = (name) => COLOR_HEX[(name || "").toLowerCase().trim()] || null;
+
+  // Use PSD info when available, manual entries otherwise.
+  const effectivePrintInfo = (psdPrintInfo && psdPrintInfo.length > 0)
+    ? psdPrintInfo
+    : manualPrintInfo
+        .filter(p => (p.placement || "").trim())
+        .map(p => ({
+          placement: p.placement.trim(),
+          // Freeform size string — passed through to the proof PDF as-is
+          sizeText: (p.sizeText || "").trim(),
+          colors: (p.colorsText || "").split(",").map(s => s.trim()).filter(Boolean).map(name => {
+            const hex = resolveHex(name);
+            return hex ? { name, hex } : { name };
+          }),
+          callout: p.callout || "",
+        }));
 
   const mockupThumbUrl = mockupFile ? `/api/files/thumbnail?id=${mockupFile.drive_file_id}` : null;
 
@@ -173,7 +301,9 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     })();
   }, []);
 
-  const toggleMethod = (m) => setMethods(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m]);
+  // Print method is single-select — clicking an unselected method makes it
+  // the only choice; clicking the active one deselects (none).
+  const toggleMethod = (m) => setMethods(prev => prev[0] === m ? [] : [m]);
   const toggleInstruction = (i) => setSelInstructions(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]);
 
   // Load mockup image once on mount — convert to JPEG for reliable PDF rendering
@@ -219,10 +349,12 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
           return u;
         };
         const activeSizesNorm = hasActiveSizes ? activeSizes.map(normalizeSize) : null;
-        const printInfo = (psdPrintInfo || []).map(p => {
+        const printInfo = (effectivePrintInfo || []).map(p => {
           const isTag = (p.placement || "").toLowerCase() === "tag" || (p.placement || "").toLowerCase() === "tags";
           const colors = (isTag && activeSizesNorm) ? (p.colors || []).filter(c => activeSizesNorm.includes(normalizeSize(c.name))) : (p.colors || []);
-          return { ...p, colors, callout: callouts[p.placement] || "" };
+          // Callouts state takes precedence over the manual-entry callout when both exist
+          const callout = callouts[p.placement] || p.callout || "";
+          return { ...p, colors, callout };
         });
 
         const doc = generateProofPdfClient({
@@ -248,7 +380,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [mockupDataUrl, psdPrintInfo, methods, selInstructions, notes, callouts]);
+  }, [mockupDataUrl, psdPrintInfo, methods, selInstructions, notes, callouts, manualPrintInfo]);
 
   async function saveToDrive() {
     if (!pdfDoc) return;
@@ -325,7 +457,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
             {loadingPsd && <div style={{ fontSize: 11, color: T.muted }}>Reading PSD print data...</div>}
             {psdPrintInfo && psdPrintInfo.length > 0 && (
               <div>
-                <label style={{ fontSize: 11, color: T.muted, marginBottom: 6, display: "block" }}>Print Locations</label>
+                <label style={{ fontSize: 11, color: T.muted, marginBottom: 6, display: "block" }}>Print Locations <span style={{ color: T.faint, fontWeight: 400 }}>· from PSD</span></label>
                 {psdPrintInfo.map((p, i) => (
                   <div key={i} style={{ background: T.surface, borderRadius: 6, padding: "8px 10px", marginBottom: 6 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
@@ -336,6 +468,55 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                       placeholder="Placement callout..." style={{ ...ic, fontSize: 11 }} />
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Manual print-info entry — fallback when no PSD found */}
+            {!loadingPsd && (!psdPrintInfo || psdPrintInfo.length === 0) && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <label style={{ fontSize: 11, color: T.muted }}>Print Locations <span style={{ color: T.faint, fontWeight: 400 }}>· no PSD, enter manually</span></label>
+                  <button onClick={() => setManualPrintInfo(prev => [...prev, { placement: "", widthInches: "", heightInches: "", colorsText: "", callout: "" }])}
+                    style={{ fontSize: 10, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: font }}
+                    onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
+                    + Add
+                  </button>
+                </div>
+                {manualPrintInfo.length === 0 && (
+                  <div style={{ fontSize: 11, color: T.faint, padding: "8px 10px", background: T.surface, borderRadius: 6, textAlign: "center" }}>
+                    Click + Add to enter a placement.
+                  </div>
+                )}
+                {manualPrintInfo.map((p, idx) => {
+                  const update = (field, value) => setManualPrintInfo(prev => prev.map((row, i) => i === idx ? { ...row, [field]: value } : row));
+                  const remove = () => setManualPrintInfo(prev => prev.filter((_, i) => i !== idx));
+                  return (
+                    <div key={idx} style={{ background: T.surface, borderRadius: 6, padding: "8px 10px", marginBottom: 6, display: "flex", flexDirection: "column", gap: 4 }}>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <input value={p.placement} onChange={e => update("placement", e.target.value)}
+                          list={`pi-placement-${idx}`} placeholder="Placement (Front, Back, Tag…)"
+                          style={{ ...ic, fontSize: 12, fontWeight: 600, flex: 1 }} />
+                        <datalist id={`pi-placement-${idx}`}>{["Front","Back","Left Chest","Right Chest","Left Sleeve","Right Sleeve","Hood","Pocket","Tag","Tags","Neck"].map(o => <option key={o} value={o} />)}</datalist>
+                        <button onClick={remove} title="Remove placement"
+                          style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 14, padding: "0 4px" }}
+                          onMouseEnter={e => e.currentTarget.style.color = T.red}
+                          onMouseLeave={e => e.currentTarget.style.color = T.faint}>✕</button>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <input value={p.sizeText} onChange={e => update("sizeText", e.target.value)}
+                          placeholder={`Size (e.g. 2.5" × 1.5")`}
+                          style={{ ...ic, fontSize: 11, width: 160 }} />
+                        <input value={p.colorsText} onChange={e => update("colorsText", e.target.value)}
+                          placeholder="Colors: Black, White, Red"
+                          style={{ ...ic, fontSize: 11, flex: 1 }} />
+                      </div>
+                      <input value={p.callout} onChange={e => update("callout", e.target.value)}
+                        placeholder="Placement callout (optional)…"
+                        style={{ ...ic, fontSize: 11 }} />
+                    </div>
+                  );
+                })}
               </div>
             )}
 

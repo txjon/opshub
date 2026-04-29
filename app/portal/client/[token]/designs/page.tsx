@@ -937,7 +937,7 @@ function NewRequestModal({ onClose, onCreated }: { onClose: () => void; onCreate
                       style={{ position: "absolute", top: 4, right: 4, width: 24, height: 24, borderRadius: 99, background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
                   )}
                   {f.status === "uploading" && <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.blue, borderRadius: 8 }}>Uploading…</div>}
-                  {f.status === "done" && <div style={{ position: "absolute", top: 4, left: 4, background: C.green, color: "#fff", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 99 }}>✓</div>}
+                  {f.status === "done" && <div style={{ position: "absolute", top: 4, left: 4, background: C.green, color: "#fff", fontSize: 11, fontWeight: 700, width: 18, height: 18, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✓</div>}
                   {f.status === "error" && <div style={{ position: "absolute", inset: 0, background: "rgba(255, 200, 200, 0.85)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.red, borderRadius: 8, padding: 4, textAlign: "center" }}>{f.errorMsg || "Failed"}</div>}
                 </div>
               ))}

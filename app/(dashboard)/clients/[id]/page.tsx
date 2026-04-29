@@ -10,6 +10,7 @@ import { effectiveRevenue } from "@/lib/revenue";
 
 type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
+type ClientFile = { id:string; file_name:string; drive_file_id:string|null; drive_link:string|null; mime_type:string|null; file_size:number|null; kind:string; notes:string|null; created_at:string; };
 type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; payment_records:any[]; };
 
 const PHASE_COLORS: Record<string,{bg:string,text:string}> = {
@@ -27,13 +28,24 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [client, setClient] = useState<Client|null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [files, setFiles] = useState<ClientFile[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [addingContact, setAddingContact] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<Contact|null>(null);
+  const [confirmDeleteFile, setConfirmDeleteFile] = useState<ClientFile|null>(null);
+  const [previewFile, setPreviewFile] = useState<ClientFile|null>(null);
   const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
 
   useEffect(() => { load(); }, [params.id]);
+
+  useEffect(() => {
+    if (!previewFile) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPreviewFile(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [previewFile]);
 
   async function load() {
     setLoading(true);
@@ -46,6 +58,43 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
     if (jRes.data) setJobs(jRes.data as Job[]);
     setLoading(false);
+    loadFiles();
+  }
+
+  async function loadFiles() {
+    try {
+      const r = await fetch(`/api/clients/${params.id}/files`);
+      if (!r.ok) return;
+      const d = await r.json();
+      setFiles(d.files || []);
+    } catch {}
+  }
+
+  async function uploadFile(file: File, kind: string) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("kind", kind);
+      const r = await fetch(`/api/clients/${params.id}/files`, { method: "POST", body: fd });
+      const d = await r.json();
+      if (!r.ok) {
+        alert(d.error || "Upload failed");
+      } else {
+        loadFiles();
+      }
+    } catch (e: any) {
+      alert(e.message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function deleteFile(fileId: string) {
+    try {
+      await fetch(`/api/clients/${params.id}/files?fileId=${fileId}`, { method: "DELETE" });
+      loadFiles();
+    } catch {}
   }
 
   const pendingClientUpdates = useRef<Partial<Client>>({});
@@ -155,7 +204,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       </button>
 
       {/* Header */}
-      <div style={{marginBottom:16,display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+      <div style={{marginBottom:16,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
         <div>
           <h1 style={{fontSize:24,fontWeight:700,margin:"0 0 6px",letterSpacing:"-0.02em"}}>{client.name}</h1>
           <div style={{display:"flex",gap:16,fontSize:12,color:T.muted}}>
@@ -164,6 +213,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             <span>{totalUnits.toLocaleString()} total units</span>
           </div>
         </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {/* + New Project — pre-fills this client on the new project form. */}
+          <a href={`/jobs/new?client=${client.id}`}
+            style={{padding:"7px 14px",borderRadius:7,background:T.accent,color:"#fff",fontSize:12,fontWeight:700,textDecoration:"none",fontFamily:font}}>
+            + New Project
+          </a>
         <button onClick={async()=>{
           const jobCount = jobs.length;
           const msg = jobCount > 0
@@ -194,6 +249,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.faint;}}>
           Delete Client
         </button>
+        </div>
       </div>
 
       {/* Financial summary */}
@@ -251,6 +307,46 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   <input type="checkbox" checked={client.tax_exempt||false} onChange={e=>updateClient({tax_exempt:e.target.checked} as any)} style={{accentColor:T.accent,width:18,height:18}}/>
                   Tax Exempt
                 </label>
+
+                {/* Tax documents — resale certs, non-profit determinations,
+                    W9s, MSAs. Files live in Drive under
+                    OpsHub Files / Clients / {Client Name} / {Tax Documents | W9 | MSAs | Other} */}
+                <div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:6,marginBottom:6}}>
+                    <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Tax Documents</div>
+                    <label style={{cursor:uploading?"default":"pointer",fontSize:10,padding:"3px 9px",borderRadius:5,background:uploading?T.faint:T.accent,color:"#fff",fontWeight:600,opacity:uploading?0.7:1}}>
+                      {uploading ? "Uploading…" : "+ Upload"}
+                      <input type="file" style={{display:"none"}} disabled={uploading} onChange={async e => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        await uploadFile(f, "tax_exempt");
+                        e.target.value = "";
+                      }}/>
+                    </label>
+                  </div>
+                  {files.length === 0 && <div style={{fontSize:11,color:T.faint,padding:"8px 10px",background:T.surface,borderRadius:6,textAlign:"center"}}>No documents on file.</div>}
+                  {files.length > 0 && (
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      {files.map(f => {
+                        const sizeKb = f.file_size ? f.file_size / 1024 : 0;
+                        const sizeStr = sizeKb >= 1024 ? `${(sizeKb/1024).toFixed(1)} MB` : sizeKb >= 1 ? `${Math.round(sizeKb)} KB` : "";
+                        return (
+                          <div key={f.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:T.surface,borderRadius:6}}>
+                            <button onClick={()=>setPreviewFile(f)} style={{flex:1,minWidth:0,fontSize:12,color:T.text,textAlign:"left",background:"none",border:"none",padding:0,cursor:"pointer",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:font}}
+                              onMouseEnter={(e:any)=>e.currentTarget.style.color=T.accent}
+                              onMouseLeave={(e:any)=>e.currentTarget.style.color=T.text}>
+                              {f.file_name}
+                            </button>
+                            {sizeStr && <span style={{fontSize:10,color:T.faint,fontFamily:mono,flexShrink:0}}>{sizeStr}</span>}
+                            <button onClick={()=>setConfirmDeleteFile(f)} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11,padding:0,lineHeight:1}}
+                              onMouseEnter={e=>e.currentTarget.style.color=T.red}
+                              onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
 
                 {/* QB online payment-method toggles. Default true so
                     behavior matches today; flip off per client if e.g.
@@ -437,6 +533,72 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         }}
         onCancel={() => setConfirmRemove(null)}
       />
+
+      <ConfirmDialog
+        open={!!confirmDeleteFile}
+        title="Delete document"
+        message={confirmDeleteFile ? `Delete "${confirmDeleteFile.file_name}"? This removes it from Drive too.` : ""}
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          if (!confirmDeleteFile) return;
+          const id = confirmDeleteFile.id;
+          setConfirmDeleteFile(null);
+          await deleteFile(id);
+        }}
+        onCancel={() => setConfirmDeleteFile(null)}
+      />
+
+      {previewFile && (
+        <div onClick={()=>setPreviewFile(null)}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",flexDirection:"column",padding:32}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{flex:1,display:"flex",flexDirection:"column",background:T.card,borderRadius:10,overflow:"hidden",border:`1px solid ${T.border}`,minHeight:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
+              <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {previewFile.file_name}
+              </div>
+              {previewFile.drive_link && (
+                <a href={previewFile.drive_link} target="_blank" rel="noopener noreferrer"
+                  style={{fontSize:11,color:T.muted,textDecoration:"none",padding:"4px 10px",borderRadius:5,border:`1px solid ${T.border}`,fontFamily:font}}
+                  onMouseEnter={(e:any)=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.accent;}}
+                  onMouseLeave={(e:any)=>{e.currentTarget.style.color=T.muted;e.currentTarget.style.borderColor=T.border;}}>
+                  Open in Drive
+                </a>
+              )}
+              <button onClick={()=>setPreviewFile(null)}
+                style={{background:"none",border:"none",fontSize:18,color:T.muted,cursor:"pointer",lineHeight:1,padding:"0 6px"}}
+                onMouseEnter={e=>e.currentTarget.style.color=T.text}
+                onMouseLeave={e=>e.currentTarget.style.color=T.muted}>✕</button>
+            </div>
+            {previewFile.drive_file_id ? (
+              (previewFile.mime_type || "").startsWith("image/") ? (
+                // Render image directly via the service-account proxy — no
+                // Drive iframe chrome (i.e. that pop-out icon Google bakes
+                // into /preview). Public Drive thumbnail URLs don't work
+                // here because the service account doesn't share files.
+                <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"#000",minHeight:0,padding:8}}>
+                  <img src={`/api/files/thumbnail?id=${previewFile.drive_file_id}`}
+                    alt={previewFile.file_name}
+                    style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>
+                </div>
+              ) : (
+                // PDFs / docs / etc — Drive iframe is the cleanest cross-format
+                // preview, but it ships its own pop-out icon top-right.
+                // Cover it with a small overlay matching the iframe bg.
+                <div style={{flex:1,position:"relative",background:"#525659",minHeight:0}}>
+                  <iframe src={`https://drive.google.com/file/d/${previewFile.drive_file_id}/preview`}
+                    style={{position:"absolute",inset:0,width:"100%",height:"100%",border:"none"}}/>
+                  <div style={{position:"absolute",top:0,right:0,width:56,height:56,background:"#525659",pointerEvents:"none"}}/>
+                </div>
+              )
+            ) : (
+              <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",color:T.muted,fontSize:13}}>
+                File not available — Drive link missing.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

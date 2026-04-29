@@ -336,8 +336,7 @@ export function OrderDetailView({ token, jobId, onClose }: { token: string; jobI
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontWeight: 600 }}>{fmtD(p.amount)}</span>
                     <span style={{
-                      fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99,
-                      background: p.status === "paid" ? C.greenBg : p.status === "overdue" ? C.redBg : C.amberBg,
+                      fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
                       color: p.status === "paid" ? C.green : p.status === "overdue" ? C.red : C.amber,
                     }}>
                       {p.status}
@@ -366,13 +365,13 @@ export function OrderDetailView({ token, jobId, onClose }: { token: string; jobI
             <h2 style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.muted }}>Quote</h2>
             {project.quoteApproved ? (
               <span style={{
-                fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 99,
-                background: C.greenBg, color: C.green, border: `1px solid ${C.greenBorder}`,
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                color: C.green,
               }}>Approved {project.quoteApprovedAt ? fmtDate(project.quoteApprovedAt) : ""}</span>
             ) : (
               <span style={{
-                fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 99,
-                background: C.amberBg, color: C.amber, border: `1px solid ${C.amberBorder}`,
+                fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                color: C.amber,
               }}>Awaiting Approval</span>
             )}
           </div>
@@ -521,13 +520,13 @@ export function OrderDetailView({ token, jobId, onClose }: { token: string; jobI
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h2 style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.muted }}>{allProofsApproved ? "Proofs" : "Proofs for Review"}</h2>
             {allProofsApproved && (
-              <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: C.greenBg, color: C.green, border: `1px solid ${C.greenBorder}` }}>All Approved</span>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.green }}>All Approved</span>
             )}
             {!allProofsApproved && pendingProofCount > 0 && (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: C.amberBg, color: C.amber, border: `1px solid ${C.amberBorder}` }}>{pendingProofCount} pending</span>
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.amber }}>{pendingProofCount} pending</span>
                 <button onClick={() => doAction("approve-all-proofs")} disabled={!!actionLoading}
-                  style={{ padding: "4px 14px", borderRadius: 99, border: "none", cursor: "pointer", background: C.green, color: "#fff", fontSize: 11, fontWeight: 700, opacity: actionLoading ? 0.6 : 1 }}>
+                  style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", background: C.green, color: "#fff", fontSize: 11, fontWeight: 700, opacity: actionLoading ? 0.6 : 1 }}>
                   Approve All
                 </button>
               </div>

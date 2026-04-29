@@ -29,6 +29,16 @@ export type BucketCard = {
   badge?: string;
   urgency: Urgency;
   href?: string;
+  /** When present, clicking the card opens a per-revision modal
+   *  (mockup thumbnail + client message + link into Proofs tab)
+   *  instead of just navigating to the job. Used for revision cards. */
+  revision?: {
+    jobId: string;
+    itemId: string;
+    itemName: string;
+    notes: string | null;
+    href: string;
+  };
 };
 
 export type BucketSection = { title: string; cards: BucketCard[] };
@@ -62,6 +72,7 @@ export function CommandCenterBuckets({ buckets }: { buckets: BucketPayload[] }) 
   // First render uses empty set so server and client agree (no
   // hydration mismatch); second render hides whatever was in storage.
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [revisionView, setRevisionView] = useState<BucketCard["revision"] | null>(null);
   useEffect(() => {
     try {
       const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
@@ -128,13 +139,14 @@ export function CommandCenterBuckets({ buckets }: { buckets: BucketPayload[] }) 
         gap: 16,
         alignItems: "start",
       }}>
-        {visibleBuckets.map(b => <BucketColumn key={b.key} bucket={b} onDismiss={dismiss} />)}
+        {visibleBuckets.map(b => <BucketColumn key={b.key} bucket={b} onDismiss={dismiss} onOpenRevision={setRevisionView} />)}
       </div>
+      {revisionView && <RevisionPreviewModal payload={revisionView} onClose={() => setRevisionView(null)} />}
     </div>
   );
 }
 
-function BucketColumn({ bucket, onDismiss }: { bucket: BucketPayload; onDismiss: (id: string) => void }) {
+function BucketColumn({ bucket, onDismiss, onOpenRevision }: { bucket: BucketPayload; onDismiss: (id: string) => void; onOpenRevision: (r: BucketCard["revision"]) => void }) {
   const total = bucket.sections.reduce((sum, s) => sum + s.cards.length, 0);
   return (
     <div style={{
@@ -183,7 +195,7 @@ function BucketColumn({ bucket, onDismiss }: { bucket: BucketPayload; onDismiss:
                 </span>
               </div>
               <div style={{ display: "flex", flexDirection: "column" }}>
-                {section.cards.map(c => <CardRow key={c.id} card={c} onDismiss={onDismiss} />)}
+                {section.cards.map(c => <CardRow key={c.id} card={c} onDismiss={onDismiss} onOpenRevision={onOpenRevision} />)}
               </div>
             </div>
           );
@@ -193,7 +205,7 @@ function BucketColumn({ bucket, onDismiss }: { bucket: BucketPayload; onDismiss:
   );
 }
 
-function CardRow({ card, onDismiss }: { card: BucketCard; onDismiss: (id: string) => void }) {
+function CardRow({ card, onDismiss, onOpenRevision }: { card: BucketCard; onDismiss: (id: string) => void; onOpenRevision: (r: BucketCard["revision"]) => void }) {
   const u = URGENCY[card.urgency];
   const isUrgent = card.urgency === "critical" || card.urgency === "action";
   const [hovered, setHovered] = useState(false);
@@ -212,7 +224,7 @@ function CardRow({ card, onDismiss }: { card: BucketCard; onDismiss: (id: string
       onMouseLeave={() => setHovered(false)}
       style={{ position: "relative" }}
     >
-      <CardLink card={card}>
+      <CardLink card={card} onOpenRevision={onOpenRevision}>
         {isUrgent && (
           <span style={{
             position: "absolute", left: 0, top: 8, bottom: 8,
@@ -289,7 +301,7 @@ function CardRow({ card, onDismiss }: { card: BucketCard; onDismiss: (id: string
   );
 }
 
-function CardLink({ card, children }: { card: BucketCard; children: React.ReactNode }) {
+function CardLink({ card, children, onOpenRevision }: { card: BucketCard; children: React.ReactNode; onOpenRevision: (r: BucketCard["revision"]) => void }) {
   const baseStyle: React.CSSProperties = {
     borderTop: `1px solid ${T.border}`,
     padding: "8px 4px 8px 10px",
@@ -301,8 +313,110 @@ function CardLink({ card, children }: { card: BucketCard; children: React.ReactN
     color: T.text,
     textDecoration: "none",
   };
+  if (card.revision) {
+    return (
+      <button
+        onClick={() => onOpenRevision(card.revision)}
+        style={{ ...baseStyle, background: "none", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", textAlign: "left", fontFamily: font, width: "100%" }}>
+        {children}
+      </button>
+    );
+  }
   if (card.href) {
     return <Link href={card.href} style={baseStyle}>{children}</Link>;
   }
   return <div style={baseStyle}>{children}</div>;
+}
+
+// Per-revision preview modal — fetched proof thumbnail + client message
+// + link into the Proofs tab where the user can regenerate.
+function RevisionPreviewModal({ payload, onClose }: { payload: NonNullable<BucketCard["revision"]>; onClose: () => void }) {
+  const [proofFile, setProofFile] = useState<{ drive_file_id: string; file_name: string; notes?: string | null; created_at?: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/files?itemId=${payload.itemId}`);
+        if (!r.ok) { if (!cancelled) setLoading(false); return; }
+        const d = await r.json();
+        // Prefer the mockup image — that's what the team revises. Falls back
+        // to the latest proof if no mockup is on file. Then to any image.
+        const all = (d.files || []) as any[];
+        const sortDesc = (arr: any[]) => [...arr].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+        const file =
+          sortDesc(all.filter(f => f.stage === "mockup"))[0] ||
+          sortDesc(all.filter(f => f.stage === "proof"))[0] ||
+          null;
+        // Pull the client message from the latest revision-requested proof
+        const revisedProof = sortDesc(all.filter(f => f.stage === "proof" && f.approval === "revision_requested"))[0];
+        if (!cancelled) {
+          setProofFile(file ? { ...file, notes: revisedProof?.notes ?? file.notes } : null);
+          setLoading(false);
+        }
+      } catch { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [payload.itemId]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Prefer the proof-file's own notes (the client-typed message on the
+  // file approval) over the alert's revisionNotes — they're the same when
+  // both exist, but the file row is the source of truth.
+  const message = (proofFile?.notes || payload.notes || "").trim();
+
+  return (
+    <div onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, width: "100%", maxWidth: 560, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.red, letterSpacing: "0.06em", textTransform: "uppercase" }}>Revision requested</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{payload.itemName}</div>
+          </div>
+          <button onClick={onClose}
+            style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 6px" }}>✕</button>
+        </div>
+
+        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12, overflowY: "auto" }}>
+          {loading && <div style={{ fontSize: 12, color: T.muted, textAlign: "center", padding: 20 }}>Loading proof…</div>}
+          {!loading && proofFile?.drive_file_id && (
+            <a href={`/api/files/thumbnail?id=${proofFile.drive_file_id}`} target="_blank" rel="noopener noreferrer"
+              style={{ background: T.card, borderRadius: 6, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", maxHeight: 360 }}>
+              <img src={`/api/files/thumbnail?id=${proofFile.drive_file_id}&thumb=1`} alt={proofFile.file_name}
+                style={{ maxWidth: "100%", maxHeight: 360, objectFit: "contain" }} />
+            </a>
+          )}
+          {!loading && !proofFile && (
+            <div style={{ fontSize: 12, color: T.faint, fontStyle: "italic", padding: "12px 0", textAlign: "center" }}>No proof file found for this item.</div>
+          )}
+
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Client message</div>
+            <div style={{ fontSize: 13, color: T.text, background: T.surface, borderRadius: 6, padding: "10px 12px", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+              {message || <span style={{ color: T.faint, fontStyle: "italic" }}>No message included.</span>}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 8, background: T.surface }}>
+          <button onClick={onClose}
+            style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 12, fontWeight: 600, padding: "6px 14px", cursor: "pointer", fontFamily: font }}>
+            Close
+          </button>
+          <Link href={payload.href}
+            style={{ background: T.text, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, padding: "6px 14px", cursor: "pointer", fontFamily: font, textDecoration: "none" }}>
+            Open in Proofs →
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
 }

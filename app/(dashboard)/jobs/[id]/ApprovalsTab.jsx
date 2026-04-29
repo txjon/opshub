@@ -149,11 +149,10 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             // Clean status pill — short labels, softer colors
             let pillText = "No proof";
             let pillColor = T.faint;
-            let pillBg = "transparent";
-            if (fileApproved)          { pillText = "Client approved"; pillColor = T.green; pillBg = T.greenDim; }
-            else if (revisionRequested){ pillText = "Revision";        pillColor = T.amber; pillBg = T.amberDim; }
-            else if (internalOnly)     { pillText = "Internal";        pillColor = T.green; pillBg = T.greenDim; }
-            else if (pendingClient)    { pillText = "Pending client";  pillColor = T.accent; pillBg = T.accentDim; }
+            if (fileApproved)          { pillText = "Client approved"; pillColor = T.green; }
+            else if (revisionRequested){ pillText = "Revision";        pillColor = T.amber; }
+            else if (internalOnly)     { pillText = "Internal";        pillColor = T.green; }
+            else if (pendingClient)    { pillText = "Pending client";  pillColor = T.accent; }
 
             const metaLink = {
               padding: 0, background: "transparent", border: "none",
@@ -218,16 +217,15 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                   </div>
                 </div>
 
-                {/* Status pill */}
+                {/* Status — bold uppercase text, no pill */}
                 <span style={{
-                  padding: "3px 9px", borderRadius: 99,
-                  fontSize: 10, fontWeight: 600,
-                  color: pillColor, background: pillBg,
+                  fontSize: 11, fontWeight: 700,
+                  color: pillColor, letterSpacing: "0.06em", textTransform: "uppercase",
                   whiteSpace: "nowrap", flexShrink: 0,
                   display: "inline-flex", alignItems: "center", gap: 4,
                 }}>
-                  {fileApproved || internalOnly ? <span style={{ fontSize: 9 }}>✓</span> : null}
-                  {revisionRequested ? <span style={{ fontSize: 9 }}>⚠</span> : null}
+                  {fileApproved || internalOnly ? <span style={{ fontSize: 10 }}>✓</span> : null}
+                  {revisionRequested ? <span style={{ fontSize: 10 }}>⚠</span> : null}
                   {pillText}
                 </span>
 

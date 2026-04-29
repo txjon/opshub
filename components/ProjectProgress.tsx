@@ -71,20 +71,20 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
     { id: "po", label: "PO", done: allPosSent, active: allBlanksOrdered && !allPosSent },
   ];
 
+  // Documents step lives on the Overview tab as a link now (next to
+  // Project notes), not in the progress nav.
   const steps: Step[] = isArchived
     ? [
         { id: "overview", label: "Overview", done: true, active: false },
-        { id: "documents", label: "Documents", done: true, active: false },
       ]
     : [
         { id: "overview", label: "Overview", done: true, active: false },
         ...workingSteps,
-        { id: "documents", label: "Documents", done: true, active: false },
       ];
 
   const completedCount = steps.filter(s => s.done).length;
-  const denom = Math.max(1, steps.length - 2); // exclude Overview + Documents from progress calc
-  const pct = isArchived ? 100 : Math.round(((completedCount - 2) / denom) * 100);
+  const denom = Math.max(1, steps.length - 1); // exclude Overview from progress calc
+  const pct = isArchived ? 100 : Math.round(((completedCount - 1) / denom) * 100);
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>
@@ -96,29 +96,31 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
         <span style={{ fontSize: 10, fontFamily: mono, color: pct === 100 ? T.green : T.muted, fontWeight: 600 }}>{pct}%</span>
       </div>
 
-      {/* Nav steps */}
-      <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+      {/* Nav steps — flat tabs with bottom border for current; no pill chrome */}
+      <div style={{ display: "flex", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${T.border}`, paddingBottom: 6 }}>
         {steps.map((step, i) => {
           const isCurrent = activeTab === step.id || (step.id === "quote" && activeTab === "quote");
           const nextIdx = steps.findIndex(s => !s.done);
           const isNext = i === nextIdx;
+          const color = isCurrent ? T.text : step.done ? T.green : step.inProgress ? T.amber : isNext ? T.accent : T.faint;
           return (
             <button
               key={i}
               onClick={() => onTabClick(step.id)}
               style={{
-                display: "flex", alignItems: "center", gap: 4,
-                padding: "6px 16px", borderRadius: 99, fontSize: 12,
-                fontFamily: font, fontWeight: isCurrent ? 700 : isNext ? 600 : step.done ? 500 : 400,
-                cursor: "pointer", border: isCurrent ? `2px solid ${T.accent}` : "2px solid transparent",
-                background: isCurrent ? T.accent : step.done ? T.greenDim : step.inProgress ? T.amberDim : isNext ? T.accentDim : "transparent",
-                color: isCurrent ? "#fff" : step.done ? T.green : step.inProgress ? T.amber : isNext ? T.accent : T.faint,
-                transition: "all 0.15s",
+                display: "flex", alignItems: "center", gap: 5,
+                padding: "4px 0", fontSize: 13,
+                fontFamily: font, fontWeight: isCurrent ? 800 : isNext ? 700 : step.done ? 600 : 500,
+                cursor: "pointer", border: "none", background: "transparent",
+                color,
+                borderBottom: isCurrent ? `2px solid ${T.accent}` : "2px solid transparent",
+                marginBottom: -7,
+                transition: "color 0.15s",
               }}
             >
-              {!isCurrent && <span style={{ fontSize: 8 }}>{step.done ? "✓" : isNext ? "→" : "○"}</span>}
+              <span style={{ fontSize: 9 }}>{step.done ? "✓" : isNext ? "→" : "○"}</span>
               {step.label}
-              {step.detail && !isCurrent && <span style={{ fontFamily: mono, fontSize: 9, opacity: 0.7 }}>{step.detail}</span>}
+              {step.detail && <span style={{ fontFamily: mono, fontSize: 10, opacity: 0.7 }}>{step.detail}</span>}
             </button>
           );
         })}

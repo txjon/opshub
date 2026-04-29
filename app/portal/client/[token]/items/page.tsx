@@ -94,7 +94,7 @@ export default function ItemsPage() {
             fontFamily: C.font, boxSizing: "border-box",
           }}
         />
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${C.border}`, paddingBottom: 6 }}>
           {FILTERS.map(f => {
             const isActive = filter === f.key;
             const n = counts[f.key] || 0;
@@ -102,13 +102,13 @@ export default function ItemsPage() {
               <button key={f.key}
                 onClick={() => setFilter(f.key)}
                 style={{
-                  padding: "8px 14px", minHeight: 40,
-                  background: isActive ? C.text : "transparent",
-                  color: isActive ? "#fff" : C.muted,
-                  border: `1px solid ${isActive ? C.text : C.border}`,
-                  borderRadius: 99,
-                  fontSize: 12, fontWeight: 600, cursor: "pointer",
-                  fontFamily: C.font,
+                  padding: "8px 0", minHeight: 40,
+                  background: "transparent",
+                  color: isActive ? C.text : C.muted,
+                  border: "none",
+                  borderBottom: isActive ? `2px solid ${C.text}` : "2px solid transparent",
+                  fontSize: 13, fontWeight: isActive ? 800 : 600, cursor: "pointer",
+                  fontFamily: C.font, marginBottom: -7,
                 }}>
                 {f.label} {n > 0 && <span style={{ opacity: 0.7 }}>· {n}</span>}
               </button>
@@ -183,9 +183,8 @@ function ItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
           <span style={{
-            padding: "2px 8px", borderRadius: 99,
-            background: status.bg, color: status.color,
-            fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+            color: status.color,
+            fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
           }}>
             {status.label}
           </span>
@@ -282,9 +281,8 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
               <div>
                 <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Status</div>
                 <span style={{
-                  padding: "3px 10px", borderRadius: 99,
-                  background: status.bg, color: status.color,
-                  fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+                  color: status.color,
+                  fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
                 }}>
                   {status.label}
                 </span>

@@ -281,7 +281,42 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [accName, setAccName] = useState("");
   const [accQty, setAccQty] = useState("");
   const [accCatalog, setAccCatalog] = useState([]);
-  const SEED_ACC_TYPES = ["Patch - PVC", "Patch - Embroidered", "Flag", "Keychain"];
+  // Mirrors NON_GARMENT in lib/pricing.ts / lib/lifecycle.ts —
+  // every non-apparel garment_type the codebase recognizes, with
+  // friendly display labels. Patch + Pin get common variants
+  // expanded since those are the most-typed sub-types.
+  const SEED_ACC_TYPES = [
+    "Balloons",
+    "Bandana",
+    "Banner",
+    "Custom",
+    "Custom Bag",
+    "Flag",
+    "Keychain",
+    "Koozie",
+    "Lighter",
+    "Napkins",
+    "Patch",
+    "Patch - Embroidered",
+    "Patch - Leather",
+    "Patch - PVC",
+    "Patch - Woven",
+    "Pens",
+    "Pillow",
+    "Pin",
+    "Pin - Enamel",
+    "Pin - Lapel",
+    "Poster",
+    "Rug",
+    "Samples",
+    "Socks",
+    "Stencils",
+    "Sticker",
+    "Tote Bag",
+    "Towel",
+    "Water Bottle",
+    "Woven Labels",
+  ];
   const [accTypes, setAccTypes] = useState(SEED_ACC_TYPES);
 
   useEffect(() => {
@@ -516,13 +551,13 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       )}
 
       {/* ══ Picker modals (same as BuySheetTab) ══ */}
-      {(showPicker || showASColour || showLAApparel || showFavorites || showOtherPicker || showCCPicker) && (
+      {(showPicker || showASColour || showLAApparel || showFavorites || showOtherPicker || showCCPicker || showAddType === "accessory") && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-          onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); }}>
-          <div onClick={e => e.stopPropagation()} style={{ width: "95vw", maxWidth: 1000, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+          onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); setShowCCPicker(false); setShowAddType(null); setAssignBlankTo(null); }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "95vw", maxWidth: showAddType === "accessory" ? 700 : 1000, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
             <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
-              <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); setShowCCPicker(false); if (!assignBlankTo) setShowAddModal(true); setAssignBlankTo(null); }}
-                style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, fontWeight: 600, padding: "4px 12px", cursor: "pointer" }}>
+              <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); setShowCCPicker(false); setShowAddType(null); if (!assignBlankTo) setShowAddModal(true); setAssignBlankTo(null); }}
+                style={{ background: T.text, border: "none", borderRadius: 6, color: "#fff", fontSize: 12, fontWeight: 600, padding: "6px 14px", cursor: "pointer", fontFamily: font }}>
                 ← {assignBlankTo ? "Cancel" : "Sources"}
               </button>
               {assignBlankTo && <span style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>{Array.isArray(assignBlankTo) ? `Assigning blank to ${assignBlankTo.length} items` : `Assigning blank`}</span>}
@@ -534,6 +569,71 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
             {showFavorites && <FavoritesPicker favorites={favorites} setFavorites={setFavorites} onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowFavorites(false); } else addItem(item); }} onClose={() => { setShowFavorites(false); setAssignBlankTo(null); }} toggleFav={toggleFav} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
             {showOtherPicker && <OtherPicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowOtherPicker(false); } else addItem(item); }} onClose={() => { setShowOtherPicker(false); setAssignBlankTo(null); }} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
             {showCCPicker && <CottonCollectivePicker onAdd={item => { if (assignBlankTo) { assignBlank(item); setShowCCPicker(false); } else addItem(item); }} onClose={() => { setShowCCPicker(false); setAssignBlankTo(null); }} assignMode={!!assignBlankTo} defaultItemName={assignName} />}
+            {showAddType === "accessory" && (() => {
+              const assignItem = assignBlankTo ? (workingItems||[]).find(it => it.id === assignBlankTo) : null;
+              if (assignItem && !accName) setAccName(assignItem.name || "");
+              const q = accType.trim().toLowerCase();
+              const filteredTypes = q ? accTypes.filter(t => t.toLowerCase().includes(q)) : accTypes;
+              const canAdd = !!(assignItem || accName.trim());
+              const doAdd = () => {
+                if (!canAdd) return;
+                if (assignItem) {
+                  const detectedType = detectGarmentType("", (assignItem.name || "") + " " + (accType || ""));
+                  const qty = parseInt(accQty) || 0;
+                  const updates = { garment_type: detectedType, blank_vendor: accType || "Custom" };
+                  assignBlank({ ...updates, blank_sku: "", style: accType || "", color: "", sizes: qty > 0 ? ["OSFA"] : assignItem.sizes || [], qtys: qty > 0 ? { OSFA: qty } : assignItem.qtys || {}, totalQty: qty || assignItem.totalQty || 0, blankCosts: {} });
+                } else {
+                  addAccessory();
+                }
+                setShowAddType(null);
+              };
+              const onEnter = e => { if (e.key === "Enter") doAdd(); };
+              return (
+                <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8, display: "flex", flexDirection: "column", maxHeight: "80vh" }}>
+                  {/* Header row — same pattern as other pickers, plus Name + Qty inline */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font, whiteSpace: "nowrap" }}>{assignItem ? "Assign as Accessory" : "Custom Accessory"}</span>
+                    <input value={accType} onChange={e => setAccType(e.target.value)} onKeyDown={onEnter} placeholder="Type or search..." autoFocus
+                      style={{ flex: 1, fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none" }} />
+                    {!assignItem && <>
+                      <input value={accName} onChange={e => setAccName(e.target.value)} onKeyDown={onEnter} list="pb-acc-names" placeholder="Item name"
+                        style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 150 }} />
+                      <datalist id="pb-acc-names">{accCatalog.map(n => <option key={n} value={n} />)}</datalist>
+                    </>}
+                    <input value={accQty} onChange={e => setAccQty(e.target.value)} onKeyDown={onEnter} type="text" inputMode="numeric" placeholder="Qty"
+                      style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 80, textAlign: "center" }} />
+                    <button onClick={doAdd} disabled={!canAdd}
+                      style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", whiteSpace: "nowrap" }}>
+                      {assignItem ? "Assign →" : "Add →"}
+                    </button>
+                    <button onClick={() => { setShowAddType(null); setAssignBlankTo(null); }}
+                      style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
+                  </div>
+
+                  {/* Type list — single column, search-filtered */}
+                  <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                    <div style={{ padding: "5px 11px", background: T.surface, borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: font }}>Type</div>
+                    <div style={{ flex: 1, overflowY: "auto", maxHeight: 360 }}>
+                      {filteredTypes.length === 0 ? (
+                        <div style={{ padding: "12px 11px", fontSize: 11, color: T.faint, fontStyle: "italic", fontFamily: font }}>
+                          No matches{q ? ` — "${accType}" will be saved as a new type.` : "."}
+                        </div>
+                      ) : filteredTypes.map(t => {
+                        const active = accType.trim().toLowerCase() === t.toLowerCase();
+                        return (
+                          <div key={t} onClick={() => setAccType(t)}
+                            style={{ padding: "8px 11px", cursor: "pointer", fontSize: 12, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
+                            onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
+                            onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                            {t}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             </>; })()}
           </div>
         </div>
@@ -568,35 +668,6 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         </div>
       )}
 
-      {/* Accessory modal */}
-      {showAddType === "accessory" && (()=>{
-        const assignItem = assignBlankTo ? (workingItems||[]).find(it => it.id === assignBlankTo) : null;
-        if (assignItem && !accName) setAccName(assignItem.name || "");
-        return (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { setShowAddType(null); setAssignBlankTo(null); }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: 400, maxWidth: "90vw" }}>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{assignItem ? "Assign as Accessory" : "Custom Accessory"}</div>
-            {assignItem && <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>{assignItem.name}</div>}
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div><label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>Type</label><input value={accType} onChange={e => setAccType(e.target.value)} onKeyDown={e => e.key === "Enter" && addAccessory()} list="pb-acc-types" placeholder="Patch - PVC, Sticker..." autoFocus style={{ ...ic, width: "100%", padding: "8px 10px", fontSize: 13, fontFamily: font }} /><datalist id="pb-acc-types">{accTypes.map(t => <option key={t} value={t} />)}</datalist></div>
-              {!assignItem && <div><label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>Name</label><input value={accName} onChange={e => setAccName(e.target.value)} onKeyDown={e => e.key === "Enter" && addAccessory()} list="pb-acc-names" placeholder="Item name..." style={{ ...ic, width: "100%", padding: "8px 10px", fontSize: 13, fontFamily: font }} /><datalist id="pb-acc-names">{accCatalog.map(n => <option key={n} value={n} />)}</datalist></div>}
-              <div><label style={{ fontSize: 10, color: T.muted, display: "block", marginBottom: 3 }}>Qty</label><input value={accQty} onChange={e => setAccQty(e.target.value)} onKeyDown={e => e.key === "Enter" && addAccessory()} type="text" inputMode="numeric" placeholder="0" style={{ ...ic, width: 100, padding: "8px 10px", fontSize: 13, textAlign: "center" }} /></div>
-              <button onClick={() => {
-                if (assignItem) {
-                  // Assign accessory type to existing item
-                  const detectedType = detectGarmentType("", (assignItem.name || "") + " " + (accType || ""));
-                  const qty = parseInt(accQty) || 0;
-                  const updates = { garment_type: detectedType, blank_vendor: accType || "Custom" };
-                  assignBlank({ ...updates, blank_sku: "", style: accType || "", color: "", sizes: qty > 0 ? ["OSFA"] : assignItem.sizes || [], qtys: qty > 0 ? { OSFA: qty } : assignItem.qtys || {}, totalQty: qty || assignItem.totalQty || 0, blankCosts: {} });
-                  setShowAddType(null);
-                } else {
-                  addAccessory(); setShowAddType(null);
-                }
-              }} disabled={!assignItem && !accName.trim()} style={{ width: "100%", padding: 10, borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, cursor: (assignItem || accName.trim()) ? "pointer" : "default", background: (assignItem || accName.trim()) ? T.accent : T.surface, color: (assignItem || accName.trim()) ? "#fff" : T.faint }}>{assignItem ? "Assign to item" : "Add Item"}</button>
-            </div>
-          </div>
-        </div>
-        );})()}
 
       {/* ══ Bulk Create Modal ══ */}
       {showBulkCreate && (()=>{
@@ -876,9 +947,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               {!hasBlank && item.garment_type !== "accessory" && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
               <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono, flexShrink: 0, minWidth: 50, textAlign: "right", color: item.totalQty > 0 ? T.text : T.faint }}>{item.totalQty > 0 ? item.totalQty : "—"}</span>
               <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                {fileSummary[item.id]?.printReady && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: T.greenDim, color: T.green }}>Print-ready</span>}
-                {fileSummary[item.id]?.hasProof && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: T.purpleDim, color: T.purple }}>Proof</span>}
-                {fileSummary[item.id]?.fileCount > 0 && <span style={{ fontSize: 8, fontWeight: 600, padding: "2px 7px", borderRadius: 99, background: T.accentDim, color: T.accent }}>{fileSummary[item.id].fileCount} files</span>}
+                {fileSummary[item.id]?.printReady && <span style={{ fontSize: 9, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>Print-ready</span>}
+                {fileSummary[item.id]?.hasProof && <span style={{ fontSize: 9, fontWeight: 700, color: T.purple, letterSpacing: "0.06em", textTransform: "uppercase" }}>Proof</span>}
+                {fileSummary[item.id]?.fileCount > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }}>{fileSummary[item.id].fileCount} files</span>}
               </div>
             </div>
 
@@ -1068,7 +1139,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                 {(item.color || item.blank_sku) && <span style={{ fontSize: 14, color: T.muted }}>{item.color || item.blank_sku}</span>}
                 <select value={item.garment_type || ""} onClick={e => e.stopPropagation()}
                   onChange={e => { e.stopPropagation(); onUpdateItem(item.id, { garment_type: e.target.value || null }); }}
-                  style={{ fontSize: 10, padding: "3px 8px", borderRadius: 99, background: T.card, color: T.muted, border: `1px solid ${T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
+                  style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, background: T.card, color: T.muted, border: `1px solid ${T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
                   <option value="">type</option>
                   {["bandana","banner","beanie","crewneck","custom","flag","hat","hoodie","jacket","koozie","lighter","longsleeve","pants","patch","pin","poster","samples","shorts","socks","sticker","tee","tote","towel","water_bottle"].map(t => (
                     <option key={t} value={t}>{t}</option>

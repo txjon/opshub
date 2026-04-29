@@ -7,7 +7,6 @@ import { POTab } from "./POTab.jsx";
 import { BlanksTab } from "./BlanksTab";
 import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
-import { DocumentsTab } from "./DocumentsTab";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { EmailThread } from "@/components/EmailThread";
 import { ProductBuilder } from "./ProductBuilder";
@@ -15,6 +14,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/Skeleton";
 import { ProjectProgress } from "@/components/ProjectProgress";
+import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
 import { calculatePriority, businessDaysFromNow } from "@/lib/dates";
@@ -85,6 +85,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     }
     return "overview";
   });
+
+  // useState initializer doesn't re-read on hydration (window is undefined
+  // on SSR), so deep-links like /jobs/{id}?tab=proofs would otherwise land
+  // on overview. Sync tab from the URL once on mount.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get("tab");
+    if (p && p !== tab) setTab(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const saveBuySheetRef = useRef<(() => Promise<void>) | null>(null);
   const saveCostingRef = useRef<(() => Promise<void>) | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -96,6 +105,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [loading, setLoading] = useState(true);
   const initialLoadDone = useRef(false);
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
+  const [pdfPreview, setPdfPreview] = useState<{src:string;title:string;downloadHref:string}|null>(null);
+  const [showArtFiles, setShowArtFiles] = useState(false);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
@@ -427,9 +438,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                 <span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(job as any).type_meta?.qb_invoice_number || job.job_number}</span>
                 {(job as any).type_meta?.qb_invoice_number && <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>{job.job_number}</span>}
-                <span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>{job.phase.replace(/_/g," ")}</span>
-                {job.priority==="rush"&&<span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:T.amberDim,color:T.amber}}>Rush</span>}
-                {job.priority==="hot"&&<span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:T.redDim,color:T.red}}>Hot</span>}
+                <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>
+                {job.priority==="rush"&&<span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Rush</span>}
+                {job.priority==="hot"&&<span style={{fontSize:10,fontWeight:700,color:T.red,letterSpacing:"0.06em",textTransform:"uppercase"}}>Hot</span>}
                 {saving&&<span style={{fontSize:10,color:T.muted}}>Saving...</span>}
               </div>
               <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:2,flexWrap:"wrap"}}>
@@ -700,7 +711,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </div>
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Phase</label>
                     <div style={{...ic,background:T.card,display:"flex",alignItems:"center",gap:6}}>
-                      <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,background:phaseColor.bg,color:phaseColor.text}}>{job.phase.replace(/_/g," ")}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>
                       {(()=>{
                         const r=calculatePhase({
                           job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
@@ -714,8 +725,44 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       })()}
                     </div>
                   </div>
-                  <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
-                    <textarea style={{...ic,minHeight:60,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
+                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
+                    <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Documents</label>
+                    {(()=>{
+                      const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
+                      const qbInvNum = (job as any).type_meta?.qb_invoice_number;
+                      const hasItems = items.length > 0;
+                      const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
+                      const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
+                        <button key={label}
+                          onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
+                          disabled={!available}
+                          title={available?undefined:"Not available yet"}
+                          style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",textAlign:"left"}}
+                          onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
+                          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                          {label}
+                        </button>
+                      );
+                      return (
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,alignItems:"start"}}>
+                          {/* Left column: Quote, Invoice, Packing Slip, Art Files */}
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
+                            {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
+                            {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
+                            {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
+                          </div>
+                          {/* Right column: PO per vendor */}
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {docVendors.length === 0 && docBtn("PO", null, false)}
+                            {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -941,12 +988,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     if (rowStatus === "paid" && isPartial) return "partial paid";
                     return rowStatus;
                   };
-                  const rowPillBg = (rowStatus: string) => {
-                    if (rowStatus === "paid" && isPartial) return T.amberDim;
-                    if (rowStatus === "paid") return T.greenDim;
-                    if (rowStatus === "void") return T.redDim;
-                    return T.amberDim;
-                  };
                   const rowPillFg = (rowStatus: string) => {
                     if (rowStatus === "paid" && isPartial) return T.amber;
                     if (rowStatus === "paid") return T.green;
@@ -974,9 +1015,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                             <td style={{padding:"6px",textTransform:"capitalize"}}>{p.type.replace(/_/g," ")}</td>
                             <td style={{padding:"6px",fontWeight:600}}>${p.amount.toLocaleString()}</td>
                             <td style={{padding:"6px"}}>
-                              <span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,
-                                background:rowPillBg(p.status),
-                                color:rowPillFg(p.status)}}>{rowLabel(p.status)}</span>
+                              <span style={{fontSize:10,fontWeight:700,color:rowPillFg(p.status),letterSpacing:"0.06em",textTransform:"uppercase"}}>{rowLabel(p.status)}</span>
                             </td>
                           </tr>
                         ))}</tbody>
@@ -1004,8 +1043,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                           <span style={{fontSize:12,fontWeight:600,color:T.text}}>{item.name}</span>
                           <span style={{fontSize:10,color:T.muted,marginLeft:7}}>{item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}</span>
                         </div>
-                        {!isAccessory&&dc&&<span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:"nowrap",background:T.accentDim,color:T.accent}}>{dc.replace(/_/g," ")}</span>}
-                        {isAccessory&&<span style={{padding:"1px 7px",borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:"nowrap",background:T.purpleDim,color:T.purple}}>Accessory</span>}
+                        {!isAccessory&&dc&&<span style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{dc.replace(/_/g," ")}</span>}
+                        {isAccessory&&<span style={{fontSize:10,fontWeight:700,color:T.purple,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Accessory</span>}
                       </div>
                     );
                   })}
@@ -1172,10 +1211,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
         />
       )}
-      {tab==="documents"&&(
-        <DocumentsTab job={job} items={items} />
-      )}
-
         </div>{/* end tab content */}
       </div>{/* end flex layout */}
 
@@ -1200,6 +1235,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         }}>
           Saved
         </div>
+      )}
+
+      {pdfPreview && (
+        <PdfPreviewModal src={pdfPreview.src} title={pdfPreview.title} downloadHref={pdfPreview.downloadHref}
+          onClose={()=>setPdfPreview(null)} />
+      )}
+
+      {showArtFiles && (
+        <ArtFilesModal job={job} items={items} onClose={()=>setShowArtFiles(false)} />
       )}
 
       <ConfirmDialog
@@ -1242,6 +1286,84 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         onCancel={() => setConfirmDeleteProject(false)}
       />
 
+    </div>
+  );
+}
+
+// Art Files quick-view modal — grid of mockup/proof thumbnails per item.
+// Click a thumbnail to open it full-size in a new tab.
+function ArtFilesModal({ job, items, onClose }: { job: any; items: any[]; onClose: () => void }) {
+  const supabase = createClient();
+  const [filesByItem, setFilesByItem] = useState<Record<string, any[]>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const ids = items.map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
+    if (ids.length === 0) { setLoading(false); return; }
+    let cancelled = false;
+    supabase.from("item_files")
+      .select("id, item_id, stage, file_name, drive_file_id, drive_link, mime_type, approval, created_at")
+      .in("item_id", ids)
+      .is("superseded_at", null)
+      .order("created_at", { ascending: false })
+      .then(({ data }: any) => {
+        if (cancelled) return;
+        const grouped: Record<string, any[]> = {};
+        for (const f of (data || [])) {
+          (grouped[f.item_id] ||= []).push(f);
+        }
+        setFilesByItem(grouped);
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [items.map(it => it.id).join(",")]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, width: "100%", maxWidth: 900, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: T.text }}>Art Files · {job?.title || "Project"}</div>
+          <button onClick={onClose}
+            style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 6px" }}>✕</button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+          {loading && <div style={{ fontSize: 12, color: T.muted, textAlign: "center", padding: 30 }}>Loading…</div>}
+          {!loading && items.length === 0 && (
+            <div style={{ fontSize: 12, color: T.faint, textAlign: "center", padding: 30 }}>No items on this project.</div>
+          )}
+          {!loading && items.map(it => {
+            const files = (filesByItem[it.id] || []).filter((f: any) => f.stage === "mockup" || f.stage === "proof" || f.stage === "print_ready");
+            if (files.length === 0) return null;
+            return (
+              <div key={it.id} style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{it.name}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+                  {files.map((f: any) => (
+                    <a key={f.id} href={`/api/files/thumbnail?id=${f.drive_file_id}`} target="_blank" rel="noopener noreferrer"
+                      style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden", textDecoration: "none", color: T.text, display: "flex", flexDirection: "column" }}>
+                      <div style={{ background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", height: 120, overflow: "hidden" }}>
+                        <img src={`/api/files/thumbnail?id=${f.drive_file_id}&thumb=1`} alt={f.file_name}
+                          style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}/>
+                      </div>
+                      <div style={{ padding: "6px 8px", fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>
+                        {f.stage.replace(/_/g, " ")}
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

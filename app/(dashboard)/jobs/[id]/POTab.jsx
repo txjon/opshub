@@ -170,13 +170,18 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
     supabase.from("decorators").select("*").order("name").then(({data})=>setDecorators(data||[]));
   },[]);
 
+  // Default suggestion for packing/shipping notes — pre-filled when no
+  // value is set so the decorator gets sensible instructions even on
+  // a quick send. User can edit; blur saves whatever's in the field.
+  const DEFAULT_PACKING_NOTES = "Bulk pack in cartons by size. Label each carton with item name, color, and size. Include packing slip in carton #1.";
+
   useEffect(()=>{
     setItemFields(prev => {
       const fields = {...prev};
       items.forEach(it=>{
         if (!fields[it.id]) {
           fields[it.id] = {
-            packing_notes: it.packing_notes||"",
+            packing_notes: it.packing_notes || DEFAULT_PACKING_NOTES,
             drive_link: it.drive_link||"",
             incoming_goods: it.incoming_goods || it.blanks_order_number || "",
             production_notes_po: it.production_notes_po||"",
@@ -184,6 +189,15 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
         }
       });
       return fields;
+    });
+
+    // Persist the default packing note to DB for items that don't have
+    // one yet — so the PO PDF carries the suggestion even if the user
+    // sends without touching the field.
+    items.forEach(it => {
+      if (!it.packing_notes && typeof it.id === "string" && it.id.length > 20) {
+        supabase.from("items").update({ packing_notes: DEFAULT_PACKING_NOTES }).eq("id", it.id);
+      }
     });
   },[items]);
 
@@ -255,8 +269,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
 
       {/* In-hands date notice */}
       {project.target_ship_date && (
-        <div style={{background:T.amberDim,border:`1px solid ${T.amber}44`,borderRadius:8,padding:"8px 14px",display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:11,fontWeight:600,color:"#a07008"}}>Client requested in-hands: {new Date(project.target_ship_date+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span>
+        <div style={{display:"flex",alignItems:"center",gap:8,paddingBottom:8,borderBottom:`1px solid ${T.border}`}}>
+          <span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Client in-hands</span>
+          <span style={{fontSize:11,color:T.text,fontWeight:600}}>{new Date(project.target_ship_date+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})}</span>
         </div>
       )}
 
@@ -266,7 +281,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
           {/* Vendor */}
           <div style={{display:"flex",flexDirection:"column",gap:4,alignSelf:"center"}}>
             <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Vendor</div>
-            <div style={{display:"flex",gap:6}}>
+            <div style={{display:"flex",gap:12}}>
               {vendors.length===0&&<div style={{fontSize:11,color:T.faint,padding:"6px 0"}}>No vendors assigned</div>}
               {vendors.map(v=>(
                 <button key={v} onClick={()=>setSelectedVendor(v)}
@@ -276,37 +291,40 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               ))}
             </div>
           </div>
-          {/* Ship By Date — per vendor */}
-          <div style={{display:"flex",flexDirection:"column",gap:4,alignSelf:"center"}}>
-            <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
-            <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
-              onChange={e=>{
-                const val=e.target.value;
-                const updated={...poShipDates,[active]:val};
-                setPoShipDates(updated);
-                saveTypeMeta({ po_ship_dates: updated });
-              }}
-              style={{background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}} />
-          </div>
-          {/* Ship Method */}
-          <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:180,alignSelf:"center"}}>
-            <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
-            <select value={shipMethods[active]||""} onChange={e=>{
+          {/* Ship by date + Ship method — stacked next to Ship To.
+              Both inputs explicit width:200 so the column sizes uniformly
+              and sits flush against Ship To. */}
+          <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:"flex-start",flexShrink:0}}>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
+              <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
+                onChange={e=>{
+                  const val=e.target.value;
+                  const updated={...poShipDates,[active]:val};
+                  setPoShipDates(updated);
+                  saveTypeMeta({ po_ship_dates: updated });
+                }}
+                style={{background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:200,boxSizing:"border-box"}} />
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
+              <select value={shipMethods[active]||""} onChange={e=>{
               const val=e.target.value;
               const updated={...shipMethods,[active]:val};
               setShipMethods(updated);
               saveTypeMeta({ po_ship_methods: updated });
             }}
-              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer"}}>
+              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:200,boxSizing:"border-box"}}>
               <option value="">— select —</option>
               {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
+            </div>
           </div>
           {/* Ship To */}
           <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship to</span>
-              <span style={{fontSize:9,padding:"1px 6px",borderRadius:99,background:shippingRoute==="drop_ship"?T.greenDim:T.accentDim,color:shippingRoute==="drop_ship"?T.green:T.accent}}>
+              <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:shippingRoute==="drop_ship"?T.green:T.accent}}>
                 {shippingRoute==="drop_ship"?"Client address":"HPD warehouse"}
               </span>
             </div>
@@ -391,8 +409,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
 
       {/* Warnings and status */}
       {active && blanksNotOrdered.length > 0 && (
-        <div style={{background:T.amberDim,border:`1px solid ${T.amber}44`,borderRadius:8,padding:"10px 14px",fontSize:12,color:T.amber}}>
-          {blanksNotOrdered.length} item{blanksNotOrdered.length!==1?"s":""} without blanks ordered — complete the Blanks tab first
+        <div style={{display:"flex",alignItems:"center",gap:8,paddingBottom:8,borderBottom:`1px solid ${T.border}`}}>
+          <span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Blanks pending</span>
+          <span style={{fontSize:11,color:T.muted}}>{blanksNotOrdered.length} item{blanksNotOrdered.length!==1?"s":""} without blanks ordered — complete the Blanks tab first</span>
         </div>
       )}
 
@@ -436,13 +455,13 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 if(onRecalcPhase) setTimeout(onRecalcPhase, 300);
               }
             }}
-              style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:99,cursor:"pointer",border:"none",
-                background:sent?T.greenDim:T.surface,
-                color:sent?T.green:T.faint}}>
-              {v} {sent?"✓ Sent":"— Not sent"}
+              style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:6,cursor:"pointer",border:`1px solid ${sent?T.green:T.border}`,
+                background:"transparent",
+                color:sent?T.green:T.muted,fontFamily:font}}>
+              {v} <span style={{fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",fontSize:9,marginLeft:4}}>{sent?"✓ Sent":"Not sent"}</span>
             </button>
           );})}
-          {allVendorsPoSent && <span style={{fontSize:10,color:T.green,fontWeight:600}}>All POs sent</span>}
+          {allVendorsPoSent && <span style={{fontSize:10,fontWeight:700,color:T.green,letterSpacing:"0.06em",textTransform:"uppercase"}}>All POs sent</span>}
         </div>
       )}
 

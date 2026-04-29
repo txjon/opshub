@@ -303,7 +303,7 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
 
         {addingPayment && (
           <div style={{ background: T.surface, border: `1px solid ${T.accent}44`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 6 }}>
               <select value={pmType} onChange={e => setPmType(e.target.value)} style={ic}>
                 <option value="deposit">Deposit</option>
                 <option value="balance">Balance</option>
