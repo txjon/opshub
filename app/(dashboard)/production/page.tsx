@@ -110,8 +110,8 @@ export default function ProductionPage() {
     // Active jobs + recently completed (last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
     const [activeRes, completedRes] = await Promise.all([
-      supabase.from("jobs").select("id, title, job_number, target_ship_date, phase, type_meta, costing_data, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
-      supabase.from("jobs").select("id, title, job_number, target_ship_date, phase, type_meta, phase_timestamps, clients(name)").eq("phase", "complete").gte("updated_at", thirtyDaysAgo),
+      supabase.from("jobs").select("id, title, job_number, phase, type_meta, costing_data, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
+      supabase.from("jobs").select("id, title, job_number, phase, type_meta, phase_timestamps, clients(name)").eq("phase", "complete").gte("updated_at", thirtyDaysAgo),
     ]);
     const jobs = [...(activeRes.data || []), ...(completedRes.data || [])];
 
@@ -144,6 +144,13 @@ export default function ProductionPage() {
       const qtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
       const totalUnits = lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
 
+      // Ship date is set per-vendor on the PO tab, stored in
+      // type_meta.po_ship_dates[vendorName]. The legacy
+      // jobs.target_ship_date field is no longer used.
+      const tm = (job as any).type_meta || {};
+      const poShipDates = (tm.po_ship_dates || {}) as Record<string, string>;
+      const vendorShipDate = poShipDates[decName] || null;
+
       const prodItem: ProdItem = {
         id: it.id, name: it.name, job_id: it.job_id, letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
         pipeline_stage: it.pipeline_stage === "shipped" ? "shipped" : "in_production",
@@ -153,20 +160,22 @@ export default function ProductionPage() {
         decorator_name: decName, decorator_short_code: shortCode,
         decorator_id: decId,
         decorator_assignment_id: assignment?.id || null,
-        target_ship_date: job.target_ship_date,
+        target_ship_date: vendorShipDate,
         total_units: totalUnits, sizes, qtys,
         garment_type: it.garment_type ?? null,
         ship_qtys: it.ship_qtys || {}, ship_notes: it.ship_notes || "",
       };
 
       if (!projectMap[it.job_id]) {
-        const tm = (job as any).type_meta || {};
+        // Project-level ship date = earliest active vendor PO ship date.
+        const vDates = Object.values(poShipDates).filter(Boolean) as string[];
+        const earliestShipDate = vDates.length > 0 ? vDates.sort()[0] : null;
         projectMap[it.job_id] = {
           jobId: job.id, jobNumber: job.job_number,
           invoiceNumber: tm.qb_invoice_number || null,
           jobTitle: job.title,
           clientName: job.clients?.name || "",
-          shipDate: (() => { const vDates = Object.values(tm.po_ship_dates || {}).filter(Boolean) as string[]; return vDates.length > 0 ? vDates.sort()[0] : job.target_ship_date; })(),
+          shipDate: earliestShipDate,
           phase: job.phase, completedAt: (job as any).phase_timestamps?.complete || null,
           decoratorGroups: [], totalItems: 0, totalUnits: 0,
           shippingNotifications: Array.isArray(tm.shipping_notifications) ? tm.shipping_notifications : [],
@@ -438,6 +447,11 @@ export default function ProductionPage() {
       let oldestInProdTs: number | null = null;
       let anyInProduction = false;
       let allShipped = true;
+      // Overdue is per-item, not project-aggregate: an item still at
+      // its vendor with a vendor PO ship date in the past flags the
+      // project. Vendor A done + Vendor B in-production with future
+      // date = NOT overdue.
+      let isOverdue = false;
       for (const dg of p.decoratorGroups) {
         for (const it of dg.items) {
           if (it.pipeline_stage === "in_production") {
@@ -448,6 +462,10 @@ export default function ProductionPage() {
               const t = new Date(ipAt).getTime();
               if (oldestInProdTs === null || t < oldestInProdTs) oldestInProdTs = t;
             }
+            // target_ship_date is the vendor-specific PO ship date now
+            if (it.target_ship_date && new Date(it.target_ship_date).getTime() < now.getTime()) {
+              isOverdue = true;
+            }
           } else if (it.pipeline_stage !== "shipped") {
             allShipped = false;
           }
@@ -457,9 +475,6 @@ export default function ProductionPage() {
         ? Math.floor((now.getTime() - oldestInProdTs) / 86400000)
         : 0;
       const isShipped = allShipped || p.phase === "complete";
-      const isOverdue = anyInProduction && p.shipDate
-        ? new Date(p.shipDate).getTime() < now.getTime()
-        : false;
       const isStalled = anyInProduction && daysAtDecorator >= STALL_DAYS;
       return { p, daysAtDecorator, isShipped, isOverdue, isStalled, anyInProduction };
     });
