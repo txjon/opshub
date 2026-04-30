@@ -128,12 +128,15 @@ export default function JobsPage() {
   const visible = useMemo(() => {
     const q = search.toLowerCase().trim();
     return jobs.filter(j => {
-      // Top-level filter buckets: Active (Labs) / On Hold / Complete /
-      // Cancelled. Active = Labs domain only — receiving + fulfillment
-      // hand off to Distro and live on /warehouse. Per-phase drill-down
-      // went away when the Command Center took over urgency triage.
+      // Top-level filter buckets: Active (Labs in-flight) / Distro
+      // (post-decorator handoff) / On Hold / Complete / Cancelled.
+      // Active = pre-decorator-shipped Labs work. Distro = receiving
+      // + fulfillment (Distro/warehouse owns these now). Per-phase
+      // drill-down went away when the Command Center took over
+      // urgency triage.
       if (filter === "active" && ["complete","cancelled","on_hold","receiving","fulfillment"].includes(j.phase)) return false;
-      if (filter !== "active" && filter !== "all" && j.phase !== filter) return false;
+      if (filter === "distro" && !["receiving","fulfillment"].includes(j.phase)) return false;
+      if (filter !== "active" && filter !== "distro" && filter !== "all" && j.phase !== filter) return false;
       // Text search
       if (q && !(
         (j.clients?.name || "").toLowerCase().includes(q) ||
@@ -225,6 +228,7 @@ export default function JobsPage() {
       <div style={{ display:"flex", alignItems:"center", gap:14, flexWrap:"wrap", borderBottom:`1px solid ${T.border}`, paddingBottom:6 }}>
         {([
           ["active",   "Active",    jobs.filter(j => !["complete","cancelled","on_hold","receiving","fulfillment"].includes(j.phase)).length],
+          ["distro",   "Distro",    phaseCounts.receiving + phaseCounts.fulfillment],
           ["on_hold",  "On Hold",   phaseCounts.on_hold],
           ["complete", "Complete",  phaseCounts.complete],
           ["cancelled","Cancelled", phaseCounts.cancelled],
