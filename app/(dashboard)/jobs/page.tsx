@@ -115,12 +115,32 @@ export default function JobsPage() {
     return pcts[phase] || 0;
   };
 
-  // Project ship date = earliest active vendor PO ship date.
-  // type_meta.po_ship_dates = { vendorName: ISO date } set on the PO
-  // tab. The legacy jobs.target_ship_date column is no longer used.
+  // Project ship date = earliest PO ship date among vendors that still
+  // have UNSHIPPED items. A vendor whose items all shipped already has
+  // no remaining commitment, so their date doesn't drive the project's
+  // next deadline. Falls back to legacy in_hands_date / show_date when
+  // no PO ship dates are set yet.
   const getInHandsDate = (job: Job) => {
-    const poDates = Object.values(job.type_meta?.po_ship_dates || {}).filter(Boolean) as string[];
-    if (poDates.length > 0) return poDates.sort()[0];
+    const poDates = (job.type_meta?.po_ship_dates || {}) as Record<string, string>;
+    const items = (job as any).items || [];
+    const costProds = (job as any).costing_data?.costProds || [];
+    const cpById: Record<string, any> = {};
+    for (const cp of costProds) cpById[cp.id] = cp;
+    // Vendors that still have at least one unshipped item.
+    const activeVendors = new Set<string>();
+    for (const it of items) {
+      if (it.pipeline_stage === "shipped") continue;
+      const v = cpById[it.id]?.printVendor;
+      if (v) activeVendors.add(v);
+    }
+    const activeDates = Object.entries(poDates)
+      .filter(([v, d]) => d && activeVendors.has(v))
+      .map(([, d]) => d as string);
+    if (activeDates.length > 0) return activeDates.sort()[0];
+    // No active vendors with dates — either everything shipped, or no
+    // POs sent yet. Use whatever PO date exists, then legacy fallbacks.
+    const allDates = Object.values(poDates).filter(Boolean) as string[];
+    if (allDates.length > 0) return allDates.sort()[0];
     return job.type_meta?.in_hands_date || job.type_meta?.show_date || null;
   };
 
