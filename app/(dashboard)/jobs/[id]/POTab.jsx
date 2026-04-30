@@ -376,9 +376,14 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
           onClose={()=>setShowSendEmail(false)}
           onSent={async()=>{
             logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`);
-            // Track which vendors have received POs + when
+            // Track which vendors have received POs + when. po_sent_dates
+            // preserves the ORIGINAL send date — resending the same PO
+            // (e.g., follow-up email) doesn't overwrite the first send.
             const updatedVendors = [...new Set([...(project.type_meta?.po_sent_vendors||[]), active])];
-            const poSentDates = { ...(project.type_meta?.po_sent_dates||{}), [active]: new Date().toISOString() };
+            const existingSentDates = project.type_meta?.po_sent_dates || {};
+            const poSentDates = existingSentDates[active]
+              ? existingSentDates  // already stamped — leave alone
+              : { ...existingSentDates, [active]: new Date().toISOString() };
             const meta = {...(project.type_meta||{}), po_sent_vendors: updatedVendors, po_sent_dates: poSentDates, po_ship_methods: shipMethods, po_ship_dates: poShipDates};
             await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
             if(onUpdateJob) onUpdateJob({type_meta:meta});
@@ -432,9 +437,15 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 if(onUpdateJob) onUpdateJob({type_meta:meta});
                 logJobActivity(project.id, `PO for ${v} unmarked as sent`);
               } else {
-                // Mark as sent + advance items to in_production
+                // Mark as sent + advance items to in_production. Stamp
+                // po_sent_dates if no date exists yet — keeps the
+                // original send date when re-toggled later.
                 const updated = [...new Set([...poSentVendors, v])];
-                const meta = {...(project.type_meta||{}), po_sent_vendors: updated};
+                const existingSentDates = project.type_meta?.po_sent_dates || {};
+                const poSentDates = existingSentDates[v]
+                  ? existingSentDates
+                  : { ...existingSentDates, [v]: new Date().toISOString() };
+                const meta = {...(project.type_meta||{}), po_sent_vendors: updated, po_sent_dates: poSentDates};
                 await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
                 if(onUpdateJob) onUpdateJob({type_meta:meta});
                 const vendorItems = items.filter(it=>{
