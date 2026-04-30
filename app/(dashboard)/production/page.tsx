@@ -134,6 +134,14 @@ export default function ProductionPage() {
       const job = jobMap[it.job_id];
       if (!job) continue;
 
+      // Production page surfaces items that have actually been pushed
+      // to the decorator. Items still in setup (no PO sent yet) don't
+      // belong here — they're waiting on the team's PO action, which
+      // is the job-detail / Command Center surface, not Production.
+      // pipeline_stage is set to "in_production" when the PO is sent
+      // and rolls to "shipped" when tracking is entered.
+      if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped") continue;
+
       const assignment = it.decorator_assignments?.[0];
       const decName = assignment?.decorators?.name || "Unassigned";
       const decId = assignment?.decorator_id || assignment?.decorators?.id || null;
