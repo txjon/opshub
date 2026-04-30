@@ -576,9 +576,16 @@ export default function ProductionPage() {
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14, maxWidth: 1100 }}>
-      <div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Production</h1>
-        <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>{allItems.length} items across {projects.length} projects</div>
+      {/* Header — title + search + decorator dropdown on one row, mirrors Projects */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Production</h1>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search projects, clients, decorators..."
+          style={{ flex: 1, maxWidth: 360, padding: "7px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
+        <select value={filterDecorator} onChange={e => setFilterDecorator(e.target.value)}
+          style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: filterDecorator ? T.text : T.muted, fontSize: 12, fontFamily: font, outline: "none" }}>
+          <option value="">All decorators</option>
+          {decorators.map(d => <option key={d} value={d!}>{d}</option>)}
+        </select>
       </div>
 
       {/* KPI strip — vanity counts for active production work (Items ·
@@ -607,17 +614,6 @@ export default function ProductionPage() {
             </div>
           </div>
         ))}
-      </div>
-
-      {/* Search + decorator dropdown */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search projects, clients, decorators..."
-          style={{ flex: 1, maxWidth: 320, padding: "7px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
-        <select value={filterDecorator} onChange={e => setFilterDecorator(e.target.value)}
-          style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: filterDecorator ? T.text : T.muted, fontSize: 12, fontFamily: font, outline: "none" }}>
-          <option value="">All decorators</option>
-          {decorators.map(d => <option key={d} value={d!}>{d}</option>)}
-        </select>
       </div>
 
       {/* Tab bar — flat underline pattern matching the Projects page.
