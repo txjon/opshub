@@ -137,10 +137,12 @@ export default function JobsPage() {
       .filter(([v, d]) => d && activeVendors.has(v))
       .map(([, d]) => d as string);
     if (activeDates.length > 0) return activeDates.sort()[0];
-    // No active vendors with dates — either everything shipped, or no
-    // POs sent yet. Use whatever PO date exists, then legacy fallbacks.
-    const allDates = Object.values(poDates).filter(Boolean) as string[];
-    if (allDates.length > 0) return allDates.sort()[0];
+    // No active vendors with dates. If items exist and everything has
+    // shipped, hide the date entirely (no remaining commitment). If no
+    // items / no POs yet, use legacy fallbacks for early-phase jobs.
+    const hasItems = items.length > 0;
+    const everythingShipped = hasItems && items.every((it: any) => it.pipeline_stage === "shipped");
+    if (everythingShipped) return null;
     return job.type_meta?.in_hands_date || job.type_meta?.show_date || null;
   };
 
