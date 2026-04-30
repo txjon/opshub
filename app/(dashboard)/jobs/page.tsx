@@ -95,10 +95,16 @@ export default function JobsPage() {
   // Active-pipeline KPIs (Projects · Items · Units · Prints). These
   // moved here from the team Command Center per the rule "vanity KPIs
   // live on their domain page + the owner's insights." Active = Labs
-  // domain (intake → production). Once items ship from decorator the
-  // project hands off to Distro (/warehouse) and clears from here.
+  // domain. Match the Active filter: any item not yet shipped from
+  // its decorator. Phase rolls to "receiving" once ONE item ships,
+  // but multi-vendor projects often still have items at other
+  // decorators — that's still active work for these KPIs.
   const kpis = useMemo(() => {
-    const active = jobs.filter(j => !["complete","cancelled","on_hold","receiving","fulfillment"].includes(j.phase));
+    const active = jobs.filter(j => {
+      if (["complete","cancelled","on_hold"].includes(j.phase)) return false;
+      const items = (j as any).items || [];
+      return items.length === 0 || items.some((it: any) => it.pipeline_stage !== "shipped");
+    });
     const items = active.flatMap(j => (j as any).items || []);
     const units = items.reduce(
       (s: number, it: any) => s + ((it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0)),
@@ -128,15 +134,22 @@ export default function JobsPage() {
   const visible = useMemo(() => {
     const q = search.toLowerCase().trim();
     return jobs.filter(j => {
-      // Top-level filter buckets: Active (Labs in-flight) / Distro
-      // (post-decorator handoff) / On Hold / Complete / Cancelled.
-      // Active = pre-decorator-shipped Labs work. Distro = receiving
-      // + fulfillment (Distro/warehouse owns these now). Per-phase
-      // drill-down went away when the Command Center took over
-      // urgency triage.
-      if (filter === "active" && ["complete","cancelled","on_hold","receiving","fulfillment"].includes(j.phase)) return false;
-      if (filter === "distro" && !["receiving","fulfillment"].includes(j.phase)) return false;
-      if (filter !== "active" && filter !== "distro" && filter !== "all" && j.phase !== filter) return false;
+      // Active = any item not yet shipped from its decorator. Phase
+      // rolls to "receiving" once ONE item ships, but a multi-vendor
+      // project may still have 4 of 5 items at decorators — that's
+      // active production work and the project stays here.
+      // The job-level phase column is too coarse: it can't tell
+      // "shipped 1 of 5" from "shipped 5 of 5". Item-level pipeline
+      // stage is the source of truth.
+      const items = j.items || [];
+      const hasUnshipped = items.length === 0 || items.some(it => it.pipeline_stage !== "shipped");
+      const isTerminal = ["complete","cancelled","on_hold"].includes(j.phase);
+      if (filter === "active") {
+        if (isTerminal) return false;
+        if (!hasUnshipped) return false; // every item shipped → leaves Active
+      } else if (filter !== "all" && j.phase !== filter) {
+        return false;
+      }
       // Text search
       if (q && !(
         (j.clients?.name || "").toLowerCase().includes(q) ||
@@ -227,8 +240,11 @@ export default function JobsPage() {
           per-row in the PHASE column for scanning. */}
       <div style={{ display:"flex", alignItems:"center", gap:14, flexWrap:"wrap", borderBottom:`1px solid ${T.border}`, paddingBottom:6 }}>
         {([
-          ["active",   "Active",    jobs.filter(j => !["complete","cancelled","on_hold","receiving","fulfillment"].includes(j.phase)).length],
-          ["distro",   "Distro",    phaseCounts.receiving + phaseCounts.fulfillment],
+          ["active",   "Active",    jobs.filter(j => {
+            if (["complete","cancelled","on_hold"].includes(j.phase)) return false;
+            const items = (j as any).items || [];
+            return items.length === 0 || items.some((it: any) => it.pipeline_stage !== "shipped");
+          }).length],
           ["on_hold",  "On Hold",   phaseCounts.on_hold],
           ["complete", "Complete",  phaseCounts.complete],
           ["cancelled","Cancelled", phaseCounts.cancelled],
