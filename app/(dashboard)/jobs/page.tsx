@@ -115,7 +115,14 @@ export default function JobsPage() {
     return pcts[phase] || 0;
   };
 
-  const getInHandsDate = (job: Job) => job.target_ship_date || job.type_meta?.in_hands_date || job.type_meta?.show_date || null;
+  // Project ship date = earliest active vendor PO ship date.
+  // type_meta.po_ship_dates = { vendorName: ISO date } set on the PO
+  // tab. The legacy jobs.target_ship_date column is no longer used.
+  const getInHandsDate = (job: Job) => {
+    const poDates = Object.values(job.type_meta?.po_ship_dates || {}).filter(Boolean) as string[];
+    if (poDates.length > 0) return poDates.sort()[0];
+    return job.type_meta?.in_hands_date || job.type_meta?.show_date || null;
+  };
 
   const phaseCounts = useMemo(() => ({
     intake: jobs.filter(j => j.phase === "intake").length,
@@ -201,8 +208,10 @@ export default function JobsPage() {
   const sorted = useMemo(() => [...visible].sort((a,b) => {
     let av: any, bv: any;
     if (sortKey === "target_ship_date") {
-      av = a.target_ship_date ? new Date(a.target_ship_date).getTime() : Infinity;
-      bv = b.target_ship_date ? new Date(b.target_ship_date).getTime() : Infinity;
+      const aDate = getInHandsDate(a);
+      const bDate = getInHandsDate(b);
+      av = aDate ? new Date(aDate).getTime() : Infinity;
+      bv = bDate ? new Date(bDate).getTime() : Infinity;
     } else if (sortKey === "client") {
       av = (a.clients?.name || "").toLowerCase();
       bv = (b.clients?.name || "").toLowerCase();
@@ -424,7 +433,7 @@ export default function JobsPage() {
                       {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Ships today":daysLeft+"d to ship"}
                     </span>
                     <span style={{ fontSize:10, color:T.faint }}>
-                      {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                      {ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
                     </span>
                   </div>
                 )}
@@ -513,7 +522,7 @@ export default function JobsPage() {
                       </div>
                     )}
                     <div style={{ fontSize:isClosed?12:10, fontWeight:isClosed?600:400, color:isClosed?T.muted:T.faint, whiteSpace:"nowrap", fontFamily:isClosed?mono:undefined }}>
-                      {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                      {ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
                     </div>
                   </>
                 ) : !pri && <span style={{ fontSize:10, color:T.faint }}>No date</span>}
