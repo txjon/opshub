@@ -222,10 +222,10 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 10 }}>
 
-      {/* Gate status */}
+      {/* Gate status — flat row, no banner */}
       {!gatesMet && (
-        <div style={{ background: T.amberDim, border: `1px solid ${T.amber}44`, borderRadius: 8, padding: "10px 14px" }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: T.amber, marginBottom: 6 }}>Before ordering blanks:</div>
+        <div style={{ paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Before ordering blanks</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ color: quoteApproved ? T.green : T.red }}>{quoteApproved ? "✓" : "✕"}</span>
@@ -255,8 +255,8 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
       )}
 
       {gatesMet && (
-        <div style={{ background: T.greenDim, border: `1px solid ${T.green}44`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: T.green, fontWeight: 600 }}>
-          All gates met — ready to order blanks
+        <div style={{ paddingBottom: 8, borderBottom: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          All gates met · ready to order blanks
         </div>
       )}
 
@@ -351,7 +351,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
               display: "grid", gridTemplateColumns: "32px 90px 1fr 150px 160px",
               gap: 12, padding: "10px 14px", alignItems: "center",
               borderBottom: isLast ? "none" : `1px solid ${T.border}`,
-              background: hasOrder ? T.greenDim + "33" : "transparent",
+              background: "transparent",
             }}>
               {/* Letter */}
               <span style={{ width: 28, height: 28, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: mono }}>
@@ -389,11 +389,11 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
               {/* Variance + Ordered badge */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
                 {calcCost !== null && actualCost !== null && actualCost > 0 && (
-                  <span style={{ fontSize: 11, fontFamily: mono, fontWeight: 700, color: costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.muted, padding: "3px 8px", background: costDiff === 0 ? T.surface : (costDiff > 0 ? T.redDim : T.greenDim), borderRadius: 4 }}>
+                  <span style={{ fontSize: 12, fontFamily: mono, fontWeight: 700, color: costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.muted }}>
                     {costDiff === 0 ? "match" : (costDiff > 0 ? "+" : "") + "$" + Math.abs(costDiff).toFixed(2)}
                   </span>
                 )}
-                {hasOrder && <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: T.greenDim, color: T.green, whiteSpace: "nowrap" }}>Ordered ✓</span>}
+                {hasOrder && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>✓ Ordered</span>}
               </div>
             </div>
           );
