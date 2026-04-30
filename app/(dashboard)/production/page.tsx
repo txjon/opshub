@@ -452,7 +452,7 @@ export default function ProductionPage() {
     return { recent, lastWeek, older };
   };
   const completedGroups = groupByPeriod(completedProjects);
-  const [showCompleted, setShowCompleted] = useState(true);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   const getDaysToShip = (d: string | null) => {
     if (!d) return null;
@@ -550,7 +550,7 @@ export default function ProductionPage() {
                   <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{project.invoiceNumber || project.jobNumber}</span>
                   {project.invoiceNumber && <span style={{ fontSize: 10, color: T.faint }}>{project.jobNumber}</span>}
                   <span style={{ fontSize: 13, color: T.muted }}>{project.clientName}</span>
-                  {allShipped && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>All Shipped</span>}
+                  {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>All Shipped</span>}
                 </div>
 
                 {/* Per-decorator mini breakdown */}
@@ -636,8 +636,8 @@ export default function ProductionPage() {
                         </span>
                       </div>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        {dg.inProduction > 0 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.accentDim, color: T.accent }}>{dg.inProduction} in production</span>}
-                        {dg.shipped > 0 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>{dg.shipped} shipped</span>}
+                        {dg.inProduction > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>{dg.inProduction} in production</span>}
+                        {dg.shipped > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>{dg.shipped} shipped</span>}
                         {dg.inProduction > 1 && (
                           <button onClick={async (e) => {
                             e.stopPropagation();
@@ -847,7 +847,7 @@ export default function ProductionPage() {
                         <span style={{ fontSize: 11, color: T.faint }}>— {project.jobTitle}</span>
                         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 10, color: T.muted }}>{project.totalItems} items · {project.totalUnits.toLocaleString()} units</span>
-                          <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.greenDim, color: T.green }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                             {project.phase === "complete" ? "Complete" : "All Shipped"}
                           </span>
                         </div>
