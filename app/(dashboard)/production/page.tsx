@@ -204,6 +204,24 @@ export default function ProductionPage() {
       else decGroup.inProduction++;
     }
 
+    // Recompute each project's shipDate to be the earliest PO ship
+    // date among vendors that still have unshipped items. Done after
+    // the items loop because we need full decoratorGroups visibility
+    // to know which vendors have remaining work. If everything has
+    // shipped, shipDate becomes null (no remaining commitment).
+    for (const p of Object.values(projectMap)) {
+      const job = jobMap[p.jobId];
+      const poShipDatesAll = ((job?.type_meta || {}).po_ship_dates || {}) as Record<string, string>;
+      const activeVendorDates: string[] = [];
+      for (const dg of p.decoratorGroups) {
+        const hasUnshipped = dg.items.some(it => it.pipeline_stage !== "shipped");
+        if (!hasUnshipped) continue;
+        const d = poShipDatesAll[dg.decoratorName];
+        if (d) activeVendorDates.push(d);
+      }
+      p.shipDate = activeVendorDates.length > 0 ? activeVendorDates.sort()[0] : null;
+    }
+
     // Sort projects by ship date
     const sorted = Object.values(projectMap).sort((a, b) => {
       if (!a.shipDate) return 1;
