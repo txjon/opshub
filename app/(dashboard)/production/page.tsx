@@ -574,7 +574,7 @@ export default function ProductionPage() {
               {/* Right side: ship date + expand arrow */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, marginLeft: 12 }}>
                 {ship && (
-                  <div style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: ship.bg, color: ship.color }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: ship.color, letterSpacing: "0.04em" }}>
                     {ship.dateStr} · {ship.label}
                   </div>
                 )}
@@ -603,7 +603,7 @@ export default function ProductionPage() {
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                       {ship && (
-                        <div style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: ship.bg, color: ship.color }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: ship.color, letterSpacing: "0.04em" }}>
                           {ship.dateStr} · {ship.label}
                         </div>
                       )}
