@@ -418,41 +418,104 @@ export default function ProductionPage() {
     return { items, units, prints };
   }, [projects]);
 
-  // ── Filter & split active vs completed ──
-  const filtered = useMemo(() => {
+  // ── Filter & sort ──
+  // Tab buckets:
+  //   active   = any item still in_production (default view)
+  //   overdue  = active + at least one in_production item past ship date
+  //   stalled  = active + at least one in_production item ≥ STALL_DAYS old
+  //   shipped  = every item has shipped (or job phase=complete)
+  // Overdue + Stalled are sub-views of Active — they overlap, the count
+  // tells you how many of the Active set fall into that signal.
+  const STALL_DAYS = 7;
+  const [tab, setTab] = useState<"active" | "overdue" | "stalled" | "shipped">("active");
+  const [sortKey, setSortKey] = useState<"ship_date" | "days_at_decorator" | "decorator" | "client" | "units">("ship_date");
+
+  // Stash useful per-project metadata for filtering/sorting so we
+  // compute it once per render instead of re-walking decoratorGroups
+  // multiple times.
+  const enriched = useMemo(() => {
+    return projects.map(p => {
+      let oldestInProdTs: number | null = null;
+      let anyInProduction = false;
+      let allShipped = true;
+      for (const dg of p.decoratorGroups) {
+        for (const it of dg.items) {
+          if (it.pipeline_stage === "in_production") {
+            anyInProduction = true;
+            allShipped = false;
+            const ipAt = it.pipeline_timestamps?.in_production;
+            if (ipAt) {
+              const t = new Date(ipAt).getTime();
+              if (oldestInProdTs === null || t < oldestInProdTs) oldestInProdTs = t;
+            }
+          } else if (it.pipeline_stage !== "shipped") {
+            allShipped = false;
+          }
+        }
+      }
+      const daysAtDecorator = oldestInProdTs
+        ? Math.floor((now.getTime() - oldestInProdTs) / 86400000)
+        : 0;
+      const isShipped = allShipped || p.phase === "complete";
+      const isOverdue = anyInProduction && p.shipDate
+        ? new Date(p.shipDate).getTime() < now.getTime()
+        : false;
+      const isStalled = anyInProduction && daysAtDecorator >= STALL_DAYS;
+      return { p, daysAtDecorator, isShipped, isOverdue, isStalled, anyInProduction };
+    });
+  }, [projects]);
+
+  // Apply text + decorator filters first — these layer on top of any tab.
+  const baseFiltered = useMemo(() => {
     const q = search.toLowerCase().trim();
-    return projects.filter(p => {
+    return enriched.filter(({ p }) => {
       if (q && !(p.clientName.toLowerCase().includes(q) || p.jobTitle.toLowerCase().includes(q) || p.jobNumber.toLowerCase().includes(q) || (p.invoiceNumber || "").toLowerCase().includes(q) ||
         p.decoratorGroups.some(dg => dg.decoratorName.toLowerCase().includes(q) || dg.items.some(it => it.name.toLowerCase().includes(q))))) return false;
       if (filterDecorator && !p.decoratorGroups.some(dg => dg.decoratorName === filterDecorator)) return false;
       return true;
     });
-  }, [projects, search, filterDecorator]);
+  }, [enriched, search, filterDecorator]);
 
-  const activeProjects = filtered.filter(p => p.decoratorGroups.some(dg => dg.items.some(it => it.pipeline_stage === "in_production")));
-  const completedProjects = filtered.filter(p => p.decoratorGroups.every(dg => dg.items.every(it => it.pipeline_stage === "shipped")) || p.phase === "complete");
+  // Per-tab counts (always reflect the base-filtered set so they update
+  // as the user types or picks a decorator).
+  const tabCounts = useMemo(() => ({
+    active: baseFiltered.filter(e => e.anyInProduction).length,
+    overdue: baseFiltered.filter(e => e.isOverdue).length,
+    stalled: baseFiltered.filter(e => e.isStalled).length,
+    shipped: baseFiltered.filter(e => e.isShipped).length,
+  }), [baseFiltered]);
 
-  // Group completed by time period
-  const groupByPeriod = (projects: ProjectGroup[]) => {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-    const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7);
+  // Visible set — matches the current tab.
+  const visible = useMemo(() => {
+    const arr = baseFiltered.filter(e => {
+      if (tab === "active") return e.anyInProduction;
+      if (tab === "overdue") return e.isOverdue;
+      if (tab === "stalled") return e.isStalled;
+      if (tab === "shipped") return e.isShipped;
+      return true;
+    });
+    const cmp = (a: typeof arr[number], b: typeof arr[number]) => {
+      if (sortKey === "ship_date") {
+        const av = a.p.shipDate ? new Date(a.p.shipDate).getTime() : Infinity;
+        const bv = b.p.shipDate ? new Date(b.p.shipDate).getTime() : Infinity;
+        return av - bv;
+      }
+      if (sortKey === "days_at_decorator") return b.daysAtDecorator - a.daysAtDecorator;
+      if (sortKey === "decorator") {
+        const av = a.p.decoratorGroups[0]?.decoratorName.toLowerCase() || "";
+        const bv = b.p.decoratorGroups[0]?.decoratorName.toLowerCase() || "";
+        return av.localeCompare(bv);
+      }
+      if (sortKey === "client") return a.p.clientName.toLowerCase().localeCompare(b.p.clientName.toLowerCase());
+      if (sortKey === "units") return b.p.totalUnits - a.p.totalUnits;
+      return 0;
+    };
+    return [...arr].sort(cmp).map(e => e.p);
+  }, [baseFiltered, tab, sortKey]);
 
-    const recent: ProjectGroup[] = [];
-    const lastWeek: ProjectGroup[] = [];
-    const older: ProjectGroup[] = [];
-
-    for (const p of projects) {
-      const ts = p.completedAt || p.decoratorGroups.flatMap(dg => dg.items.map(it => it.pipeline_timestamps?.shipped)).filter(Boolean).sort().pop();
-      const d = ts ? new Date(ts) : new Date(0);
-      if (d >= yesterday) recent.push(p);
-      else if (d >= weekAgo) lastWeek.push(p);
-      else older.push(p);
-    }
-    return { recent, lastWeek, older };
-  };
-  const completedGroups = groupByPeriod(completedProjects);
-  const [showCompleted, setShowCompleted] = useState(false);
+  // Tab-filtered list; row UI handles both in-production and shipped
+  // states via the existing decorator-group rendering.
+  const activeProjects = visible;
 
   const getDaysToShip = (d: string | null) => {
     if (!d) return null;
@@ -513,7 +576,7 @@ export default function ProductionPage() {
         ))}
       </div>
 
-      {/* Filters */}
+      {/* Search + decorator dropdown */}
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search projects, clients, decorators..."
           style={{ flex: 1, maxWidth: 320, padding: "7px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
@@ -524,9 +587,51 @@ export default function ProductionPage() {
         </select>
       </div>
 
+      {/* Tab bar — flat underline pattern matching the Projects page.
+          Sort dropdown right-aligned. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${T.border}`, paddingBottom: 6 }}>
+        {([
+          ["active",   "Active",   tabCounts.active,   T.text],
+          ["overdue",  "Overdue",  tabCounts.overdue,  T.red],
+          ["stalled",  "Stalled",  tabCounts.stalled,  T.amber],
+          ["shipped",  "Shipped",  tabCounts.shipped,  T.green],
+        ] as const).map(([k, l, count, tone]) => {
+          const active = tab === k;
+          return (
+            <button key={k} onClick={() => setTab(k as any)}
+              style={{
+                background: "transparent", border: "none", padding: "4px 0",
+                cursor: "pointer", fontFamily: font,
+                fontSize: 13, fontWeight: active ? 800 : 600,
+                color: active ? T.text : T.muted,
+                borderBottom: active ? `2px solid ${T.text}` : "2px solid transparent",
+                marginBottom: -7,
+              }}>
+              {l}
+              {count > 0 && (
+                <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: count > 0 && (k === "overdue" || k === "stalled") ? tone : T.faint }}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+        <div style={{ flex: 1 }} />
+        <select value={sortKey} onChange={e => setSortKey(e.target.value as any)}
+          style={{ background: "transparent", border: "none", padding: "4px 0", fontSize: 11, fontWeight: 700, color: T.muted, fontFamily: font, textTransform: "uppercase", letterSpacing: "0.07em", cursor: "pointer", outline: "none" }}>
+          <option value="ship_date">Sort · Ship date</option>
+          <option value="days_at_decorator">Sort · Days at decorator</option>
+          <option value="decorator">Sort · Decorator</option>
+          <option value="client">Sort · Client</option>
+          <option value="units">Sort · Units</option>
+        </select>
+      </div>
+
       {/* ── Active Projects ── */}
-      {activeProjects.length === 0 && completedProjects.length === 0 && (
-        <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>No active production</div>
+      {activeProjects.length === 0 && (
+        <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>
+          {tab === "active" ? "No active production" : tab === "overdue" ? "Nothing overdue" : tab === "stalled" ? "No stalls" : "Nothing shipped"}
+        </div>
       )}
 
       {activeProjects.map(project => {
@@ -816,50 +921,6 @@ export default function ProductionPage() {
           </div>
         );
       })}
-
-      {/* ── Completed ── */}
-      {completedProjects.length > 0 && (
-        <div>
-          <button onClick={() => setShowCompleted(!showCompleted)}
-            style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: "8px 0", width: "100%" }}>
-            <span style={{ fontSize: 11, color: T.faint, transform: showCompleted ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>▶</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Completed</span>
-            <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{completedProjects.length}</span>
-            <div style={{ flex: 1, height: 1, background: T.border }} />
-          </button>
-
-          {showCompleted && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {([
-                { label: "Recently", items: completedGroups.recent },
-                { label: "Last 7 days", items: completedGroups.lastWeek },
-                { label: "Last 30 days", items: completedGroups.older },
-              ] as const).filter(g => g.items.length > 0).map(group => (
-                <div key={group.label}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", padding: "6px 0 4px" }}>{group.label}</div>
-                  {group.items.map(project => (
-                    <Link key={project.jobId} href={`/jobs/${project.jobId}?tab=production`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
-                      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 16px", marginBottom: 4, display: "flex", alignItems: "center", gap: 10, opacity: 0.8, cursor: "pointer", transition: "opacity 0.15s" }}
-                        onMouseEnter={e => { e.currentTarget.style.opacity = "1"; }}
-                        onMouseLeave={e => { e.currentTarget.style.opacity = "0.8"; }}>
-                        <span style={{ fontSize: 13, fontWeight: 700 }}>{project.invoiceNumber || project.jobNumber}</span>
-                        <span style={{ fontSize: 12, color: T.muted }}>{project.clientName}</span>
-                        <span style={{ fontSize: 11, color: T.faint }}>— {project.jobTitle}</span>
-                        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 10, color: T.muted }}>{project.totalItems} items · {project.totalUnits.toLocaleString()} units</span>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                            {project.phase === "complete" ? "Complete" : "All Shipped"}
-                          </span>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Packing slip viewer modal */}
       {viewingSlips && (
