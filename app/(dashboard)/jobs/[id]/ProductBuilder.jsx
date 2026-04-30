@@ -544,8 +544,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 6 }}>
 
       {costingLocked && (
-        <div style={{ padding: "10px 14px", background: T.amberDim, border: `1px solid ${T.amber}44`, borderRadius: 8, display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: T.amber }}>Costing is locked</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase" }}>Costing locked</span>
           <span style={{ fontSize: 11, color: T.muted }}>Unlock pricing in the Costing tab to edit items, quantities, or blanks</span>
         </div>
       )}
