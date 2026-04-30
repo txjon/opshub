@@ -31,6 +31,43 @@ const PHASE_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
+// Per-item bucket rollup for the row's status column. Multi-vendor
+// jobs commonly have items in different states at the same time:
+// 2 items waiting on PO, 2 in production, 1 received. The job-level
+// phase column only shows the dominant blocker — we want to surface
+// every state with a count.
+//
+// Buckets render in workflow order; only those with count > 0 show.
+type StatusBucket = { key: string; label: string; color: string; count: number };
+function getStatusBuckets(job: any, T: any): StatusBucket[] {
+  const items = job.items || [];
+  if (items.length === 0) return [];
+  const costProds = (job.costing_data?.costProds || []) as any[];
+  const cpById: Record<string, any> = {};
+  for (const cp of costProds) cpById[cp.id] = cp;
+  const poSent = new Set<string>(job.type_meta?.po_sent_vendors || []);
+
+  const counts: Record<string, number> = {
+    needs_po: 0, production: 0, receiving: 0, at_hpd: 0,
+  };
+  for (const it of items) {
+    if (it.received_at_hpd === true) { counts.at_hpd++; continue; }
+    if (it.pipeline_stage === "shipped") { counts.receiving++; continue; }
+    if (it.pipeline_stage === "in_production") { counts.production++; continue; }
+    // Item not yet at decorator. If vendor assigned and PO not sent, it
+    // needs a PO. If no vendor yet, it's still in earlier setup —
+    // ignored here so the row doesn't shout pre-cost noise.
+    const vendor = cpById[it.id]?.printVendor;
+    if (vendor && !poSent.has(vendor)) counts.needs_po++;
+  }
+  const out: StatusBucket[] = [];
+  if (counts.needs_po) out.push({ key: "needs_po", label: "Needs PO", color: T.amber, count: counts.needs_po });
+  if (counts.production) out.push({ key: "production", label: "Production", color: T.accent, count: counts.production });
+  if (counts.receiving) out.push({ key: "receiving", label: "Receiving", color: T.blue, count: counts.receiving });
+  if (counts.at_hpd) out.push({ key: "at_hpd", label: "At HPD", color: T.purple, count: counts.at_hpd });
+  return out;
+}
+
 function getItemProgress(job: any): string {
   const items = job.items || [];
   if (!items.length) return "";
@@ -66,7 +103,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), costing_summary, costing_data, type_meta, payment_records(amount, status), items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, garment_type, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, costing_data, type_meta, payment_records(amount, status), items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, garment_type, received_at_hpd, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -78,7 +115,36 @@ export default function JobsPage() {
     return pcts[phase] || 0;
   };
 
-  const getInHandsDate = (job: Job) => job.target_ship_date || job.type_meta?.in_hands_date || job.type_meta?.show_date || null;
+  // Project ship date = earliest PO ship date among vendors that still
+  // have UNSHIPPED items. A vendor whose items all shipped already has
+  // no remaining commitment, so their date doesn't drive the project's
+  // next deadline. Falls back to legacy in_hands_date / show_date when
+  // no PO ship dates are set yet.
+  const getInHandsDate = (job: Job) => {
+    const poDates = (job.type_meta?.po_ship_dates || {}) as Record<string, string>;
+    const items = (job as any).items || [];
+    const costProds = (job as any).costing_data?.costProds || [];
+    const cpById: Record<string, any> = {};
+    for (const cp of costProds) cpById[cp.id] = cp;
+    // Vendors that still have at least one unshipped item.
+    const activeVendors = new Set<string>();
+    for (const it of items) {
+      if (it.pipeline_stage === "shipped") continue;
+      const v = cpById[it.id]?.printVendor;
+      if (v) activeVendors.add(v);
+    }
+    const activeDates = Object.entries(poDates)
+      .filter(([v, d]) => d && activeVendors.has(v))
+      .map(([, d]) => d as string);
+    if (activeDates.length > 0) return activeDates.sort()[0];
+    // No active vendors with dates. If items exist and everything has
+    // shipped, hide the date entirely (no remaining commitment). If no
+    // items / no POs yet, use legacy fallbacks for early-phase jobs.
+    const hasItems = items.length > 0;
+    const everythingShipped = hasItems && items.every((it: any) => it.pipeline_stage === "shipped");
+    if (everythingShipped) return null;
+    return job.type_meta?.in_hands_date || job.type_meta?.show_date || null;
+  };
 
   const phaseCounts = useMemo(() => ({
     intake: jobs.filter(j => j.phase === "intake").length,
@@ -95,10 +161,16 @@ export default function JobsPage() {
   // Active-pipeline KPIs (Projects · Items · Units · Prints). These
   // moved here from the team Command Center per the rule "vanity KPIs
   // live on their domain page + the owner's insights." Active = Labs
-  // domain (intake → production). Once items ship from decorator the
-  // project hands off to Distro (/warehouse) and clears from here.
+  // domain. Match the Active filter: any item not yet shipped from
+  // its decorator. Phase rolls to "receiving" once ONE item ships,
+  // but multi-vendor projects often still have items at other
+  // decorators — that's still active work for these KPIs.
   const kpis = useMemo(() => {
-    const active = jobs.filter(j => !["complete","cancelled","on_hold","receiving","fulfillment"].includes(j.phase));
+    const active = jobs.filter(j => {
+      if (["complete","cancelled","on_hold"].includes(j.phase)) return false;
+      const items = (j as any).items || [];
+      return items.length === 0 || items.some((it: any) => it.pipeline_stage !== "shipped");
+    });
     const items = active.flatMap(j => (j as any).items || []);
     const units = items.reduce(
       (s: number, it: any) => s + ((it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0)),
@@ -128,12 +200,22 @@ export default function JobsPage() {
   const visible = useMemo(() => {
     const q = search.toLowerCase().trim();
     return jobs.filter(j => {
-      // Top-level filter buckets: Active (Labs) / On Hold / Complete /
-      // Cancelled. Active = Labs domain only — receiving + fulfillment
-      // hand off to Distro and live on /warehouse. Per-phase drill-down
-      // went away when the Command Center took over urgency triage.
-      if (filter === "active" && ["complete","cancelled","on_hold","receiving","fulfillment"].includes(j.phase)) return false;
-      if (filter !== "active" && filter !== "all" && j.phase !== filter) return false;
+      // Active = any item not yet shipped from its decorator. Phase
+      // rolls to "receiving" once ONE item ships, but a multi-vendor
+      // project may still have 4 of 5 items at decorators — that's
+      // active production work and the project stays here.
+      // The job-level phase column is too coarse: it can't tell
+      // "shipped 1 of 5" from "shipped 5 of 5". Item-level pipeline
+      // stage is the source of truth.
+      const items = j.items || [];
+      const hasUnshipped = items.length === 0 || items.some(it => it.pipeline_stage !== "shipped");
+      const isTerminal = ["complete","cancelled","on_hold"].includes(j.phase);
+      if (filter === "active") {
+        if (isTerminal) return false;
+        if (!hasUnshipped) return false; // every item shipped → leaves Active
+      } else if (filter !== "all" && j.phase !== filter) {
+        return false;
+      }
       // Text search
       if (q && !(
         (j.clients?.name || "").toLowerCase().includes(q) ||
@@ -148,8 +230,10 @@ export default function JobsPage() {
   const sorted = useMemo(() => [...visible].sort((a,b) => {
     let av: any, bv: any;
     if (sortKey === "target_ship_date") {
-      av = a.target_ship_date ? new Date(a.target_ship_date).getTime() : Infinity;
-      bv = b.target_ship_date ? new Date(b.target_ship_date).getTime() : Infinity;
+      const aDate = getInHandsDate(a);
+      const bDate = getInHandsDate(b);
+      av = aDate ? new Date(aDate).getTime() : Infinity;
+      bv = bDate ? new Date(bDate).getTime() : Infinity;
     } else if (sortKey === "client") {
       av = (a.clients?.name || "").toLowerCase();
       bv = (b.clients?.name || "").toLowerCase();
@@ -224,7 +308,11 @@ export default function JobsPage() {
           per-row in the PHASE column for scanning. */}
       <div style={{ display:"flex", alignItems:"center", gap:14, flexWrap:"wrap", borderBottom:`1px solid ${T.border}`, paddingBottom:6 }}>
         {([
-          ["active",   "Active",    jobs.filter(j => !["complete","cancelled","on_hold","receiving","fulfillment"].includes(j.phase)).length],
+          ["active",   "Active",    jobs.filter(j => {
+            if (["complete","cancelled","on_hold"].includes(j.phase)) return false;
+            const items = (j as any).items || [];
+            return items.length === 0 || items.some((it: any) => it.pipeline_stage !== "shipped");
+          }).length],
           ["on_hold",  "On Hold",   phaseCounts.on_hold],
           ["complete", "Complete",  phaseCounts.complete],
           ["cancelled","Cancelled", phaseCounts.cancelled],
@@ -339,8 +427,21 @@ export default function JobsPage() {
                   {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{invNum || job.job_number}</span>
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginTop:2, fontSize:11 }}>
-                  <span style={{ color:T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em" }}>{phaseLabel}</span>
-                  {progress && <span style={{ color:T.faint, fontFamily:mono }}>{progress}</span>}
+                  {(() => {
+                    const isTerminal = ["complete","cancelled","on_hold"].includes(job.phase);
+                    const buckets = isTerminal ? [] : getStatusBuckets(job, T);
+                    if (buckets.length === 0) {
+                      return <>
+                        <span style={{ color:T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em" }}>{phaseLabel}</span>
+                        {progress && <span style={{ color:T.faint, fontFamily:mono }}>{progress}</span>}
+                      </>;
+                    }
+                    return buckets.map(b => (
+                      <span key={b.key} style={{ color:b.color, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em" }}>
+                        {b.label} <span style={{ fontFamily:mono }}>· {b.count}</span>
+                      </span>
+                    ));
+                  })()}
                   {totalUnits > 0 && <span style={{ color:T.muted, fontFamily:mono }}>{totalUnits.toLocaleString()} units</span>}
                   {status && (
                     <span style={{ color: status.green ? T.green : status.amber ? T.amber : T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", fontSize:10 }}>
@@ -354,7 +455,7 @@ export default function JobsPage() {
                       {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Ships today":daysLeft+"d to ship"}
                     </span>
                     <span style={{ fontSize:10, color:T.faint }}>
-                      {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                      {ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
                     </span>
                   </div>
                 )}
@@ -400,10 +501,30 @@ export default function JobsPage() {
                 {totalUnits>0?totalUnits.toLocaleString():"—"} <span style={{ fontSize:11, fontWeight:400, color:T.muted }}>units</span>
               </div>
 
-              {/* Phase + progress */}
+              {/* Phase + progress — multi-bucket for active in-flight jobs,
+                   plain phase label for terminal/parked phases. */}
               <div style={{ display:"flex", flexDirection:"column", gap:2, minWidth:0 }}>
-                <span style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.08em", whiteSpace:"nowrap" }}>{phaseLabel}</span>
-                {progress && <span style={{ fontSize:10, color:T.faint, fontFamily:mono, whiteSpace:"nowrap" }}>{progress}</span>}
+                {(() => {
+                  const isTerminal = ["complete","cancelled","on_hold"].includes(job.phase);
+                  const buckets = isTerminal ? [] : getStatusBuckets(job, T);
+                  if (buckets.length === 0) {
+                    return (
+                      <>
+                        <span style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.08em", whiteSpace:"nowrap" }}>{phaseLabel}</span>
+                        {progress && <span style={{ fontSize:10, color:T.faint, fontFamily:mono, whiteSpace:"nowrap" }}>{progress}</span>}
+                      </>
+                    );
+                  }
+                  return (
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:"2px 10px" }}>
+                      {buckets.map(b => (
+                        <span key={b.key} style={{ fontSize:11, fontWeight:700, color:b.color, textTransform:"uppercase", letterSpacing:"0.06em", whiteSpace:"nowrap" }}>
+                          {b.label} <span style={{ fontFamily:mono, fontWeight:600 }}>· {b.count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Priority (top) + Ship date (bottom) — right-anchored
@@ -423,7 +544,7 @@ export default function JobsPage() {
                       </div>
                     )}
                     <div style={{ fontSize:isClosed?12:10, fontWeight:isClosed?600:400, color:isClosed?T.muted:T.faint, whiteSpace:"nowrap", fontFamily:isClosed?mono:undefined }}>
-                      {new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                      {ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
                     </div>
                   </>
                 ) : !pri && <span style={{ fontSize:10, color:T.faint }}>No date</span>}

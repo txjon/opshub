@@ -301,7 +301,11 @@ function renderPOHTML(data: any): string {
     </div>`;
   }).join("");
 
-  const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  // Date cell = original PO sent date when known, otherwise today's
+  // render time (first print of a PO that was never officially sent).
+  const dateLabel = data.po_sent_date
+    ? new Date(data.po_sent_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+    : new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const shipDate = data.target_ship_date
     ? new Date(data.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
     : "—";
@@ -325,7 +329,7 @@ function renderPOHTML(data: any): string {
   </div>
 
   <div style="display:flex;gap:0;border:0.5px solid #ccc;margin-bottom:16px">
-    ${[["Date",today],["Ship date",shipDate],["Vendor ID",data.vendor_short_code||data.vendor_name],["Ship method",data.ship_method||"—"],["Ship acct #",data.shipping_account||"—"]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
+    ${[["Date",dateLabel],["Ship date",shipDate],["Vendor ID",data.vendor_short_code||data.vendor_name],["Ship method",data.ship_method||"—"],["Ship acct #",data.shipping_account||"—"]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;font-size:10px">
@@ -465,7 +469,11 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const poData = {
       job_number: ((job.type_meta as any)?.qb_invoice_number || job.job_number) + itemLetters,
       client_name: (job.clients as any)?.name || "—",
-      target_ship_date: (job.type_meta as any)?.po_ship_dates?.[vendorName] || job.target_ship_date,
+      // PO date = the date the PO was originally marked sent (if it
+      // ever was). Falls back to today's render time so first-print
+      // PDFs still get a date. Stored when "Mark sent" runs in POTab.
+      po_sent_date: (job.type_meta as any)?.po_sent_dates?.[vendorName] || null,
+      target_ship_date: (job.type_meta as any)?.po_ship_dates?.[vendorName] || null,
       vendor_name: vendorName,
       vendor_short_code: (decoratorRecord as any)?.short_code || firstDecorator?.short_code || vendorName,
       vendor_email: (decoratorRecord as any)?.email || firstDecorator?.email || "",
