@@ -368,7 +368,7 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
                       if (ns === "paid") notifyTeam(`Payment received — $${p.amount.toLocaleString()} · ${job.clients?.name || ""} · ${job.title}`, "payment", job.id, "job");
                       if (onReload) onReload();
                       if (onRecalcPhase) setTimeout(onRecalcPhase, 500);
-                    }} style={{ padding: "1px 7px", borderRadius: 99, fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", background: display.bg, color: display.color }}>{rowLabel}</button>
+                    }} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 11, fontWeight: 700, color: display.color, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: font }}>{rowLabel}</button>
                   </td>
                   <td style={{ padding: "6px" }}>
                     <button onClick={async () => {
