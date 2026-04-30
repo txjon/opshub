@@ -153,11 +153,24 @@ export default function ProductionPage() {
       const totalUnits = lines.reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
 
       // Ship date is set per-vendor on the PO tab, stored in
-      // type_meta.po_ship_dates[vendorName]. The legacy
-      // jobs.target_ship_date field is no longer used.
+      // type_meta.po_ship_dates. Key is cp.printVendor (costing-side),
+      // not necessarily decorator.name — try printVendor first, then
+      // fall back to decoratorName / shortCode.
       const tm = (job as any).type_meta || {};
       const poShipDates = (tm.po_ship_dates || {}) as Record<string, string>;
-      const vendorShipDate = poShipDates[decName] || null;
+      const itemCp = ((job as any)?.costing_data?.costProds || []).find((cp: any) => cp?.id === it.id);
+      const printVendor: string | undefined = itemCp?.printVendor;
+      const ciKey = (k: string | null | undefined) => (k || "").toLowerCase().trim();
+      const ciDates: Record<string, string> = {};
+      for (const [k, v] of Object.entries(poShipDates)) {
+        if (typeof v === "string" && v) ciDates[ciKey(k)] = v;
+      }
+      const vendorShipDate =
+        (printVendor && poShipDates[printVendor]) ||
+        poShipDates[decName] ||
+        ciDates[ciKey(printVendor)] ||
+        ciDates[ciKey(decName)] ||
+        null;
 
       const prodItem: ProdItem = {
         id: it.id, name: it.name, job_id: it.job_id, letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
@@ -217,14 +230,46 @@ export default function ProductionPage() {
     // the items loop because we need full decoratorGroups visibility
     // to know which vendors have remaining work. If everything has
     // shipped, shipDate becomes null (no remaining commitment).
+    //
+    // Key matching: po_ship_dates is keyed by cp.printVendor (the
+    // costing-side label), not necessarily decorator.name. Look up
+    // each item's costProd to get the canonical key, then check
+    // po_ship_dates with both that key AND decoratorName as fallback.
     for (const p of Object.values(projectMap)) {
       const job = jobMap[p.jobId];
-      const poShipDatesAll = ((job?.type_meta || {}).po_ship_dates || {}) as Record<string, string>;
+      const tmAll = (job as any)?.type_meta || {};
+      const poShipDatesAll = (tmAll.po_ship_dates || {}) as Record<string, string>;
+      const costProds = ((job as any)?.costing_data?.costProds || []) as any[];
+      const cpById: Record<string, any> = {};
+      for (const cp of costProds) cpById[cp.id] = cp;
+      // Case-insensitive lookup table for resilience against case drift
+      // between costing's printVendor and PO tab's stored key.
+      const poDatesByLowerKey: Record<string, string> = {};
+      for (const [k, v] of Object.entries(poShipDatesAll)) {
+        if (typeof v === "string" && v) poDatesByLowerKey[k.toLowerCase().trim()] = v;
+      }
+      const lookupDate = (...keys: (string | undefined | null)[]) => {
+        for (const k of keys) {
+          if (!k) continue;
+          const direct = poShipDatesAll[k];
+          if (direct) return direct;
+          const ci = poDatesByLowerKey[k.toLowerCase().trim()];
+          if (ci) return ci;
+        }
+        return null;
+      };
+
       const activeVendorDates: string[] = [];
       for (const dg of p.decoratorGroups) {
         const hasUnshipped = dg.items.some(it => it.pipeline_stage !== "shipped");
         if (!hasUnshipped) continue;
-        const d = poShipDatesAll[dg.decoratorName];
+        // Pull the printVendor key from any item in this decorator group.
+        let printVendor: string | undefined;
+        for (const it of dg.items) {
+          const cp = cpById[it.id];
+          if (cp?.printVendor) { printVendor = cp.printVendor; break; }
+        }
+        const d = lookupDate(printVendor, dg.decoratorName, dg.shortCode);
         if (d) activeVendorDates.push(d);
       }
       p.shipDate = activeVendorDates.length > 0 ? activeVendorDates.sort()[0] : null;
