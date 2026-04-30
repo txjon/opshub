@@ -418,6 +418,120 @@ export default function ProductionPage() {
     return { items, units, prints };
   }, [projects]);
 
+  // ── Sidebar data: action queue, vendor pulse, receiving forecast ──
+  // Action queue = items the team needs to look at right now: overdue
+  // ship dates and stalled in-production items (>7 days, no movement).
+  // Vendor pulse = workload + last-activity per active decorator.
+  // Receiving forecast = items shipped from decorator on ship_through /
+  // stage routes that haven't been received at HPD yet.
+  const STALL_DAYS = 7;
+  const sidebar = useMemo(() => {
+    type Flag = {
+      itemId: string; itemName: string; jobId: string; clientName: string;
+      jobTitle: string; daysOverdue?: number; daysInStage?: number;
+      decorator: string;
+    };
+    const overdue: Flag[] = [];
+    const stalled: Flag[] = [];
+
+    type VendorRow = {
+      name: string;
+      activeItems: number;
+      activeUnits: number;
+      oldestDays: number;
+      lastShippedDays: number | null;
+    };
+    const vendorMap: Record<string, VendorRow> = {};
+
+    type IncomingRow = {
+      itemId: string; itemName: string; jobId: string; jobTitle: string;
+      clientName: string; decorator: string; units: number;
+      shippedDays: number;
+    };
+    const incoming: IncomingRow[] = [];
+
+    for (const p of projects) {
+      for (const dg of p.decoratorGroups) {
+        // Vendor pulse — running workload per decorator
+        let v = vendorMap[dg.decoratorName];
+        if (!v) {
+          v = { name: dg.decoratorName, activeItems: 0, activeUnits: 0, oldestDays: 0, lastShippedDays: null };
+          vendorMap[dg.decoratorName] = v;
+        }
+
+        for (const it of dg.items) {
+          const inProd = it.pipeline_stage === "in_production";
+          const shipped = it.pipeline_stage === "shipped";
+          const inProdAt = it.pipeline_timestamps?.in_production;
+          const shippedAt = it.pipeline_timestamps?.shipped;
+
+          if (inProd) {
+            v.activeItems++;
+            v.activeUnits += it.total_units || 0;
+            if (inProdAt) {
+              const days = Math.floor((now.getTime() - new Date(inProdAt).getTime()) / 86400000);
+              if (days > v.oldestDays) v.oldestDays = days;
+              if (days >= STALL_DAYS) {
+                stalled.push({
+                  itemId: it.id, itemName: it.name, jobId: p.jobId,
+                  clientName: p.clientName, jobTitle: p.jobTitle,
+                  daysInStage: days, decorator: dg.decoratorName,
+                });
+              }
+            }
+            if (it.target_ship_date) {
+              const dueDays = Math.floor((now.getTime() - new Date(it.target_ship_date).getTime()) / 86400000);
+              if (dueDays > 0) {
+                overdue.push({
+                  itemId: it.id, itemName: it.name, jobId: p.jobId,
+                  clientName: p.clientName, jobTitle: p.jobTitle,
+                  daysOverdue: dueDays, decorator: dg.decoratorName,
+                });
+              }
+            }
+          }
+
+          if (shipped) {
+            if (shippedAt) {
+              const days = Math.floor((now.getTime() - new Date(shippedAt).getTime()) / 86400000);
+              if (v.lastShippedDays === null || days < v.lastShippedDays) v.lastShippedDays = days;
+            }
+            // Receiving forecast — only ship_through / stage land at HPD.
+            // Drop_ship items go straight to client; not our problem here.
+            // shipping_route lives on the job; we don't carry it on
+            // decoratorGroups, so for now we include all shipped items
+            // and let the user click through to verify route.
+            // (Could thread through later if false-positives become noise.)
+            incoming.push({
+              itemId: it.id, itemName: it.name, jobId: p.jobId,
+              jobTitle: p.jobTitle, clientName: p.clientName,
+              decorator: dg.decoratorName, units: it.total_units || 0,
+              shippedDays: shippedAt
+                ? Math.floor((now.getTime() - new Date(shippedAt).getTime()) / 86400000)
+                : 0,
+            });
+          }
+        }
+      }
+    }
+
+    // Recently-shipped → recently-received heuristic. Items shipped
+    // within the last 14 days are still "expected at HPD" for the
+    // forecast; older ones presumably arrived (or they're drop-ship).
+    const incomingFiltered = incoming
+      .filter(i => i.shippedDays <= 14)
+      .sort((a, b) => a.shippedDays - b.shippedDays);
+
+    overdue.sort((a, b) => (b.daysOverdue || 0) - (a.daysOverdue || 0));
+    stalled.sort((a, b) => (b.daysInStage || 0) - (a.daysInStage || 0));
+
+    const vendors = Object.values(vendorMap)
+      .filter(v => v.activeItems > 0)
+      .sort((a, b) => b.activeUnits - a.activeUnits);
+
+    return { overdue, stalled, vendors, incoming: incomingFiltered };
+  }, [projects]);
+
   // ── Filter & split active vs completed ──
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -524,6 +638,9 @@ export default function ProductionPage() {
         </select>
       </div>
 
+      {/* ── 2-col layout: project list + production sidebar ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 320px", gap: 16, alignItems: "start" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
       {/* ── Active Projects ── */}
       {activeProjects.length === 0 && completedProjects.length === 0 && (
         <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>No active production</div>
@@ -860,6 +977,140 @@ export default function ProductionPage() {
           )}
         </div>
       )}
+
+      </div>{/* end main column */}
+
+      {/* ── Sidebar: action queue · vendor pulse · receiving forecast ── */}
+      <aside style={{ display: "flex", flexDirection: "column", gap: 12, position: "sticky", top: 16 }}>
+        {/* 1. ACTION QUEUE */}
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+            Action queue
+            {(sidebar.overdue.length + sidebar.stalled.length) > 0 && (
+              <span style={{ marginLeft: 6, color: T.red }}>· {sidebar.overdue.length + sidebar.stalled.length}</span>
+            )}
+          </div>
+          {sidebar.overdue.length === 0 && sidebar.stalled.length === 0 && (
+            <div style={{ fontSize: 11, color: T.faint, fontStyle: "italic" }}>All clear</div>
+          )}
+          {sidebar.overdue.length > 0 && (
+            <div style={{ marginBottom: sidebar.stalled.length > 0 ? 10 : 0 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: T.red, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+                Overdue · {sidebar.overdue.length}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {sidebar.overdue.slice(0, 5).map(f => (
+                  <Link key={f.itemId} href={`/jobs/${f.jobId}`} style={{ display: "flex", alignItems: "baseline", gap: 6, padding: "3px 0", fontSize: 11, color: T.text, textDecoration: "none" }}
+                    onMouseEnter={e => e.currentTarget.style.color = T.accent}
+                    onMouseLeave={e => e.currentTarget.style.color = T.text}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.clientName} — {f.itemName}</span>
+                    <span style={{ fontSize: 10, color: T.red, fontWeight: 700, fontFamily: mono, flexShrink: 0 }}>{f.daysOverdue}d</span>
+                  </Link>
+                ))}
+                {sidebar.overdue.length > 5 && (
+                  <span style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>+{sidebar.overdue.length - 5} more</span>
+                )}
+              </div>
+            </div>
+          )}
+          {sidebar.stalled.length > 0 && (
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: T.amber, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+                Stalled {STALL_DAYS}+ days · {sidebar.stalled.length}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {sidebar.stalled.slice(0, 5).map(f => (
+                  <Link key={f.itemId} href={`/jobs/${f.jobId}`} style={{ display: "flex", alignItems: "baseline", gap: 6, padding: "3px 0", fontSize: 11, color: T.text, textDecoration: "none" }}
+                    onMouseEnter={e => e.currentTarget.style.color = T.accent}
+                    onMouseLeave={e => e.currentTarget.style.color = T.text}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.clientName} — {f.itemName}</span>
+                    <span style={{ fontSize: 10, color: T.amber, fontWeight: 700, fontFamily: mono, flexShrink: 0 }}>{f.daysInStage}d</span>
+                  </Link>
+                ))}
+                {sidebar.stalled.length > 5 && (
+                  <span style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>+{sidebar.stalled.length - 5} more</span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 2. VENDOR PULSE */}
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+            Vendor pulse
+            {sidebar.vendors.length > 0 && (
+              <span style={{ marginLeft: 6, color: T.faint }}>· {sidebar.vendors.length}</span>
+            )}
+          </div>
+          {sidebar.vendors.length === 0 && (
+            <div style={{ fontSize: 11, color: T.faint, fontStyle: "italic" }}>No active vendors</div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {sidebar.vendors.map(v => {
+              const tone = v.oldestDays >= STALL_DAYS ? T.red : v.oldestDays >= 3 ? T.amber : T.green;
+              return (
+                <button key={v.name} onClick={() => setFilterDecorator(v.name)}
+                  style={{ display: "flex", alignItems: "baseline", gap: 6, padding: "5px 8px", borderRadius: 6, background: filterDecorator === v.name ? T.surface : "transparent", border: `1px solid ${filterDecorator === v.name ? T.accent : "transparent"}`, cursor: "pointer", fontFamily: font, textAlign: "left", width: "100%" }}
+                  onMouseEnter={e => { if (filterDecorator !== v.name) e.currentTarget.style.background = T.surface; }}
+                  onMouseLeave={e => { if (filterDecorator !== v.name) e.currentTarget.style.background = "transparent"; }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: T.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.name}</span>
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{v.activeItems}</span>
+                  <span style={{ fontSize: 10, color: tone, fontWeight: 700, fontFamily: mono, minWidth: 28, textAlign: "right" }}>{v.oldestDays}d</span>
+                </button>
+              );
+            })}
+          </div>
+          {filterDecorator && (
+            <button onClick={() => setFilterDecorator("")}
+              style={{ marginTop: 6, fontSize: 10, color: T.muted, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: font, textDecoration: "underline" }}>
+              Clear filter
+            </button>
+          )}
+        </div>
+
+        {/* 3. RECEIVING FORECAST */}
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+            Incoming to HPD
+            {sidebar.incoming.length > 0 && (
+              <span style={{ marginLeft: 6, color: T.faint }}>· {sidebar.incoming.length}</span>
+            )}
+          </div>
+          {sidebar.incoming.length === 0 && (
+            <div style={{ fontSize: 11, color: T.faint, fontStyle: "italic" }}>Nothing incoming</div>
+          )}
+          {sidebar.incoming.length > 0 && (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+                <span style={{ fontSize: 18, fontWeight: 800, color: T.text, fontFamily: mono }}>
+                  {sidebar.incoming.reduce((s, i) => s + i.units, 0).toLocaleString()}
+                </span>
+                <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  units · {sidebar.incoming.length} item{sidebar.incoming.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {sidebar.incoming.slice(0, 5).map(i => (
+                  <Link key={i.itemId} href={`/jobs/${i.jobId}`} style={{ display: "flex", alignItems: "baseline", gap: 6, padding: "3px 0", fontSize: 11, color: T.text, textDecoration: "none" }}
+                    onMouseEnter={e => e.currentTarget.style.color = T.accent}
+                    onMouseLeave={e => e.currentTarget.style.color = T.text}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.clientName} — {i.itemName}</span>
+                    <span style={{ fontSize: 10, color: T.faint, fontFamily: mono, flexShrink: 0 }}>{i.shippedDays}d ago</span>
+                  </Link>
+                ))}
+                {sidebar.incoming.length > 5 && (
+                  <Link href="/warehouse" style={{ fontSize: 10, color: T.accent, marginTop: 4, textDecoration: "underline" }}>
+                    See all in Warehouse →
+                  </Link>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </aside>
+
+      </div>{/* end 2-col grid */}
 
       {/* Packing slip viewer modal */}
       {viewingSlips && (
