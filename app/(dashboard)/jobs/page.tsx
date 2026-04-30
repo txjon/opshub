@@ -31,6 +31,43 @@ const PHASE_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
+// Per-item bucket rollup for the row's status column. Multi-vendor
+// jobs commonly have items in different states at the same time:
+// 2 items waiting on PO, 2 in production, 1 received. The job-level
+// phase column only shows the dominant blocker — we want to surface
+// every state with a count.
+//
+// Buckets render in workflow order; only those with count > 0 show.
+type StatusBucket = { key: string; label: string; color: string; count: number };
+function getStatusBuckets(job: any, T: any): StatusBucket[] {
+  const items = job.items || [];
+  if (items.length === 0) return [];
+  const costProds = (job.costing_data?.costProds || []) as any[];
+  const cpById: Record<string, any> = {};
+  for (const cp of costProds) cpById[cp.id] = cp;
+  const poSent = new Set<string>(job.type_meta?.po_sent_vendors || []);
+
+  const counts: Record<string, number> = {
+    needs_po: 0, production: 0, receiving: 0, at_hpd: 0,
+  };
+  for (const it of items) {
+    if (it.received_at_hpd === true) { counts.at_hpd++; continue; }
+    if (it.pipeline_stage === "shipped") { counts.receiving++; continue; }
+    if (it.pipeline_stage === "in_production") { counts.production++; continue; }
+    // Item not yet at decorator. If vendor assigned and PO not sent, it
+    // needs a PO. If no vendor yet, it's still in earlier setup —
+    // ignored here so the row doesn't shout pre-cost noise.
+    const vendor = cpById[it.id]?.printVendor;
+    if (vendor && !poSent.has(vendor)) counts.needs_po++;
+  }
+  const out: StatusBucket[] = [];
+  if (counts.needs_po) out.push({ key: "needs_po", label: "Needs PO", color: T.amber, count: counts.needs_po });
+  if (counts.production) out.push({ key: "production", label: "Production", color: T.accent, count: counts.production });
+  if (counts.receiving) out.push({ key: "receiving", label: "Receiving", color: T.blue, count: counts.receiving });
+  if (counts.at_hpd) out.push({ key: "at_hpd", label: "At HPD", color: T.purple, count: counts.at_hpd });
+  return out;
+}
+
 function getItemProgress(job: any): string {
   const items = job.items || [];
   if (!items.length) return "";
@@ -66,7 +103,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), costing_summary, costing_data, type_meta, payment_records(amount, status), items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, garment_type, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, costing_data, type_meta, payment_records(amount, status), items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, garment_type, received_at_hpd, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -359,8 +396,21 @@ export default function JobsPage() {
                   {job.title}{job.title ? " · " : ""}<span style={{ fontFamily:mono }}>{invNum || job.job_number}</span>
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginTop:2, fontSize:11 }}>
-                  <span style={{ color:T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em" }}>{phaseLabel}</span>
-                  {progress && <span style={{ color:T.faint, fontFamily:mono }}>{progress}</span>}
+                  {(() => {
+                    const isTerminal = ["complete","cancelled","on_hold"].includes(job.phase);
+                    const buckets = isTerminal ? [] : getStatusBuckets(job, T);
+                    if (buckets.length === 0) {
+                      return <>
+                        <span style={{ color:T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em" }}>{phaseLabel}</span>
+                        {progress && <span style={{ color:T.faint, fontFamily:mono }}>{progress}</span>}
+                      </>;
+                    }
+                    return buckets.map(b => (
+                      <span key={b.key} style={{ color:b.color, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em" }}>
+                        {b.label} <span style={{ fontFamily:mono }}>· {b.count}</span>
+                      </span>
+                    ));
+                  })()}
                   {totalUnits > 0 && <span style={{ color:T.muted, fontFamily:mono }}>{totalUnits.toLocaleString()} units</span>}
                   {status && (
                     <span style={{ color: status.green ? T.green : status.amber ? T.amber : T.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.06em", fontSize:10 }}>
@@ -420,10 +470,30 @@ export default function JobsPage() {
                 {totalUnits>0?totalUnits.toLocaleString():"—"} <span style={{ fontSize:11, fontWeight:400, color:T.muted }}>units</span>
               </div>
 
-              {/* Phase + progress */}
+              {/* Phase + progress — multi-bucket for active in-flight jobs,
+                   plain phase label for terminal/parked phases. */}
               <div style={{ display:"flex", flexDirection:"column", gap:2, minWidth:0 }}>
-                <span style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.08em", whiteSpace:"nowrap" }}>{phaseLabel}</span>
-                {progress && <span style={{ fontSize:10, color:T.faint, fontFamily:mono, whiteSpace:"nowrap" }}>{progress}</span>}
+                {(() => {
+                  const isTerminal = ["complete","cancelled","on_hold"].includes(job.phase);
+                  const buckets = isTerminal ? [] : getStatusBuckets(job, T);
+                  if (buckets.length === 0) {
+                    return (
+                      <>
+                        <span style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:"uppercase", letterSpacing:"0.08em", whiteSpace:"nowrap" }}>{phaseLabel}</span>
+                        {progress && <span style={{ fontSize:10, color:T.faint, fontFamily:mono, whiteSpace:"nowrap" }}>{progress}</span>}
+                      </>
+                    );
+                  }
+                  return (
+                    <div style={{ display:"flex", flexWrap:"wrap", gap:"2px 10px" }}>
+                      {buckets.map(b => (
+                        <span key={b.key} style={{ fontSize:11, fontWeight:700, color:b.color, textTransform:"uppercase", letterSpacing:"0.06em", whiteSpace:"nowrap" }}>
+                          {b.label} <span style={{ fontFamily:mono, fontWeight:600 }}>· {b.count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Priority (top) + Ship date (bottom) — right-anchored
