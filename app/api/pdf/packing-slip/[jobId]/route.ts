@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
+import { sortSizes } from "@/lib/theme";
 
 export async function GET(req: NextRequest, { params }: { params: { jobId: string } }) {
   const internal = req.headers.get("x-internal-key") === process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -75,9 +76,12 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       // Drop ship: decorator tracking. Ship-through/stage: HPD outbound tracking.
       const tracking = isDropShip ? (item.ship_tracking || "\u2014") : (job.fulfillment_tracking || "\u2014");
 
-      const activeSizes = Object.entries(finalQtys).filter(([, q]) => q > 0);
-      const sizeGrid = activeSizes.map(([sz, q]) =>
-        `<div style="font-size:10px;color:#444;font-family:monospace;white-space:nowrap"><span style="color:#999;margin-right:3px">${sz}</span>${q.toLocaleString()}</div>`
+      // Sort sizes via the canonical theme order (XS, S, M, L, XL, 2XL, …)
+      // so the slip reads top-to-bottom in natural order, not Postgres
+      // insertion order.
+      const sortedSizeKeys = sortSizes(Object.keys(finalQtys).filter(sz => (finalQtys[sz] || 0) > 0));
+      const sizeGrid = sortedSizeKeys.map(sz =>
+        `<div style="font-size:10px;color:#444;font-family:monospace;white-space:nowrap"><span style="color:#999;margin-right:3px">${sz}</span>${finalQtys[sz].toLocaleString()}</div>`
       ).join("");
 
       return `<tr style="border-bottom:0.5px solid #eeeeee">
