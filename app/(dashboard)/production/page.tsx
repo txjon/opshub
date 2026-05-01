@@ -861,21 +861,22 @@ export default function ProductionPage() {
                   })
                   .map(dg => {
                   const decKey = dg.decoratorId || dg.decoratorName;
-                  const isDecExpanded = expandedDecorators.has(decKey);
+                  // Modal is scoped to a single decorator now — always
+                  // expanded, no toggle. Header stays for context + the
+                  // bulk-ship button.
+                  const isDecExpanded = true;
                   return (
                   <div key={decKey} style={{
                     marginTop: 14, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden",
                   }}>
-                    {/* Decorator header — click to expand/collapse */}
-                    <div onClick={() => toggleDecorator(decKey)}
+                    {/* Decorator header — context + bulk actions */}
+                    <div
                       style={{
                         padding: "10px 14px", background: T.surface,
                         display: "flex", justifyContent: "space-between", alignItems: "center",
-                        borderBottom: isDecExpanded ? `1px solid ${T.border}` : "none",
-                        cursor: "pointer",
+                        borderBottom: `1px solid ${T.border}`,
                       }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 11, color: T.faint, transition: "transform 0.15s", transform: isDecExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{dg.decoratorName}</span>
                         <span style={{ fontSize: 11, color: T.muted }}>
                           {dg.items.length} item{dg.items.length !== 1 ? "s" : ""} · {dg.totalUnits.toLocaleString()} units
