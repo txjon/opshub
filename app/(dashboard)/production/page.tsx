@@ -64,9 +64,6 @@ export default function ProductionPage() {
   // this; modal renders only that decorator group. Will get richer
   // (per-vendor actions) as the modal grows.
   const [modalDecoratorKey, setModalDecoratorKey] = useState<string | null>(null);
-  // Filter pills inside the vendor modal — "all" / "active" (in_production)
-  // / "shipped". Resets to "all" each time the modal opens.
-  const [modalItemFilter, setModalItemFilter] = useState<"all" | "active" | "shipped">("all");
   // Per-decorator expand state inside the modal. Reset on modal change
   // so a fresh project always opens with everything collapsed (Jon
   // wants the multi-vendor view quiet on first open).
@@ -107,8 +104,7 @@ export default function ProductionPage() {
       setExpandedDecorators(new Set());
       setModalDecoratorKey(null);
     }
-    setModalItemFilter("all");
-  }, [modalProject?.jobId, modalDecoratorKey]);
+  }, [modalProject?.jobId]);
 
   function toggleDecorator(key: string) {
     setExpandedDecorators(prev => {
@@ -865,11 +861,7 @@ export default function ProductionPage() {
                   })
                   .map(dg => {
                   const decKey = dg.decoratorId || dg.decoratorName;
-                  const visibleItems = dg.items.filter(it => {
-                    if (modalItemFilter === "active") return it.pipeline_stage !== "shipped";
-                    if (modalItemFilter === "shipped") return it.pipeline_stage === "shipped";
-                    return true;
-                  });
+                  const visibleItems = dg.items;
                   return (
                   <div key={decKey}>
                     {/* Page-style header — big decorator name, stats line,
@@ -905,32 +897,6 @@ export default function ProductionPage() {
                         )}
                       </div>
 
-                      {/* Filter pills — match the Art Studio pattern Jon
-                          referenced. Active pill = filled black, inactive
-                          = bordered. */}
-                      <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-                        {([
-                          ["all",      "All",       dg.items.length],
-                          ["active",   "Active",    dg.inProduction],
-                          ["shipped",  "Shipped",   dg.shipped],
-                        ] as const).map(([k, label, count]) => {
-                          const sel = modalItemFilter === k;
-                          if (count === 0 && k !== "all") return null;
-                          return (
-                            <button key={k} onClick={() => setModalItemFilter(k as any)}
-                              style={{
-                                padding: "8px 16px", borderRadius: 8,
-                                background: sel ? T.text : "transparent",
-                                border: `1px solid ${sel ? T.text : T.border}`,
-                                color: sel ? "#fff" : T.text,
-                                fontSize: 13, fontWeight: sel ? 700 : 600,
-                                cursor: "pointer", fontFamily: font,
-                              }}>
-                              {label} {count > 0 && <span style={{ opacity: sel ? 0.7 : 0.5, fontWeight: 400, marginLeft: 4 }}>· {count}</span>}
-                            </button>
-                          );
-                        })}
-                      </div>
                     </div>
 
                     {(<>
