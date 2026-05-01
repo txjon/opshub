@@ -30,8 +30,7 @@ export function NotifyShipmentDialog({
   const [extraEmail, setExtraEmail] = useState("");
   const [bccEmail, setBccEmail] = useState("");
   const [includeGoose, setIncludeGoose] = useState(true);
-  const [warehouseExtras, setWarehouseExtras] = useState([]); // string[]
-  const [warehouseExtraInput, setWarehouseExtraInput] = useState("");
+  const [warehouseExtraEmail, setWarehouseExtraEmail] = useState("");
 
   // Subject + body
   const [subject, setSubject] = useState("");
@@ -53,8 +52,7 @@ export function NotifyShipmentDialog({
       setRecipientSel(sel);
     } else {
       setIncludeGoose(true);
-      setWarehouseExtras([]);
-      setWarehouseExtraInput("");
+      setWarehouseExtraEmail("");
     }
     setExtraEmail("");
     setBccEmail("");
@@ -82,11 +80,7 @@ export function NotifyShipmentDialog({
   const warehouseRecipients = !isDropShip
     ? [
         ...(includeGoose ? [GOOSE_EMAIL] : []),
-        ...warehouseExtras.filter(e => e.trim()),
-        // Include whatever's still in the input — covers the case where
-        // the user typed an address and clicked Send without pressing
-        // Enter or the Add button first.
-        ...(warehouseExtraInput.trim() ? [warehouseExtraInput.trim()] : []),
+        ...(warehouseExtraEmail.trim() ? [warehouseExtraEmail.trim()] : []),
       ]
     : [];
   const allRecipients = isDropShip ? dropShipRecipients : warehouseRecipients;
@@ -243,36 +237,9 @@ export function NotifyShipmentDialog({
                 </div>
                 <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{GOOSE_EMAIL}</span>
               </label>
-              {warehouseExtras.map((e, idx) => (
-                <div key={idx} style={{ marginTop: 6, display: "flex", gap: 6 }}>
-                  <input value={e} onChange={ev => setWarehouseExtras(prev => prev.map((x, i) => i === idx ? ev.target.value : x))}
-                    style={{ ...inp, flex: 1, fontSize: 12 }} />
-                  <button onClick={() => setWarehouseExtras(prev => prev.filter((_, i) => i !== idx))}
-                    style={{ padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: "transparent", color: T.faint, fontSize: 11, cursor: "pointer", fontFamily: font }}>
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
-                <input value={warehouseExtraInput} onChange={e => setWarehouseExtraInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && warehouseExtraInput.trim()) {
-                      setWarehouseExtras(prev => [...prev, warehouseExtraInput.trim()]);
-                      setWarehouseExtraInput("");
-                    }
-                  }}
-                  placeholder="+ Add another email (Enter to add)"
-                  style={{ ...inp, flex: 1, fontSize: 12 }} />
-                {warehouseExtraInput.trim() && (
-                  <button onClick={() => {
-                    setWarehouseExtras(prev => [...prev, warehouseExtraInput.trim()]);
-                    setWarehouseExtraInput("");
-                  }}
-                    style={{ padding: "6px 12px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 11, cursor: "pointer", fontFamily: font, fontWeight: 600 }}>
-                    Add
-                  </button>
-                )}
-              </div>
+              <input value={warehouseExtraEmail} onChange={e => setWarehouseExtraEmail(e.target.value)}
+                placeholder="+ Add another email"
+                style={{ ...inp, marginTop: 6, fontSize: 12 }} />
             </div>
           )}
 
