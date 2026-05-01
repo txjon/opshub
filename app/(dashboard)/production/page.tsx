@@ -87,6 +87,9 @@ export default function ProductionPage() {
   >(null);
   const [batchTracking, setBatchTracking] = useState("");
   const [batchNotes, setBatchNotes] = useState("");
+  // Drag highlight target for the slip dropzones. Either modal's
+  // upload area can be the active drop zone at a time.
+  const [slipDragOver, setSlipDragOver] = useState<"ship" | "batch" | null>(null);
   // Per-decorator expand state inside the modal. Reset on modal change
   // so a fresh project always opens with everything collapsed (Jon
   // wants the multi-vendor view quiet on first open).
@@ -455,32 +458,38 @@ export default function ProductionPage() {
     }, 800);
   }
 
-  async function handlePackingSlipUpload(file: File, project: ProjectGroup, dgItems: ProdItem[]) {
+  async function handlePackingSlipUpload(input: File | File[] | FileList, project: ProjectGroup, dgItems: ProdItem[]) {
+    const files: File[] = input instanceof File ? [input] : Array.from(input as any);
+    if (files.length === 0) return;
     const key = project.jobId + "_" + (dgItems[0]?.decorator_id || "");
     setUploadingSlip(key);
     setSlipProgress(0);
     setSlipStatus(null);
     try {
-      setSlipStatus("Uploading to Drive...");
-      const result = await uploadToDrive({
-        blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream",
-        clientName: project.clientName, projectTitle: project.jobTitle, itemName: "Packing Slips",
-        onProgress: (pct: number) => setSlipProgress(pct),
-      });
-      setSlipStatus(`Registering ${dgItems.length} items...`);
-      // Register against all items in this decorator group
-      for (const item of dgItems) {
-        await registerFileInDb({
-          fileId: result.fileId, webViewLink: result.webViewLink, folderLink: result.folderLink,
-          fileName: file.name, mimeType: file.type, fileSize: file.size,
-          itemId: item.id, stage: "packing_slip", notes: result.folderLink,
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const prefix = files.length > 1 ? `(${i + 1}/${files.length}) ` : "";
+        setSlipStatus(`${prefix}Uploading ${file.name}...`);
+        setSlipProgress(0);
+        const result = await uploadToDrive({
+          blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream",
+          clientName: project.clientName, projectTitle: project.jobTitle, itemName: "Packing Slips",
+          onProgress: (pct: number) => setSlipProgress(pct),
         });
-        setPackingSlips(prev => ({
-          ...prev,
-          [item.id]: [...(prev[item.id] || []), { id: result.fileId, file_name: file.name, drive_link: result.webViewLink, folder_link: result.folderLink }],
-        }));
+        setSlipStatus(`${prefix}Registering ${dgItems.length} item${dgItems.length === 1 ? "" : "s"}...`);
+        for (const item of dgItems) {
+          await registerFileInDb({
+            fileId: result.fileId, webViewLink: result.webViewLink, folderLink: result.folderLink,
+            fileName: file.name, mimeType: file.type, fileSize: file.size,
+            itemId: item.id, stage: "packing_slip", notes: result.folderLink,
+          });
+          setPackingSlips(prev => ({
+            ...prev,
+            [item.id]: [...(prev[item.id] || []), { id: result.fileId, file_name: file.name, drive_link: result.webViewLink, folder_link: result.folderLink }],
+          }));
+        }
       }
-      setSlipStatus("Uploaded");
+      setSlipStatus(files.length > 1 ? `Uploaded ${files.length} files` : "Uploaded");
       setTimeout(() => setSlipStatus(null), 2000);
     } catch (err: any) {
       alert("Packing slip error: " + err.message);
@@ -1264,12 +1273,26 @@ export default function ProductionPage() {
                     <div style={{ fontSize: 12, color: T.accent, padding: "8px 10px" }}>{slipStatus || `${slipProgress}%`}</div>
                   ) : (
                     <>
-                      <button onClick={(e) => { e.stopPropagation(); shipModalSlipInputRef.current?.click(); }}
-                        style={{ fontSize: 12, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 6, padding: "8px 10px", cursor: "pointer", fontFamily: font, width: "100%" }}>
-                        {itemSlips.length > 0 ? "+ Add another packing slip" : "+ Upload packing slip"}
-                      </button>
-                      <input ref={shipModalSlipInputRef} type="file" accept="image/*,.pdf" style={{ display: "none" }}
-                        onChange={e => { const f = e.target.files?.[0]; if (f) handlePackingSlipUpload(f, project, [item]); e.target.value = ""; }} />
+                      <div
+                        onClick={(e) => { e.stopPropagation(); shipModalSlipInputRef.current?.click(); }}
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver("ship"); }}
+                        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver("ship"); }}
+                        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver(null); }}
+                        onDrop={(e) => {
+                          e.preventDefault(); e.stopPropagation(); setSlipDragOver(null);
+                          const files = Array.from(e.dataTransfer.files || []);
+                          if (files.length > 0) handlePackingSlipUpload(files, project, [item]);
+                        }}
+                        style={{
+                          fontSize: 12, color: slipDragOver === "ship" ? T.accent : T.muted,
+                          background: slipDragOver === "ship" ? T.accentDim : "none",
+                          border: `1px dashed ${slipDragOver === "ship" ? T.accent : T.border}`,
+                          borderRadius: 6, padding: "12px 10px", cursor: "pointer", fontFamily: font, width: "100%", textAlign: "center",
+                        }}>
+                        {slipDragOver === "ship" ? "Drop to upload" : (itemSlips.length > 0 ? "+ Add packing slip(s) — drag & drop or click" : "+ Upload packing slip(s) — drag & drop or click")}
+                      </div>
+                      <input ref={shipModalSlipInputRef} type="file" accept="image/*,.pdf" multiple style={{ display: "none" }}
+                        onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handlePackingSlipUpload(fs, project, [item]); e.target.value = ""; }} />
                     </>
                   )}
                 </div>
@@ -1373,12 +1396,26 @@ export default function ProductionPage() {
                     <div style={{ fontSize: 12, color: T.accent, padding: "8px 10px" }}>{slipStatus || `${slipProgress}%`}</div>
                   ) : (
                     <>
-                      <button onClick={(e) => { e.stopPropagation(); batchModalSlipInputRef.current?.click(); }}
-                        style={{ fontSize: 12, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 6, padding: "8px 10px", cursor: "pointer", fontFamily: font, width: "100%" }}>
-                        {uniqueSlips.length > 0 ? "+ Add another packing slip" : "+ Upload packing slip"}
-                      </button>
-                      <input ref={batchModalSlipInputRef} type="file" accept="image/*,.pdf" style={{ display: "none" }}
-                        onChange={e => { const f = e.target.files?.[0]; if (f) handlePackingSlipUpload(f, project, liveItems); e.target.value = ""; }} />
+                      <div
+                        onClick={(e) => { e.stopPropagation(); batchModalSlipInputRef.current?.click(); }}
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver("batch"); }}
+                        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver("batch"); }}
+                        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver(null); }}
+                        onDrop={(e) => {
+                          e.preventDefault(); e.stopPropagation(); setSlipDragOver(null);
+                          const files = Array.from(e.dataTransfer.files || []);
+                          if (files.length > 0) handlePackingSlipUpload(files, project, liveItems);
+                        }}
+                        style={{
+                          fontSize: 12, color: slipDragOver === "batch" ? T.accent : T.muted,
+                          background: slipDragOver === "batch" ? T.accentDim : "none",
+                          border: `1px dashed ${slipDragOver === "batch" ? T.accent : T.border}`,
+                          borderRadius: 6, padding: "12px 10px", cursor: "pointer", fontFamily: font, width: "100%", textAlign: "center",
+                        }}>
+                        {slipDragOver === "batch" ? "Drop to upload" : (uniqueSlips.length > 0 ? "+ Add packing slip(s) — drag & drop or click" : "+ Upload packing slip(s) — drag & drop or click")}
+                      </div>
+                      <input ref={batchModalSlipInputRef} type="file" accept="image/*,.pdf" multiple style={{ display: "none" }}
+                        onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handlePackingSlipUpload(fs, project, liveItems); e.target.value = ""; }} />
                     </>
                   )}
                 </div>
