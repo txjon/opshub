@@ -730,58 +730,56 @@ export default function ProductionPage() {
                 modal. Row body itself is non-clickable so accidental
                 clicks while reading don't disrupt scanning. ── */}
             <div
-              style={{ padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
+              style={{ padding: "14px 18px", display: "flex", gap: 16, alignItems: "flex-start" }}
             >
-              <div style={{ flex: 1 }}>
-                {/* Title block — invoice + client name + title/jobNumber, mirrors Projects */}
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 6 }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: project.invoiceNumber ? T.text : "transparent", fontFamily: mono, whiteSpace: "nowrap" }}>
-                    {project.invoiceNumber || ""}
-                  </span>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{project.clientName || "No client"}</span>
-                      {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>All Shipped</span>}
-                    </div>
-                    {project.jobTitle && (
-                      <div style={{ fontSize: 12, color: T.faint, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {project.jobTitle}
-                      </div>
-                    )}
+              {/* Title block — fixed width so the memo wraps inside it,
+                  freeing the middle of the row for vendor chips. */}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 16, width: 320, flexShrink: 0 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: project.invoiceNumber ? T.text : "transparent", fontFamily: mono, whiteSpace: "nowrap" }}>
+                  {project.invoiceNumber || ""}
+                </span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span>{project.clientName || "No client"}</span>
+                    {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>All Shipped</span>}
                   </div>
+                  {project.jobTitle && (
+                    <div style={{ fontSize: 12, color: T.faint, marginTop: 2, lineHeight: 1.4, wordBreak: "break-word" }}>
+                      {project.jobTitle}
+                    </div>
+                  )}
                 </div>
+              </div>
 
-                {/* Per-decorator mini breakdown — clickable chips that
-                    open the modal with that vendor expanded. Row-click
-                    opens the modal collapsed; vendor-click jumps right
-                    into the work for that decorator. */}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {project.decoratorGroups.map(dg => {
-                    const decKey = dg.decoratorId || dg.decoratorName;
-                    return (
-                      <button key={decKey}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setExpandedDecorators(new Set([decKey]));
-                          setModalProject(project);
-                        }}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 6,
-                          padding: "4px 10px", borderRadius: 6, background: T.surface,
-                          fontSize: 11, border: `1px solid ${T.border}`, cursor: "pointer",
-                          fontFamily: font, transition: "all 0.12s",
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = T.accentDim; e.currentTarget.style.borderColor = T.accent; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
-                        <span style={{ fontWeight: 600, color: T.text }}>{dg.shortCode || dg.decoratorName}</span>
-                        <span style={{ color: T.muted }}>{dg.items.length} item{dg.items.length !== 1 ? "s" : ""}</span>
-                        <span style={{ color: T.faint }}>·</span>
-                        {dg.inProduction > 0 && <span style={{ color: T.accent }}>{dg.inProduction} active</span>}
-                        {dg.shipped > 0 && <span style={{ color: T.green }}>{dg.shipped} shipped</span>}
-                      </button>
-                    );
-                  })}
-                </div>
+              {/* Per-decorator mini breakdown — fills the middle of the
+                  row so vendor chips sit visually between the title and
+                  the ship date / units column. */}
+              <div style={{ flex: 1, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+                {project.decoratorGroups.map(dg => {
+                  const decKey = dg.decoratorId || dg.decoratorName;
+                  return (
+                    <button key={decKey}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedDecorators(new Set([decKey]));
+                        setModalProject(project);
+                      }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        padding: "4px 10px", borderRadius: 6, background: T.surface,
+                        fontSize: 11, border: `1px solid ${T.border}`, cursor: "pointer",
+                        fontFamily: font, transition: "all 0.12s",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = T.accentDim; e.currentTarget.style.borderColor = T.accent; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
+                      <span style={{ fontWeight: 600, color: T.text }}>{dg.shortCode || dg.decoratorName}</span>
+                      <span style={{ color: T.muted }}>{dg.items.length} item{dg.items.length !== 1 ? "s" : ""}</span>
+                      <span style={{ color: T.faint }}>·</span>
+                      {dg.inProduction > 0 && <span style={{ color: T.accent }}>{dg.inProduction} active</span>}
+                      {dg.shipped > 0 && <span style={{ color: T.green }}>{dg.shipped} shipped</span>}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Right side: ship date + expand arrow */}
