@@ -743,9 +743,11 @@ export default function ProductionPage() {
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{project.clientName || "No client"}</span>
                       {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>All Shipped</span>}
                     </div>
-                    <div style={{ fontSize: 12, color: T.faint, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {project.jobTitle}{project.jobTitle ? " · " : ""}<span style={{ fontFamily: mono }}>{project.jobNumber}</span>
-                    </div>
+                    {project.jobTitle && (
+                      <div style={{ fontSize: 12, color: T.faint, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {project.jobTitle}
+                      </div>
+                    )}
                   </div>
                 </div>
 
