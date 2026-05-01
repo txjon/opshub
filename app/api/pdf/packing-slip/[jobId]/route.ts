@@ -96,7 +96,18 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       ).join("");
 
       // Build the specs sub-line: vendor · sku · color (whichever are set).
-      const specParts = [item.blank_vendor, item.blank_sku, itemColor].filter(Boolean);
+      // Case-insensitive dedupe — many items store the color name in
+      // blank_sku, which would otherwise render as "Vendor · Black · Black".
+      const seenSpec = new Set<string>();
+      const specParts: string[] = [];
+      for (const part of [item.blank_vendor, item.blank_sku, itemColor]) {
+        const trimmed = (part || "").toString().trim();
+        if (!trimmed) continue;
+        const key = trimmed.toLowerCase();
+        if (seenSpec.has(key)) continue;
+        seenSpec.add(key);
+        specParts.push(trimmed);
+      }
       const specsLine = specParts.length > 0
         ? `<div style="font-size:10px;color:#666;margin-top:2px;padding-left:17px">${specParts.join(" · ")}</div>`
         : "";
