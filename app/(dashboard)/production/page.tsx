@@ -91,10 +91,11 @@ export default function ProductionPage() {
     if (fresh && fresh !== modalProject) setModalProject(fresh);
   }, [projects, modalProject]);
 
-  // Reset decorator expansion state whenever the modal switches to a
-  // different project (or closes).
+  // Reset decorator expansion state when the modal CLOSES, but not
+  // when it opens — vendor-chip clicks pre-seed expandedDecorators
+  // before setting modalProject, and we need that pre-seed to survive.
   useEffect(() => {
-    setExpandedDecorators(new Set());
+    if (!modalProject) setExpandedDecorators(new Set());
   }, [modalProject?.jobId]);
 
   function toggleDecorator(key: string) {
@@ -748,21 +749,36 @@ export default function ProductionPage() {
                   </div>
                 </div>
 
-                {/* Per-decorator mini breakdown */}
+                {/* Per-decorator mini breakdown — clickable chips that
+                    open the modal with that vendor expanded. Row-click
+                    opens the modal collapsed; vendor-click jumps right
+                    into the work for that decorator. */}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {project.decoratorGroups.map(dg => (
-                    <div key={dg.decoratorId || dg.decoratorName} style={{
-                      display: "flex", alignItems: "center", gap: 6,
-                      padding: "4px 10px", borderRadius: 6, background: T.surface,
-                      fontSize: 11,
-                    }}>
-                      <span style={{ fontWeight: 600, color: T.text }}>{dg.shortCode || dg.decoratorName}</span>
-                      <span style={{ color: T.muted }}>{dg.items.length} item{dg.items.length !== 1 ? "s" : ""}</span>
-                      <span style={{ color: T.faint }}>·</span>
-                      {dg.inProduction > 0 && <span style={{ color: T.accent }}>{dg.inProduction} active</span>}
-                      {dg.shipped > 0 && <span style={{ color: T.green }}>{dg.shipped} shipped</span>}
-                    </div>
-                  ))}
+                  {project.decoratorGroups.map(dg => {
+                    const decKey = dg.decoratorId || dg.decoratorName;
+                    return (
+                      <button key={decKey}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedDecorators(new Set([decKey]));
+                          setModalProject(project);
+                        }}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 6,
+                          padding: "4px 10px", borderRadius: 6, background: T.surface,
+                          fontSize: 11, border: `1px solid ${T.border}`, cursor: "pointer",
+                          fontFamily: font, transition: "all 0.12s",
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = T.accentDim; e.currentTarget.style.borderColor = T.accent; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
+                        <span style={{ fontWeight: 600, color: T.text }}>{dg.shortCode || dg.decoratorName}</span>
+                        <span style={{ color: T.muted }}>{dg.items.length} item{dg.items.length !== 1 ? "s" : ""}</span>
+                        <span style={{ color: T.faint }}>·</span>
+                        {dg.inProduction > 0 && <span style={{ color: T.accent }}>{dg.inProduction} active</span>}
+                        {dg.shipped > 0 && <span style={{ color: T.green }}>{dg.shipped} shipped</span>}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
