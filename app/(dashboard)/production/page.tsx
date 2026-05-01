@@ -78,6 +78,15 @@ export default function ProductionPage() {
   // tracking + notes inputs + confirm. Inline row no longer carries
   // those inputs, so the row stays compact.
   const [shipDetailItem, setShipDetailItem] = useState<ProdItem | null>(null);
+  // Batch ship sub-modal. Click "Ship Selected · N" → opens with one
+  // tracking + notes input + packing slip upload that get applied to
+  // every selected item. Vendors typically ship one box with a single
+  // tracking number for multiple items, so this saves copy-pasting.
+  const [batchShipState, setBatchShipState] = useState<
+    { items: ProdItem[]; project: ProjectGroup; dg: DecoratorGroup } | null
+  >(null);
+  const [batchTracking, setBatchTracking] = useState("");
+  const [batchNotes, setBatchNotes] = useState("");
   // Per-decorator expand state inside the modal. Reset on modal change
   // so a fresh project always opens with everything collapsed (Jon
   // wants the multi-vendor view quiet on first open).
@@ -88,6 +97,7 @@ export default function ProductionPage() {
   const [slipStatus, setSlipStatus] = useState<string | null>(null);
   const [viewingSlips, setViewingSlips] = useState<{ files: { file_name: string; drive_link: string }[]; index: number; title: string } | null>(null);
   const shipModalSlipInputRef = useRef<HTMLInputElement | null>(null);
+  const batchModalSlipInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimers = useRef<Record<string, any>>({});
   const now = new Date();
 
@@ -926,13 +936,28 @@ export default function ProductionPage() {
                           <h2 style={{ fontSize: 28, fontWeight: 800, margin: 0, letterSpacing: "-0.02em", color: T.text }}>
                             {dg.decoratorName}
                           </h2>
-                          <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>
-                            <strong style={{ color: T.text, fontWeight: 700 }}>{dg.inProduction}</strong> in production
-                            <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
-                            <strong style={{ color: T.text, fontWeight: 700 }}>{dg.shipped}</strong> shipped
-                            <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
-                            <strong style={{ color: T.text, fontWeight: 700 }}>{dg.totalUnits.toLocaleString()}</strong> units
-                          </div>
+                          {(() => {
+                            // Units shipped = sum of ship_qtys per shipped
+                            // item, falling back to total_units if the item
+                            // has no per-size breakdown.
+                            const unitsShipped = dg.items.reduce((acc, it) => {
+                              if (it.pipeline_stage !== "shipped") return acc;
+                              const sq = it.ship_qtys || {};
+                              const sqSum = Object.values(sq).reduce((a, b) => a + (b || 0), 0);
+                              return acc + (sqSum > 0 ? sqSum : (it.total_units || 0));
+                            }, 0);
+                            return (
+                              <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>
+                                <strong style={{ color: T.text, fontWeight: 700 }}>{dg.inProduction}</strong> in production
+                                <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
+                                <strong style={{ color: T.text, fontWeight: 700 }}>{dg.shipped}</strong> shipped
+                                <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
+                                <strong style={{ color: T.text, fontWeight: 700 }}>{dg.totalUnits.toLocaleString()}</strong> units
+                                <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
+                                <strong style={{ color: T.text, fontWeight: 700 }}>{unitsShipped.toLocaleString()}</strong> units shipped
+                              </div>
+                            );
+                          })()}
                         </div>
                         {/* Ship-to card — top-right of header. Mirrors the
                             ship-to that prints on the PO so the team can
@@ -941,43 +966,24 @@ export default function ProductionPage() {
                           <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>Ship to</div>
                           <div style={{ fontSize: 12, color: T.text, lineHeight: 1.45, whiteSpace: "pre-line" }}>{shipToAddress}</div>
                         </div>
-                        {(() => {
-                          // Ship Selected — operates on items in this
-                          // decorator group that are both selected AND
-                          // still in production. Hidden when nothing
-                          // qualifies. Copies tracking from any selected
-                          // item that already has one to the others
-                          // (lets you fill it in once for the batch).
-                          const eligible = dg.items.filter(it => selectedItemIds.has(it.id) && it.pipeline_stage !== "shipped");
-                          if (eligible.length === 0) return null;
-                          return (
-                            <button onClick={async () => {
-                              const src = eligible.find(it => it.ship_tracking);
-                              if (src) {
-                                for (const it of eligible.filter(it2 => it2.id !== src.id && !it2.ship_tracking)) {
-                                  await supabase.from("items").update({ ship_tracking: src.ship_tracking, ship_notes: src.ship_notes || null }).eq("id", it.id);
-                                }
-                              }
-                              for (const it of eligible) {
-                                await markShipped(it);
-                              }
-                              setSelectedItemIds(new Set());
-                            }} style={{ fontSize: 12, fontWeight: 700, padding: "8px 16px", borderRadius: 8, background: T.green, color: "#fff", border: "none", cursor: "pointer", fontFamily: font, alignSelf: "center" }}>
-                              Ship Selected · {eligible.length}
-                            </button>
-                          );
-                        })()}
                       </div>
 
                     </div>
 
                     {(<>
-                    {/* Action row — Select all (left) · View packing slips (right).
-                        Upload moved to per-item Ship sub-modal. */}
+                    {/* Action row — Select all + Ship Selected (left) ·
+                        View packing slips (right). Upload moved to per-item
+                        Ship sub-modal. */}
                     {(() => {
                       const dgSlips = dg.items.flatMap(it => packingSlips[it.id] || []);
                       const uniqueSlips = dgSlips.filter((s, i, arr) => arr.findIndex(x => x.file_name === s.file_name) === i);
                       const allSelected = dg.items.length > 0 && dg.items.every(it => selectedItemIds.has(it.id));
+                      // Ship Selected — operates on items in this decorator
+                      // group that are both selected AND still in production.
+                      // Hidden when nothing qualifies. Copies tracking from
+                      // any selected item that already has one to the others
+                      // (lets you fill it in once for the batch).
+                      const eligible = dg.items.filter(it => selectedItemIds.has(it.id) && it.pipeline_stage !== "shipped");
                       return (
                         <div style={{ padding: "0 0 14px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <button onClick={() => {
@@ -1001,6 +1007,20 @@ export default function ProductionPage() {
                             }}>
                             {allSelected ? "Unselect all" : "Select all"}
                           </button>
+                          {eligible.length > 0 && (
+                            <button onClick={() => {
+                              // Seed tracking from any selected item that
+                              // already has one (e.g. set previously via the
+                              // per-item modal). Notes seeded the same way.
+                              const seedTracking = eligible.find(it => it.ship_tracking)?.ship_tracking || "";
+                              const seedNotes = eligible.find(it => it.ship_notes)?.ship_notes || "";
+                              setBatchTracking(seedTracking);
+                              setBatchNotes(seedNotes);
+                              setBatchShipState({ items: eligible, project, dg });
+                            }} style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6, background: T.green, color: "#fff", border: "none", cursor: "pointer", fontFamily: font }}>
+                              Ship Selected · {eligible.length}
+                            </button>
+                          )}
                           <div style={{ flex: 1 }} />
                           {uniqueSlips.length > 0 && (
                             <button onClick={(e) => { e.stopPropagation(); setViewingSlips({ files: uniqueSlips, index: 0, title: dg.shortCode || dg.decoratorName }); }}
@@ -1265,6 +1285,121 @@ export default function ProductionPage() {
                 }}
                   style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
                   Mark Shipped
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Batch ship sub-modal — opens from "Ship Selected · N". One
+          tracking + notes + packing slip applied to every selected item.
+          Vendors typically ship a single box with one tracking number
+          covering multiple items. */}
+      {batchShipState && (() => {
+        // Re-find the latest version of each item from state so any
+        // inline ship-qty edits are reflected before mark-shipped fires.
+        const liveItems: ProdItem[] = [];
+        for (const stale of batchShipState.items) {
+          let live: ProdItem | null = null;
+          for (const p of projects) {
+            for (const dg2 of p.decoratorGroups) {
+              const found = dg2.items.find(it => it.id === stale.id);
+              if (found) { live = found; break; }
+            }
+            if (live) break;
+          }
+          if (live) liveItems.push(live);
+        }
+        if (liveItems.length === 0) return null;
+        const project = batchShipState.project;
+        const dg = batchShipState.dg;
+        const slipKey = project.jobId + "_" + (dg.decoratorId || "");
+        // Aggregate (deduped by file_name) packing slips already attached
+        // to any of the selected items.
+        const allSlips = liveItems.flatMap(it => packingSlips[it.id] || []);
+        const uniqueSlips = allSlips.filter((s, i, arr) => arr.findIndex(x => x.file_name === s.file_name) === i);
+        const totalUnits = liveItems.reduce((a, it) => a + (it.total_units || 0), 0);
+        return (
+          <div onClick={() => setBatchShipState(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.card, borderRadius: 12, width: "90vw", maxWidth: 520, padding: 24, fontFamily: font, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, marginBottom: 4 }}>
+                Ship {liveItems.length} {liveItems.length === 1 ? "item" : "items"} · {dg.decoratorName}
+              </h3>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>
+                {totalUnits.toLocaleString()} total units
+              </div>
+              {/* Item list — confirm what's being shipped */}
+              <div style={{ marginBottom: 18, padding: "10px 12px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, maxHeight: 160, overflowY: "auto" }}>
+                {liveItems.map(it => (
+                  <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0", fontSize: 12 }}>
+                    <span style={{ fontFamily: mono, color: T.muted, fontWeight: 700 }}>{it.letter}</span>
+                    <span style={{ flex: 1, color: T.text }}>{it.name}</span>
+                    <span style={{ color: T.faint, fontFamily: mono }}>{it.total_units} units</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Tracking #</label>
+                  <input value={batchTracking} placeholder="e.g. 1Z999AA10123456784"
+                    onChange={e => setBatchTracking(e.target.value)}
+                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                  <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Applied to all {liveItems.length} items.</div>
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Notes</label>
+                  <input value={batchNotes} placeholder="Optional"
+                    onChange={e => setBatchNotes(e.target.value)}
+                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Packing slip</label>
+                  {uniqueSlips.length > 0 && (
+                    <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                      {uniqueSlips.map(slip => (
+                        <button
+                          key={slip.id}
+                          onClick={(e) => { e.stopPropagation(); setViewingSlips({ files: [slip], index: 0, title: dg.decoratorName }); }}
+                          style={{ fontSize: 12, padding: "8px 10px", borderRadius: 6, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font, textAlign: "left" }}>
+                          {slip.file_name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {uploadingSlip === slipKey ? (
+                    <div style={{ fontSize: 12, color: T.accent, padding: "8px 10px" }}>{slipStatus || `${slipProgress}%`}</div>
+                  ) : (
+                    <>
+                      <button onClick={(e) => { e.stopPropagation(); batchModalSlipInputRef.current?.click(); }}
+                        style={{ fontSize: 12, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 6, padding: "8px 10px", cursor: "pointer", fontFamily: font, width: "100%" }}>
+                        {uniqueSlips.length > 0 ? "+ Add another packing slip" : "+ Upload packing slip"}
+                      </button>
+                      <input ref={batchModalSlipInputRef} type="file" accept="image/*,.pdf" style={{ display: "none" }}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handlePackingSlipUpload(f, project, liveItems); e.target.value = ""; }} />
+                    </>
+                  )}
+                </div>
+              </div>
+              <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button onClick={() => setBatchShipState(null)}
+                  style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                  Cancel
+                </button>
+                <button onClick={async () => {
+                  // Mark each item shipped with the batch tracking + notes.
+                  // markShipped passes through ship_tracking/ship_notes from
+                  // the item argument, so build a merged item per row.
+                  for (const it of liveItems) {
+                    await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchNotes });
+                  }
+                  setBatchShipState(null);
+                  setSelectedItemIds(new Set());
+                }}
+                  style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                  Mark {liveItems.length} Shipped
                 </button>
               </div>
             </div>
