@@ -35,6 +35,7 @@ type ShipmentNotificationRecord = {
 type ProjectGroup = {
   jobId: string; jobNumber: string; invoiceNumber: string | null; jobTitle: string; clientName: string;
   shipDate: string | null; phase: string; completedAt: string | null;
+  priority: string | null;
   decoratorGroups: DecoratorGroup[];
   totalItems: number; totalUnits: number;
   shippingNotifications: ShipmentNotificationRecord[];
@@ -111,8 +112,8 @@ export default function ProductionPage() {
     // Active jobs + recently completed (last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
     const [activeRes, completedRes] = await Promise.all([
-      supabase.from("jobs").select("id, title, job_number, phase, type_meta, costing_data, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
-      supabase.from("jobs").select("id, title, job_number, phase, type_meta, phase_timestamps, clients(name)").eq("phase", "complete").gte("updated_at", thirtyDaysAgo),
+      supabase.from("jobs").select("id, title, job_number, phase, priority, type_meta, costing_data, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
+      supabase.from("jobs").select("id, title, job_number, phase, priority, type_meta, phase_timestamps, clients(name)").eq("phase", "complete").gte("updated_at", thirtyDaysAgo),
     ]);
     const jobs = [...(activeRes.data || []), ...(completedRes.data || [])];
 
@@ -199,6 +200,7 @@ export default function ProductionPage() {
           clientName: job.clients?.name || "",
           shipDate: earliestShipDate,
           phase: job.phase, completedAt: (job as any).phase_timestamps?.complete || null,
+          priority: (job as any).priority || null,
           decoratorGroups: [], totalItems: 0, totalUnits: 0,
           shippingNotifications: Array.isArray(tm.shipping_notifications) ? tm.shipping_notifications : [],
           costingData: (job as any).costing_data,
@@ -782,12 +784,28 @@ export default function ProductionPage() {
                 })}
               </div>
 
-              {/* Right side: ship date + expand arrow */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, marginLeft: 12 }}>
+              {/* Right side: priority on top, days bold, date below,
+                  units underneath — matches the Projects page format. */}
+              <div style={{ flexShrink: 0, marginLeft: 12, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 70 }}>
+                {(() => {
+                  const pri = project.priority === "hot" ? { label: "HOT", color: T.red }
+                    : project.priority === "rush" ? { label: "RUSH", color: T.amber }
+                    : null;
+                  return pri ? (
+                    <span style={{ fontSize: 10, fontWeight: 800, color: pri.color, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>
+                      {pri.label}
+                    </span>
+                  ) : null;
+                })()}
                 {ship && (
-                  <div style={{ fontSize: 12, fontWeight: 700, color: ship.color, letterSpacing: "0.04em" }}>
-                    {ship.dateStr} · {ship.label}
-                  </div>
+                  <>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: ship.color, fontFamily: mono, whiteSpace: "nowrap" }}>
+                      {ship.label}
+                    </div>
+                    <div style={{ fontSize: 10, color: T.faint, whiteSpace: "nowrap" }}>
+                      {ship.dateStr}
+                    </div>
+                  </>
                 )}
                 <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                   {project.totalUnits.toLocaleString()} units
