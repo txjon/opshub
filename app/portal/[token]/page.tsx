@@ -413,6 +413,54 @@ export default function PortalPage({ params }: { params: { token: string } }) {
           </div>
         )}
 
+        {/* ── Shipments Section — packing slip downloads ──
+            One row per (decoratorId + tracking) pair. Vendor name
+            intentionally not shown (drop_ship anonymity). */}
+        {(data as any)?.shipments?.length > 0 && (
+          <div style={{
+            background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
+            padding: isMobile ? "16px" : "20px 24px", marginBottom: 20,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Shipments
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {(data as any).shipments.map((s: { decoratorId: string | null; tracking: string; itemCount: number }, i: number) => (
+                <div key={`${s.decoratorId || ""}__${s.tracking}__${i}`}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+                      Shipment {(data as any).shipments.length > 1 ? `#${i + 1}` : ""}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                      Tracking: <span style={{ fontFamily: "'SF Mono',Menlo,monospace" }}>{s.tracking}</span>
+                      <span style={{ color: C.faint, margin: "0 6px" }}>·</span>
+                      {s.itemCount} item{s.itemCount !== 1 ? "s" : ""}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const params = new URLSearchParams({ portal: activeToken });
+                      if (s.decoratorId) params.set("decoratorId", s.decoratorId);
+                      if (s.tracking) params.set("tracking", s.tracking);
+                      setPdfPreview({
+                        src: `/api/pdf/packing-slip/${(project as any).id || ""}?${params.toString()}`,
+                        title: `Packing slip · ${s.tracking}`,
+                      });
+                    }}
+                    style={{
+                      padding: "6px 14px", borderRadius: 6, cursor: "pointer",
+                      background: C.surface, color: C.text, border: `1px solid ${C.border}`,
+                      fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", fontFamily: C.font,
+                    }}>
+                    Download packing slip
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── Quote Section ── */}
         {hasQuote && (
           <div style={{

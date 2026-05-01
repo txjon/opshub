@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
+import { sortSizes } from "@/lib/theme";
 
 export async function GET(req: NextRequest, { params }: { params: { jobId: string } }) {
   const internal = req.headers.get("x-internal-key") === process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -55,8 +56,20 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       ? (vendorScopedItems[0]?.decorator_assignments?.[0]?.decorators?.name || "")
       : "";
 
+    // Color comes from costing_data (cp.color), not the items table.
+    // Match by id first, fall back by name (covers items rebuilt via
+    // ProductBuilder where cp.id may not equal item.id).
+    const costProds = ((job.costing_data as any)?.costProds || []) as any[];
+    const colorByItemId: Record<string, string> = {};
+    const colorByItemName: Record<string, string> = {};
+    for (const cp of costProds) {
+      if (cp?.id && cp?.color) colorByItemId[cp.id] = cp.color;
+      if (cp?.name && cp?.color) colorByItemName[cp.name] = cp.color;
+    }
+
     const itemRows = vendorScopedItems.filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking).map((item: any, i: number) => {
       const lines = item.buy_sheet_lines || [];
+      const itemColor = colorByItemId[item.id] || colorByItemName[item.name] || "";
       // Priority: best available qty source. Drop-ship prefers decorator-reported
       // ship_qtys; ship-through/stage prefers HPD-confirmed received_qtys. Either
       // way, fall through to the other source if primary is empty, then to ordered.
@@ -75,27 +88,45 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       // Drop ship: decorator tracking. Ship-through/stage: HPD outbound tracking.
       const tracking = isDropShip ? (item.ship_tracking || "\u2014") : (job.fulfillment_tracking || "\u2014");
 
-      const activeSizes = Object.entries(finalQtys).filter(([, q]) => q > 0);
-      const sizeGrid = activeSizes.map(([sz, q]) =>
-        `<div style="font-size:10px;color:#444;font-family:monospace;white-space:nowrap"><span style="color:#999;margin-right:3px">${sz}</span>${q.toLocaleString()}</div>`
+      // Sort sizes via the canonical theme order (XS, S, M, L, XL, 2XL, …)
+      // so the slip reads left-to-right in natural order.
+      const sortedSizeKeys = sortSizes(Object.keys(finalQtys).filter(sz => (finalQtys[sz] || 0) > 0));
+      const sizeGrid = sortedSizeKeys.map(sz =>
+        `<div style="font-size:10px;color:#444;font-family:monospace;white-space:nowrap"><span style="color:#999;margin-right:3px">${sz}</span>${finalQtys[sz].toLocaleString()}</div>`
       ).join("");
 
+      // Build the specs sub-line: vendor · sku · color (whichever are set).
+      // Case-insensitive dedupe — many items store the color name in
+      // blank_sku, which would otherwise render as "Vendor · Black · Black".
+      const seenSpec = new Set<string>();
+      const specParts: string[] = [];
+      for (const part of [item.blank_vendor, item.blank_sku, itemColor]) {
+        const trimmed = (part || "").toString().trim();
+        if (!trimmed) continue;
+        const key = trimmed.toLowerCase();
+        if (seenSpec.has(key)) continue;
+        seenSpec.add(key);
+        specParts.push(trimmed);
+      }
+      const specsLine = specParts.length > 0
+        ? `<div style="font-size:10px;color:#666;margin-top:2px;padding-left:17px">${specParts.join(" · ")}</div>`
+        : "";
+
       return `<tr style="border-bottom:0.5px solid #eeeeee">
-        <td style="padding:12px 12px 12px 0;vertical-align:top">
+        <td style="padding:12px 12px 12px 12px;vertical-align:top">
           <div style="display:flex;align-items:baseline;gap:7px">
             <span style="font-size:10px;font-weight:700;color:#bbb;font-family:monospace;flex-shrink:0">${String.fromCharCode(65 + i)}</span>
             <span style="font-size:13px;font-weight:700;color:#1a1a1a">${item.name || "Item " + (i + 1)}</span>
           </div>
-          ${item.blank_vendor ? `<div style="font-size:10px;color:#555;margin-top:2px;padding-left:17px">${item.blank_vendor}</div>` : ""}
-          ${item.color ? `<div style="font-size:10px;color:#888;padding-left:17px">${item.color}</div>` : ""}
+          ${specsLine}
         </td>
         <td style="padding:12px 8px;vertical-align:top">
-          <div style="display:grid;grid-template-columns:repeat(3,minmax(52px,1fr));gap:3px 6px">
+          <div style="display:flex;flex-wrap:nowrap;gap:10px;white-space:nowrap">
             ${sizeGrid}
           </div>
         </td>
         <td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:600;color:#1a1a1a">${totalQty.toLocaleString()}</td>
-        <td style="padding:12px 0 12px 8px;vertical-align:top;font-family:monospace;font-size:11px;color:#666">${tracking}</td>
+        <td style="padding:12px 12px 12px 8px;vertical-align:top;font-family:monospace;font-size:11px;color:#666">${tracking}</td>
       </tr>`;
     }).join("");
 
@@ -163,22 +194,23 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     ).join("")}
   </div>
 
-  <!-- Items table -->
-  <div style="padding:24px 36px">
+  <!-- Items table — full container width, matches meta strip above.
+       Cell padding handles inner spacing instead of section padding. -->
+  <div style="padding:24px 0">
     <table style="width:100%;border-collapse:collapse;font-family:${fnt}">
       <thead>
         <tr style="border-bottom:1.5px solid #1a1a1a">
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.1em;text-align:left;padding:6px 0 10px;width:30%">Item</th>
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.1em;text-align:left;padding:6px 0 10px">Sizes</th>
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.1em;text-align:right;padding:6px 0 10px;width:60px">Qty</th>
-          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.1em;text-align:left;padding:6px 0 10px;width:160px">Tracking</th>
+          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.1em;text-align:left;padding:6px 8px 10px 12px;width:32%">Item</th>
+          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.1em;text-align:left;padding:6px 8px 10px;">Sizes</th>
+          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.1em;text-align:right;padding:6px 8px 10px;width:60px">Qty</th>
+          <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.1em;text-align:left;padding:6px 12px 10px 8px;width:160px">Tracking</th>
         </tr>
       </thead>
       <tbody>${itemRows}</tbody>
     </table>
 
     <!-- Total -->
-    <div style="display:flex;justify-content:flex-end;padding-top:14px;border-top:1.5px solid #1a1a1a;margin-top:4px">
+    <div style="display:flex;justify-content:flex-end;padding:14px 12px 0;border-top:1.5px solid #1a1a1a;margin-top:4px">
       <div style="text-align:right">
         <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa;margin-bottom:4px;font-family:${fnt}">Total units</div>
         <div style="font-size:26px;font-weight:800;letter-spacing:-0.03em;font-family:${fnt};color:#1a1a1a">${totalUnits.toLocaleString()}</div>

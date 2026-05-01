@@ -6,6 +6,7 @@ import Link from "next/link";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
+import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -35,12 +36,20 @@ type ShipmentNotificationRecord = {
 type ProjectGroup = {
   jobId: string; jobNumber: string; invoiceNumber: string | null; jobTitle: string; clientName: string;
   shipDate: string | null; phase: string; completedAt: string | null;
+  priority: string | null;
   decoratorGroups: DecoratorGroup[];
   totalItems: number; totalUnits: number;
   shippingNotifications: ShipmentNotificationRecord[];
   /** Stashed from the job for the print-count KPI. Only present for
    *  active jobs (not completed) since prints are an "in-flight" stat. */
   costingData?: any;
+  /** Shipping context for resolving per-vendor ship-to in the
+   *  vendor modal header. Mirrors the PO PDF's resolution order:
+   *  type_meta.po_ship_to[vendorName] → drop_ship venue_address →
+   *  HPD warehouse default. */
+  shippingRoute: string | null;
+  venueAddress: string;
+  poShipTo: Record<string, string>;
 };
 
 type DecoratorGroup = {
@@ -59,6 +68,45 @@ export default function ProductionPage() {
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterStalled, setFilterStalled] = useState(false);
   const [modalProject, setModalProject] = useState<ProjectGroup | null>(null);
+  // Which decorator the modal is focused on. Vendor chip click sets
+  // this; modal renders only that decorator group. Will get richer
+  // (per-vendor actions) as the modal grows.
+  const [modalDecoratorKey, setModalDecoratorKey] = useState<string | null>(null);
+  // Item selection inside the modal — for bulk actions. Reset on
+  // modal close. Toggle by clicking the per-item checkbox.
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  // Per-item ship sub-modal. Click "Ship" on a row → opens this with
+  // tracking + notes inputs + confirm. Inline row no longer carries
+  // those inputs, so the row stays compact.
+  const [shipDetailItem, setShipDetailItem] = useState<ProdItem | null>(null);
+  // Batch ship sub-modal. Click "Ship Selected · N" → opens with one
+  // tracking + notes input + packing slip upload that get applied to
+  // every selected item. Vendors typically ship one box with a single
+  // tracking number for multiple items, so this saves copy-pasting.
+  const [batchShipState, setBatchShipState] = useState<
+    { items: ProdItem[]; project: ProjectGroup; dg: DecoratorGroup } | null
+  >(null);
+  const [batchTracking, setBatchTracking] = useState("");
+  const [batchNotes, setBatchNotes] = useState("");
+  // Drag highlight target for the slip dropzones. Either modal's
+  // upload area can be the active drop zone at a time.
+  const [slipDragOver, setSlipDragOver] = useState<"ship" | "batch" | null>(null);
+  // Notify Recipient picker dialog. Opened from the per-item or batch
+  // ship sub-modal after Mark Shipped flips items, OR from the inline
+  // Send-update button on shipped rows. Lazy-loads contacts on first
+  // open per job. Spec: memory/project_notify_recipient_on_ship.md
+  const [notifyState, setNotifyState] = useState<{
+    jobId: string;
+    decoratorId: string | null;
+    decoratorName: string;
+    tracking: string;
+    qbInvoiceNumber: string;
+    clientName: string;
+    jobTitle: string;
+    route: string;
+    contacts: Array<{ name: string; email: string; role: string }>;
+  } | null>(null);
+  const [contactsByJob, setContactsByJob] = useState<Record<string, Array<{ name: string; email: string; role: string }>>>({});
   // Per-decorator expand state inside the modal. Reset on modal change
   // so a fresh project always opens with everything collapsed (Jon
   // wants the multi-vendor view quiet on first open).
@@ -68,7 +116,8 @@ export default function ProductionPage() {
   const [slipProgress, setSlipProgress] = useState(0);
   const [slipStatus, setSlipStatus] = useState<string | null>(null);
   const [viewingSlips, setViewingSlips] = useState<{ files: { file_name: string; drive_link: string }[]; index: number; title: string } | null>(null);
-  const slipInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const shipModalSlipInputRef = useRef<HTMLInputElement | null>(null);
+  const batchModalSlipInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimers = useRef<Record<string, any>>({});
   const now = new Date();
 
@@ -91,11 +140,24 @@ export default function ProductionPage() {
     if (fresh && fresh !== modalProject) setModalProject(fresh);
   }, [projects, modalProject]);
 
-  // Reset decorator expansion state whenever the modal switches to a
-  // different project (or closes).
+  // Reset decorator expansion state + active decorator key when the
+  // modal CLOSES. On open, vendor-chip click pre-seeds both before
+  // setting modalProject; we don't want to wipe that.
   useEffect(() => {
-    setExpandedDecorators(new Set());
+    if (!modalProject) {
+      setExpandedDecorators(new Set());
+      setModalDecoratorKey(null);
+      setSelectedItemIds(new Set());
+    }
   }, [modalProject?.jobId]);
+
+  function toggleItemSelected(itemId: string) {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      next.has(itemId) ? next.delete(itemId) : next.add(itemId);
+      return next;
+    });
+  }
 
   function toggleDecorator(key: string) {
     setExpandedDecorators(prev => {
@@ -110,8 +172,8 @@ export default function ProductionPage() {
     // Active jobs + recently completed (last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
     const [activeRes, completedRes] = await Promise.all([
-      supabase.from("jobs").select("id, title, job_number, phase, type_meta, costing_data, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
-      supabase.from("jobs").select("id, title, job_number, phase, type_meta, phase_timestamps, clients(name)").eq("phase", "complete").gte("updated_at", thirtyDaysAgo),
+      supabase.from("jobs").select("id, title, job_number, phase, priority, type_meta, costing_data, shipping_route, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
+      supabase.from("jobs").select("id, title, job_number, phase, priority, type_meta, phase_timestamps, shipping_route, clients(name)").eq("phase", "complete").gte("updated_at", thirtyDaysAgo),
     ]);
     const jobs = [...(activeRes.data || []), ...(completedRes.data || [])];
 
@@ -198,9 +260,13 @@ export default function ProductionPage() {
           clientName: job.clients?.name || "",
           shipDate: earliestShipDate,
           phase: job.phase, completedAt: (job as any).phase_timestamps?.complete || null,
+          priority: (job as any).priority || null,
           decoratorGroups: [], totalItems: 0, totalUnits: 0,
           shippingNotifications: Array.isArray(tm.shipping_notifications) ? tm.shipping_notifications : [],
           costingData: (job as any).costing_data,
+          shippingRoute: (job as any).shipping_route || null,
+          venueAddress: (tm.venue_address as string) || "",
+          poShipTo: (tm.po_ship_to && typeof tm.po_ship_to === "object") ? (tm.po_ship_to as Record<string, string>) : {},
         };
       }
       projectMap[it.job_id].totalItems++;
@@ -300,7 +366,11 @@ export default function ProductionPage() {
   }
 
   // ── Item actions ──
-  async function markShipped(item: ProdItem) {
+  // markShipped flips the item to shipped + writes downstream side
+  // effects, then triggers a full reload. The batch flow loops over
+  // items and would otherwise reload N times — pass `skipReload: true`
+  // for each item in the loop and call loadAll() once at the end.
+  async function markShipped(item: ProdItem, opts?: { skipReload?: boolean }) {
     const ts = new Date().toISOString();
     const timestamps = { ...(item.pipeline_timestamps || {}), shipped: ts };
     // Flush ALL pending debounces for this item
@@ -341,7 +411,7 @@ export default function ProductionPage() {
         logJobActivity(item.job_id, "All items shipped — invoice ready to update with shipped qtys");
       }
     }
-    loadAll();
+    if (!opts?.skipReload) loadAll();
   }
 
   // Manually fire a shipment-update email to the client for a single
@@ -397,6 +467,52 @@ export default function ProductionPage() {
     loadAll();
   }
 
+  // Lazy-load + cache job contacts for the Notify Recipient dialog.
+  // The production page query intentionally skips contacts to keep the
+  // initial fetch light — this only runs when the user actually opens
+  // the dialog. Cached per-jobId for the session so subsequent opens
+  // are instant.
+  async function loadJobContacts(jobId: string): Promise<Array<{ name: string; email: string; role: string }>> {
+    if (contactsByJob[jobId]) return contactsByJob[jobId];
+    const { data } = await supabase
+      .from("job_contacts")
+      .select("role_on_job, contacts(name, email)")
+      .eq("job_id", jobId);
+    const list = ((data as any[]) || [])
+      .map(r => ({
+        name: r.contacts?.name || "Unnamed",
+        email: r.contacts?.email || "",
+        role: r.role_on_job || "",
+      }))
+      .filter(c => c.email);
+    setContactsByJob(prev => ({ ...prev, [jobId]: list }));
+    return list;
+  }
+
+  // Open the Notify Recipient dialog. Pulls latest project + item state
+  // so the dialog renders with current tracking + invoice number.
+  async function openNotifyDialog(args: {
+    project: ProjectGroup;
+    decoratorId: string | null;
+    decoratorName: string;
+    tracking: string;
+  }) {
+    const { project, decoratorId, decoratorName, tracking } = args;
+    const route = project.shippingRoute || "ship_through";
+    const contacts = route === "drop_ship" ? await loadJobContacts(project.jobId) : [];
+    setNotifyState({
+      jobId: project.jobId,
+      decoratorId,
+      decoratorName,
+      tracking,
+      qbInvoiceNumber: project.invoiceNumber || "",
+      clientName: project.clientName || "",
+      jobTitle: project.jobTitle || "",
+      route,
+      contacts,
+    });
+  }
+
   function updateField(itemId: string, field: string, value: string) {
     setProjects(prev => prev.map(p => ({
       ...p, decoratorGroups: p.decoratorGroups.map(dg => ({
@@ -409,32 +525,38 @@ export default function ProductionPage() {
     }, 800);
   }
 
-  async function handlePackingSlipUpload(file: File, project: ProjectGroup, dgItems: ProdItem[]) {
+  async function handlePackingSlipUpload(input: File | File[] | FileList, project: ProjectGroup, dgItems: ProdItem[]) {
+    const files: File[] = input instanceof File ? [input] : Array.from(input as any);
+    if (files.length === 0) return;
     const key = project.jobId + "_" + (dgItems[0]?.decorator_id || "");
     setUploadingSlip(key);
     setSlipProgress(0);
     setSlipStatus(null);
     try {
-      setSlipStatus("Uploading to Drive...");
-      const result = await uploadToDrive({
-        blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream",
-        clientName: project.clientName, projectTitle: project.jobTitle, itemName: "Packing Slips",
-        onProgress: (pct: number) => setSlipProgress(pct),
-      });
-      setSlipStatus(`Registering ${dgItems.length} items...`);
-      // Register against all items in this decorator group
-      for (const item of dgItems) {
-        await registerFileInDb({
-          fileId: result.fileId, webViewLink: result.webViewLink, folderLink: result.folderLink,
-          fileName: file.name, mimeType: file.type, fileSize: file.size,
-          itemId: item.id, stage: "packing_slip", notes: result.folderLink,
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const prefix = files.length > 1 ? `(${i + 1}/${files.length}) ` : "";
+        setSlipStatus(`${prefix}Uploading ${file.name}...`);
+        setSlipProgress(0);
+        const result = await uploadToDrive({
+          blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream",
+          clientName: project.clientName, projectTitle: project.jobTitle, itemName: "Packing Slips",
+          onProgress: (pct: number) => setSlipProgress(pct),
         });
-        setPackingSlips(prev => ({
-          ...prev,
-          [item.id]: [...(prev[item.id] || []), { id: result.fileId, file_name: file.name, drive_link: result.webViewLink, folder_link: result.folderLink }],
-        }));
+        setSlipStatus(`${prefix}Registering ${dgItems.length} item${dgItems.length === 1 ? "" : "s"}...`);
+        for (const item of dgItems) {
+          await registerFileInDb({
+            fileId: result.fileId, webViewLink: result.webViewLink, folderLink: result.folderLink,
+            fileName: file.name, mimeType: file.type, fileSize: file.size,
+            itemId: item.id, stage: "packing_slip", notes: result.folderLink,
+          });
+          setPackingSlips(prev => ({
+            ...prev,
+            [item.id]: [...(prev[item.id] || []), { id: result.fileId, file_name: file.name, drive_link: result.webViewLink, folder_link: result.folderLink }],
+          }));
+        }
       }
-      setSlipStatus("Uploaded");
+      setSlipStatus(files.length > 1 ? `Uploaded ${files.length} files` : "Uploaded");
       setTimeout(() => setSlipStatus(null), 2000);
     } catch (err: any) {
       alert("Packing slip error: " + err.message);
@@ -617,8 +739,10 @@ export default function ProductionPage() {
   const shipDatePill = (d: string | null) => {
     const days = getDaysToShip(d);
     if (days === null) return null;
-    const color = days < 0 ? T.red : days <= 3 ? T.amber : T.green;
-    const bg = days < 0 ? T.redDim : days <= 3 ? T.amberDim : T.greenDim;
+    // Healthy/comfortable ship dates render as plain T.text — color is
+    // reserved for actionable signals only (red overdue, amber imminent).
+    const color = days < 0 ? T.red : days <= 3 ? T.amber : T.text;
+    const bg = days < 0 ? T.redDim : days <= 3 ? T.amberDim : T.surface;
     const label = days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `${days}d`;
     return { color, bg, label, dateStr: new Date(d!).toLocaleDateString("en-US", { month: "short", day: "numeric" }) };
   };
@@ -725,45 +849,85 @@ export default function ProductionPage() {
           <div key={project.jobId} style={{
             background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden",
           }}>
-            {/* ── Row — click opens full-page modal (replaces inline
-                expand pattern Jon flagged as cluttered). ── */}
+            {/* ── Row — vendor chips are the only entry point into the
+                modal. Row body itself is non-clickable so accidental
+                clicks while reading don't disrupt scanning. ── */}
             <div
-              onClick={() => setModalProject(project)}
-              style={{ padding: "14px 18px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
+              style={{ padding: "14px 18px", display: "flex", gap: 16, alignItems: "flex-start" }}
             >
-              <div style={{ flex: 1 }}>
-                {/* Title row */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{project.invoiceNumber || project.jobNumber}</span>
-                  {project.invoiceNumber && <span style={{ fontSize: 10, color: T.faint }}>{project.jobNumber}</span>}
-                  <span style={{ fontSize: 13, color: T.muted }}>{project.clientName}</span>
-                  {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>All Shipped</span>}
+              {/* Title block — fixed width so the memo wraps inside it,
+                  freeing the middle of the row for vendor chips. */}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, width: 220, flexShrink: 0 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: project.invoiceNumber ? T.text : "transparent", fontFamily: mono, whiteSpace: "nowrap", alignSelf: "center" }}>
+                  {project.invoiceNumber || ""}
+                </span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span>{project.clientName || "No client"}</span>
+                    {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>All Shipped</span>}
+                  </div>
+                  {project.jobTitle && (
+                    <div style={{ fontSize: 12, color: T.faint, marginTop: 2, lineHeight: 1.4, wordBreak: "break-word" }}>
+                      {project.jobTitle}
+                    </div>
+                  )}
                 </div>
+              </div>
 
-                {/* Per-decorator mini breakdown */}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {project.decoratorGroups.map(dg => (
-                    <div key={dg.decoratorId || dg.decoratorName} style={{
-                      display: "flex", alignItems: "center", gap: 6,
-                      padding: "4px 10px", borderRadius: 6, background: T.surface,
-                      fontSize: 11,
-                    }}>
+              {/* Per-decorator mini breakdown — fills the middle of the
+                  row so vendor chips sit visually between the title and
+                  the ship date / units column. */}
+              <div style={{ flex: 1, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+                {project.decoratorGroups.map(dg => {
+                  const decKey = dg.decoratorId || dg.decoratorName;
+                  return (
+                    <button key={decKey}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setModalDecoratorKey(decKey);
+                        setExpandedDecorators(new Set([decKey]));
+                        setModalProject(project);
+                      }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        padding: "4px 10px", borderRadius: 6, background: T.surface,
+                        fontSize: 11, border: `1px solid ${T.border}`, cursor: "pointer",
+                        fontFamily: font, transition: "all 0.12s",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = T.accentDim; e.currentTarget.style.borderColor = T.accent; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
                       <span style={{ fontWeight: 600, color: T.text }}>{dg.shortCode || dg.decoratorName}</span>
                       <span style={{ color: T.muted }}>{dg.items.length} item{dg.items.length !== 1 ? "s" : ""}</span>
                       <span style={{ color: T.faint }}>·</span>
                       {dg.inProduction > 0 && <span style={{ color: T.accent }}>{dg.inProduction} active</span>}
                       {dg.shipped > 0 && <span style={{ color: T.green }}>{dg.shipped} shipped</span>}
-                    </div>
-                  ))}
-                </div>
+                    </button>
+                  );
+                })}
               </div>
 
-              {/* Right side: ship date + expand arrow */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, marginLeft: 12 }}>
+              {/* Right side: priority on top, days bold, date below,
+                  units underneath — matches the Projects page format. */}
+              <div style={{ flexShrink: 0, marginLeft: 12, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 70 }}>
+                {(() => {
+                  const pri = project.priority === "hot" ? { label: "HOT", color: T.red }
+                    : project.priority === "rush" ? { label: "RUSH", color: T.amber }
+                    : null;
+                  return pri ? (
+                    <span style={{ fontSize: 10, fontWeight: 800, color: pri.color, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>
+                      {pri.label}
+                    </span>
+                  ) : null;
+                })()}
                 {ship && (
-                  <div style={{ fontSize: 12, fontWeight: 700, color: ship.color, letterSpacing: "0.04em" }}>
-                    {ship.dateStr} · {ship.label}
-                  </div>
+                  <>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: ship.color, fontFamily: mono, whiteSpace: "nowrap" }}>
+                      {ship.label}
+                    </div>
+                    <div style={{ fontSize: 10, color: T.faint, whiteSpace: "nowrap" }}>
+                      {ship.dateStr}
+                    </div>
+                  </>
                 )}
                 <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                   {project.totalUnits.toLocaleString()} units
@@ -798,134 +962,255 @@ export default function ProductionPage() {
                         style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
                     </div>
                   </div>
-                  {/* Scrollable body */}
+                  {/* Scrollable body — filtered to the clicked decorator
+                      so the modal stays focused. Switch vendors via the
+                      project row's chips (close + reopen). */}
                   <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 22px" }}>
-                {project.decoratorGroups.map(dg => {
+                {project.decoratorGroups
+                  .filter(dg => {
+                    if (!modalDecoratorKey) return true;
+                    return (dg.decoratorId || dg.decoratorName) === modalDecoratorKey;
+                  })
+                  .map(dg => {
                   const decKey = dg.decoratorId || dg.decoratorName;
-                  const isDecExpanded = expandedDecorators.has(decKey);
+                  const visibleItems = dg.items;
+                  // Ship-to resolution mirrors the PO PDF: per-vendor
+                  // override → drop_ship venue → HPD warehouse default.
+                  // Lookup uses printVendor (canonical costing key) with
+                  // decoratorName/shortCode as fallbacks, case-insensitive.
+                  const shipToAddress = (() => {
+                    const costProds = (project.costingData?.costProds || []) as any[];
+                    let printVendor: string | undefined;
+                    for (const it of dg.items) {
+                      const cp = costProds.find((c: any) => c?.id === it.id);
+                      if (cp?.printVendor) { printVendor = cp.printVendor; break; }
+                    }
+                    const ciKey = (k: string | null | undefined) => (k || "").toLowerCase().trim();
+                    const ciMap: Record<string, string> = {};
+                    for (const [k, v] of Object.entries(project.poShipTo)) {
+                      if (typeof v === "string" && v) ciMap[ciKey(k)] = v;
+                    }
+                    const tryKeys = [printVendor, dg.decoratorName, dg.shortCode].filter(Boolean) as string[];
+                    for (const k of tryKeys) {
+                      if (project.poShipTo[k]) return project.poShipTo[k];
+                      const ci = ciMap[ciKey(k)];
+                      if (ci) return ci;
+                    }
+                    if (project.shippingRoute === "drop_ship") {
+                      return project.venueAddress || "(no address set)";
+                    }
+                    return "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89139";
+                  })();
                   return (
-                  <div key={decKey} style={{
-                    marginTop: 14, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden",
-                  }}>
-                    {/* Decorator header — click to expand/collapse */}
-                    <div onClick={() => toggleDecorator(decKey)}
-                      style={{
-                        padding: "10px 14px", background: T.surface,
-                        display: "flex", justifyContent: "space-between", alignItems: "center",
-                        borderBottom: isDecExpanded ? `1px solid ${T.border}` : "none",
-                        cursor: "pointer",
-                      }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 11, color: T.faint, transition: "transform 0.15s", transform: isDecExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{dg.decoratorName}</span>
-                        <span style={{ fontSize: 11, color: T.muted }}>
-                          {dg.items.length} item{dg.items.length !== 1 ? "s" : ""} · {dg.totalUnits.toLocaleString()} units
-                        </span>
+                  <div key={decKey}>
+                    {/* Page-style header — big decorator name, stats line,
+                        ship-to address, filter pills. No bordered card
+                        chrome. */}
+                    <div style={{ paddingBottom: 14, borderBottom: `1px solid ${T.border}`, marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <h2 style={{ fontSize: 28, fontWeight: 800, margin: 0, letterSpacing: "-0.02em", color: T.text }}>
+                            {dg.decoratorName}
+                          </h2>
+                          {(() => {
+                            // Units shipped = sum of ship_qtys per shipped
+                            // item, falling back to total_units if the item
+                            // has no per-size breakdown.
+                            const unitsShipped = dg.items.reduce((acc, it) => {
+                              if (it.pipeline_stage !== "shipped") return acc;
+                              const sq = it.ship_qtys || {};
+                              const sqSum = Object.values(sq).reduce((a, b) => a + (b || 0), 0);
+                              return acc + (sqSum > 0 ? sqSum : (it.total_units || 0));
+                            }, 0);
+                            return (
+                              <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>
+                                <strong style={{ color: T.text, fontWeight: 700 }}>{dg.inProduction}</strong> in production
+                                <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
+                                <strong style={{ color: T.text, fontWeight: 700 }}>{dg.shipped}</strong> shipped
+                                <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
+                                <strong style={{ color: T.text, fontWeight: 700 }}>{dg.totalUnits.toLocaleString()}</strong> units
+                                <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
+                                <strong style={{ color: T.text, fontWeight: 700 }}>{unitsShipped.toLocaleString()}</strong> units shipped
+                              </div>
+                            );
+                          })()}
+                        </div>
+                        {/* Ship-to card — top-right of header. Mirrors the
+                            ship-to that prints on the PO so the team can
+                            double-check before clicking Ship. */}
+                        <div style={{ flexShrink: 0, padding: "8px 12px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, minWidth: 180, maxWidth: 280 }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>Ship to</div>
+                          <div style={{ fontSize: 12, color: T.text, lineHeight: 1.45, whiteSpace: "pre-line" }}>{shipToAddress}</div>
+                        </div>
                       </div>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        {dg.inProduction > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>{dg.inProduction} in production</span>}
-                        {dg.shipped > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>{dg.shipped} shipped</span>}
-                        {dg.inProduction > 1 && (
-                          <button onClick={async (e) => {
-                            e.stopPropagation();
-                            // Copy tracking from first item that has one to all others
-                            const src = dg.items.find(it => it.ship_tracking && it.pipeline_stage !== "shipped");
-                            if (src) {
-                              for (const it of dg.items.filter(it2 => it2.pipeline_stage !== "shipped" && it2.id !== src.id)) {
-                                await supabase.from("items").update({ ship_tracking: src.ship_tracking, ship_notes: src.ship_notes || null }).eq("id", it.id);
-                              }
-                            }
-                            // Ship all unshipped items
-                            for (const it of dg.items.filter(it2 => it2.pipeline_stage !== "shipped")) {
-                              await markShipped(it);
-                            }
-                          }} style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: T.green, color: "#fff", border: "none", cursor: "pointer" }}>
-                            Ship All
-                          </button>
-                        )}
-                      </div>
+
                     </div>
 
-                    {isDecExpanded && (<>
-                    {/* Packing slip upload */}
+                    {(<>
+                    {/* Action row — Select all + Ship Selected (left) ·
+                        View packing slips (right). Upload moved to per-item
+                        Ship sub-modal. */}
                     {(() => {
-                      const dgKey = project.jobId + "_" + (dg.decoratorId || "");
                       const dgSlips = dg.items.flatMap(it => packingSlips[it.id] || []);
                       const uniqueSlips = dgSlips.filter((s, i, arr) => arr.findIndex(x => x.file_name === s.file_name) === i);
-                      const folderLink = dgSlips.find(s => s.folder_link)?.folder_link;
+                      const allSelected = dg.items.length > 0 && dg.items.every(it => selectedItemIds.has(it.id));
+                      // Ship Selected — operates on items in this decorator
+                      // group that are both selected AND still in production.
+                      // Hidden when nothing qualifies. Copies tracking from
+                      // any selected item that already has one to the others
+                      // (lets you fill it in once for the batch).
+                      const eligible = dg.items.filter(it => selectedItemIds.has(it.id) && it.pipeline_stage !== "shipped");
                       return (
-                        <div style={{ padding: "6px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          {uniqueSlips.length > 0 && (
-                            <button onClick={(e) => { e.stopPropagation(); setViewingSlips({ files: uniqueSlips, index: 0, title: dg.shortCode || dg.decoratorName }); }}
-                              style={{ fontSize: 10, padding: "3px 10px", borderRadius: 4, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font }}>
-                              View {dg.shortCode || dg.decoratorName} packing slips ({uniqueSlips.length})
+                        <div style={{ padding: "0 0 14px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <button onClick={() => {
+                            setSelectedItemIds(prev => {
+                              const next = new Set(prev);
+                              if (allSelected) {
+                                // Unselect every item from this decorator group
+                                for (const it of dg.items) next.delete(it.id);
+                              } else {
+                                for (const it of dg.items) next.add(it.id);
+                              }
+                              return next;
+                            });
+                          }}
+                            style={{
+                              fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6,
+                              background: allSelected ? T.text : "transparent",
+                              border: `1px solid ${allSelected ? T.text : T.border}`,
+                              color: allSelected ? "#fff" : T.text,
+                              cursor: "pointer", fontFamily: font,
+                            }}>
+                            {allSelected ? "Unselect all" : "Select all"}
+                          </button>
+                          {eligible.length > 0 && (
+                            <button onClick={() => {
+                              // Seed tracking from any selected item that
+                              // already has one (e.g. set previously via the
+                              // per-item modal). Notes seeded the same way.
+                              const seedTracking = eligible.find(it => it.ship_tracking)?.ship_tracking || "";
+                              const seedNotes = eligible.find(it => it.ship_notes)?.ship_notes || "";
+                              setBatchTracking(seedTracking);
+                              setBatchNotes(seedNotes);
+                              setBatchShipState({ items: eligible, project, dg });
+                            }} style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6, background: T.green, color: "#fff", border: "none", cursor: "pointer", fontFamily: font }}>
+                              Ship Selected · {eligible.length}
                             </button>
                           )}
-                          {uploadingSlip === dgKey ? (
-                            <span style={{ fontSize: 10, color: T.accent }}>{slipStatus || `${slipProgress}%`}</span>
-                          ) : (
-                            <>
-                              <button onClick={(e) => { e.stopPropagation(); slipInputRefs.current[dgKey]?.click(); }}
-                                style={{ fontSize: 10, color: T.faint, background: "none", border: `1px dashed ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>
-                                {uniqueSlips.length > 0 ? "+ Add" : "Upload Packing Slip"}
-                              </button>
-                              <input ref={el => { slipInputRefs.current[dgKey] = el; }} type="file" accept="image/*,.pdf" style={{ display: "none" }}
-                                onChange={e => { const f = e.target.files?.[0]; if (f) handlePackingSlipUpload(f, project, dg.items); e.target.value = ""; }} />
-                            </>
+                          <div style={{ flex: 1 }} />
+                          {uniqueSlips.length > 0 && (
+                            <button onClick={(e) => { e.stopPropagation(); setViewingSlips({ files: uniqueSlips, index: 0, title: dg.shortCode || dg.decoratorName }); }}
+                              style={{ fontSize: 11, padding: "5px 12px", borderRadius: 6, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font }}>
+                              View packing slips ({uniqueSlips.length})
+                            </button>
                           )}
                         </div>
                       );
                     })()}
 
                     {/* Items */}
-                    <div style={{ padding: "10px 14px" }}>
-                      {dg.items.map(item => {
-                        const days = getDaysInStage(item);
+                    <div>
+                      {visibleItems.length === 0 && (
+                        <div style={{ fontSize: 13, color: T.faint, fontStyle: "italic", padding: "20px 0", textAlign: "center" }}>
+                          No items match this filter.
+                        </div>
+                      )}
+                      {visibleItems.map(item => {
                         const isShipped = item.pipeline_stage === "shipped";
                         return (
                           <div key={item.id} style={{
-                            padding: "8px 10px", borderRadius: 6, marginBottom: 6,
+                            padding: "10px 12px", borderRadius: 6, marginBottom: 6,
                             background: isShipped ? T.greenDim + "44" : "transparent",
                             border: `1px solid ${isShipped ? T.green + "33" : T.border}`,
                           }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <div>
-                                <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, marginRight: 8 }}>{item.letter}</span>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{item.name}</span>
-                                <span style={{ fontSize: 10, color: T.muted, marginLeft: 8 }}>
-                                  {item.blank_vendor} · {item.total_units} units
-                                </span>
-                                {days !== null && days >= 7 && (
-                                  <span style={{ fontSize: 10, fontWeight: 600, color: T.red, marginLeft: 8 }}>{days}d in stage</span>
-                                )}
-                                {days !== null && days >= 3 && days < 7 && (
-                                  <span style={{ fontSize: 10, fontWeight: 600, color: T.amber, marginLeft: 8 }}>{days}d in stage</span>
-                                )}
+                            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedItemIds.has(item.id)}
+                                onChange={() => toggleItemSelected(item.id)}
+                                onClick={e => e.stopPropagation()}
+                                style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }}
+                              />
+                              <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
+                              {/* Title + specs stack */}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.name}</div>
+                                <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                                  {item.blank_vendor || "—"} · {item.total_units} units
+                                </div>
                               </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              {/* Per-size ship qty grid — inline with title */}
+                              {!isShipped && item.sizes.length > 0 && (
+                                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                  {item.sizes.map(sz => {
+                                    const ordered = item.qtys[sz] || 0;
+                                    const shipped = (item.ship_qtys || {})[sz] ?? ordered;
+                                    const diffColor = shipped < ordered ? T.amber : shipped > ordered ? T.green : null;
+                                    return (
+                                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                                        <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{sz}</span>
+                                        <input
+                                          type="text" inputMode="numeric" value={shipped}
+                                          onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
+                                          onChange={e => {
+                                            const val = parseInt(e.target.value) || 0;
+                                            const newQtys = { ...(item.ship_qtys || {}), [sz]: val };
+                                            setProjects(prev => prev.map(p => ({
+                                              ...p, decoratorGroups: p.decoratorGroups.map(dg2 => ({
+                                                ...dg2, items: dg2.items.map(it => it.id === item.id ? { ...it, ship_qtys: newQtys } : it)
+                                              }))
+                                            })));
+                                            if (saveTimers.current[`sqty_${item.id}`]) clearTimeout(saveTimers.current[`sqty_${item.id}`]);
+                                            saveTimers.current[`sqty_${item.id}`] = setTimeout(() => {
+                                              supabase.from("items").update({ ship_qtys: newQtys }).eq("id", item.id);
+                                            }, 800);
+                                          }}
+                                          style={{ ...ic, width: 52, padding: "8px 6px", textAlign: "center", fontSize: 13, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: T.text }}
+                                        />
+                                        <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>{ordered}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              {/* Ship button (or shipped status) */}
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                                 {isShipped ? (
                                   <>
                                     <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>
                                       {item.ship_tracking || "Shipped"}
                                     </span>
                                     {(() => {
+                                      // Match either the legacy `drop_ship_vendor` records (still
+                                      // written by the existing inline button on shipped rows
+                                      // throughout the app) or the new v2 records of either
+                                      // recipient kind. Once any matching record exists we surface
+                                      // "Notified ✓" — the dialog itself handles resend.
                                       const notified = project.shippingNotifications.some(r =>
-                                        r.type === "drop_ship_vendor" &&
+                                        (r.type === "drop_ship_vendor" || r.type === "decorator_to_warehouse") &&
                                         r.decoratorId === item.decorator_id &&
                                         (r.tracking || null) === (item.ship_tracking || null)
                                       );
-                                      if (notified) {
-                                        return <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>Notified ✓</span>;
-                                      }
+                                      const canNotify = !!item.ship_tracking && !!project.invoiceNumber;
+                                      const label = notified ? "Notified ✓" : (project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse");
+                                      const bg = notified ? T.greenDim : T.accent;
+                                      const color = notified ? T.green : "#fff";
+                                      const border = notified ? `1px solid ${T.green}66` : "none";
                                       return (
-                                        <button onClick={(e) => { e.stopPropagation(); sendShipmentUpdate({
-                                          jobId: project.jobId,
-                                          decoratorId: item.decorator_id,
-                                          decoratorName: item.decorator_name,
-                                          trackingNumber: item.ship_tracking || null,
-                                        }); }}
-                                          style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
-                                          Send shipment update
+                                        <button onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (!canNotify) return;
+                                          openNotifyDialog({
+                                            project,
+                                            decoratorId: item.decorator_id,
+                                            decoratorName: item.decorator_name || "",
+                                            tracking: item.ship_tracking || "",
+                                          });
+                                        }}
+                                          disabled={!canNotify}
+                                          title={!project.invoiceNumber ? "Generate QB invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
+                                          style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, border, background: bg, color, cursor: canNotify ? "pointer" : "not-allowed", whiteSpace: "nowrap", opacity: canNotify ? 1 : 0.5, fontFamily: font }}>
+                                          {label}
                                         </button>
                                       );
                                     })()}
@@ -935,57 +1220,13 @@ export default function ProductionPage() {
                                     </button>
                                   </>
                                 ) : (
-                                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                                    <input value={item.ship_tracking || ""} placeholder="Tracking #"
-                                      onChange={e => updateField(item.id, "ship_tracking", e.target.value)}
-                                      onClick={e => e.stopPropagation()}
-                                      style={{ ...ic, width: 160 }} />
-                                    <input value={item.ship_notes || ""} placeholder="Notes"
-                                      onChange={e => updateField(item.id, "ship_notes", e.target.value)}
-                                      onClick={e => e.stopPropagation()}
-                                      style={{ ...ic, width: 120 }} />
-                                    <button onClick={(e) => { e.stopPropagation(); markShipped(item); }}
-                                      style={{ padding: "4px 12px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-                                      Ship
-                                    </button>
-                                  </div>
+                                  <button onClick={(e) => { e.stopPropagation(); setShipDetailItem(item); }}
+                                    style={{ padding: "8px 18px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: font }}>
+                                    Ship
+                                  </button>
                                 )}
                               </div>
                             </div>
-                            {/* Per-size ship qty (collapsed, expand on click) */}
-                            {!isShipped && item.sizes.length > 0 && (
-                              <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
-                                {item.sizes.map(sz => {
-                                  const ordered = item.qtys[sz] || 0;
-                                  const shipped = (item.ship_qtys || {})[sz] ?? ordered;
-                                  const diffColor = shipped < ordered ? T.amber : shipped > ordered ? T.green : null;
-                                  return (
-                                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                                      <span style={{ fontSize: 9, color: T.muted, fontFamily: mono }}>{sz}</span>
-                                      <input
-                                        type="text" inputMode="numeric" value={shipped}
-                                        onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
-                                        onChange={e => {
-                                          const val = parseInt(e.target.value) || 0;
-                                          const newQtys = { ...(item.ship_qtys || {}), [sz]: val };
-                                          setProjects(prev => prev.map(p => ({
-                                            ...p, decoratorGroups: p.decoratorGroups.map(dg2 => ({
-                                              ...dg2, items: dg2.items.map(it => it.id === item.id ? { ...it, ship_qtys: newQtys } : it)
-                                            }))
-                                          })));
-                                          if (saveTimers.current[`sqty_${item.id}`]) clearTimeout(saveTimers.current[`sqty_${item.id}`]);
-                                          saveTimers.current[`sqty_${item.id}`] = setTimeout(() => {
-                                            supabase.from("items").update({ ship_qtys: newQtys }).eq("id", item.id);
-                                          }, 800);
-                                        }}
-                                        style={{ ...ic, width: 44, padding: "4px", textAlign: "center", fontSize: 11, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: diffColor || T.text }}
-                                      />
-                                      <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{ordered}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
                           </div>
                         );
                       })}
@@ -1052,6 +1293,333 @@ export default function ProductionPage() {
           </div>
         </div>
       )}
+
+      {/* Ship sub-modal — opens from row-level "Ship" button. Tracking
+          and notes only; per-size qtys are edited inline on the row. */}
+      {shipDetailItem && (() => {
+        // Re-find latest version of the item + parent project from state
+        // so any inline edits made before opening this modal are reflected.
+        let liveItem: ProdItem | null = null;
+        let liveProject: ProjectGroup | null = null;
+        for (const p of projects) {
+          for (const dg of p.decoratorGroups) {
+            const found = dg.items.find(it => it.id === shipDetailItem.id);
+            if (found) { liveItem = found; liveProject = p; break; }
+          }
+          if (liveItem) break;
+        }
+        if (!liveItem || !liveProject) return null;
+        const item = liveItem;
+        const project = liveProject;
+        const slipKey = project.jobId + "_" + (item.decorator_id || "");
+        const itemSlips = packingSlips[item.id] || [];
+        return (
+          <div onClick={() => setShipDetailItem(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.card, borderRadius: 12, width: "90vw", maxWidth: 480, padding: 24, fontFamily: font }}>
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, marginBottom: 4 }}>Ship · {item.name}</h3>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 20 }}>
+                {item.blank_vendor || "—"} · {item.total_units} units
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Tracking #</label>
+                  <input value={item.ship_tracking || ""} placeholder="e.g. 1Z999AA10123456784"
+                    onChange={e => updateField(item.id, "ship_tracking", e.target.value)}
+                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Notes</label>
+                  <input value={item.ship_notes || ""} placeholder="Optional"
+                    onChange={e => updateField(item.id, "ship_notes", e.target.value)}
+                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Packing slip</label>
+                  {itemSlips.length > 0 && (
+                    <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                      {itemSlips.map(slip => (
+                        <button
+                          key={slip.id}
+                          onClick={(e) => { e.stopPropagation(); setViewingSlips({ files: [slip], index: 0, title: item.name }); }}
+                          style={{ fontSize: 12, padding: "8px 10px", borderRadius: 6, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font, textAlign: "left" }}>
+                          {slip.file_name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {uploadingSlip === slipKey ? (
+                    <div style={{ fontSize: 12, color: T.accent, padding: "8px 10px" }}>{slipStatus || `${slipProgress}%`}</div>
+                  ) : (
+                    <>
+                      <div
+                        onClick={(e) => { e.stopPropagation(); shipModalSlipInputRef.current?.click(); }}
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver("ship"); }}
+                        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver("ship"); }}
+                        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver(null); }}
+                        onDrop={(e) => {
+                          e.preventDefault(); e.stopPropagation(); setSlipDragOver(null);
+                          const files = Array.from(e.dataTransfer.files || []);
+                          if (files.length > 0) handlePackingSlipUpload(files, project, [item]);
+                        }}
+                        style={{
+                          fontSize: 12, color: slipDragOver === "ship" ? T.accent : T.muted,
+                          background: slipDragOver === "ship" ? T.accentDim : "none",
+                          border: `1px dashed ${slipDragOver === "ship" ? T.accent : T.border}`,
+                          borderRadius: 6, padding: "12px 10px", cursor: "pointer", fontFamily: font, width: "100%", textAlign: "center",
+                        }}>
+                        {slipDragOver === "ship" ? "Drop to upload" : (itemSlips.length > 0 ? "+ Add packing slip(s) — drag & drop or click" : "+ Upload packing slip(s) — drag & drop or click")}
+                      </div>
+                      <input ref={shipModalSlipInputRef} type="file" accept="image/*,.pdf" multiple style={{ display: "none" }}
+                        onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handlePackingSlipUpload(fs, project, [item]); e.target.value = ""; }} />
+                    </>
+                  )}
+                </div>
+              </div>
+              <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+                <button onClick={() => setShipDetailItem(null)}
+                  style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                  Cancel
+                </button>
+                {/* Notify Recipient — only shown after Mark Shipped flipped
+                    the item, gated by tracking + QB invoice. Surfaces
+                    "Notified ✓" once a record exists for this (decorator
+                    + tracking); clicking still opens the dialog → backend
+                    dedups → "Already sent — Resend?" confirm. */}
+                {item.pipeline_stage === "shipped" && (() => {
+                  const canNotify = !!item.ship_tracking && !!project.invoiceNumber;
+                  const notified = project.shippingNotifications.some(r =>
+                    (r.type === "drop_ship_vendor" || r.type === "decorator_to_warehouse") &&
+                    r.decoratorId === item.decorator_id &&
+                    (r.tracking || null) === (item.ship_tracking || null)
+                  );
+                  const baseLabel = project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
+                  const label = notified ? "Notified ✓" : baseLabel;
+                  const bg = notified ? T.greenDim : (canNotify ? T.accent : T.surface);
+                  const color = notified ? T.green : (canNotify ? "#fff" : T.faint);
+                  const border = notified ? `1px solid ${T.green}66` : "none";
+                  return (
+                    <button
+                      disabled={!canNotify}
+                      onClick={() => {
+                        if (!canNotify) return;
+                        openNotifyDialog({
+                          project,
+                          decoratorId: item.decorator_id,
+                          decoratorName: item.decorator_name || "",
+                          tracking: item.ship_tracking || "",
+                        });
+                      }}
+                      title={!project.invoiceNumber ? "Generate QB invoice first" : (!item.ship_tracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
+                      style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
+                      {label}
+                    </button>
+                  );
+                })()}
+                {item.pipeline_stage !== "shipped" && (
+                  <button onClick={async () => { await markShipped(item); }}
+                    style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                    Mark Shipped
+                  </button>
+                )}
+                {item.pipeline_stage === "shipped" && (
+                  <button onClick={() => setShipDetailItem(null)}
+                    style={{ padding: "8px 18px", borderRadius: 6, border: `1px solid ${T.green}`, background: T.greenDim, color: T.green, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                    Done
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Batch ship sub-modal — opens from "Ship Selected · N". One
+          tracking + notes + packing slip applied to every selected item.
+          Vendors typically ship a single box with one tracking number
+          covering multiple items. */}
+      {batchShipState && (() => {
+        // Re-find the latest version of each item from state so any
+        // inline ship-qty edits are reflected before mark-shipped fires.
+        const liveItems: ProdItem[] = [];
+        for (const stale of batchShipState.items) {
+          let live: ProdItem | null = null;
+          for (const p of projects) {
+            for (const dg2 of p.decoratorGroups) {
+              const found = dg2.items.find(it => it.id === stale.id);
+              if (found) { live = found; break; }
+            }
+            if (live) break;
+          }
+          if (live) liveItems.push(live);
+        }
+        if (liveItems.length === 0) return null;
+        const project = batchShipState.project;
+        const dg = batchShipState.dg;
+        const slipKey = project.jobId + "_" + (dg.decoratorId || "");
+        // Aggregate (deduped by file_name) packing slips already attached
+        // to any of the selected items.
+        const allSlips = liveItems.flatMap(it => packingSlips[it.id] || []);
+        const uniqueSlips = allSlips.filter((s, i, arr) => arr.findIndex(x => x.file_name === s.file_name) === i);
+        const totalUnits = liveItems.reduce((a, it) => a + (it.total_units || 0), 0);
+        return (
+          <div onClick={() => setBatchShipState(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.card, borderRadius: 12, width: "90vw", maxWidth: 520, padding: 24, fontFamily: font, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, marginBottom: 4 }}>
+                Ship {liveItems.length} {liveItems.length === 1 ? "item" : "items"} · {dg.decoratorName}
+              </h3>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>
+                {totalUnits.toLocaleString()} total units
+              </div>
+              {/* Item list — confirm what's being shipped */}
+              <div style={{ marginBottom: 18, padding: "10px 12px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, maxHeight: 160, overflowY: "auto" }}>
+                {liveItems.map(it => (
+                  <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0", fontSize: 12 }}>
+                    <span style={{ fontFamily: mono, color: T.muted, fontWeight: 700 }}>{it.letter}</span>
+                    <span style={{ flex: 1, color: T.text }}>{it.name}</span>
+                    <span style={{ color: T.faint, fontFamily: mono }}>{it.total_units} units</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Tracking #</label>
+                  <input value={batchTracking} placeholder="e.g. 1Z999AA10123456784"
+                    onChange={e => setBatchTracking(e.target.value)}
+                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                  <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Applied to all {liveItems.length} items.</div>
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Notes</label>
+                  <input value={batchNotes} placeholder="Optional"
+                    onChange={e => setBatchNotes(e.target.value)}
+                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Packing slip</label>
+                  {uniqueSlips.length > 0 && (
+                    <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                      {uniqueSlips.map(slip => (
+                        <button
+                          key={slip.id}
+                          onClick={(e) => { e.stopPropagation(); setViewingSlips({ files: [slip], index: 0, title: dg.decoratorName }); }}
+                          style={{ fontSize: 12, padding: "8px 10px", borderRadius: 6, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font, textAlign: "left" }}>
+                          {slip.file_name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {uploadingSlip === slipKey ? (
+                    <div style={{ fontSize: 12, color: T.accent, padding: "8px 10px" }}>{slipStatus || `${slipProgress}%`}</div>
+                  ) : (
+                    <>
+                      <div
+                        onClick={(e) => { e.stopPropagation(); batchModalSlipInputRef.current?.click(); }}
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver("batch"); }}
+                        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver("batch"); }}
+                        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setSlipDragOver(null); }}
+                        onDrop={(e) => {
+                          e.preventDefault(); e.stopPropagation(); setSlipDragOver(null);
+                          const files = Array.from(e.dataTransfer.files || []);
+                          if (files.length > 0) handlePackingSlipUpload(files, project, liveItems);
+                        }}
+                        style={{
+                          fontSize: 12, color: slipDragOver === "batch" ? T.accent : T.muted,
+                          background: slipDragOver === "batch" ? T.accentDim : "none",
+                          border: `1px dashed ${slipDragOver === "batch" ? T.accent : T.border}`,
+                          borderRadius: 6, padding: "12px 10px", cursor: "pointer", fontFamily: font, width: "100%", textAlign: "center",
+                        }}>
+                        {slipDragOver === "batch" ? "Drop to upload" : (uniqueSlips.length > 0 ? "+ Add packing slip(s) — drag & drop or click" : "+ Upload packing slip(s) — drag & drop or click")}
+                      </div>
+                      <input ref={batchModalSlipInputRef} type="file" accept="image/*,.pdf" multiple style={{ display: "none" }}
+                        onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handlePackingSlipUpload(fs, project, liveItems); e.target.value = ""; }} />
+                    </>
+                  )}
+                </div>
+              </div>
+              {(() => {
+                const allShipped = liveItems.length > 0 && liveItems.every(it => it.pipeline_stage === "shipped");
+                const canNotify = allShipped && !!batchTracking.trim() && !!project.invoiceNumber;
+                return (
+                  <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+                    <button onClick={() => { setBatchShipState(null); setSelectedItemIds(new Set()); }}
+                      style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                      {allShipped ? "Done" : "Cancel"}
+                    </button>
+                    {!allShipped && (
+                      <button onClick={async () => {
+                        // Mark each item shipped with the batch tracking + notes.
+                        // skipReload: true on each so the modal doesn't flash
+                        // N times; one loadAll at the end refreshes state.
+                        for (const it of liveItems) {
+                          await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchNotes }, { skipReload: true });
+                        }
+                        await loadAll();
+                      }}
+                        style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                        Mark {liveItems.length} Shipped
+                      </button>
+                    )}
+                    {allShipped && (() => {
+                      const notified = project.shippingNotifications.some(r =>
+                        (r.type === "drop_ship_vendor" || r.type === "decorator_to_warehouse") &&
+                        r.decoratorId === dg.decoratorId &&
+                        (r.tracking || null) === (batchTracking || null)
+                      );
+                      const baseLabel = project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
+                      const label = notified ? "Notified ✓" : baseLabel;
+                      const bg = notified ? T.greenDim : (canNotify ? T.accent : T.surface);
+                      const color = notified ? T.green : (canNotify ? "#fff" : T.faint);
+                      const border = notified ? `1px solid ${T.green}66` : "none";
+                      return (
+                        <button
+                          disabled={!canNotify}
+                          onClick={() => {
+                            if (!canNotify) return;
+                            openNotifyDialog({
+                              project,
+                              decoratorId: dg.decoratorId,
+                              decoratorName: dg.decoratorName,
+                              tracking: batchTracking,
+                            });
+                          }}
+                          title={!project.invoiceNumber ? "Generate QB invoice first" : (!batchTracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
+                          style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
+                          {label}
+                        </button>
+                      );
+                    })()}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Notify Recipient picker dialog. Spec:
+          memory/project_notify_recipient_on_ship.md */}
+      <NotifyShipmentDialog
+        open={!!notifyState}
+        onClose={() => setNotifyState(null)}
+        onSent={() => {
+          // Refresh shipping_notifications via loadAll so the row's
+          // "Notified ✓" badge appears immediately.
+          loadAll();
+        }}
+        route={notifyState?.route || "drop_ship"}
+        jobId={notifyState?.jobId || ""}
+        decoratorId={notifyState?.decoratorId || null}
+        decoratorName={notifyState?.decoratorName || ""}
+        tracking={notifyState?.tracking || ""}
+        qbInvoiceNumber={notifyState?.qbInvoiceNumber || ""}
+        clientName={notifyState?.clientName || ""}
+        jobTitle={notifyState?.jobTitle || ""}
+        contacts={notifyState?.contacts || []}
+      />
 
     </div>
   );

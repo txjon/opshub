@@ -28,7 +28,21 @@ type WarehouseItem = {
   sizes: string[];
   qtys: Record<string, number>;
   ship_qtys: Record<string, number>;
+  received_qtys: Record<string, number>;
   decorator_assignment_id: string | null;
+  decorator_id: string | null;
+  decorator_name: string | null;
+  decorator_short_code: string | null;
+};
+
+type DecoratorBucket = {
+  decoratorId: string | null;
+  decoratorName: string;
+  shortCode: string;
+  items: WarehouseItem[];
+  pending: number;
+  received: number;
+  totalUnits: number;
 };
 
 type WarehouseJob = {
@@ -41,6 +55,7 @@ type WarehouseJob = {
   fulfillment_tracking: string | null;
   client_name: string;
   items: WarehouseItem[];
+  decoratorGroups: DecoratorBucket[];
 };
 
 export default function WarehousePage() {
@@ -66,11 +81,24 @@ export default function WarehousePage() {
 
     const jobIds = dbJobs.map(j => j.id);
     const { data: allItems } = await supabase.from("items").select("*, buy_sheet_lines(size, qty_ordered)").in("job_id", jobIds).order("sort_order");
-    const assignmentMap: Record<string, string> = {};
+    // Per-item decorator info — drives vendor chips on each warehouse
+    // row + powers per-decorator grouping inside the Incoming card.
+    const assignmentMap: Record<string, { id: string; decoratorId: string | null; decoratorName: string; shortCode: string }> = {};
     if (allItems?.length) {
       const itemIds = allItems.map((it: any) => it.id);
-      const { data: assignments } = await supabase.from("decorator_assignments").select("id, item_id").in("item_id", itemIds);
-      for (const a of (assignments || [])) assignmentMap[a.item_id] = a.id;
+      const { data: assignments } = await supabase
+        .from("decorator_assignments")
+        .select("id, item_id, decorator_id, decorators(id, name, short_code)")
+        .in("item_id", itemIds);
+      for (const a of (assignments || [])) {
+        const dec = (a as any).decorators;
+        assignmentMap[(a as any).item_id] = {
+          id: (a as any).id,
+          decoratorId: (a as any).decorator_id || dec?.id || null,
+          decoratorName: dec?.name || "Unassigned",
+          shortCode: dec?.short_code || "",
+        };
+      }
     }
 
     const mapped: WarehouseJob[] = [];
@@ -82,6 +110,55 @@ export default function WarehousePage() {
       );
       if (relevant.length === 0) continue;
 
+      const items: WarehouseItem[] = relevant.map((it: any) => {
+        const lines = it.buy_sheet_lines || [];
+        const a = assignmentMap[it.id];
+        return {
+          id: it.id,
+          name: it.name,
+          letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
+          blank_vendor: it.blank_vendor,
+          blank_sku: it.blank_sku,
+          job_id: it.job_id,
+          pipeline_stage: it.pipeline_stage,
+          ship_tracking: it.ship_tracking,
+          received_at_hpd: it.received_at_hpd || false,
+          received_at_hpd_at: it.received_at_hpd_at,
+          sizes: sortSizes(lines.map((l: any) => l.size)),
+          qtys: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered])),
+          ship_qtys: it.ship_qtys || {},
+          received_qtys: it.received_qtys || {},
+          decorator_assignment_id: a?.id || null,
+          decorator_id: a?.decoratorId || null,
+          decorator_name: a?.decoratorName || null,
+          decorator_short_code: a?.shortCode || null,
+        };
+      });
+
+      // Group items by decorator within each job. Used for vendor chips
+      // on the warehouse row + (future) per-vendor receive modal.
+      const decoratorGroups: DecoratorBucket[] = [];
+      for (const it of items) {
+        const key = it.decorator_id || it.decorator_name || "unassigned";
+        let bucket = decoratorGroups.find(b => (b.decoratorId || b.decoratorName) === key);
+        if (!bucket) {
+          bucket = {
+            decoratorId: it.decorator_id || null,
+            decoratorName: it.decorator_name || "Unassigned",
+            shortCode: it.decorator_short_code || "",
+            items: [],
+            pending: 0,
+            received: 0,
+            totalUnits: 0,
+          };
+          decoratorGroups.push(bucket);
+        }
+        bucket.items.push(it);
+        bucket.totalUnits += tQty(it.qtys);
+        if (it.received_at_hpd) bucket.received++;
+        else bucket.pending++;
+      }
+
       mapped.push({
         id: j.id,
         title: j.title,
@@ -91,26 +168,8 @@ export default function WarehousePage() {
         fulfillment_status: j.fulfillment_status,
         fulfillment_tracking: j.fulfillment_tracking,
         client_name: (j as any).clients?.name || "",
-        items: relevant.map((it: any) => {
-          const lines = it.buy_sheet_lines || [];
-          return {
-            id: it.id,
-            name: it.name,
-            letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
-            blank_vendor: it.blank_vendor,
-            blank_sku: it.blank_sku,
-            job_id: it.job_id,
-            pipeline_stage: it.pipeline_stage,
-            ship_tracking: it.ship_tracking,
-            received_at_hpd: it.received_at_hpd || false,
-            received_at_hpd_at: it.received_at_hpd_at,
-            sizes: sortSizes(lines.map((l: any) => l.size)),
-            qtys: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered])),
-            ship_qtys: it.ship_qtys || {},
-            received_qtys: it.received_qtys || {},
-            decorator_assignment_id: assignmentMap[it.id] || null,
-          };
-        }),
+        items,
+        decoratorGroups,
       });
     }
 
@@ -214,7 +273,7 @@ export default function WarehousePage() {
     logJobActivity(item.job_id, `${item.name} returned to production from receiving`);
     setJobs(prev => {
       const updated = prev.map(j => ({
-        ...j, items: j.items.map(it => it.id === item.id ? { ...it, pipeline_stage: "in_production", received_at_hpd: false, received_at_hpd_at: null, received_qtys: null } : it),
+        ...j, items: j.items.map(it => it.id === item.id ? { ...it, pipeline_stage: "in_production", received_at_hpd: false, received_at_hpd_at: null, received_qtys: {} } : it),
       }));
       // Remove job if no items left in warehouse pipeline
       return updated.filter(j => j.items.some(it => it.pipeline_stage === "shipped" || it.received_at_hpd));
@@ -286,233 +345,388 @@ export default function WarehousePage() {
   if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading warehouse...</div>;
 
   return (
-    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14, maxWidth: 1100 }}>
       <div>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Warehouse</h1>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, padding: 4, background: T.surface, borderRadius: 8 }}>
+      {/* KPI strip — matches production page chrome */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+        gap: 10,
+      }}>
         {[
-          { id: "incoming", label: "Incoming", count: incomingItemCount },
-          { id: "shipping", label: "Shipping", count: shipThroughItemCount },
-          { id: "fulfillment", label: "Fulfillment", count: fulfillmentItemCount },
-        ].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              background: activeTab === tab.id ? T.accent : "transparent",
-              color: activeTab === tab.id ? "#fff" : T.muted,
-              transition: "all 0.15s",
-            }}>
-            {tab.label}
-            {tab.count > 0 && (
-              <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, padding: "1px 6px", borderRadius: 99,
-                background: activeTab === tab.id ? "rgba(255,255,255,0.2)" : T.card,
-                color: activeTab === tab.id ? "#fff" : T.accent,
-              }}>{tab.count}</span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* ── INCOMING ── */}
-      {activeTab === "incoming" && (incoming.length === 0 ? (
-        <div style={{ ...card, padding: "24px", textAlign: "center", fontSize: 12, color: T.faint }}>No incoming items</div>
-      ) : (
-        <div>
-        {incoming.map(job => (
-          <div key={job.id} style={{ ...card, marginBottom: 8 }}>
-            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-              <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
-              <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
-              <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.display_number}</span>
-              <span style={{ marginLeft: "auto", fontSize: 10, padding: "2px 8px", borderRadius: 99, background: job.shipping_route === "stage" ? T.purpleDim : T.accentDim, color: job.shipping_route === "stage" ? T.purple : T.accent }}>
-                {job.shipping_route === "stage" ? "Stage" : "Ship-through"}
-              </span>
+          { label: "Incoming", value: incomingItemCount.toLocaleString(), tone: T.amber },
+          { label: "Ready to ship", value: shipThroughItemCount.toLocaleString(), tone: T.accent },
+          { label: "In fulfillment", value: fulfillmentItemCount.toLocaleString(), tone: T.purple },
+        ].map(s => (
+          <div key={s.label} style={{
+            background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
+            padding: "10px 14px", display: "flex", alignItems: "center", gap: 10,
+          }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.tone, lineHeight: 1, fontFamily: mono }}>
+              {s.value}
             </div>
-            <div style={{ padding: "10px 14px" }}>
-              <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                    {["Item", "Tracking", "Shipped → Received", "Status", ""].map(h =>
-                      <th key={h} style={{ padding: "5px 8px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {job.items.map((item, i) => {
-                    const totalQty = tQty(item.qtys);
-                    const shippedQty = tQty(item.ship_qtys);
-                    const receivedQtys = (item as any).received_qtys || {};
-                    const receivedTotal = tQty(receivedQtys);
-                    const hasVariance = item.received_at_hpd && receivedTotal > 0 && receivedTotal !== (shippedQty ?? totalQty);
-                    return (
-                      <tr key={item.id} style={{ borderBottom: i < job.items.length - 1 ? `1px solid ${T.border}` : "none", verticalAlign: "top" }}>
-                        <td style={{ padding: "8px", fontWeight: 600 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: T.purple, fontFamily: mono, marginRight: 6 }}>{item.letter}</span>{item.name}
-                          <div style={{ fontSize: 10, color: T.faint, fontWeight: 400 }}>{[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ")}</div>
-                        </td>
-                        <td style={{ padding: "8px", fontFamily: mono, fontSize: 11, color: T.muted }}>{item.ship_tracking || "—"}</td>
-                        <td style={{ padding: "8px" }}>
-                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                            {item.sizes.map(sz => {
-                              const shipped = item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0;
-                              const received = receivedQtys[sz] ?? shipped;
-                              const mismatch = item.received_at_hpd && received !== shipped;
-                              return (
-                                <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-                                  <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{sz}</span>
-                                  <span style={{ fontSize: 10, color: T.muted, fontFamily: mono }}>{shipped}</span>
-                                  <input type="number" min="0" value={received}
-                                    onChange={e => updateReceivedQty(item, sz, parseInt(e.target.value) || 0)}
-                                    onFocus={e => e.target.select()}
-                                    style={{ width: 36, textAlign: "center", padding: "2px", border: `1px solid ${mismatch ? T.red : T.border}`, borderRadius: 3, background: T.surface, color: mismatch ? T.red : T.text, fontSize: 10, fontFamily: mono, outline: "none" }} />
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {hasVariance && (
-                            <div style={{ fontSize: 9, color: T.red, marginTop: 4 }}>
-                              Variance: {receivedTotal - (shippedQty ?? totalQty)} units
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ padding: "8px" }}>
-                          {item.received_at_hpd ? (
-                            <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: hasVariance ? T.amberDim : T.greenDim, color: hasVariance ? T.amber : T.green }}>{hasVariance ? "Variance" : "Received"}</span>
-                          ) : (
-                            <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.surface, color: T.muted }}>Pending</span>
-                          )}
-                        </td>
-                        <td style={{ padding: "8px", textAlign: "right", whiteSpace: "nowrap" }}>
-                          {item.received_at_hpd ? (
-                            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                              <button onClick={() => undoReceived(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>Undo</button>
-                              <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.amber, background: "none", border: `1px solid ${T.amber}44`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
-                            </div>
-                          ) : (
-                            <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                              <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
-                              <button onClick={() => markReceived(item)} style={{ fontSize: 10, fontWeight: 600, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Confirm</button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+              {s.label}
             </div>
           </div>
         ))}
-      </div>))}
+      </div>
 
-      {/* ── SHIPPING ── */}
+      {/* Tabs — flat underline pattern matching production page */}
+      <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${T.border}`, paddingBottom: 6 }}>
+        {[
+          { id: "incoming", label: "Incoming", count: incomingItemCount, tone: T.amber },
+          { id: "shipping", label: "Shipping", count: shipThroughItemCount, tone: T.accent },
+          { id: "fulfillment", label: "Fulfillment", count: fulfillmentItemCount, tone: T.purple },
+        ].map(tab => {
+          const active = activeTab === tab.id;
+          return (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              style={{
+                background: "transparent", border: "none", padding: "4px 0",
+                cursor: "pointer", fontFamily: font,
+                fontSize: 13, fontWeight: active ? 800 : 600,
+                color: active ? T.text : T.muted,
+                borderBottom: active ? `2px solid ${T.text}` : "2px solid transparent",
+                marginBottom: -7,
+              }}>
+              {tab.label}
+              {tab.count > 0 && (
+                <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: active ? T.text : T.faint }}>
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── INCOMING — production-page-style rows ── */}
+      {activeTab === "incoming" && (incoming.length === 0 ? (
+        <div style={{ ...card, padding: "24px", textAlign: "center", fontSize: 12, color: T.faint }}>No incoming items</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {incoming.map(job => {
+            const pendingItems = job.items.filter(it => !it.received_at_hpd);
+            const pendingUnits = pendingItems.reduce((a, it) => a + tQty(it.qtys), 0);
+            const totalItems = job.items.length;
+            return (
+              <div key={job.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+                {/* ── Outer row — mirrors production page's project row.
+                    Title block (left, 220px) + vendor chips (middle, flex)
+                    + right cell (route badge / counts). ── */}
+                <div style={{ padding: "14px 18px", display: "flex", gap: 16, alignItems: "flex-start" }}>
+                  {/* Title block */}
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, width: 220, flexShrink: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: job.display_number ? T.text : "transparent", fontFamily: mono, whiteSpace: "nowrap", alignSelf: "center" }}>
+                      {job.display_number || ""}
+                    </span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <Link href={`/jobs/${job.id}`} style={{ fontSize: 14, fontWeight: 700, color: T.text, textDecoration: "none", display: "block" }}>
+                        {job.client_name || "No client"}
+                      </Link>
+                      {job.title && (
+                        <div style={{ fontSize: 12, color: T.faint, marginTop: 2, lineHeight: 1.4, wordBreak: "break-word" }}>
+                          {job.title}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Vendor chips middle — one chip per decorator with
+                      pending/received counts. Click navigates focus to
+                      that decorator's items below (anchor scroll). */}
+                  <div style={{ flex: 1, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+                    {job.decoratorGroups.map(dg => {
+                      const decKey = dg.decoratorId || dg.decoratorName;
+                      const allReceived = dg.pending === 0;
+                      return (
+                        <a key={decKey} href={`#warehouse-${job.id}-${decKey}`}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 6,
+                            padding: "4px 10px", borderRadius: 6, background: T.surface,
+                            fontSize: 11, border: `1px solid ${T.border}`, cursor: "pointer",
+                            fontFamily: font, transition: "all 0.12s", textDecoration: "none",
+                          }}>
+                          <span style={{ fontWeight: 600, color: T.text }}>{dg.shortCode || dg.decoratorName}</span>
+                          <span style={{ color: T.muted }}>{dg.items.length} item{dg.items.length !== 1 ? "s" : ""}</span>
+                          <span style={{ color: T.faint }}>·</span>
+                          {dg.pending > 0 && <span style={{ color: T.amber }}>{dg.pending} pending</span>}
+                          {dg.received > 0 && <span style={{ color: T.green }}>{dg.received} received</span>}
+                          {allReceived && <span style={{ color: T.green, fontWeight: 700 }}>✓</span>}
+                        </a>
+                      );
+                    })}
+                  </div>
+
+                  {/* Right cell — route badge + counts */}
+                  <div style={{ flexShrink: 0, marginLeft: 12, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, minWidth: 90 }}>
+                    <span style={{ fontSize: 10, padding: "3px 10px", borderRadius: 99, background: job.shipping_route === "stage" ? T.purpleDim : T.accentDim, color: job.shipping_route === "stage" ? T.purple : T.accent, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                      {job.shipping_route === "stage" ? "Stage" : "Ship-through"}
+                    </span>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: mono, whiteSpace: "nowrap" }}>
+                      {pendingItems.length}/{totalItems}
+                    </div>
+                    <span style={{ fontSize: 10, color: T.faint, whiteSpace: "nowrap" }}>incoming</span>
+                    <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                      {pendingUnits.toLocaleString()} units
+                    </span>
+                  </div>
+                </div>
+
+                {/* ── Per-decorator item groups ── */}
+                <div style={{ borderTop: `1px solid ${T.border}` }}>
+                  {job.decoratorGroups.map(dg => {
+                    const decKey = dg.decoratorId || dg.decoratorName;
+                    return (
+                      <div key={decKey} id={`warehouse-${job.id}-${decKey}`} style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}` }}>
+                        {/* Mini-header for this decorator */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>{dg.decoratorName}</span>
+                          <span style={{ fontSize: 11, color: T.muted }}>
+                            <strong style={{ color: T.text, fontWeight: 700 }}>{dg.pending}</strong> pending
+                            {dg.received > 0 && <>
+                              <span style={{ color: T.faint, margin: "0 6px" }}>·</span>
+                              <strong style={{ color: T.green, fontWeight: 700 }}>{dg.received}</strong> received
+                            </>}
+                            <span style={{ color: T.faint, margin: "0 6px" }}>·</span>
+                            <strong style={{ color: T.text, fontWeight: 700 }}>{dg.totalUnits.toLocaleString()}</strong> units
+                          </span>
+                        </div>
+
+                        {/* Items — one row each, production-style layout */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {dg.items.map(item => {
+                            const totalQty = tQty(item.qtys);
+                            const shippedQty = tQty(item.ship_qtys);
+                            const receivedTotal = tQty(item.received_qtys || {});
+                            const hasVariance = item.received_at_hpd && receivedTotal > 0 && receivedTotal !== (shippedQty || totalQty);
+                            const isReceived = item.received_at_hpd;
+                            return (
+                              <div key={item.id} style={{
+                                padding: "10px 12px", borderRadius: 6,
+                                background: isReceived ? (hasVariance ? T.amberDim + "44" : T.greenDim + "44") : "transparent",
+                                border: `1px solid ${isReceived ? (hasVariance ? T.amber + "33" : T.green + "33") : T.border}`,
+                              }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                                  <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
+                                  {/* Title + specs stack */}
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.name}</div>
+                                    <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                                      {[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ") || "—"}
+                                      <span style={{ color: T.faint, margin: "0 6px" }}>·</span>
+                                      {totalQty} units
+                                      {item.ship_tracking && <>
+                                        <span style={{ color: T.faint, margin: "0 6px" }}>·</span>
+                                        <span style={{ fontFamily: mono }}>{item.ship_tracking}</span>
+                                      </>}
+                                    </div>
+                                  </div>
+                                  {/* Size grid: shipped → received */}
+                                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                    {item.sizes.map(sz => {
+                                      const shipped = item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0;
+                                      const received = item.received_qtys?.[sz] ?? shipped;
+                                      const mismatch = isReceived && received !== shipped;
+                                      return (
+                                        <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                                          <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{sz}</span>
+                                          <input type="text" inputMode="numeric" value={received}
+                                            onClick={e => (e.target as HTMLInputElement).select()}
+                                            onChange={e => updateReceivedQty(item, sz, parseInt(e.target.value) || 0)}
+                                            style={{ width: 52, padding: "8px 6px", textAlign: "center", border: `1px solid ${mismatch ? T.amber : T.border}`, borderRadius: 4, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, outline: "none" }} />
+                                          <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>{shipped}</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  {/* Action buttons */}
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                                    {isReceived ? (
+                                      <>
+                                        <span style={{ fontSize: 11, color: hasVariance ? T.amber : T.green, fontWeight: 700 }}>
+                                          {hasVariance ? `Variance ${receivedTotal - (shippedQty || totalQty)}` : "Received"}
+                                        </span>
+                                        <button onClick={() => undoReceived(item)}
+                                          style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                                          Undo
+                                        </button>
+                                        <button onClick={() => returnToProduction(item)}
+                                          style={{ fontSize: 10, color: T.amber, background: "none", border: `1px solid ${T.amber}44`, borderRadius: 4, padding: "5px 10px", cursor: "pointer" }} title="Send back to decorator">
+                                          ← Production
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <button onClick={() => returnToProduction(item)}
+                                          style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "6px 10px", cursor: "pointer" }} title="Send back to decorator">
+                                          ← Production
+                                        </button>
+                                        <button onClick={() => markReceived(item)}
+                                          style={{ padding: "8px 18px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: font }}>
+                                          Confirm
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>))}
+
+      {/* ── SHIPPING — production-page-style rows ── */}
       {activeTab === "shipping" && (shipThrough.length === 0 ? (
         <div style={{ ...card, padding: "24px", textAlign: "center", fontSize: 12, color: T.faint }}>No orders ready to ship</div>
       ) : (
-        <div>
-          {shipThrough.map(job => (
-            <div key={job.id} style={{ ...card, marginBottom: 8 }}>
-              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-                <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
-                <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
-                <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.display_number}</span>
-                <span style={{ marginLeft: "auto", fontSize: 11, color: T.green, fontWeight: 600 }}>All {job.items.length} items received</span>
-              </div>
-              <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Outbound tracking #</label>
-                    <input style={{ ...ic, fontFamily: mono }} value={job.fulfillment_tracking || ""} placeholder="Enter tracking to mark shipped"
-                      onChange={e => debounceFulfillmentTracking(job.id, e.target.value)} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {shipThrough.map(job => {
+            const totalUnits = job.items.reduce((a, it) => a + tQty(it.qtys), 0);
+            return (
+              <div key={job.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+                {/* Outer row header — mirrors production page rows */}
+                <div style={{ padding: "14px 18px", display: "flex", gap: 16, alignItems: "flex-start", borderBottom: `1px solid ${T.border}` }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, width: 220, flexShrink: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: mono, whiteSpace: "nowrap", alignSelf: "center" }}>{job.display_number}</span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <Link href={`/jobs/${job.id}`} style={{ fontSize: 14, fontWeight: 700, color: T.text, textDecoration: "none", display: "block" }}>{job.client_name || "No client"}</Link>
+                      {job.title && <div style={{ fontSize: 12, color: T.faint, marginTop: 2, lineHeight: 1.4 }}>{job.title}</div>}
+                    </div>
                   </div>
-                  <button onClick={async () => {
-                    if (!job.fulfillment_tracking) return;
-                    await updateFulfillment(job.id, "shipped");
-                    logJobActivity(job.id, `Ship-through complete — forwarded to client (${job.fulfillment_tracking})`);
-                    // Recalc phase will happen on next page load
-                    await supabase.from("jobs").update({ phase: "complete" }).eq("id", job.id);
-                    setJobs(prev => prev.filter(j => j.id !== job.id));
-                  }}
-                    disabled={!job.fulfillment_tracking}
-                    style={{ background: job.fulfillment_tracking ? T.green : T.surface, border: "none", borderRadius: 6, color: job.fulfillment_tracking ? "#fff" : T.faint, fontSize: 11, fontWeight: 600, padding: "8px 16px", cursor: job.fulfillment_tracking ? "pointer" : "default", opacity: job.fulfillment_tracking ? 1 : 0.5 }}>
-                    Mark Shipped
-                  </button>
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, color: T.green, fontWeight: 700 }}>All {job.items.length} items received</span>
+                  </div>
+                  <div style={{ flexShrink: 0, marginLeft: 12, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, minWidth: 90 }}>
+                    <span style={{ fontSize: 10, padding: "3px 10px", borderRadius: 99, background: T.accentDim, color: T.accent, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>Ship-through</span>
+                    <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{totalUnits.toLocaleString()} units</span>
+                  </div>
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {/* Outbound tracking + Mark Shipped */}
+                <div style={{ padding: "12px 18px", display: "flex", flexDirection: "column", gap: 10, borderBottom: `1px solid ${T.border}` }}>
+                  <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Outbound tracking #</label>
+                      <input style={{ ...ic, fontFamily: mono, fontSize: 13, padding: "8px 10px" }} value={job.fulfillment_tracking || ""} placeholder="Enter tracking to mark shipped"
+                        onChange={e => debounceFulfillmentTracking(job.id, e.target.value)} />
+                    </div>
+                    <button onClick={async () => {
+                      if (!job.fulfillment_tracking) return;
+                      await updateFulfillment(job.id, "shipped");
+                      logJobActivity(job.id, `Ship-through complete — forwarded to client (${job.fulfillment_tracking})`);
+                      await supabase.from("jobs").update({ phase: "complete" }).eq("id", job.id);
+                      setJobs(prev => prev.filter(j => j.id !== job.id));
+                    }}
+                      disabled={!job.fulfillment_tracking}
+                      style={{ background: job.fulfillment_tracking ? T.green : T.surface, border: "none", borderRadius: 4, color: job.fulfillment_tracking ? "#fff" : T.faint, fontSize: 13, fontWeight: 700, padding: "8px 18px", cursor: job.fulfillment_tracking ? "pointer" : "default", opacity: job.fulfillment_tracking ? 1 : 0.5, fontFamily: font, whiteSpace: "nowrap" }}>
+                      Mark Shipped
+                    </button>
+                  </div>
+                </div>
+                {/* Item summary chips */}
+                <div style={{ padding: "10px 18px", display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {job.items.map(item => (
-                    <span key={item.id} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: T.surface, color: T.muted, cursor: "pointer" }}
+                    <span key={item.id} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, color: T.muted, cursor: "pointer", fontFamily: font }}
                       onClick={() => undoReceived(item)}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = T.amber; e.currentTarget.style.color = T.amber; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = "transparent"; e.currentTarget.style.color = T.muted; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.muted; }}
                       title="Click to revert to incoming">
-                      {item.letter} {item.name} · {tQty(item.qtys)} units
+                      <span style={{ fontWeight: 700, color: T.text, marginRight: 4 }}>{item.letter}</span>
+                      {item.name} · {tQty(item.qtys)} units
                     </span>
                   ))}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>))}
 
-      {/* ── FULFILLMENT ── */}
+      {/* ── FULFILLMENT — production-page-style rows ── */}
       {activeTab === "fulfillment" && (fulfillment.length === 0 ? (
         <div style={{ ...card, padding: "24px", textAlign: "center", fontSize: 12, color: T.faint }}>No orders in fulfillment</div>
       ) : (
-        <div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {fulfillment.map(job => {
             const si = FULFILLMENT_STAGES.findIndex(s => s.id === job.fulfillment_status);
+            const totalUnits = job.items.reduce((a, it) => a + tQty(it.qtys), 0);
             return (
-              <div key={job.id} style={{ ...card, marginBottom: 8 }}>
-                <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-                  <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
-                  <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
-                  <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.display_number}</span>
-                  <span style={{ marginLeft: "auto", fontSize: 11, color: T.muted }}>{job.items.length} items · {job.items.reduce((a, it) => a + tQty(it.qtys), 0).toLocaleString()} units</span>
+              <div key={job.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+                <div style={{ padding: "14px 18px", display: "flex", gap: 16, alignItems: "flex-start", borderBottom: `1px solid ${T.border}` }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, width: 220, flexShrink: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: mono, whiteSpace: "nowrap", alignSelf: "center" }}>{job.display_number}</span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <Link href={`/jobs/${job.id}`} style={{ fontSize: 14, fontWeight: 700, color: T.text, textDecoration: "none", display: "block" }}>{job.client_name || "No client"}</Link>
+                      {job.title && <div style={{ fontSize: 12, color: T.faint, marginTop: 2, lineHeight: 1.4 }}>{job.title}</div>}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    {(() => {
+                      const stage = FULFILLMENT_STAGES.find(s => s.id === job.fulfillment_status);
+                      if (!stage) return <span style={{ fontSize: 11, color: T.muted }}>Awaiting fulfillment start</span>;
+                      return <span style={{ fontSize: 11, color: stage.color, fontWeight: 700, padding: "3px 10px", borderRadius: 99, background: stage.color + "22" }}>{stage.label}</span>;
+                    })()}
+                  </div>
+                  <div style={{ flexShrink: 0, marginLeft: 12, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, minWidth: 90 }}>
+                    <span style={{ fontSize: 10, padding: "3px 10px", borderRadius: 99, background: T.purpleDim, color: T.purple, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>Stage</span>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: mono, whiteSpace: "nowrap" }}>{job.items.length}</div>
+                    <span style={{ fontSize: 10, color: T.faint }}>items</span>
+                    <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{totalUnits.toLocaleString()} units</span>
+                  </div>
                 </div>
-                <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ padding: "12px 18px", display: "flex", flexDirection: "column", gap: 12, borderBottom: `1px solid ${T.border}` }}>
                   {/* Fulfillment stage buttons */}
-                  <div style={{ display: "flex", gap: 6 }}>
+                  <div style={{ display: "flex", gap: 8 }}>
                     {FULFILLMENT_STAGES.map((stage, idx) => {
                       const done = si >= idx, active = job.fulfillment_status === stage.id;
                       return (
                         <button key={stage.id} onClick={() => updateFulfillment(job.id, stage.id)}
                           style={{
-                            display: "flex", alignItems: "center", gap: 5, padding: "6px 14px", borderRadius: 6,
-                            fontSize: 12, fontWeight: active ? 600 : 400, cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 6,
+                            fontSize: 12, fontWeight: active ? 700 : 600, cursor: "pointer", fontFamily: font,
                             border: `1px solid ${done ? stage.color + "66" : T.border}`,
                             background: active ? stage.color + "22" : done ? stage.color + "11" : "transparent",
                             color: done ? stage.color : T.muted,
                           }}>
-                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: done ? stage.color : T.faint }} />
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: done ? stage.color : T.faint }} />
                           {stage.label}
                         </button>
                       );
                     })}
                   </div>
 
-                  {/* Tracking for shipped */}
+                  {/* Outbound tracking */}
                   {(job.fulfillment_status === "shipped" || job.fulfillment_status === "packing") && (
                     <div>
-                      <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Outbound tracking</label>
-                      <input style={{ ...ic, fontFamily: mono }} value={job.fulfillment_tracking || ""} placeholder="Enter tracking number"
+                      <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Outbound tracking</label>
+                      <input style={{ ...ic, fontFamily: mono, fontSize: 13, padding: "8px 10px" }} value={job.fulfillment_tracking || ""} placeholder="Enter tracking number"
                         onChange={e => debounceFulfillmentTracking(job.id, e.target.value)} />
                     </div>
                   )}
+                </div>
 
-                  {/* Item summary */}
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {job.items.map(item => (
-                      <span key={item.id} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, background: T.surface, color: T.muted, cursor: "pointer" }}
-                        onClick={() => undoReceived(item)}
-                        onMouseEnter={e => { e.currentTarget.style.color = T.amber; }}
-                        onMouseLeave={e => { e.currentTarget.style.color = T.muted; }}
-                        title="Click to revert to incoming">
-                        {item.letter} {item.name} · {tQty(item.qtys)} units
-                      </span>
-                    ))}
-                  </div>
+                {/* Item summary chips */}
+                <div style={{ padding: "10px 18px", display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {job.items.map(item => (
+                    <span key={item.id} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, color: T.muted, cursor: "pointer", fontFamily: font }}
+                      onClick={() => undoReceived(item)}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = T.amber; e.currentTarget.style.color = T.amber; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.muted; }}
+                      title="Click to revert to incoming">
+                      <span style={{ fontWeight: 700, color: T.text, marginRight: 4 }}>{item.letter}</span>
+                      {item.name} · {tQty(item.qtys)} units
+                    </span>
+                  ))}
                 </div>
               </div>
             );

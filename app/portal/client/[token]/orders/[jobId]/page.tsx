@@ -64,6 +64,7 @@ type PortalData = {
   paymentLink: string | null;
   invoiceNumber: string | null;
   activity: { message: string; date: string }[];
+  shipments?: { decoratorId: string | null; tracking: string; itemCount: number }[];
 };
 
 const PHASE_STEPS = [
@@ -159,7 +160,7 @@ export function OrderDetailView({ token, jobId, onClose }: { token: string; jobI
     );
   }
 
-  const { project, client, quote, items, payments, paymentLink, invoiceNumber, invoiceStale, activity, jobPortalToken } = data;
+  const { project, client, quote, items, payments, paymentLink, invoiceNumber, invoiceStale, activity, jobPortalToken, shipments = [] } = data;
 
   const totalPaid = payments.filter(p => p.status === "paid").reduce((s, p) => s + p.amount, 0);
   const balance = (quote.total || 0) - totalPaid;
@@ -352,6 +353,54 @@ export function OrderDetailView({ token, jobId, onClose }: { token: string; jobI
               Terms: {project.paymentTerms.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Shipments Section — packing slip downloads ──
+          One row per (decoratorId + tracking) pair. Vendor name
+          intentionally not shown (drop_ship anonymity). */}
+      {shipments.length > 0 && (
+        <div style={{
+          background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
+          padding: isMobile ? "16px" : "20px 24px", marginBottom: 20,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            Shipments
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {shipments.map((s, i) => (
+              <div key={`${s.decoratorId || ""}__${s.tracking}__${i}`}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+                    Shipment {shipments.length > 1 ? `#${i + 1}` : ""}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                    Tracking: <span style={{ fontFamily: "'SF Mono',Menlo,monospace" }}>{s.tracking}</span>
+                    <span style={{ color: C.faint, margin: "0 6px" }}>·</span>
+                    {s.itemCount} item{s.itemCount !== 1 ? "s" : ""}
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const params = new URLSearchParams({ portal: jobPortalToken });
+                    if (s.decoratorId) params.set("decoratorId", s.decoratorId);
+                    if (s.tracking) params.set("tracking", s.tracking);
+                    setPdfPreview({
+                      src: `/api/pdf/packing-slip/${project.id}?${params.toString()}`,
+                      title: `Packing slip · ${s.tracking}`,
+                    });
+                  }}
+                  style={{
+                    padding: "6px 14px", borderRadius: 6, cursor: "pointer",
+                    background: C.surface, color: C.text, border: `1px solid ${C.border}`,
+                    fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", fontFamily: C.font,
+                  }}>
+                  Download packing slip
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
