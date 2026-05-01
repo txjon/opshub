@@ -64,6 +64,9 @@ export default function ProductionPage() {
   // this; modal renders only that decorator group. Will get richer
   // (per-vendor actions) as the modal grows.
   const [modalDecoratorKey, setModalDecoratorKey] = useState<string | null>(null);
+  // Item selection inside the modal — for bulk actions. Reset on
+  // modal close. Toggle by clicking the per-item checkbox.
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   // Per-decorator expand state inside the modal. Reset on modal change
   // so a fresh project always opens with everything collapsed (Jon
   // wants the multi-vendor view quiet on first open).
@@ -103,8 +106,17 @@ export default function ProductionPage() {
     if (!modalProject) {
       setExpandedDecorators(new Set());
       setModalDecoratorKey(null);
+      setSelectedItemIds(new Set());
     }
   }, [modalProject?.jobId]);
+
+  function toggleItemSelected(itemId: string) {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      next.has(itemId) ? next.delete(itemId) : next.add(itemId);
+      return next;
+    });
+  }
 
   function toggleDecorator(key: string) {
     setExpandedDecorators(prev => {
@@ -946,8 +958,15 @@ export default function ProductionPage() {
                             border: `1px solid ${isShipped ? T.green + "33" : T.border}`,
                           }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <div>
-                                <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, marginRight: 8 }}>{item.letter}</span>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedItemIds.has(item.id)}
+                                  onChange={() => toggleItemSelected(item.id)}
+                                  onClick={e => e.stopPropagation()}
+                                  style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }}
+                                />
+                                <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, marginRight: 4 }}>{item.letter}</span>
                                 <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{item.name}</span>
                                 <span style={{ fontSize: 10, color: T.muted, marginLeft: 8 }}>
                                   {item.blank_vendor} · {item.total_units} units
