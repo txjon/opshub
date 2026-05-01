@@ -42,6 +42,13 @@ type ProjectGroup = {
   /** Stashed from the job for the print-count KPI. Only present for
    *  active jobs (not completed) since prints are an "in-flight" stat. */
   costingData?: any;
+  /** Shipping context for resolving per-vendor ship-to in the
+   *  vendor modal header. Mirrors the PO PDF's resolution order:
+   *  type_meta.po_ship_to[vendorName] → drop_ship venue_address →
+   *  HPD warehouse default. */
+  shippingRoute: string | null;
+  venueAddress: string;
+  poShipTo: Record<string, string>;
 };
 
 type DecoratorGroup = {
@@ -80,7 +87,7 @@ export default function ProductionPage() {
   const [slipProgress, setSlipProgress] = useState(0);
   const [slipStatus, setSlipStatus] = useState<string | null>(null);
   const [viewingSlips, setViewingSlips] = useState<{ files: { file_name: string; drive_link: string }[]; index: number; title: string } | null>(null);
-  const slipInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const shipModalSlipInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimers = useRef<Record<string, any>>({});
   const now = new Date();
 
@@ -135,8 +142,8 @@ export default function ProductionPage() {
     // Active jobs + recently completed (last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
     const [activeRes, completedRes] = await Promise.all([
-      supabase.from("jobs").select("id, title, job_number, phase, priority, type_meta, costing_data, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
-      supabase.from("jobs").select("id, title, job_number, phase, priority, type_meta, phase_timestamps, clients(name)").eq("phase", "complete").gte("updated_at", thirtyDaysAgo),
+      supabase.from("jobs").select("id, title, job_number, phase, priority, type_meta, costing_data, shipping_route, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
+      supabase.from("jobs").select("id, title, job_number, phase, priority, type_meta, phase_timestamps, shipping_route, clients(name)").eq("phase", "complete").gte("updated_at", thirtyDaysAgo),
     ]);
     const jobs = [...(activeRes.data || []), ...(completedRes.data || [])];
 
@@ -227,6 +234,9 @@ export default function ProductionPage() {
           decoratorGroups: [], totalItems: 0, totalUnits: 0,
           shippingNotifications: Array.isArray(tm.shipping_notifications) ? tm.shipping_notifications : [],
           costingData: (job as any).costing_data,
+          shippingRoute: (job as any).shipping_route || null,
+          venueAddress: (tm.venue_address as string) || "",
+          poShipTo: (tm.po_ship_to && typeof tm.po_ship_to === "object") ? (tm.po_ship_to as Record<string, string>) : {},
         };
       }
       projectMap[it.job_id].totalItems++;
@@ -878,13 +888,41 @@ export default function ProductionPage() {
                   .map(dg => {
                   const decKey = dg.decoratorId || dg.decoratorName;
                   const visibleItems = dg.items;
+                  // Ship-to resolution mirrors the PO PDF: per-vendor
+                  // override → drop_ship venue → HPD warehouse default.
+                  // Lookup uses printVendor (canonical costing key) with
+                  // decoratorName/shortCode as fallbacks, case-insensitive.
+                  const shipToAddress = (() => {
+                    const costProds = (project.costingData?.costProds || []) as any[];
+                    let printVendor: string | undefined;
+                    for (const it of dg.items) {
+                      const cp = costProds.find((c: any) => c?.id === it.id);
+                      if (cp?.printVendor) { printVendor = cp.printVendor; break; }
+                    }
+                    const ciKey = (k: string | null | undefined) => (k || "").toLowerCase().trim();
+                    const ciMap: Record<string, string> = {};
+                    for (const [k, v] of Object.entries(project.poShipTo)) {
+                      if (typeof v === "string" && v) ciMap[ciKey(k)] = v;
+                    }
+                    const tryKeys = [printVendor, dg.decoratorName, dg.shortCode].filter(Boolean) as string[];
+                    for (const k of tryKeys) {
+                      if (project.poShipTo[k]) return project.poShipTo[k];
+                      const ci = ciMap[ciKey(k)];
+                      if (ci) return ci;
+                    }
+                    if (project.shippingRoute === "drop_ship") {
+                      return project.venueAddress || "(no address set)";
+                    }
+                    return "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89139";
+                  })();
                   return (
                   <div key={decKey}>
                     {/* Page-style header — big decorator name, stats line,
-                        filter pills. No bordered card chrome. */}
+                        ship-to address, filter pills. No bordered card
+                        chrome. */}
                     <div style={{ paddingBottom: 14, borderBottom: `1px solid ${T.border}`, marginBottom: 14 }}>
                       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                        <div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
                           <h2 style={{ fontSize: 28, fontWeight: 800, margin: 0, letterSpacing: "-0.02em", color: T.text }}>
                             {dg.decoratorName}
                           </h2>
@@ -895,6 +933,13 @@ export default function ProductionPage() {
                             <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
                             <strong style={{ color: T.text, fontWeight: 700 }}>{dg.totalUnits.toLocaleString()}</strong> units
                           </div>
+                        </div>
+                        {/* Ship-to card — top-right of header. Mirrors the
+                            ship-to that prints on the PO so the team can
+                            double-check before clicking Ship. */}
+                        <div style={{ flexShrink: 0, padding: "8px 12px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, minWidth: 180, maxWidth: 280 }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>Ship to</div>
+                          <div style={{ fontSize: 12, color: T.text, lineHeight: 1.45, whiteSpace: "pre-line" }}>{shipToAddress}</div>
                         </div>
                         {(() => {
                           // Ship Selected — operates on items in this
@@ -927,9 +972,9 @@ export default function ProductionPage() {
                     </div>
 
                     {(<>
-                    {/* Action row — Select all (left) · Upload packing slip (right) */}
+                    {/* Action row — Select all (left) · View packing slips (right).
+                        Upload moved to per-item Ship sub-modal. */}
                     {(() => {
-                      const dgKey = project.jobId + "_" + (dg.decoratorId || "");
                       const dgSlips = dg.items.flatMap(it => packingSlips[it.id] || []);
                       const uniqueSlips = dgSlips.filter((s, i, arr) => arr.findIndex(x => x.file_name === s.file_name) === i);
                       const allSelected = dg.items.length > 0 && dg.items.every(it => selectedItemIds.has(it.id));
@@ -962,18 +1007,6 @@ export default function ProductionPage() {
                               style={{ fontSize: 11, padding: "5px 12px", borderRadius: 6, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font }}>
                               View packing slips ({uniqueSlips.length})
                             </button>
-                          )}
-                          {uploadingSlip === dgKey ? (
-                            <span style={{ fontSize: 11, color: T.accent }}>{slipStatus || `${slipProgress}%`}</span>
-                          ) : (
-                            <>
-                              <button onClick={(e) => { e.stopPropagation(); slipInputRefs.current[dgKey]?.click(); }}
-                                style={{ fontSize: 11, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontFamily: font }}>
-                                {uniqueSlips.length > 0 ? "+ Add packing slip" : "Upload packing slip"}
-                              </button>
-                              <input ref={el => { slipInputRefs.current[dgKey] = el; }} type="file" accept="image/*,.pdf" style={{ display: "none" }}
-                                onChange={e => { const f = e.target.files?.[0]; if (f) handlePackingSlipUpload(f, project, dg.items); e.target.value = ""; }} />
-                            </>
                           )}
                         </div>
                       );
@@ -1018,8 +1051,8 @@ export default function ProductionPage() {
                                     const shipped = (item.ship_qtys || {})[sz] ?? ordered;
                                     const diffColor = shipped < ordered ? T.amber : shipped > ordered ? T.green : null;
                                     return (
-                                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                                        <span style={{ fontSize: 9, color: T.muted, fontFamily: mono }}>{sz}</span>
+                                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                                        <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{sz}</span>
                                         <input
                                           type="text" inputMode="numeric" value={shipped}
                                           onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
@@ -1036,9 +1069,9 @@ export default function ProductionPage() {
                                               supabase.from("items").update({ ship_qtys: newQtys }).eq("id", item.id);
                                             }, 800);
                                           }}
-                                          style={{ ...ic, width: 44, padding: "4px", textAlign: "center", fontSize: 11, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: T.text }}
+                                          style={{ ...ic, width: 52, padding: "8px 6px", textAlign: "center", fontSize: 13, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: T.text }}
                                         />
-                                        <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{ordered}</span>
+                                        <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>{ordered}</span>
                                       </div>
                                     );
                                   })}
@@ -1079,7 +1112,7 @@ export default function ProductionPage() {
                                   </>
                                 ) : (
                                   <button onClick={(e) => { e.stopPropagation(); setShipDetailItem(item); }}
-                                    style={{ padding: "6px 16px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: font }}>
+                                    style={{ padding: "8px 18px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: font }}>
                                     Ship
                                   </button>
                                 )}
@@ -1155,18 +1188,22 @@ export default function ProductionPage() {
       {/* Ship sub-modal — opens from row-level "Ship" button. Tracking
           and notes only; per-size qtys are edited inline on the row. */}
       {shipDetailItem && (() => {
-        // Re-find latest version of the item from state so any inline
-        // edits made before opening this modal are reflected.
+        // Re-find latest version of the item + parent project from state
+        // so any inline edits made before opening this modal are reflected.
         let liveItem: ProdItem | null = null;
+        let liveProject: ProjectGroup | null = null;
         for (const p of projects) {
           for (const dg of p.decoratorGroups) {
             const found = dg.items.find(it => it.id === shipDetailItem.id);
-            if (found) { liveItem = found; break; }
+            if (found) { liveItem = found; liveProject = p; break; }
           }
           if (liveItem) break;
         }
-        if (!liveItem) return null;
+        if (!liveItem || !liveProject) return null;
         const item = liveItem;
+        const project = liveProject;
+        const slipKey = project.jobId + "_" + (item.decorator_id || "");
+        const itemSlips = packingSlips[item.id] || [];
         return (
           <div onClick={() => setShipDetailItem(null)}
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1188,6 +1225,33 @@ export default function ProductionPage() {
                   <input value={item.ship_notes || ""} placeholder="Optional"
                     onChange={e => updateField(item.id, "ship_notes", e.target.value)}
                     style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Packing slip</label>
+                  {itemSlips.length > 0 && (
+                    <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                      {itemSlips.map(slip => (
+                        <button
+                          key={slip.id}
+                          onClick={(e) => { e.stopPropagation(); setViewingSlips({ files: [slip], index: 0, title: item.name }); }}
+                          style={{ fontSize: 12, padding: "8px 10px", borderRadius: 6, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font, textAlign: "left" }}>
+                          {slip.file_name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {uploadingSlip === slipKey ? (
+                    <div style={{ fontSize: 12, color: T.accent, padding: "8px 10px" }}>{slipStatus || `${slipProgress}%`}</div>
+                  ) : (
+                    <>
+                      <button onClick={(e) => { e.stopPropagation(); shipModalSlipInputRef.current?.click(); }}
+                        style={{ fontSize: 12, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 6, padding: "8px 10px", cursor: "pointer", fontFamily: font, width: "100%" }}>
+                        {itemSlips.length > 0 ? "+ Add another packing slip" : "+ Upload packing slip"}
+                      </button>
+                      <input ref={shipModalSlipInputRef} type="file" accept="image/*,.pdf" style={{ display: "none" }}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handlePackingSlipUpload(f, project, [item]); e.target.value = ""; }} />
+                    </>
+                  )}
                 </div>
               </div>
               <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8 }}>
