@@ -620,8 +620,10 @@ export default function ProductionPage() {
   const shipDatePill = (d: string | null) => {
     const days = getDaysToShip(d);
     if (days === null) return null;
-    const color = days < 0 ? T.red : days <= 3 ? T.amber : T.green;
-    const bg = days < 0 ? T.redDim : days <= 3 ? T.amberDim : T.greenDim;
+    // Healthy/comfortable ship dates render as plain T.text — color is
+    // reserved for actionable signals only (red overdue, amber imminent).
+    const color = days < 0 ? T.red : days <= 3 ? T.amber : T.text;
+    const bg = days < 0 ? T.redDim : days <= 3 ? T.amberDim : T.surface;
     const label = days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `${days}d`;
     return { color, bg, label, dateStr: new Date(d!).toLocaleDateString("en-US", { month: "short", day: "numeric" }) };
   };
