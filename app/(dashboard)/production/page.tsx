@@ -6,6 +6,7 @@ import Link from "next/link";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
+import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -90,6 +91,22 @@ export default function ProductionPage() {
   // Drag highlight target for the slip dropzones. Either modal's
   // upload area can be the active drop zone at a time.
   const [slipDragOver, setSlipDragOver] = useState<"ship" | "batch" | null>(null);
+  // Notify Recipient picker dialog. Opened from the per-item or batch
+  // ship sub-modal after Mark Shipped flips items, OR from the inline
+  // Send-update button on shipped rows. Lazy-loads contacts on first
+  // open per job. Spec: memory/project_notify_recipient_on_ship.md
+  const [notifyState, setNotifyState] = useState<{
+    jobId: string;
+    decoratorId: string | null;
+    decoratorName: string;
+    tracking: string;
+    qbInvoiceNumber: string;
+    clientName: string;
+    jobTitle: string;
+    route: string;
+    contacts: Array<{ name: string; email: string; role: string }>;
+  } | null>(null);
+  const [contactsByJob, setContactsByJob] = useState<Record<string, Array<{ name: string; email: string; role: string }>>>({});
   // Per-decorator expand state inside the modal. Reset on modal change
   // so a fresh project always opens with everything collapsed (Jon
   // wants the multi-vendor view quiet on first open).
@@ -444,6 +461,52 @@ export default function ProductionPage() {
       await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
     }
     loadAll();
+  }
+
+  // Lazy-load + cache job contacts for the Notify Recipient dialog.
+  // The production page query intentionally skips contacts to keep the
+  // initial fetch light — this only runs when the user actually opens
+  // the dialog. Cached per-jobId for the session so subsequent opens
+  // are instant.
+  async function loadJobContacts(jobId: string): Promise<Array<{ name: string; email: string; role: string }>> {
+    if (contactsByJob[jobId]) return contactsByJob[jobId];
+    const { data } = await supabase
+      .from("job_contacts")
+      .select("role_on_job, contacts(name, email)")
+      .eq("job_id", jobId);
+    const list = ((data as any[]) || [])
+      .map(r => ({
+        name: r.contacts?.name || "Unnamed",
+        email: r.contacts?.email || "",
+        role: r.role_on_job || "",
+      }))
+      .filter(c => c.email);
+    setContactsByJob(prev => ({ ...prev, [jobId]: list }));
+    return list;
+  }
+
+  // Open the Notify Recipient dialog. Pulls latest project + item state
+  // so the dialog renders with current tracking + invoice number.
+  async function openNotifyDialog(args: {
+    project: ProjectGroup;
+    decoratorId: string | null;
+    decoratorName: string;
+    tracking: string;
+  }) {
+    const { project, decoratorId, decoratorName, tracking } = args;
+    const route = project.shippingRoute || "ship_through";
+    const contacts = route === "drop_ship" ? await loadJobContacts(project.jobId) : [];
+    setNotifyState({
+      jobId: project.jobId,
+      decoratorId,
+      decoratorName,
+      tracking,
+      qbInvoiceNumber: project.invoiceNumber || "",
+      clientName: project.clientName || "",
+      jobTitle: project.jobTitle || "",
+      route,
+      contacts,
+    });
   }
 
   function updateField(itemId: string, field: string, value: string) {
@@ -1114,23 +1177,36 @@ export default function ProductionPage() {
                                       {item.ship_tracking || "Shipped"}
                                     </span>
                                     {(() => {
+                                      // Match either the legacy `drop_ship_vendor` records (still
+                                      // written by the existing inline button on shipped rows
+                                      // throughout the app) or the new v2 records of either
+                                      // recipient kind. Once any matching record exists we surface
+                                      // "Notified ✓" — the dialog itself handles resend.
                                       const notified = project.shippingNotifications.some(r =>
-                                        r.type === "drop_ship_vendor" &&
+                                        (r.type === "drop_ship_vendor" || r.type === "decorator_to_warehouse") &&
                                         r.decoratorId === item.decorator_id &&
                                         (r.tracking || null) === (item.ship_tracking || null)
                                       );
-                                      if (notified) {
-                                        return <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>Notified ✓</span>;
-                                      }
+                                      const canNotify = !!item.ship_tracking && !!project.invoiceNumber;
+                                      const label = notified ? "Notified ✓" : (project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse");
+                                      const bg = notified ? T.greenDim : T.accent;
+                                      const color = notified ? T.green : "#fff";
+                                      const border = notified ? `1px solid ${T.green}66` : "none";
                                       return (
-                                        <button onClick={(e) => { e.stopPropagation(); sendShipmentUpdate({
-                                          jobId: project.jobId,
-                                          decoratorId: item.decorator_id,
-                                          decoratorName: item.decorator_name,
-                                          trackingNumber: item.ship_tracking || null,
-                                        }); }}
-                                          style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, border: "none", background: T.accent, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
-                                          Send shipment update
+                                        <button onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (!canNotify) return;
+                                          openNotifyDialog({
+                                            project,
+                                            decoratorId: item.decorator_id,
+                                            decoratorName: item.decorator_name || "",
+                                            tracking: item.ship_tracking || "",
+                                          });
+                                        }}
+                                          disabled={!canNotify}
+                                          title={!project.invoiceNumber ? "Generate QB invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
+                                          style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, border, background: bg, color, cursor: canNotify ? "pointer" : "not-allowed", whiteSpace: "nowrap", opacity: canNotify ? 1 : 0.5, fontFamily: font }}>
+                                          {label}
                                         </button>
                                       );
                                     })()}
@@ -1297,18 +1373,46 @@ export default function ProductionPage() {
                   )}
                 </div>
               </div>
-              <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
                 <button onClick={() => setShipDetailItem(null)}
                   style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
                   Cancel
                 </button>
-                <button onClick={async () => {
-                  await markShipped(item);
-                  setShipDetailItem(null);
-                }}
-                  style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
-                  Mark Shipped
-                </button>
+                {/* Notify Recipient — only shown after Mark Shipped flipped
+                    the item, gated by tracking + QB invoice. */}
+                {item.pipeline_stage === "shipped" && (() => {
+                  const canNotify = !!item.ship_tracking && !!project.invoiceNumber;
+                  const label = project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
+                  return (
+                    <button
+                      disabled={!canNotify}
+                      onClick={() => {
+                        if (!canNotify) return;
+                        openNotifyDialog({
+                          project,
+                          decoratorId: item.decorator_id,
+                          decoratorName: item.decorator_name || "",
+                          tracking: item.ship_tracking || "",
+                        });
+                      }}
+                      title={!project.invoiceNumber ? "Generate QB invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
+                      style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: canNotify ? T.accent : T.surface, color: canNotify ? "#fff" : T.faint, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
+                      {label}
+                    </button>
+                  );
+                })()}
+                {item.pipeline_stage !== "shipped" && (
+                  <button onClick={async () => { await markShipped(item); }}
+                    style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                    Mark Shipped
+                  </button>
+                )}
+                {item.pipeline_stage === "shipped" && (
+                  <button onClick={() => setShipDetailItem(null)}
+                    style={{ padding: "8px 18px", borderRadius: 6, border: `1px solid ${T.green}`, background: T.greenDim, color: T.green, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                    Done
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1420,29 +1524,73 @@ export default function ProductionPage() {
                   )}
                 </div>
               </div>
-              <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <button onClick={() => setBatchShipState(null)}
-                  style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
-                  Cancel
-                </button>
-                <button onClick={async () => {
-                  // Mark each item shipped with the batch tracking + notes.
-                  // markShipped passes through ship_tracking/ship_notes from
-                  // the item argument, so build a merged item per row.
-                  for (const it of liveItems) {
-                    await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchNotes });
-                  }
-                  setBatchShipState(null);
-                  setSelectedItemIds(new Set());
-                }}
-                  style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
-                  Mark {liveItems.length} Shipped
-                </button>
-              </div>
+              {(() => {
+                const allShipped = liveItems.length > 0 && liveItems.every(it => it.pipeline_stage === "shipped");
+                const canNotify = allShipped && !!batchTracking.trim() && !!project.invoiceNumber;
+                return (
+                  <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+                    <button onClick={() => { setBatchShipState(null); setSelectedItemIds(new Set()); }}
+                      style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                      {allShipped ? "Done" : "Cancel"}
+                    </button>
+                    {!allShipped && (
+                      <button onClick={async () => {
+                        // Mark each item shipped with the batch tracking + notes.
+                        // markShipped passes through ship_tracking/ship_notes from
+                        // the item argument, so build a merged item per row.
+                        for (const it of liveItems) {
+                          await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchNotes });
+                        }
+                      }}
+                        style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                        Mark {liveItems.length} Shipped
+                      </button>
+                    )}
+                    {allShipped && (
+                      <button
+                        disabled={!canNotify}
+                        onClick={() => {
+                          if (!canNotify) return;
+                          openNotifyDialog({
+                            project,
+                            decoratorId: dg.decoratorId,
+                            decoratorName: dg.decoratorName,
+                            tracking: batchTracking,
+                          });
+                        }}
+                        title={!project.invoiceNumber ? "Generate QB invoice first" : (!batchTracking ? "Tracking required" : "")}
+                        style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: canNotify ? T.accent : T.surface, color: canNotify ? "#fff" : T.faint, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
+                        {project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         );
       })()}
+
+      {/* Notify Recipient picker dialog. Spec:
+          memory/project_notify_recipient_on_ship.md */}
+      <NotifyShipmentDialog
+        open={!!notifyState}
+        onClose={() => setNotifyState(null)}
+        onSent={() => {
+          // Refresh shipping_notifications via loadAll so the row's
+          // "Notified ✓" badge appears immediately.
+          loadAll();
+        }}
+        route={notifyState?.route || "drop_ship"}
+        jobId={notifyState?.jobId || ""}
+        decoratorId={notifyState?.decoratorId || null}
+        decoratorName={notifyState?.decoratorName || ""}
+        tracking={notifyState?.tracking || ""}
+        qbInvoiceNumber={notifyState?.qbInvoiceNumber || ""}
+        clientName={notifyState?.clientName || ""}
+        jobTitle={notifyState?.jobTitle || ""}
+        contacts={notifyState?.contacts || []}
+      />
 
     </div>
   );
