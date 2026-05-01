@@ -892,21 +892,32 @@ export default function ProductionPage() {
                             <strong style={{ color: T.text, fontWeight: 700 }}>{dg.totalUnits.toLocaleString()}</strong> units
                           </div>
                         </div>
-                        {dg.inProduction > 1 && (
-                          <button onClick={async () => {
-                            const src = dg.items.find(it => it.ship_tracking && it.pipeline_stage !== "shipped");
-                            if (src) {
-                              for (const it of dg.items.filter(it2 => it2.pipeline_stage !== "shipped" && it2.id !== src.id)) {
-                                await supabase.from("items").update({ ship_tracking: src.ship_tracking, ship_notes: src.ship_notes || null }).eq("id", it.id);
+                        {(() => {
+                          // Ship Selected — operates on items in this
+                          // decorator group that are both selected AND
+                          // still in production. Hidden when nothing
+                          // qualifies. Copies tracking from any selected
+                          // item that already has one to the others
+                          // (lets you fill it in once for the batch).
+                          const eligible = dg.items.filter(it => selectedItemIds.has(it.id) && it.pipeline_stage !== "shipped");
+                          if (eligible.length === 0) return null;
+                          return (
+                            <button onClick={async () => {
+                              const src = eligible.find(it => it.ship_tracking);
+                              if (src) {
+                                for (const it of eligible.filter(it2 => it2.id !== src.id && !it2.ship_tracking)) {
+                                  await supabase.from("items").update({ ship_tracking: src.ship_tracking, ship_notes: src.ship_notes || null }).eq("id", it.id);
+                                }
                               }
-                            }
-                            for (const it of dg.items.filter(it2 => it2.pipeline_stage !== "shipped")) {
-                              await markShipped(it);
-                            }
-                          }} style={{ fontSize: 12, fontWeight: 700, padding: "8px 16px", borderRadius: 8, background: T.green, color: "#fff", border: "none", cursor: "pointer", fontFamily: font, alignSelf: "center" }}>
-                            Ship All
-                          </button>
-                        )}
+                              for (const it of eligible) {
+                                await markShipped(it);
+                              }
+                              setSelectedItemIds(new Set());
+                            }} style={{ fontSize: 12, fontWeight: 700, padding: "8px 16px", borderRadius: 8, background: T.green, color: "#fff", border: "none", cursor: "pointer", fontFamily: font, alignSelf: "center" }}>
+                              Ship Selected · {eligible.length}
+                            </button>
+                          );
+                        })()}
                       </div>
 
                     </div>
