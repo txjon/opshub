@@ -79,12 +79,39 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking"
       )
       .eq("job_id", job.id)
       .order("sort_order");
 
     const itemIds = (items || []).map((i: any) => i.id);
+
+    // Per-shipment list — one row per (decoratorId + tracking) pair
+    // among shipped items. Drives the "Download packing slip" buttons.
+    // Vendor name intentionally NOT returned (drop_ship anonymity).
+    let shipments: Array<{ decoratorId: string | null; tracking: string; itemCount: number }> = [];
+    if (itemIds.length > 0) {
+      const { data: assignments } = await sb
+        .from("decorator_assignments")
+        .select("item_id, decorator_id")
+        .in("item_id", itemIds);
+      const decByItem: Record<string, string | null> = {};
+      for (const a of (assignments || [])) {
+        decByItem[(a as any).item_id] = (a as any).decorator_id || null;
+      }
+      const grouped: Record<string, { decoratorId: string | null; tracking: string; itemCount: number }> = {};
+      for (const it of (items || [])) {
+        if (it.pipeline_stage !== "shipped") continue;
+        if (!it.ship_tracking) continue;
+        const decId = decByItem[it.id] || null;
+        const key = `${decId || ""}__${it.ship_tracking}`;
+        if (!grouped[key]) {
+          grouped[key] = { decoratorId: decId, tracking: it.ship_tracking, itemCount: 0 };
+        }
+        grouped[key].itemCount++;
+      }
+      shipments = Object.values(grouped);
+    }
 
     // Proof/mockup files (only stages clients should see)
     let proofFiles: any[] = [];
@@ -322,6 +349,7 @@ export async function GET(
         message: a.message,
         date: a.created_at,
       })),
+      shipments,
       clientProjects,
     });
   } catch (e: any) {
