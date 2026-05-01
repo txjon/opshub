@@ -60,6 +60,10 @@ export default function ProductionPage() {
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterStalled, setFilterStalled] = useState(false);
   const [modalProject, setModalProject] = useState<ProjectGroup | null>(null);
+  // Which decorator the modal is focused on. Vendor chip click sets
+  // this; modal renders only that decorator group. Will get richer
+  // (per-vendor actions) as the modal grows.
+  const [modalDecoratorKey, setModalDecoratorKey] = useState<string | null>(null);
   // Per-decorator expand state inside the modal. Reset on modal change
   // so a fresh project always opens with everything collapsed (Jon
   // wants the multi-vendor view quiet on first open).
@@ -92,11 +96,14 @@ export default function ProductionPage() {
     if (fresh && fresh !== modalProject) setModalProject(fresh);
   }, [projects, modalProject]);
 
-  // Reset decorator expansion state when the modal CLOSES, but not
-  // when it opens — vendor-chip clicks pre-seed expandedDecorators
-  // before setting modalProject, and we need that pre-seed to survive.
+  // Reset decorator expansion state + active decorator key when the
+  // modal CLOSES. On open, vendor-chip click pre-seeds both before
+  // setting modalProject; we don't want to wipe that.
   useEffect(() => {
-    if (!modalProject) setExpandedDecorators(new Set());
+    if (!modalProject) {
+      setExpandedDecorators(new Set());
+      setModalDecoratorKey(null);
+    }
   }, [modalProject?.jobId]);
 
   function toggleDecorator(key: string) {
@@ -765,6 +772,7 @@ export default function ProductionPage() {
                     <button key={decKey}
                       onClick={(e) => {
                         e.stopPropagation();
+                        setModalDecoratorKey(decKey);
                         setExpandedDecorators(new Set([decKey]));
                         setModalProject(project);
                       }}
@@ -842,9 +850,16 @@ export default function ProductionPage() {
                         style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
                     </div>
                   </div>
-                  {/* Scrollable body */}
+                  {/* Scrollable body — filtered to the clicked decorator
+                      so the modal stays focused. Switch vendors via the
+                      project row's chips (close + reopen). */}
                   <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 22px" }}>
-                {project.decoratorGroups.map(dg => {
+                {project.decoratorGroups
+                  .filter(dg => {
+                    if (!modalDecoratorKey) return true;
+                    return (dg.decoratorId || dg.decoratorName) === modalDecoratorKey;
+                  })
+                  .map(dg => {
                   const decKey = dg.decoratorId || dg.decoratorName;
                   const isDecExpanded = expandedDecorators.has(decKey);
                   return (
