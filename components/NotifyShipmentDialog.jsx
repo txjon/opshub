@@ -180,25 +180,6 @@ export function NotifyShipmentDialog({
             </div>
           )}
 
-          {showResendConfirm && !sent && (
-            <div style={{ padding: "12px 14px", background: T.amberDim + "66", border: `1px solid ${T.amber}66`, borderRadius: 6, fontSize: 13, color: T.text }}>
-              <div style={{ fontWeight: 700, marginBottom: 6, color: T.amber }}>Already sent — resend anyway?</div>
-              <div style={{ fontSize: 12, color: T.muted, marginBottom: 10 }}>
-                A notification for this tracking number was already sent. Send another copy?
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setShowResendConfirm(false)}
-                  style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
-                  No, cancel
-                </button>
-                <button onClick={() => { setShowResendConfirm(false); submit(true); }}
-                  style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: T.amber, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
-                  Yes, resend
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Recipients — drop_ship */}
           {isDropShip && (
             <div>
@@ -379,6 +360,19 @@ export function NotifyShipmentDialog({
           )}
         </div>
 
+        {/* Resend confirm — sits directly above the footer so it
+            appears next to the action buttons the user just clicked.
+            When active it replaces the Send button; the standalone
+            Cancel + recipient count line stay visible. */}
+        {showResendConfirm && !sent && (
+          <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, background: T.amberDim + "44" }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: T.amber, marginBottom: 4 }}>Already sent — resend anyway?</div>
+            <div style={{ fontSize: 12, color: T.muted }}>
+              A notification for this tracking number was already sent. Send another copy?
+            </div>
+          </div>
+        )}
+
         {/* Footer */}
         <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: 11, color: T.muted }}>
@@ -389,10 +383,23 @@ export function NotifyShipmentDialog({
               style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, padding: "8px 16px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
               Cancel
             </button>
-            <button disabled={!canSend} onClick={() => submit(false)}
-              style={{ background: canSend ? T.green : T.surface, border: "none", borderRadius: 6, color: canSend ? "#fff" : T.faint, padding: "8px 18px", fontSize: 12, fontFamily: font, fontWeight: 700, cursor: canSend ? "pointer" : "default", opacity: canSend ? 1 : 0.6 }}>
-              {sending ? "Sending…" : sent ? "Sent ✓" : "Send notification"}
-            </button>
+            {showResendConfirm && !sent ? (
+              <>
+                <button onClick={() => setShowResendConfirm(false)}
+                  style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, padding: "8px 16px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
+                  No, cancel
+                </button>
+                <button onClick={() => { setShowResendConfirm(false); submit(true); }}
+                  style={{ background: T.amber, border: "none", borderRadius: 6, color: "#fff", padding: "8px 18px", fontSize: 12, fontFamily: font, fontWeight: 700, cursor: "pointer" }}>
+                  Yes, resend
+                </button>
+              </>
+            ) : (
+              <button disabled={!canSend} onClick={() => submit(false)}
+                style={{ background: canSend ? T.green : T.surface, border: "none", borderRadius: 6, color: canSend ? "#fff" : T.faint, padding: "8px 18px", fontSize: 12, fontFamily: font, fontWeight: 700, cursor: canSend ? "pointer" : "default", opacity: canSend ? 1 : 0.6 }}>
+                {sending ? "Sending…" : sent ? "Sent ✓" : "Send notification"}
+              </button>
+            )}
           </div>
         </div>
       </div>
