@@ -734,7 +734,7 @@ export default function ProductionPage() {
             >
               {/* Title block — fixed width so the memo wraps inside it,
                   freeing the middle of the row for vendor chips. */}
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 16, width: 320, flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, width: 220, flexShrink: 0 }}>
                 <span style={{ fontSize: 14, fontWeight: 700, color: project.invoiceNumber ? T.text : "transparent", fontFamily: mono, whiteSpace: "nowrap" }}>
                   {project.invoiceNumber || ""}
                 </span>
