@@ -64,6 +64,9 @@ export default function ProductionPage() {
   // this; modal renders only that decorator group. Will get richer
   // (per-vendor actions) as the modal grows.
   const [modalDecoratorKey, setModalDecoratorKey] = useState<string | null>(null);
+  // Filter pills inside the vendor modal — "all" / "active" (in_production)
+  // / "shipped". Resets to "all" each time the modal opens.
+  const [modalItemFilter, setModalItemFilter] = useState<"all" | "active" | "shipped">("all");
   // Per-decorator expand state inside the modal. Reset on modal change
   // so a fresh project always opens with everything collapsed (Jon
   // wants the multi-vendor view quiet on first open).
@@ -104,7 +107,8 @@ export default function ProductionPage() {
       setExpandedDecorators(new Set());
       setModalDecoratorKey(null);
     }
-  }, [modalProject?.jobId]);
+    setModalItemFilter("all");
+  }, [modalProject?.jobId, modalDecoratorKey]);
 
   function toggleDecorator(key: string) {
     setExpandedDecorators(prev => {
@@ -861,73 +865,95 @@ export default function ProductionPage() {
                   })
                   .map(dg => {
                   const decKey = dg.decoratorId || dg.decoratorName;
-                  // Modal is scoped to a single decorator now — always
-                  // expanded, no toggle. Header stays for context + the
-                  // bulk-ship button.
-                  const isDecExpanded = true;
+                  const visibleItems = dg.items.filter(it => {
+                    if (modalItemFilter === "active") return it.pipeline_stage !== "shipped";
+                    if (modalItemFilter === "shipped") return it.pipeline_stage === "shipped";
+                    return true;
+                  });
                   return (
-                  <div key={decKey} style={{
-                    marginTop: 14, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden",
-                  }}>
-                    {/* Decorator header — context + bulk actions */}
-                    <div
-                      style={{
-                        padding: "10px 14px", background: T.surface,
-                        display: "flex", justifyContent: "space-between", alignItems: "center",
-                        borderBottom: `1px solid ${T.border}`,
-                      }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{dg.decoratorName}</span>
-                        <span style={{ fontSize: 11, color: T.muted }}>
-                          {dg.items.length} item{dg.items.length !== 1 ? "s" : ""} · {dg.totalUnits.toLocaleString()} units
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        {dg.inProduction > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>{dg.inProduction} in production</span>}
-                        {dg.shipped > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>{dg.shipped} shipped</span>}
+                  <div key={decKey}>
+                    {/* Page-style header — big decorator name, stats line,
+                        filter pills. No bordered card chrome. */}
+                    <div style={{ paddingBottom: 14, borderBottom: `1px solid ${T.border}`, marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                        <div>
+                          <h2 style={{ fontSize: 28, fontWeight: 800, margin: 0, letterSpacing: "-0.02em", color: T.text }}>
+                            {dg.decoratorName}
+                          </h2>
+                          <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>
+                            <strong style={{ color: T.text, fontWeight: 700 }}>{dg.inProduction}</strong> in production
+                            <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
+                            <strong style={{ color: T.text, fontWeight: 700 }}>{dg.shipped}</strong> shipped
+                            <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
+                            <strong style={{ color: T.text, fontWeight: 700 }}>{dg.totalUnits.toLocaleString()}</strong> units
+                          </div>
+                        </div>
                         {dg.inProduction > 1 && (
-                          <button onClick={async (e) => {
-                            e.stopPropagation();
-                            // Copy tracking from first item that has one to all others
+                          <button onClick={async () => {
                             const src = dg.items.find(it => it.ship_tracking && it.pipeline_stage !== "shipped");
                             if (src) {
                               for (const it of dg.items.filter(it2 => it2.pipeline_stage !== "shipped" && it2.id !== src.id)) {
                                 await supabase.from("items").update({ ship_tracking: src.ship_tracking, ship_notes: src.ship_notes || null }).eq("id", it.id);
                               }
                             }
-                            // Ship all unshipped items
                             for (const it of dg.items.filter(it2 => it2.pipeline_stage !== "shipped")) {
                               await markShipped(it);
                             }
-                          }} style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: T.green, color: "#fff", border: "none", cursor: "pointer" }}>
+                          }} style={{ fontSize: 12, fontWeight: 700, padding: "8px 16px", borderRadius: 8, background: T.green, color: "#fff", border: "none", cursor: "pointer", fontFamily: font, alignSelf: "center" }}>
                             Ship All
                           </button>
                         )}
                       </div>
+
+                      {/* Filter pills — match the Art Studio pattern Jon
+                          referenced. Active pill = filled black, inactive
+                          = bordered. */}
+                      <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+                        {([
+                          ["all",      "All",       dg.items.length],
+                          ["active",   "Active",    dg.inProduction],
+                          ["shipped",  "Shipped",   dg.shipped],
+                        ] as const).map(([k, label, count]) => {
+                          const sel = modalItemFilter === k;
+                          if (count === 0 && k !== "all") return null;
+                          return (
+                            <button key={k} onClick={() => setModalItemFilter(k as any)}
+                              style={{
+                                padding: "8px 16px", borderRadius: 8,
+                                background: sel ? T.text : "transparent",
+                                border: `1px solid ${sel ? T.text : T.border}`,
+                                color: sel ? "#fff" : T.text,
+                                fontSize: 13, fontWeight: sel ? 700 : 600,
+                                cursor: "pointer", fontFamily: font,
+                              }}>
+                              {label} {count > 0 && <span style={{ opacity: sel ? 0.7 : 0.5, fontWeight: 400, marginLeft: 4 }}>· {count}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
 
-                    {isDecExpanded && (<>
-                    {/* Packing slip upload */}
+                    {(<>
+                    {/* Packing slip upload — flat row, no card chrome */}
                     {(() => {
                       const dgKey = project.jobId + "_" + (dg.decoratorId || "");
                       const dgSlips = dg.items.flatMap(it => packingSlips[it.id] || []);
                       const uniqueSlips = dgSlips.filter((s, i, arr) => arr.findIndex(x => x.file_name === s.file_name) === i);
-                      const folderLink = dgSlips.find(s => s.folder_link)?.folder_link;
                       return (
-                        <div style={{ padding: "6px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ padding: "0 0 14px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           {uniqueSlips.length > 0 && (
                             <button onClick={(e) => { e.stopPropagation(); setViewingSlips({ files: uniqueSlips, index: 0, title: dg.shortCode || dg.decoratorName }); }}
-                              style={{ fontSize: 10, padding: "3px 10px", borderRadius: 4, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font }}>
-                              View {dg.shortCode || dg.decoratorName} packing slips ({uniqueSlips.length})
+                              style={{ fontSize: 11, padding: "5px 12px", borderRadius: 6, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font }}>
+                              View packing slips ({uniqueSlips.length})
                             </button>
                           )}
                           {uploadingSlip === dgKey ? (
-                            <span style={{ fontSize: 10, color: T.accent }}>{slipStatus || `${slipProgress}%`}</span>
+                            <span style={{ fontSize: 11, color: T.accent }}>{slipStatus || `${slipProgress}%`}</span>
                           ) : (
                             <>
                               <button onClick={(e) => { e.stopPropagation(); slipInputRefs.current[dgKey]?.click(); }}
-                                style={{ fontSize: 10, color: T.faint, background: "none", border: `1px dashed ${T.border}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>
-                                {uniqueSlips.length > 0 ? "+ Add" : "Upload Packing Slip"}
+                                style={{ fontSize: 11, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontFamily: font }}>
+                                {uniqueSlips.length > 0 ? "+ Add packing slip" : "Upload packing slip"}
                               </button>
                               <input ref={el => { slipInputRefs.current[dgKey] = el; }} type="file" accept="image/*,.pdf" style={{ display: "none" }}
                                 onChange={e => { const f = e.target.files?.[0]; if (f) handlePackingSlipUpload(f, project, dg.items); e.target.value = ""; }} />
@@ -938,8 +964,13 @@ export default function ProductionPage() {
                     })()}
 
                     {/* Items */}
-                    <div style={{ padding: "10px 14px" }}>
-                      {dg.items.map(item => {
+                    <div>
+                      {visibleItems.length === 0 && (
+                        <div style={{ fontSize: 13, color: T.faint, fontStyle: "italic", padding: "20px 0", textAlign: "center" }}>
+                          No items match this filter.
+                        </div>
+                      )}
+                      {visibleItems.map(item => {
                         const days = getDaysInStage(item);
                         const isShipped = item.pipeline_stage === "shipped";
                         return (
