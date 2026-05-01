@@ -1005,12 +1005,6 @@ export default function ProductionPage() {
                                 <span style={{ fontSize: 10, color: T.muted, marginLeft: 8 }}>
                                   {item.blank_vendor} · {item.total_units} units
                                 </span>
-                                {days !== null && days >= 7 && (
-                                  <span style={{ fontSize: 10, fontWeight: 600, color: T.red, marginLeft: 8 }}>{days}d in stage</span>
-                                )}
-                                {days !== null && days >= 3 && days < 7 && (
-                                  <span style={{ fontSize: 10, fontWeight: 600, color: T.amber, marginLeft: 8 }}>{days}d in stage</span>
-                                )}
                               </div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                 {isShipped ? (
