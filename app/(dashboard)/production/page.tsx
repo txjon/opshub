@@ -366,7 +366,11 @@ export default function ProductionPage() {
   }
 
   // ── Item actions ──
-  async function markShipped(item: ProdItem) {
+  // markShipped flips the item to shipped + writes downstream side
+  // effects, then triggers a full reload. The batch flow loops over
+  // items and would otherwise reload N times — pass `skipReload: true`
+  // for each item in the loop and call loadAll() once at the end.
+  async function markShipped(item: ProdItem, opts?: { skipReload?: boolean }) {
     const ts = new Date().toISOString();
     const timestamps = { ...(item.pipeline_timestamps || {}), shipped: ts };
     // Flush ALL pending debounces for this item
@@ -407,7 +411,7 @@ export default function ProductionPage() {
         logJobActivity(item.job_id, "All items shipped — invoice ready to update with shipped qtys");
       }
     }
-    loadAll();
+    if (!opts?.skipReload) loadAll();
   }
 
   // Manually fire a shipment-update email to the client for a single
@@ -1379,10 +1383,22 @@ export default function ProductionPage() {
                   Cancel
                 </button>
                 {/* Notify Recipient — only shown after Mark Shipped flipped
-                    the item, gated by tracking + QB invoice. */}
+                    the item, gated by tracking + QB invoice. Surfaces
+                    "Notified ✓" once a record exists for this (decorator
+                    + tracking); clicking still opens the dialog → backend
+                    dedups → "Already sent — Resend?" confirm. */}
                 {item.pipeline_stage === "shipped" && (() => {
                   const canNotify = !!item.ship_tracking && !!project.invoiceNumber;
-                  const label = project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
+                  const notified = project.shippingNotifications.some(r =>
+                    (r.type === "drop_ship_vendor" || r.type === "decorator_to_warehouse") &&
+                    r.decoratorId === item.decorator_id &&
+                    (r.tracking || null) === (item.ship_tracking || null)
+                  );
+                  const baseLabel = project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
+                  const label = notified ? "Notified ✓" : baseLabel;
+                  const bg = notified ? T.greenDim : (canNotify ? T.accent : T.surface);
+                  const color = notified ? T.green : (canNotify ? "#fff" : T.faint);
+                  const border = notified ? `1px solid ${T.green}66` : "none";
                   return (
                     <button
                       disabled={!canNotify}
@@ -1395,8 +1411,8 @@ export default function ProductionPage() {
                           tracking: item.ship_tracking || "",
                         });
                       }}
-                      title={!project.invoiceNumber ? "Generate QB invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
-                      style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: canNotify ? T.accent : T.surface, color: canNotify ? "#fff" : T.faint, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
+                      title={!project.invoiceNumber ? "Generate QB invoice first" : (!item.ship_tracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
+                      style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
                       {label}
                     </button>
                   );
@@ -1536,33 +1552,46 @@ export default function ProductionPage() {
                     {!allShipped && (
                       <button onClick={async () => {
                         // Mark each item shipped with the batch tracking + notes.
-                        // markShipped passes through ship_tracking/ship_notes from
-                        // the item argument, so build a merged item per row.
+                        // skipReload: true on each so the modal doesn't flash
+                        // N times; one loadAll at the end refreshes state.
                         for (const it of liveItems) {
-                          await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchNotes });
+                          await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchNotes }, { skipReload: true });
                         }
+                        await loadAll();
                       }}
                         style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
                         Mark {liveItems.length} Shipped
                       </button>
                     )}
-                    {allShipped && (
-                      <button
-                        disabled={!canNotify}
-                        onClick={() => {
-                          if (!canNotify) return;
-                          openNotifyDialog({
-                            project,
-                            decoratorId: dg.decoratorId,
-                            decoratorName: dg.decoratorName,
-                            tracking: batchTracking,
-                          });
-                        }}
-                        title={!project.invoiceNumber ? "Generate QB invoice first" : (!batchTracking ? "Tracking required" : "")}
-                        style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: canNotify ? T.accent : T.surface, color: canNotify ? "#fff" : T.faint, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
-                        {project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse"}
-                      </button>
-                    )}
+                    {allShipped && (() => {
+                      const notified = project.shippingNotifications.some(r =>
+                        (r.type === "drop_ship_vendor" || r.type === "decorator_to_warehouse") &&
+                        r.decoratorId === dg.decoratorId &&
+                        (r.tracking || null) === (batchTracking || null)
+                      );
+                      const baseLabel = project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
+                      const label = notified ? "Notified ✓" : baseLabel;
+                      const bg = notified ? T.greenDim : (canNotify ? T.accent : T.surface);
+                      const color = notified ? T.green : (canNotify ? "#fff" : T.faint);
+                      const border = notified ? `1px solid ${T.green}66` : "none";
+                      return (
+                        <button
+                          disabled={!canNotify}
+                          onClick={() => {
+                            if (!canNotify) return;
+                            openNotifyDialog({
+                              project,
+                              decoratorId: dg.decoratorId,
+                              decoratorName: dg.decoratorName,
+                              tracking: batchTracking,
+                            });
+                          }}
+                          title={!project.invoiceNumber ? "Generate QB invoice first" : (!batchTracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
+                          style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
+                          {label}
+                        </button>
+                      );
+                    })()}
                   </div>
                 );
               })()}
