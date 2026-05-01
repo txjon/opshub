@@ -83,6 +83,10 @@ export function NotifyShipmentDialog({
     ? [
         ...(includeGoose ? [GOOSE_EMAIL] : []),
         ...warehouseExtras.filter(e => e.trim()),
+        // Include whatever's still in the input — covers the case where
+        // the user typed an address and clicked Send without pressing
+        // Enter or the Add button first.
+        ...(warehouseExtraInput.trim() ? [warehouseExtraInput.trim()] : []),
       ]
     : [];
   const allRecipients = isDropShip ? dropShipRecipients : warehouseRecipients;
