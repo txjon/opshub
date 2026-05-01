@@ -67,6 +67,10 @@ export default function ProductionPage() {
   // Item selection inside the modal — for bulk actions. Reset on
   // modal close. Toggle by clicking the per-item checkbox.
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  // Per-item ship sub-modal. Click "Ship" on a row → opens this with
+  // tracking + notes inputs + confirm. Inline row no longer carries
+  // those inputs, so the row stays compact.
+  const [shipDetailItem, setShipDetailItem] = useState<ProdItem | null>(null);
   // Per-decorator expand state inside the modal. Reset on modal change
   // so a fresh project always opens with everything collapsed (Jon
   // wants the multi-vendor view quiet on first open).
@@ -983,30 +987,65 @@ export default function ProductionPage() {
                         </div>
                       )}
                       {visibleItems.map(item => {
-                        const days = getDaysInStage(item);
                         const isShipped = item.pipeline_stage === "shipped";
                         return (
                           <div key={item.id} style={{
-                            padding: "8px 10px", borderRadius: 6, marginBottom: 6,
+                            padding: "10px 12px", borderRadius: 6, marginBottom: 6,
                             background: isShipped ? T.greenDim + "44" : "transparent",
                             border: `1px solid ${isShipped ? T.green + "33" : T.border}`,
                           }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                <input
-                                  type="checkbox"
-                                  checked={selectedItemIds.has(item.id)}
-                                  onChange={() => toggleItemSelected(item.id)}
-                                  onClick={e => e.stopPropagation()}
-                                  style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }}
-                                />
-                                <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, marginRight: 4 }}>{item.letter}</span>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{item.name}</span>
-                                <span style={{ fontSize: 10, color: T.muted, marginLeft: 8 }}>
-                                  {item.blank_vendor} · {item.total_units} units
-                                </span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedItemIds.has(item.id)}
+                                onChange={() => toggleItemSelected(item.id)}
+                                onClick={e => e.stopPropagation()}
+                                style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }}
+                              />
+                              <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
+                              {/* Title + specs stack */}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.name}</div>
+                                <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                                  {item.blank_vendor || "—"} · {item.total_units} units
+                                </div>
                               </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              {/* Per-size ship qty grid — inline with title */}
+                              {!isShipped && item.sizes.length > 0 && (
+                                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                  {item.sizes.map(sz => {
+                                    const ordered = item.qtys[sz] || 0;
+                                    const shipped = (item.ship_qtys || {})[sz] ?? ordered;
+                                    const diffColor = shipped < ordered ? T.amber : shipped > ordered ? T.green : null;
+                                    return (
+                                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                        <span style={{ fontSize: 9, color: T.muted, fontFamily: mono }}>{sz}</span>
+                                        <input
+                                          type="text" inputMode="numeric" value={shipped}
+                                          onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
+                                          onChange={e => {
+                                            const val = parseInt(e.target.value) || 0;
+                                            const newQtys = { ...(item.ship_qtys || {}), [sz]: val };
+                                            setProjects(prev => prev.map(p => ({
+                                              ...p, decoratorGroups: p.decoratorGroups.map(dg2 => ({
+                                                ...dg2, items: dg2.items.map(it => it.id === item.id ? { ...it, ship_qtys: newQtys } : it)
+                                              }))
+                                            })));
+                                            if (saveTimers.current[`sqty_${item.id}`]) clearTimeout(saveTimers.current[`sqty_${item.id}`]);
+                                            saveTimers.current[`sqty_${item.id}`] = setTimeout(() => {
+                                              supabase.from("items").update({ ship_qtys: newQtys }).eq("id", item.id);
+                                            }, 800);
+                                          }}
+                                          style={{ ...ic, width: 44, padding: "4px", textAlign: "center", fontSize: 11, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: T.text }}
+                                        />
+                                        <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{ordered}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              {/* Ship button (or shipped status) */}
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                                 {isShipped ? (
                                   <>
                                     <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>
@@ -1039,57 +1078,13 @@ export default function ProductionPage() {
                                     </button>
                                   </>
                                 ) : (
-                                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                                    <input value={item.ship_tracking || ""} placeholder="Tracking #"
-                                      onChange={e => updateField(item.id, "ship_tracking", e.target.value)}
-                                      onClick={e => e.stopPropagation()}
-                                      style={{ ...ic, width: 160 }} />
-                                    <input value={item.ship_notes || ""} placeholder="Notes"
-                                      onChange={e => updateField(item.id, "ship_notes", e.target.value)}
-                                      onClick={e => e.stopPropagation()}
-                                      style={{ ...ic, width: 120 }} />
-                                    <button onClick={(e) => { e.stopPropagation(); markShipped(item); }}
-                                      style={{ padding: "4px 12px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-                                      Ship
-                                    </button>
-                                  </div>
+                                  <button onClick={(e) => { e.stopPropagation(); setShipDetailItem(item); }}
+                                    style={{ padding: "6px 16px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: font }}>
+                                    Ship
+                                  </button>
                                 )}
                               </div>
                             </div>
-                            {/* Per-size ship qty (collapsed, expand on click) */}
-                            {!isShipped && item.sizes.length > 0 && (
-                              <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
-                                {item.sizes.map(sz => {
-                                  const ordered = item.qtys[sz] || 0;
-                                  const shipped = (item.ship_qtys || {})[sz] ?? ordered;
-                                  const diffColor = shipped < ordered ? T.amber : shipped > ordered ? T.green : null;
-                                  return (
-                                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                                      <span style={{ fontSize: 9, color: T.muted, fontFamily: mono }}>{sz}</span>
-                                      <input
-                                        type="text" inputMode="numeric" value={shipped}
-                                        onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
-                                        onChange={e => {
-                                          const val = parseInt(e.target.value) || 0;
-                                          const newQtys = { ...(item.ship_qtys || {}), [sz]: val };
-                                          setProjects(prev => prev.map(p => ({
-                                            ...p, decoratorGroups: p.decoratorGroups.map(dg2 => ({
-                                              ...dg2, items: dg2.items.map(it => it.id === item.id ? { ...it, ship_qtys: newQtys } : it)
-                                            }))
-                                          })));
-                                          if (saveTimers.current[`sqty_${item.id}`]) clearTimeout(saveTimers.current[`sqty_${item.id}`]);
-                                          saveTimers.current[`sqty_${item.id}`] = setTimeout(() => {
-                                            supabase.from("items").update({ ship_qtys: newQtys }).eq("id", item.id);
-                                          }, 800);
-                                        }}
-                                        style={{ ...ic, width: 44, padding: "4px", textAlign: "center", fontSize: 11, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: T.text }}
-                                      />
-                                      <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{ordered}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
                           </div>
                         );
                       })}
@@ -1156,6 +1151,62 @@ export default function ProductionPage() {
           </div>
         </div>
       )}
+
+      {/* Ship sub-modal — opens from row-level "Ship" button. Tracking
+          and notes only; per-size qtys are edited inline on the row. */}
+      {shipDetailItem && (() => {
+        // Re-find latest version of the item from state so any inline
+        // edits made before opening this modal are reflected.
+        let liveItem: ProdItem | null = null;
+        for (const p of projects) {
+          for (const dg of p.decoratorGroups) {
+            const found = dg.items.find(it => it.id === shipDetailItem.id);
+            if (found) { liveItem = found; break; }
+          }
+          if (liveItem) break;
+        }
+        if (!liveItem) return null;
+        const item = liveItem;
+        return (
+          <div onClick={() => setShipDetailItem(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.card, borderRadius: 12, width: "90vw", maxWidth: 480, padding: 24, fontFamily: font }}>
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, marginBottom: 4 }}>Ship · {item.name}</h3>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 20 }}>
+                {item.blank_vendor || "—"} · {item.total_units} units
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Tracking #</label>
+                  <input value={item.ship_tracking || ""} placeholder="e.g. 1Z999AA10123456784"
+                    onChange={e => updateField(item.id, "ship_tracking", e.target.value)}
+                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Notes</label>
+                  <input value={item.ship_notes || ""} placeholder="Optional"
+                    onChange={e => updateField(item.id, "ship_notes", e.target.value)}
+                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                </div>
+              </div>
+              <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button onClick={() => setShipDetailItem(null)}
+                  style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                  Cancel
+                </button>
+                <button onClick={async () => {
+                  await markShipped(item);
+                  setShipDetailItem(null);
+                }}
+                  style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                  Mark Shipped
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );
