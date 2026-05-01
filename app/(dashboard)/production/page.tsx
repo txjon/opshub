@@ -732,12 +732,20 @@ export default function ProductionPage() {
               style={{ padding: "14px 18px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
             >
               <div style={{ flex: 1 }}>
-                {/* Title row */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{project.invoiceNumber || project.jobNumber}</span>
-                  {project.invoiceNumber && <span style={{ fontSize: 10, color: T.faint }}>{project.jobNumber}</span>}
-                  <span style={{ fontSize: 13, color: T.muted }}>{project.clientName}</span>
-                  {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>All Shipped</span>}
+                {/* Title block — invoice + client name + title/jobNumber, mirrors Projects */}
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 6 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: project.invoiceNumber ? T.text : "transparent", fontFamily: mono, whiteSpace: "nowrap" }}>
+                    {project.invoiceNumber || ""}
+                  </span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{project.clientName || "No client"}</span>
+                      {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>All Shipped</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: T.faint, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {project.jobTitle}{project.jobTitle ? " · " : ""}<span style={{ fontFamily: mono }}>{project.jobNumber}</span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Per-decorator mini breakdown */}
