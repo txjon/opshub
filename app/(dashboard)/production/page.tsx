@@ -923,13 +923,36 @@ export default function ProductionPage() {
                     </div>
 
                     {(<>
-                    {/* Packing slip upload — flat row, no card chrome */}
+                    {/* Action row — Select all (left) · Upload packing slip (right) */}
                     {(() => {
                       const dgKey = project.jobId + "_" + (dg.decoratorId || "");
                       const dgSlips = dg.items.flatMap(it => packingSlips[it.id] || []);
                       const uniqueSlips = dgSlips.filter((s, i, arr) => arr.findIndex(x => x.file_name === s.file_name) === i);
+                      const allSelected = dg.items.length > 0 && dg.items.every(it => selectedItemIds.has(it.id));
                       return (
                         <div style={{ padding: "0 0 14px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <button onClick={() => {
+                            setSelectedItemIds(prev => {
+                              const next = new Set(prev);
+                              if (allSelected) {
+                                // Unselect every item from this decorator group
+                                for (const it of dg.items) next.delete(it.id);
+                              } else {
+                                for (const it of dg.items) next.add(it.id);
+                              }
+                              return next;
+                            });
+                          }}
+                            style={{
+                              fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6,
+                              background: allSelected ? T.text : "transparent",
+                              border: `1px solid ${allSelected ? T.text : T.border}`,
+                              color: allSelected ? "#fff" : T.text,
+                              cursor: "pointer", fontFamily: font,
+                            }}>
+                            {allSelected ? "Unselect all" : "Select all"}
+                          </button>
+                          <div style={{ flex: 1 }} />
                           {uniqueSlips.length > 0 && (
                             <button onClick={(e) => { e.stopPropagation(); setViewingSlips({ files: uniqueSlips, index: 0, title: dg.shortCode || dg.decoratorName }); }}
                               style={{ fontSize: 11, padding: "5px 12px", borderRadius: 6, background: T.accentDim, color: T.accent, border: "none", cursor: "pointer", fontWeight: 600, fontFamily: font }}>
