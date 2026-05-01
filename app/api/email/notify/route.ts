@@ -14,7 +14,11 @@ import { renderBrandedEmail, trackingBlock } from "@/lib/email-template";
 // exists unless { resend: true }.
 
 type ShipNotificationRecord = {
-  type: "drop_ship_vendor" | "ship_through" | "stage_production_complete";
+  type:
+    | "drop_ship_vendor"
+    | "ship_through"
+    | "stage_production_complete"
+    | "decorator_to_warehouse";
   decoratorId: string | null;
   decoratorName: string | null;
   sentAt: string;
@@ -71,7 +75,8 @@ export async function POST(req: NextRequest) {
       if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { jobId, type, trackingNumber, carrier, decoratorId, vendorName, resend: forceResend } = await req.json();
+    const requestBody = await req.json();
+    const { jobId, type, trackingNumber, carrier, decoratorId, vendorName, resend: forceResend } = requestBody;
     if (!jobId || !type) return NextResponse.json({ error: "Missing fields" }, { status: 400 });
 
     const { createClient: createAdmin } = await import("@supabase/supabase-js");
@@ -304,6 +309,199 @@ export async function POST(req: NextRequest) {
       });
 
       return NextResponse.json({ success: true });
+    }
+
+    // ── Shipment notify v2 — production-page Mark Shipped → Notify Recipient ───
+    // Route-aware: drop_ship sends to client (vendor anonymized),
+    // ship_through and stage send to goose@ + extras (vendor named).
+    // Multi-recipient (to, cc, bcc) with user-editable subject + custom
+    // message + auto-attached packing slip. QB invoice number is required.
+    // Spec: memory/project_notify_recipient_on_ship.md
+    if (type === "shipment_notify") {
+      const route: string | undefined = requestBody.route;
+      const toList: string[] = Array.isArray(requestBody.to) ? requestBody.to.filter((s: any) => typeof s === "string" && s.trim()) : [];
+      const ccList: string[] = Array.isArray(requestBody.cc) ? requestBody.cc.filter((s: any) => typeof s === "string" && s.trim()) : [];
+      const bccList: string[] = Array.isArray(requestBody.bcc) ? requestBody.bcc.filter((s: any) => typeof s === "string" && s.trim()) : [];
+      const customSubject: string | undefined = typeof requestBody.customSubject === "string" ? requestBody.customSubject.trim() : undefined;
+      const customMessage: string | undefined = typeof requestBody.customMessage === "string" ? requestBody.customMessage.trim() : undefined;
+      const testRecipient: string | undefined = typeof requestBody.testRecipient === "string" ? requestBody.testRecipient.trim() : undefined;
+
+      // Hard validations — fail loud so frontend bugs surface in dev.
+      if (!route || !["drop_ship", "ship_through", "stage"].includes(route)) {
+        return NextResponse.json({ error: "Invalid or missing route" }, { status: 400 });
+      }
+      if (!trackingNumber || !String(trackingNumber).trim()) {
+        return NextResponse.json({ error: "Tracking number required" }, { status: 400 });
+      }
+      const effectiveTo = testRecipient ? [testRecipient] : toList;
+      if (effectiveTo.length === 0) {
+        return NextResponse.json({ error: "At least one recipient required" }, { status: 400 });
+      }
+
+      // Load job + items in one go
+      const { data: job } = await sb.from("jobs").select("*, clients(name, portal_token, client_hub_enabled)").eq("id", jobId).single();
+      if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+
+      const typeMeta = ((job as any).type_meta || {}) as any;
+      const invoiceNum: string | undefined = typeMeta.qb_invoice_number;
+      if (!invoiceNum) {
+        // QB invoice gate — block until QB invoice exists. Spec decision.
+        return NextResponse.json({ error: "QB invoice number required — generate the QB invoice before notifying", code: "qb_invoice_required" }, { status: 400 });
+      }
+
+      // Dedup record key: same (decoratorId + tracking) shape as legacy
+      // shipping notifications, but new record types so the new flow doesn't
+      // collide with legacy `ship_through` (HPD outbound) records.
+      const recordType: ShipNotificationRecord["type"] = route === "drop_ship" ? "drop_ship_vendor" : "decorator_to_warehouse";
+      const existingRecords: ShipNotificationRecord[] = Array.isArray(typeMeta.shipping_notifications) ? typeMeta.shipping_notifications : [];
+      if (!testRecipient && !forceResend && alreadySent(existingRecords, recordType, decoratorId || null, trackingNumber || null)) {
+        return NextResponse.json({ success: true, skipped: "already_sent" });
+      }
+
+      // Pull items in scope — items where decorator matches AND tracking
+      // matches. Used to build the "Shipment includes" list in the body.
+      const { data: allItems } = await sb
+        .from("items")
+        .select("id, name, sort_order, ship_qtys, ship_tracking, total_units, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
+        .eq("job_id", jobId)
+        .order("sort_order");
+      const scopedItems = (allItems || []).filter((it: any) => {
+        const itDecId = (it.decorator_assignments?.[0] as any)?.decorator_id || null;
+        const matchDec = !decoratorId || itDecId === decoratorId;
+        const matchTrack = (it.ship_tracking || "") === (trackingNumber || "");
+        return matchDec && matchTrack;
+      });
+
+      const clientName = (job as any).clients?.name || "";
+      const projectTitle = (job as any).title || "your order";
+      const portalToken = (job as any).portal_token;
+      const hubClient = (job as any).clients;
+      const portalUrl = hubClient?.client_hub_enabled && hubClient?.portal_token
+        ? `${appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
+        : (portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null);
+
+      // Build the shipment-includes HTML list
+      const sortSizes = (a: string, b: string) => {
+        const order = ["XS","S","M","L","XL","2XL","3XL","4XL","5XL"];
+        return (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b));
+      };
+      const itemListHtml = scopedItems.map((it: any) => {
+        const lines = (it.buy_sheet_lines || []) as any[];
+        const sizes = Array.from(new Set(lines.map((l: any) => l.size as string))).sort(sortSizes);
+        const shipQtys = it.ship_qtys || {};
+        const ordered = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
+        const sizesStr = sizes.map((sz: string) => {
+          const n = shipQtys[sz] ?? ordered[sz] ?? 0;
+          return `${sz}(${n})`;
+        }).join(" ");
+        const total = sizes.reduce((sum: number, sz: string) => sum + (shipQtys[sz] ?? ordered[sz] ?? 0), 0);
+        return `<li style="margin:4px 0;font-size:13px;color:#444;">${it.name} — <span style="font-family:'SF Mono',Menlo,monospace;color:#666;">${sizesStr}</span> — <strong>${total} units</strong></li>`;
+      }).join("");
+      const itemsBlock = `<ul style="margin:8px 0 16px;padding-left:20px;">${itemListHtml}</ul>`;
+
+      // Subject + body per route
+      let subject: string;
+      let heading: string;
+      let greeting: string;
+      let bodyHtml: string;
+      let fromAddr: string;
+      let closing: string;
+
+      if (route === "drop_ship") {
+        subject = customSubject || `Your order has shipped — ${invoiceNum} — ${projectTitle}`;
+        heading = "Your order has shipped";
+        greeting = `Hi ${clientName || "there"},`;
+        bodyHtml = `Good news — your order is on the way.${itemsBlock}A packing slip is attached for your records.`;
+        fromAddr = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
+        closing = "If anything looks off when it arrives, just reply here — we'll get you sorted.\n\n— The House Party Distro team\nhello@housepartydistro.com";
+      } else {
+        subject = customSubject || `Incoming: ${vendorName || "Vendor"} — ${invoiceNum} — ${clientName} — ${trackingNumber}`;
+        heading = "Incoming shipment";
+        greeting = "Heads up — a shipment is inbound to HPD.";
+        const fromLine = vendorName ? `<p style="margin:0 0 6px;font-size:13px;color:#444;"><strong>From:</strong> ${vendorName}</p>` : "";
+        const projLine = `<p style="margin:0 0 12px;font-size:13px;color:#444;"><strong>Project:</strong> ${projectTitle}</p>`;
+        bodyHtml = `${fromLine}${projLine}${itemsBlock}Packing slip attached. Confirm receipt in OpsHub when it arrives.`;
+        fromAddr = process.env.EMAIL_FROM_PO || "production@housepartydistro.com";
+        closing = "— House Party Labs";
+      }
+
+      // Optional custom-message block — rendered in a quoted callout above
+      // the body, mirrors RFQ pattern.
+      const customMessageHtml = customMessage
+        ? `<div style="margin:8px 0 16px;padding:10px 14px;background:#f6f8fb;border-left:3px solid #2563eb;border-radius:4px;font-size:13px;color:#333;white-space:pre-wrap;">${customMessage.replace(/</g, "&lt;").replace(/\n/g, "<br/>")}</div>`
+        : "";
+
+      // Generate packing slip
+      let pdfBuffer: Buffer;
+      try {
+        const params = new URLSearchParams();
+        if (decoratorId) params.set("decoratorId", decoratorId);
+        if (trackingNumber) params.set("tracking", trackingNumber);
+        const slipUrl = `${BASE_URL()}/api/pdf/packing-slip/${jobId}${params.toString() ? `?${params.toString()}` : ""}`;
+        pdfBuffer = await fetchPdf(slipUrl);
+      } catch (e: any) {
+        console.error(`[notify/shipment_notify] packing slip fetch failed:`, e.message);
+        return NextResponse.json({ error: "Packing slip generation failed" }, { status: 500 });
+      }
+      const pdfFilename = `HPD-PackingSlip-${invoiceNum}.pdf`;
+
+      // Render branded HTML
+      const html = renderBrandedEmail({
+        heading,
+        greeting,
+        bodyHtml: customMessageHtml + bodyHtml,
+        extraHtml: trackingBlock(trackingNumber || null, carrier || null),
+        cta: route === "drop_ship" && portalUrl ? { label: "Open project portal →", url: portalUrl, style: "outline" } : route !== "drop_ship" ? { label: "Open warehouse", url: `${appBaseUrl()}/warehouse`, style: "outline" } : undefined,
+        closing,
+      });
+
+      // Subject prefix when in test mode so it's obvious
+      const finalSubject = testRecipient ? `[TEST] ${subject}` : subject;
+
+      // Send via Resend — multi-recipient
+      try {
+        await resend.emails.send({
+          from: fromAddr,
+          to: effectiveTo,
+          cc: !testRecipient && ccList.length ? ccList : undefined,
+          bcc: !testRecipient && bccList.length ? bccList : undefined,
+          subject: finalSubject,
+          html,
+          attachments: [{ filename: pdfFilename, content: pdfBuffer.toString("base64") }],
+        } as any);
+      } catch (e: any) {
+        console.error(`[notify/shipment_notify] send failed:`, e.message);
+        return NextResponse.json({ error: `Email send failed: ${e.message}` }, { status: 500 });
+      }
+
+      // Test-mode: skip dedup record + activity log (but still return success)
+      if (testRecipient) {
+        return NextResponse.json({ success: true, test: true, sentTo: testRecipient });
+      }
+
+      const newRecord: ShipNotificationRecord = {
+        type: recordType,
+        decoratorId: decoratorId || null,
+        decoratorName: vendorName || null,
+        sentAt: new Date().toISOString(),
+        recipients: [...effectiveTo, ...ccList, ...bccList],
+        tracking: trackingNumber || null,
+        resend: !!forceResend,
+      };
+      await sb
+        .from("jobs")
+        .update({ type_meta: { ...typeMeta, shipping_notifications: [...existingRecords, newRecord] } })
+        .eq("id", jobId);
+
+      const recipientPreview = effectiveTo.slice(0, 2).join(", ") + (effectiveTo.length > 2 ? ` (+${effectiveTo.length - 2})` : "");
+      await sb.from("job_activity").insert({
+        job_id: jobId, user_id: null, type: "auto",
+        message: forceResend
+          ? `Resent shipment notification (${route}) to ${recipientPreview}${vendorName ? ` · ${vendorName}` : ""}`
+          : `Shipment notification (${route}) sent to ${recipientPreview}${vendorName ? ` · ${vendorName}` : ""}`,
+      });
+
+      return NextResponse.json({ success: true, record: newRecord });
     }
 
     // Fallback: delegate to auto-email.ts (proof_ready, payment_received)
