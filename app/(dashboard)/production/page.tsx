@@ -1082,7 +1082,7 @@ export default function ProductionPage() {
                                             supabase.from("items").update({ ship_qtys: newQtys }).eq("id", item.id);
                                           }, 800);
                                         }}
-                                        style={{ ...ic, width: 44, padding: "4px", textAlign: "center", fontSize: 11, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: diffColor || T.text }}
+                                        style={{ ...ic, width: 44, padding: "4px", textAlign: "center", fontSize: 11, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: T.text }}
                                       />
                                       <span style={{ fontSize: 8, color: T.faint, fontFamily: mono }}>{ordered}</span>
                                     </div>
