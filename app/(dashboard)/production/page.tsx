@@ -726,11 +726,11 @@ export default function ProductionPage() {
           <div key={project.jobId} style={{
             background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden",
           }}>
-            {/* ── Row — click opens full-page modal (replaces inline
-                expand pattern Jon flagged as cluttered). ── */}
+            {/* ── Row — vendor chips are the only entry point into the
+                modal. Row body itself is non-clickable so accidental
+                clicks while reading don't disrupt scanning. ── */}
             <div
-              onClick={() => setModalProject(project)}
-              style={{ padding: "14px 18px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
+              style={{ padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}
             >
               <div style={{ flex: 1 }}>
                 {/* Title block — invoice + client name + title/jobNumber, mirrors Projects */}
