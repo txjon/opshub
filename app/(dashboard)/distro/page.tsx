@@ -80,50 +80,6 @@ export default async function DistroDashboard() {
     return new Date(j.target_ship_date) <= endOfWeek;
   }).length;
 
-  // ── Exceptions: variance + damaged
-  type Exception = { jobId: string; jobTitle: string; clientName: string; itemName: string; kind: "variance" | "damage" | "stuck"; detail: string };
-  const exceptions: Exception[] = [];
-  for (const j of allJobs) {
-    const clientName = (j.clients as any)?.name || "Unknown";
-    for (const it of (j.items || [])) {
-      // Variance: received_qtys total < ordered (when received)
-      if (it.received_at_hpd && it.buy_sheet_lines?.length) {
-        const ordered = it.buy_sheet_lines.reduce((s: number, l: any) => s + (l.qty_ordered || 0), 0);
-        const receivedTotal = Object.values(it.received_qtys || {}).reduce((s: number, q: any) => s + (Number(q) || 0), 0);
-        if (ordered > 0 && receivedTotal > 0 && receivedTotal < ordered) {
-          exceptions.push({
-            jobId: j.id, jobTitle: j.title, clientName,
-            itemName: it.name,
-            kind: "variance",
-            detail: `${receivedTotal}/${ordered} received`,
-          });
-        }
-      }
-      // Damage: receiving_data.condition = "damaged"
-      const cond = (it.receiving_data as any)?.condition;
-      if (cond === "damaged" || cond === "partial_damage") {
-        exceptions.push({
-          jobId: j.id, jobTitle: j.title, clientName,
-          itemName: it.name,
-          kind: "damage",
-          detail: (it.receiving_data as any)?.notes || "Flagged damaged on arrival",
-        });
-      }
-      // Stuck: shipped 7+ days ago, still not received
-      if (it.pipeline_stage === "shipped" && !it.received_at_hpd && it.pipeline_timestamps?.shipped) {
-        const daysShipped = daysBetween(it.pipeline_timestamps.shipped, now);
-        if (daysShipped >= 7) {
-          exceptions.push({
-            jobId: j.id, jobTitle: j.title, clientName,
-            itemName: it.name,
-            kind: "stuck",
-            detail: `Shipped ${daysShipped}d ago, no receipt confirmation`,
-          });
-        }
-      }
-    }
-  }
-
   // ── Format helpers
   const fmtDate = (d: string | null) => {
     if (!d) return "no date";
@@ -150,7 +106,6 @@ export default async function DistroDashboard() {
   const kpis = [
     { label: "Incoming this week", value: incomingToday, color: T.amber, href: "/receiving" },
     { label: "Outgoing this week", value: outgoingToday, color: T.green, href: "/shipping" },
-    { label: "Exceptions", value: exceptions.length, color: exceptions.length > 0 ? T.red : T.faint, href: null },
     { label: "Staged Units", value: stagedUnits.toLocaleString(), color: T.purple, href: "/fulfillment" },
     { label: "Fulfillment Active", value: activeFulfillmentCount, color: T.accent, href: "/fulfillment" },
   ];
@@ -166,7 +121,7 @@ export default async function DistroDashboard() {
       </div>
 
       {/* KPI strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20 }}>
         {kpis.map(kpi => {
           const inner = (
             <div style={{ ...kpiCard, cursor: kpi.href ? "pointer" : "default" }}>
@@ -185,10 +140,15 @@ export default async function DistroDashboard() {
 
         {/* ── Incoming ── */}
         <div style={{ ...card, padding: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted }}>Incoming</span>
-            <Link href="/receiving" style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: T.amber, textDecoration: "none" }}>{incomingByJob.length}</Link>
-          </div>
+          <Link href="/receiving" style={{ textDecoration: "none", color: T.text }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.amber }}>Receiving</div>
+                <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>Confirm incoming shipments</div>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: incomingByJob.length > 0 ? T.amber : T.faint }}>{incomingByJob.length}</div>
+            </div>
+          </Link>
           {incomingByJob.length === 0 ? (
             <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>Nothing expected</div>
           ) : incomingByJob.slice(0, 8).map(({ job, items }) => {
@@ -219,10 +179,15 @@ export default async function DistroDashboard() {
 
         {/* ── Ready to Ship ── */}
         <div style={{ ...card, padding: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted }}>Ready to Ship Out</span>
-            <Link href="/shipping" style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: T.green, textDecoration: "none" }}>{readyToShip.length}</Link>
-          </div>
+          <Link href="/shipping" style={{ textDecoration: "none", color: T.text }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.green }}>Shipping</div>
+                <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>Ship-through orders</div>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: readyToShip.length > 0 ? T.green : T.faint }}>{readyToShip.length}</div>
+            </div>
+          </Link>
           {readyToShip.length === 0 ? (
             <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>Nothing ready</div>
           ) : readyToShip.slice(0, 8).map(j => {
@@ -250,10 +215,15 @@ export default async function DistroDashboard() {
 
         {/* ── Fulfillment ── */}
         <div style={{ ...card, padding: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.muted }}>Fulfillment Queue</span>
-            <Link href="/fulfillment" style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: T.purple, textDecoration: "none" }}>{activeFulfillmentCount}</Link>
-          </div>
+          <Link href="/fulfillment" style={{ textDecoration: "none", color: T.text }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.purple }}>Fulfillment</div>
+                <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>Ongoing pack + ship</div>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: activeFulfillmentCount > 0 ? T.purple : T.faint }}>{activeFulfillmentCount}</div>
+            </div>
+          </Link>
           {activeFulfillmentCount === 0 ? (
             <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>No active projects</div>
           ) : (
@@ -296,54 +266,6 @@ export default async function DistroDashboard() {
 
       </div>
 
-      {/* ── Exceptions panel ── */}
-      {exceptions.length > 0 && (
-        <div style={{ ...card, borderColor: T.red, background: "#1a0a0a", padding: "12px 16px", marginBottom: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#fca5a5" }}>
-              {exceptions.length} Exception{exceptions.length !== 1 ? "s" : ""} — needs attention
-            </span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {exceptions.slice(0, 10).map((ex, i) => (
-              <Link key={i} href={`/jobs/${ex.jobId}`} style={{ textDecoration: "none", color: T.text }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 8px", borderRadius: 4, background: "rgba(239,68,68,0.08)" }}>
-                  <span style={{
-                    padding: "2px 8px", borderRadius: 99, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
-                    background: ex.kind === "variance" ? "#3a2a0a" : ex.kind === "damage" ? "#3a0a0a" : "#2a1a3a",
-                    color: ex.kind === "variance" ? T.amber : ex.kind === "damage" ? T.red : T.purple,
-                    flexShrink: 0,
-                  }}>{ex.kind}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600 }}>{ex.clientName} · {ex.jobTitle} · {ex.itemName}</span>
-                  <span style={{ fontSize: 10, color: T.muted, marginLeft: "auto" }}>{ex.detail}</span>
-                </div>
-              </Link>
-            ))}
-            {exceptions.length > 10 && (
-              <div style={{ fontSize: 10, color: T.muted, textAlign: "center", paddingTop: 4 }}>+{exceptions.length - 10} more</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Quick links */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-        {[
-          { href: "/receiving", label: "Receiving", desc: "Confirm incoming shipments", color: T.amber, count: incomingByJob.length },
-          { href: "/shipping", label: "Shipping", desc: "Ship-through orders", color: T.green, count: readyToShip.length },
-          { href: "/fulfillment", label: "Fulfillment", desc: "Ongoing pack + ship", color: T.purple, count: activeFulfillmentCount },
-        ].map(link => (
-          <Link key={link.href} href={link.href} style={{ textDecoration: "none" }}>
-            <div style={{ ...card, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: link.color }}>{link.label}</div>
-                <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{link.desc}</div>
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: link.count > 0 ? link.color : T.faint }}>{link.count}</div>
-            </div>
-          </Link>
-        ))}
-      </div>
     </div>
   );
 }
