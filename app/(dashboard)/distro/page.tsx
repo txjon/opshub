@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { T, font, mono } from "@/lib/theme";
 import Link from "next/link";
+import { deductSamples } from "@/lib/qty";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export default async function DistroDashboard() {
   // Active warehouse-relevant jobs (non-drop-ship, not complete/cancelled/on_hold)
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("id, title, job_number, phase, shipping_route, fulfillment_status, fulfillment_tracking, target_ship_date, type_meta, clients(name), items(id, name, pipeline_stage, pipeline_timestamps, received_at_hpd, received_at_hpd_at, ship_tracking, ship_qtys, received_qtys, receiving_data, decorator_assignments(decorators(short_code, name)), buy_sheet_lines(qty_ordered))")
+    .select("id, title, job_number, phase, shipping_route, fulfillment_status, fulfillment_tracking, target_ship_date, type_meta, clients(name), items(id, name, pipeline_stage, pipeline_timestamps, received_at_hpd, received_at_hpd_at, ship_tracking, ship_qtys, received_qtys, sample_qtys, receiving_data, decorator_assignments(decorators(short_code, name)), buy_sheet_lines(qty_ordered))")
     .not("phase", "in", '("complete","cancelled","on_hold")')
     .not("shipping_route", "eq", "drop_ship")
     .order("target_ship_date", { ascending: true, nullsFirst: false });
@@ -65,12 +66,13 @@ export default async function DistroDashboard() {
 
   const activeFulfillmentCount = (fulfillmentProjects || []).length + stagedJobs.length;
 
-  // ── Staged inventory total (units)
+  // ── Staged inventory total (units) — continuing qty (delivered − samples)
+  // is what's actually available to pack and ship.
   const stagedUnits = stagedJobs.reduce((a, j) =>
     a + (j.items || []).reduce((b: number, it: Item) => {
-      const rec = it.received_qtys || {};
-      const recTotal = Object.values(rec).reduce((x: number, q: any) => x + (Number(q) || 0), 0);
-      return b + (recTotal || 0);
+      const continuing = deductSamples(it.received_qtys, it.sample_qtys);
+      const total = Object.values(continuing).reduce((x: number, q: any) => x + (Number(q) || 0), 0);
+      return b + total;
     }, 0), 0
   );
 
@@ -192,8 +194,10 @@ export default async function DistroDashboard() {
             <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>Nothing ready</div>
           ) : readyToShip.slice(0, 8).map(j => {
             const itemCount = (j.items || []).length;
-            const totalUnits = (j.items || []).reduce((a: number, it: Item) =>
-              a + Object.values(it.received_qtys || {}).reduce((x: number, q: any) => x + (Number(q) || 0), 0), 0);
+            const totalUnits = (j.items || []).reduce((a: number, it: Item) => {
+              const continuing = deductSamples(it.received_qtys, it.sample_qtys);
+              return a + Object.values(continuing).reduce((x: number, q: any) => x + (Number(q) || 0), 0);
+            }, 0);
             return (
               <Link key={j.id} href="/shipping" style={{ textDecoration: "none", color: T.text }}>
                 <div style={{ padding: "8px 10px", marginBottom: 6, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
@@ -245,8 +249,10 @@ export default async function DistroDashboard() {
                 );
               })}
               {stagedJobs.slice(0, 3).map(j => {
-                const units = (j.items || []).reduce((a: number, it: Item) =>
-                  a + Object.values(it.received_qtys || {}).reduce((x: number, q: any) => x + (Number(q) || 0), 0), 0);
+                const units = (j.items || []).reduce((a: number, it: Item) => {
+                  const continuing = deductSamples(it.received_qtys, it.sample_qtys);
+                  return a + Object.values(continuing).reduce((x: number, q: any) => x + (Number(q) || 0), 0);
+                }, 0);
                 return (
                   <Link key={j.id} href="/fulfillment" style={{ textDecoration: "none", color: T.text }}>
                     <div style={{ padding: "8px 10px", marginBottom: 6, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>

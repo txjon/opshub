@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 import { sortSizes } from "@/lib/theme";
+import { deductSamples } from "@/lib/qty";
 
 export async function GET(req: NextRequest, { params }: { params: { jobId: string } }) {
   const internal = req.headers.get("x-internal-key") === process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -78,12 +79,15 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       const firstChoice = isDropShip ? shipped : received;
       const secondChoice = isDropShip ? received : shipped;
       const orderedQtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
-      const finalQtys: Record<string, number> = {};
+      const deliveredQtys: Record<string, number> = {};
       for (const l of lines) {
         const fromFirst = firstChoice[l.size];
         const fromSecond = secondChoice[l.size];
-        finalQtys[l.size] = (fromFirst !== undefined ? fromFirst : (fromSecond !== undefined ? fromSecond : orderedQtys[l.size])) ?? 0;
+        deliveredQtys[l.size] = (fromFirst !== undefined ? fromFirst : (fromSecond !== undefined ? fromSecond : orderedQtys[l.size])) ?? 0;
       }
+      // Continuing = delivered − samples pulled at HPD. Drop-ship items don't
+      // have samples (sample_qtys is empty) so this is a no-op for them.
+      const finalQtys = deductSamples(deliveredQtys, item.sample_qtys);
       const totalQty = Object.values(finalQtys).reduce((a, v) => a + v, 0);
       // Drop ship: decorator tracking. Ship-through/stage: HPD outbound tracking.
       const tracking = isDropShip ? (item.ship_tracking || "\u2014") : (job.fulfillment_tracking || "\u2014");
@@ -137,10 +141,12 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         const shipped = (it.ship_qtys || {}) as Record<string, number>;
         const firstChoice = isDropShip ? shipped : received;
         const secondChoice = isDropShip ? received : shipped;
-        return a + lines.reduce((b: number, l: any) => {
-          const v = firstChoice[l.size] !== undefined ? firstChoice[l.size] : (secondChoice[l.size] !== undefined ? secondChoice[l.size] : l.qty_ordered);
-          return b + (v || 0);
-        }, 0);
+        const delivered: Record<string, number> = {};
+        for (const l of lines) {
+          delivered[l.size] = firstChoice[l.size] !== undefined ? firstChoice[l.size] : (secondChoice[l.size] !== undefined ? secondChoice[l.size] : (l.qty_ordered || 0));
+        }
+        const continuing = deductSamples(delivered, it.sample_qtys);
+        return a + Object.values(continuing).reduce((b: number, v) => b + (v || 0), 0);
       }, 0);
 
     const shipTo = (job.type_meta as any)?.venue_address || (job.type_meta as any)?.po_ship_to?.default || "";

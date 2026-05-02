@@ -41,6 +41,7 @@ export type WarehouseJob = {
   title: string;
   job_number: string;
   display_number: string;
+  qb_invoice_number: string | null;
   shipping_route: string;
   fulfillment_status: string | null;
   fulfillment_tracking: string | null;
@@ -113,6 +114,7 @@ export function useWarehouse() {
         title: j.title,
         job_number: j.job_number,
         display_number: typeMeta.qb_invoice_number || j.job_number,
+        qb_invoice_number: typeMeta.qb_invoice_number || null,
         shipping_route: j.shipping_route || "ship_through",
         fulfillment_status: j.fulfillment_status,
         fulfillment_tracking: j.fulfillment_tracking,
@@ -200,6 +202,16 @@ export function useWarehouse() {
   async function markReceived(item: WarehouseItem, opts?: { condition?: string; notes?: string }) {
     const now = new Date().toISOString();
 
+    // Flush any in-flight qty debounces — receive must commit the latest
+    // edits in the same write so downstream readers + activity log see the
+    // final state, not a stale snapshot from before the 800ms timer fired.
+    for (const k of [`rx_${item.id}`, `sx_${item.id}`]) {
+      if (saveTimers.current[k]) {
+        clearTimeout(saveTimers.current[k]);
+        delete saveTimers.current[k];
+      }
+    }
+
     // Capture audit trail in receiving_data JSONB:
     //   received_by (user), received_at (timestamp), condition, notes.
     const { data: { user } } = await supabase.auth.getUser();
@@ -211,14 +223,48 @@ export function useWarehouse() {
       received_at: now,
     };
 
-    await supabase.from("items").update({
+    // Bundle pending qty edits with the receive flag so a single update
+    // lands. Empty objects are skipped — downstream readers fall back to
+    // ship_qtys when received_qtys is missing.
+    const updates: any = {
       received_at_hpd: true,
       received_at_hpd_at: now,
       receiving_data: receivingData,
-    }).eq("id", item.id);
+    };
+    if (item.received_qtys && Object.keys(item.received_qtys).length > 0) {
+      updates.received_qtys = item.received_qtys;
+    }
+    if (item.sample_qtys && Object.keys(item.sample_qtys).length > 0) {
+      updates.sample_qtys = item.sample_qtys;
+    }
+    await supabase.from("items").update(updates).eq("id", item.id);
 
+    // Activity log — capture per-size totals for the audit trail.
+    // "Atomic Tee received at warehouse — 76/76 delivered, 2 samples pulled
+    //  (74 continuing) (damaged) — minor scuffing on neckline"
+    const sumPerSize = (q: Record<string, number> | null | undefined) =>
+      Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
+    const sizes = Object.keys(item.qtys || {});
+    const rq = item.received_qtys || {};
+    const sq = item.ship_qtys || {};
+    const oq = item.qtys || {};
+    const shippedTotal = sumPerSize(item.ship_qtys) || sumPerSize(item.qtys);
+    let deliveredTotal = 0;
+    for (const sz of sizes) deliveredTotal += rq[sz] ?? sq[sz] ?? oq[sz] ?? 0;
+    const samplesTotal = sumPerSize(item.sample_qtys);
+    const continuingTotal = Math.max(0, deliveredTotal - samplesTotal);
+    const variance = deliveredTotal - shippedTotal;
+
+    const parts: string[] = [`${deliveredTotal}/${shippedTotal} delivered`];
+    if (samplesTotal > 0) {
+      parts.push(`${samplesTotal} sample${samplesTotal === 1 ? "" : "s"} pulled (${continuingTotal} continuing)`);
+    }
+    if (variance !== 0) {
+      parts.push(`variance ${variance > 0 ? "+" : ""}${variance}`);
+    }
     const conditionTag = opts?.condition && opts.condition !== "good" ? ` (${opts.condition})` : "";
-    logJobActivity(item.job_id, `${item.name} received at warehouse${conditionTag}${opts?.notes ? ` — ${opts.notes}` : ""}`);
+    const notesTag = opts?.notes ? ` — ${opts.notes}` : "";
+    logJobActivity(item.job_id, `${item.name} received at warehouse${conditionTag} — ${parts.join(", ")}${notesTag}`);
 
     // Check if this completes the job BEFORE updating state — so the side effect
     // isn't inside the state updater (React may call updaters twice in dev/concurrent).

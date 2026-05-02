@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { T, font, mono } from "@/lib/theme";
+import { deductSamples } from "@/lib/qty";
 
 type ReceivedItem = {
   name: string;
@@ -81,7 +82,7 @@ export default function FulfillmentPage() {
     if (sourceJobIds.length > 0) {
       const { data: receivedItems } = await supabase
         .from("items")
-        .select("job_id, name, sort_order, received_qtys, received_at_hpd, buy_sheet_lines(size, qty_ordered)")
+        .select("job_id, name, sort_order, received_qtys, sample_qtys, received_at_hpd, buy_sheet_lines(size, qty_ordered)")
         .in("job_id", sourceJobIds)
         .eq("received_at_hpd", true);
 
@@ -90,16 +91,19 @@ export default function FulfillmentPage() {
         const lines = it.buy_sheet_lines || [];
         const sizes = lines.map((l: any) => l.size);
         const rq = it.received_qtys || {};
-        // Fall back to ordered qty if no received qty recorded
-        const received: Record<string, number> = {};
+        // Fall back to ordered qty if no received qty recorded.
+        const delivered: Record<string, number> = {};
         for (const l of lines) {
-          received[l.size] = rq[l.size] ?? l.qty_ordered ?? 0;
+          delivered[l.size] = rq[l.size] ?? l.qty_ordered ?? 0;
         }
+        // Continuing = delivered − samples pulled at receiving. This is what
+        // the fulfillment team has available to pack and ship.
+        const continuing = deductSamples(delivered, (it as any).sample_qtys);
         receivedByJob[it.job_id].push({
           name: it.name, letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
           sizes,
-          received_qtys: received,
-          total: Object.values(received).reduce((a, v) => a + v, 0),
+          received_qtys: continuing,
+          total: Object.values(continuing).reduce((a, v) => a + v, 0),
         });
       }
     }

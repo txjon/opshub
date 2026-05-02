@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getOrCreateCustomer, createInvoice, updateInvoice, type QBLineItem } from "@/lib/quickbooks";
+import { deductSamples } from "@/lib/qty";
 // Note: logs to job_activity after push so dashboard actions are traceable
 // Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
 
@@ -104,7 +105,12 @@ export async function POST(req: NextRequest) {
           perSize[l.size] = l.qty_ordered || 0;
         }
       }
-      let totalQty = Object.values(perSize).reduce((a, q) => a + (q || 0), 0);
+      // Bill continuing (delivered − samples). Samples never ship to the
+      // customer so we shouldn't charge for them. No-op for drop-ship items
+      // (sample_qtys is empty) and for ordered-qty mode (samples not yet
+      // pulled at quote time).
+      const billable = useShippedQtys ? deductSamples(perSize, (item as any).sample_qtys) : perSize;
+      let totalQty = Object.values(billable).reduce((a, q) => a + (q || 0), 0);
 
       // Override with billableQty if variance reviewer set one (waived or manual edit)
       if (billableQtys && (item as any).id in billableQtys) {
@@ -118,8 +124,10 @@ export async function POST(req: NextRequest) {
       const garmentType = (item as any).garment_type || "custom";
       const qbProductName = QB_PRODUCT_MAP[garmentType] || "Custom";
 
-      // Build description like QB screenshot: name / vendor / color + sizes
-      const sizes = Object.entries(perSize)
+      // Build description like QB screenshot: name / vendor / color + sizes.
+      // Use the billable (continuing) qtys so the size grid sums to the line
+      // total — billing 74 with a "76" grid would confuse the customer.
+      const sizes = Object.entries(billable)
         .filter(([, q]) => q > 0)
         .sort((a, b) => {
           const order = ["XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL"];
