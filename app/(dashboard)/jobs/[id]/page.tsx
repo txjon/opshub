@@ -262,6 +262,65 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     }
   }
 
+  // Swap all client-tied fields on the job when the client changes
+  // (e.g. duplicated job → reassigned to test client). Without this,
+  // Send Quote/Invoice/PO emails the wrong contacts AND ships to the
+  // wrong address because job_contacts + venue_address still point at
+  // the original client.
+  //
+  // Replaces: job_contacts, type_meta.venue_address, payment_terms.
+  // Clears:   type_meta.po_ship_to (per-vendor overrides reference the
+  //           old client's destination, no longer valid).
+  // Leaves alone: QB invoice fields (those need explicit re-generation
+  //               on the Invoice tab; we don't auto-clear them here so
+  //               the user notices the mismatch instead of silently
+  //               losing the invoice link).
+  async function swapJobContactsForClient(newClientId: string) {
+    if (!job) return;
+    // 1. Contacts
+    await supabase.from("job_contacts").delete().eq("job_id", job.id);
+    const { data: clientContacts } = await supabase
+      .from("contacts")
+      .select("id, is_primary, name, email, phone, role_label")
+      .eq("client_id", newClientId);
+    if (clientContacts?.length) {
+      await supabase.from("job_contacts").insert(
+        clientContacts.map((c: any) => ({
+          job_id: job.id, contact_id: c.id,
+          role_on_job: c.is_primary ? "primary" : "cc",
+        }))
+      );
+      setContacts(clientContacts.map((c: any) => ({
+        ...c, role_on_job: c.is_primary ? "primary" : "cc",
+      })) as any);
+    } else {
+      setContacts([]);
+    }
+
+    // 2. Address + payment terms — pull from new client's profile.
+    const { data: newClientRow } = await supabase
+      .from("clients")
+      .select("shipping_address, default_terms")
+      .eq("id", newClientId)
+      .single();
+    const newAddress = (newClientRow as any)?.shipping_address || null;
+    const newTerms = (newClientRow as any)?.default_terms || null;
+
+    // 3. type_meta — overwrite venue_address, clear po_ship_to.
+    const newMeta = { ...((job as any).type_meta || {}) };
+    if (newAddress) newMeta.venue_address = newAddress;
+    else delete newMeta.venue_address;
+    delete newMeta.po_ship_to;
+
+    const updates: any = { type_meta: newMeta };
+    if (newTerms) updates.payment_terms = newTerms;
+    await supabase.from("jobs").update(updates).eq("id", job.id);
+
+    // Reflect in local state so the Overview shipping panel updates
+    // immediately without a reload.
+    setJob(j => j ? ({ ...j, type_meta: newMeta, ...(newTerms ? { payment_terms: newTerms } : {}) } as any) : j);
+  }
+
   // Centralized tab switch — flushes ALL pending saves before navigating
   async function switchTab(t: string) {
     try {
@@ -670,6 +729,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         {clientResults.map(c=>(
                           <div key={c.id} onClick={async()=>{
                             await supabase.from("jobs").update({client_id:c.id}).eq("id",job.id);
+                            await swapJobContactsForClient(c.id);
                             setJob(j=>j?{...j,client_id:c.id,clients:{name:c.name}} as any:j);
                             setClientQuery(c.name);
                             setShowClientDropdown(false);
@@ -686,6 +746,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                           const {data:newClient}=await supabase.from("clients").insert({name}).select("id,name").single();
                           if(newClient){
                             await supabase.from("jobs").update({client_id:newClient.id}).eq("id",job.id);
+                            await swapJobContactsForClient(newClient.id);
                             setJob(j=>j?{...j,client_id:newClient.id,clients:{name:newClient.name}} as any:j);
                             setAllClients(prev=>[...prev,newClient].sort((a,b)=>a.name.localeCompare(b.name)));
                             setClientQuery(newClient.name);
