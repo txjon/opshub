@@ -132,11 +132,19 @@ export async function POST(req: NextRequest) {
         pdfFilename = `HPD-PackingSlip-${invoiceNum}.pdf`;
       }
 
+      // order_shipped_hpd is HPD outbound (one shipment per job, fired
+      // from /warehouse Mark Shipped). The trackingNumber here is the
+      // job's fulfillment_tracking, NOT the per-item ship_tracking the
+      // packing-slip route filters by — passing it would produce an
+      // empty PDF. Only filter when this is a per-vendor drop-ship.
+      const isVendorScope = type === "order_shipped_vendor";
       let pdfBuffer: Buffer;
       try {
         const params = new URLSearchParams();
-        if (decoratorId) params.set("decoratorId", decoratorId);
-        if (trackingNumber) params.set("tracking", trackingNumber);
+        if (isVendorScope) {
+          if (decoratorId) params.set("decoratorId", decoratorId);
+          if (trackingNumber) params.set("tracking", trackingNumber);
+        }
         const slipUrl = `${BASE_URL()}/api/pdf/packing-slip/${jobId}${params.toString() ? `?${params.toString()}` : ""}`;
         pdfBuffer = await fetchPdf(slipUrl);
       } catch (e: any) {
@@ -349,6 +357,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "QB invoice number required — generate the QB invoice before notifying", code: "qb_invoice_required" }, { status: 400 });
       }
 
+      // The `route` request param controls which email template renders
+      // (customer "Your order has shipped" vs warehouse "Incoming"). The
+      // /shipping page reuses route="drop_ship" to get the customer
+      // template even though the job's shipping_route is ship_through.
+      // For item scoping (and the packing-slip filter), we have to check
+      // the JOB's actual route — outbound from HPD is one shipment per
+      // job and must NOT filter by item.ship_tracking (which is the
+      // inbound decorator→HPD tracking, not the outbound HPD→client one).
+      const isJobOutbound = (job as any).shipping_route !== "drop_ship";
+
       // Dedup record key: same (decoratorId + tracking) shape as legacy
       // shipping notifications, but new record types so the new flow doesn't
       // collide with legacy `ship_through` (HPD outbound) records.
@@ -358,14 +376,19 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, skipped: "already_sent" });
       }
 
-      // Pull items in scope — items where decorator matches AND tracking
-      // matches. Used to build the "Shipment includes" list in the body.
+      // Pull items in scope. Drop-ship: filter by (decorator + tracking)
+      // tuple — each vendor shipment is a separate scope. Outbound from
+      // HPD: include everything physically received at HPD (and anything
+      // already flipped to shipped) — one outbound shipment per job.
       const { data: allItems } = await sb
         .from("items")
-        .select("id, name, sort_order, ship_qtys, ship_tracking, total_units, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
+        .select("id, name, sort_order, ship_qtys, received_qtys, sample_qtys, ship_tracking, received_at_hpd, pipeline_stage, total_units, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
         .eq("job_id", jobId)
         .order("sort_order");
       const scopedItems = (allItems || []).filter((it: any) => {
+        if (isJobOutbound) {
+          return it.received_at_hpd === true || it.pipeline_stage === "shipped";
+        }
         const itDecId = (it.decorator_assignments?.[0] as any)?.decorator_id || null;
         const matchDec = !decoratorId || itDecId === decoratorId;
         const matchTrack = (it.ship_tracking || "") === (trackingNumber || "");
@@ -389,12 +412,24 @@ export async function POST(req: NextRequest) {
         const lines = (it.buy_sheet_lines || []) as any[];
         const sizes = Array.from(new Set(lines.map((l: any) => l.size as string))).sort(sortSizes);
         const shipQtys = it.ship_qtys || {};
+        const receivedQtys = it.received_qtys || {};
+        const sampleQtys = it.sample_qtys || {};
         const ordered = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
-        const sizesStr = sizes.map((sz: string) => {
-          const n = shipQtys[sz] ?? ordered[sz] ?? 0;
-          return `${sz}(${n})`;
-        }).join(" ");
-        const total = sizes.reduce((sum: number, sz: string) => sum + (shipQtys[sz] ?? ordered[sz] ?? 0), 0);
+        // Mirror the packing-slip qty fallback: drop-ship prefers
+        // ship_qtys (decorator-reported), outbound prefers received_qtys
+        // (HPD-confirmed) so the email body matches the attached PDF.
+        // Samples are deducted on outbound — those units stay at HPD.
+        const firstChoice = isJobOutbound ? receivedQtys : shipQtys;
+        const secondChoice = isJobOutbound ? shipQtys : receivedQtys;
+        const finalForSize = (sz: string) => {
+          const a = firstChoice[sz];
+          const b = secondChoice[sz];
+          const delivered = (a !== undefined ? a : (b !== undefined ? b : ordered[sz])) ?? 0;
+          const samples = isJobOutbound ? (sampleQtys[sz] || 0) : 0;
+          return Math.max(0, delivered - samples);
+        };
+        const sizesStr = sizes.map((sz: string) => `${sz}(${finalForSize(sz)})`).join(" ");
+        const total = sizes.reduce((sum: number, sz: string) => sum + finalForSize(sz), 0);
         return `<li style="margin:4px 0;font-size:13px;color:#444;">${it.name} — <span style="font-family:'SF Mono',Menlo,monospace;color:#666;">${sizesStr}</span> — <strong>${total} units</strong></li>`;
       }).join("");
       const itemsBlock = `<ul style="margin:8px 0 16px;padding-left:20px;">${itemListHtml}</ul>`;
@@ -431,12 +466,18 @@ export async function POST(req: NextRequest) {
         ? `<div style="margin:8px 0 16px;padding:10px 14px;background:#f6f8fb;border-left:3px solid #2563eb;border-radius:4px;font-size:13px;color:#333;white-space:pre-wrap;">${customMessage.replace(/</g, "&lt;").replace(/\n/g, "<br/>")}</div>`
         : "";
 
-      // Generate packing slip
+      // Generate packing slip. For HPD outbound (ship_through/stage)
+      // there's one shipment per job — DON'T pass decoratorId or tracking
+      // because the packing-slip route filters items by item.ship_tracking
+      // (the decorator→HPD inbound number), which would never match the
+      // outbound fulfillment_tracking and produce a header-only PDF.
       let pdfBuffer: Buffer;
       try {
         const params = new URLSearchParams();
-        if (decoratorId) params.set("decoratorId", decoratorId);
-        if (trackingNumber) params.set("tracking", trackingNumber);
+        if (!isJobOutbound) {
+          if (decoratorId) params.set("decoratorId", decoratorId);
+          if (trackingNumber) params.set("tracking", trackingNumber);
+        }
         const slipUrl = `${BASE_URL()}/api/pdf/packing-slip/${jobId}${params.toString() ? `?${params.toString()}` : ""}`;
         pdfBuffer = await fetchPdf(slipUrl);
       } catch (e: any) {
