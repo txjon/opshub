@@ -76,13 +76,26 @@ export default function ShippingPage() {
         const continuing = deductSamples(delivered, it.sample_qtys);
         return sum + Object.values(continuing).reduce((a: number, v) => a + (v || 0), 0);
       }, 0);
+      // Tracking fallback chain: column → most recent outbound shipping
+      // notification's tracking. The column can be empty in some test or
+      // legacy paths; the notifications array preserves what was emailed
+      // out. Filter to outbound types ("drop_ship_vendor" — set by the
+      // shipping page forcing drop_ship for customer email; "ship_through"
+      // — legacy /warehouse outbound) so an earlier inbound-from-decorator
+      // record doesn't get surfaced as the ship-out tracking.
+      const notifs: any[] = Array.isArray((j.type_meta as any)?.shipping_notifications)
+        ? (j.type_meta as any).shipping_notifications
+        : [];
+      const outboundTypes = new Set(["drop_ship_vendor", "ship_through"]);
+      const lastOutbound = [...notifs].reverse().find(n => n?.tracking && outboundTypes.has(n?.type));
+      const tracking = j.fulfillment_tracking || lastOutbound?.tracking || "";
       return {
         id: j.id,
         jobNumber: j.job_number,
         invoiceNumber: (j.type_meta as any)?.qb_invoice_number || null,
         title: j.title || "",
         clientName: j.clients?.name || "",
-        fulfillmentTracking: j.fulfillment_tracking || "",
+        fulfillmentTracking: tracking,
         shippedAt: j.updated_at,
         itemCount: items.length,
         totalUnits,
@@ -121,7 +134,10 @@ export default function ShippingPage() {
   // 3. Job removed from local list when dialog closes (sent or cancelled).
   async function markShipped(job: any) {
     if (!job.fulfillment_tracking) return;
-    await updateFulfillment(job.id, "shipped");
+    // Pass tracking through updateFulfillment so it lands in the same
+    // write as the status flip — flushes any in-flight 800ms debounce
+    // and guarantees the column matches what the user just typed.
+    await updateFulfillment(job.id, "shipped", job.fulfillment_tracking);
     logJobActivity(job.id, `Ship-through complete — forwarded to client (${job.fulfillment_tracking})`);
     await supabase.from("jobs").update({ phase: "complete" }).eq("id", job.id);
     const contacts = await loadJobContacts(job.id);
