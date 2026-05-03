@@ -28,7 +28,7 @@ type PostageLine = {
   shipping_paid: number; shipping_cost_raw: number; shipping_cost: number;
   insurance_cost: number; weight: number; weight_unit: string; billed: number;
 };
-type PostageTotals = { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number };
+type PostageTotals = { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number; fulfillment?: number; invoice_total?: number };
 
 function renderSalesReportHTML(data: {
   clientName: string;
@@ -265,6 +265,7 @@ function renderPostageReportHTML(data: {
   periodLabel: string;
   generatedOn: string;
   markupPct: number;
+  perPackageFee: number;
   invoiceNumber: string | null;
   lines: PostageLine[];
   totals: PostageTotals;
@@ -272,7 +273,7 @@ function renderPostageReportHTML(data: {
   const font = `'Helvetica Neue', Arial, sans-serif`;
 
   const itemsFallback = data.lines.reduce((a, r) => a + (Number(r.items_count) || 0), 0);
-  const safe: PostageTotals = {
+  const safe = {
     shipments: Number(data.totals?.shipments) || 0,
     items: Number(data.totals?.items) || itemsFallback,
     paid: Number(data.totals?.paid) || 0,
@@ -281,7 +282,10 @@ function renderPostageReportHTML(data: {
     insurance: Number(data.totals?.insurance) || 0,
     billed: Number(data.totals?.billed) || 0,
     margin: Number(data.totals?.margin) || 0,
+    fulfillment: Number(data.totals?.fulfillment) || 0,
   };
+  const totalInvoice = safe.billed + safe.fulfillment;
+  const hasFulfillment = safe.fulfillment > 0 || data.perPackageFee > 0;
 
   // KPI tiles — mirrors the 7-tile strip on the detail page so the
   // invoice view matches what Jon sees in OpsHub.
@@ -335,25 +339,44 @@ function renderPostageReportHTML(data: {
     ${data.clientBillingEmail ? `<div style="font-size:11px;color:#444;margin-top:4px">${escapeHtml(data.clientBillingEmail)}</div>` : ""}
   </div>
 
-  <!-- KPI strip — matches the 7-tile view on the in-app detail page. -->
+  <!-- KPI strip — matches the 8-tile view on the in-app detail page.
+       Fulfillment fee is its own tile so the client can see HPD's
+       service charge without it muddying their store's postage margin. -->
   <div style="margin:16px 40px 0;font-family:${font}">
     <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary — ${escapeHtml(data.periodLabel)}</div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
+    <div style="display:grid;grid-template-columns:repeat(8,1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
       ${kpiTile("Shipments", fmtN(safe.shipments))}
       ${kpiTile("Items Shipped", fmtN(safe.items))}
       ${kpiTile("Shipping Income", fmtD(safe.paid))}
       ${kpiTile("Shipping Cost", fmtD(safe.cost), "#666")}
       ${kpiTile("Insurance", fmtD(safe.insurance), "#666")}
       ${kpiTile("Billed Amount", fmtD(safe.billed))}
-      ${kpiTileLast("Client Profit", fmtD(safe.margin), safe.margin >= 0 ? "#2a7a3a" : "#b3263a")}
+      ${kpiTile("Client Profit", fmtD(safe.margin), safe.margin >= 0 ? "#2a7a3a" : "#b3263a")}
+      ${kpiTileLast("Fulfillment", fmtD(safe.fulfillment))}
     </div>
   </div>
 
-  <!-- Amount due — right-aligned total line, invoice-standard. -->
+  <!-- Invoice breakdown — postage line + fulfillment line + grand total.
+       Right-aligned, invoice-standard. Fulfillment row only renders when
+       there's a fee to charge so the older postage-only reports stay
+       visually unchanged. -->
   <div style="padding:20px 40px 24px;font-family:${font};display:flex;justify-content:flex-end">
-    <div style="text-align:right;min-width:220px;padding-top:10px;border-top:1.5px solid #1a1a1a">
-      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa;margin-bottom:4px">Amount Due</div>
-      <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em;color:#1a1a1a;font-family:monospace">${fmtD(safe.billed)}</div>
+    <div style="min-width:340px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#666;padding:6px 0">
+        <span>Postage Billed (cost + insurance)</span>
+        <span style="font-family:monospace;font-weight:600;color:#1a1a1a">${fmtD(safe.billed)}</span>
+      </div>
+      ${hasFulfillment ? `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#666;padding:6px 0">
+        <span>Fulfillment Fee${data.perPackageFee > 0 ? ` (${fmtD(data.perPackageFee)} × ${fmtN(safe.shipments)} shipments)` : ""}</span>
+        <span style="font-family:monospace;font-weight:600;color:#1a1a1a">${fmtD(safe.fulfillment)}</span>
+      </div>` : ""}
+      <div style="padding-top:10px;margin-top:6px;border-top:1.5px solid #1a1a1a;display:flex;justify-content:space-between;align-items:baseline">
+        <div>
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa">Amount Due</div>
+        </div>
+        <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em;color:#1a1a1a;font-family:monospace">${fmtD(totalInvoice)}</div>
+      </div>
     </div>
   </div>
 
@@ -447,6 +470,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           periodLabel: report.period_label,
           generatedOn,
           markupPct: Number(report.hpd_fee_pct) || 0,
+          perPackageFee: Number((report as any).per_package_fee) || 0,
           invoiceNumber: report.qb_invoice_number || null,
           lines: (report.line_items || []) as PostageLine[],
           totals: (report.totals || { shipments: 0, items: 0, paid: 0, cost_raw: 0, cost: 0, insurance: 0, billed: 0, margin: 0 }) as PostageTotals,

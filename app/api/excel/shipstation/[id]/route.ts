@@ -61,6 +61,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       periodLabel: report.period_label,
       invoiceNumber: report.qb_invoice_number || null,
       generatedOn,
+      perPackageFee: Number((report as any).per_package_fee) || 0,
       lines: (report.line_items || []) as PostageLine[],
       totals: (report.totals || { shipments: 0, items: 0, paid: 0, cost_raw: 0, cost: 0, insurance: 0, billed: 0, margin: 0 }) as PostageTotals,
     });

@@ -43,15 +43,21 @@ export async function POST(req: NextRequest) {
 
     const totals = report.totals || {};
     const isPostage = report.report_type === "postage";
+    const perPackageFee = Number((report as any).per_package_fee) || 0;
+    const shipments = Number(totals.shipments) || 0;
+    const fulfillmentAmount = isPostage ? Math.round(perPackageFee * shipments * 100) / 100 : 0;
     // Sales → totals.fee is the HPD Fee we bill.
     // Postage → totals.billed is Shipping Cost (marked up) + Insurance.
+    //          + (optional) per-package fulfillment fee billed as a
+    //          separate QB line so the client sees the breakdown.
+    const postageBilled = isPostage ? (Number(totals.billed) || 0) : 0;
     const feeAmount = isPostage
-      ? Number(totals.billed) || 0
+      ? postageBilled + fulfillmentAmount
       : Number(totals.fee) || 0;
     if (feeAmount <= 0) {
       return NextResponse.json({
         error: isPostage
-          ? "Report has nothing to bill (totals.billed is zero or negative)"
+          ? "Report has nothing to bill (postage + fulfillment is zero or negative)"
           : "Report has no HPD Fee to bill (totals.fee is zero or negative)",
       }, { status: 400 });
     }
@@ -66,20 +72,38 @@ export async function POST(req: NextRequest) {
       await admin.from("clients").update({ qb_customer_id: customerId }).eq("id", client.id);
     }
 
-    // Single-line invoice. itemName must exist as a QB Product/Service;
-    // if it doesn't, QB createInvoice falls back to item id "1" which
-    // may be wrong. Postage reports expect a "Postage" item in QB;
-    // sales reports expect "Service Fee".
+    // itemName must exist as a QB Product/Service; if not, QB
+    // createInvoice falls back to item id "1" which may be wrong.
+    // Postage reports use "Postage" + (optional) "Fulfillment".
+    // Sales reports use "Service Fee".
     const pct = (Number(report.hpd_fee_pct) || 0) * 100;
-    const lineDescription = isPostage
-      ? `Postage & Insurance — ${report.period_label} (${(Number(totals.shipments) || 0).toFixed(0)} shipments, ${pct.toFixed(1)}% markup on carrier cost)`
-      : `Product Sales Fulfillment — ${report.period_label} (${pct.toFixed(1)}% of $${Number(totals.net || 0).toFixed(2)} net sales)`;
-    const lineItems: QBLineItem[] = [{
-      description: lineDescription,
-      qty: 1,
-      unitPrice: Math.round(feeAmount * 100) / 100,
-      itemName: isPostage ? "Postage" : "Service Fee",
-    }];
+    const lineItems: QBLineItem[] = [];
+    if (isPostage) {
+      lineItems.push({
+        description: `Postage & Insurance — ${report.period_label} (${shipments.toFixed(0)} shipments, ${pct.toFixed(1)}% markup on carrier cost)`,
+        qty: 1,
+        unitPrice: Math.round(postageBilled * 100) / 100,
+        itemName: "Postage",
+      });
+      // Per-package fulfillment fee — separate line so QB invoice shows
+      // the breakdown ($X × N shipments) the client can verify against
+      // their packing-slip count.
+      if (fulfillmentAmount > 0 && shipments > 0 && perPackageFee > 0) {
+        lineItems.push({
+          description: `Fulfillment Fee — ${report.period_label} (per-package handling)`,
+          qty: shipments,
+          unitPrice: Math.round(perPackageFee * 100) / 100,
+          itemName: "Fulfillment",
+        });
+      }
+    } else {
+      lineItems.push({
+        description: `Product Sales Fulfillment — ${report.period_label} (${pct.toFixed(1)}% of $${Number(totals.net || 0).toFixed(2)} net sales)`,
+        qty: 1,
+        unitPrice: Math.round(feeAmount * 100) / 100,
+        itemName: "Service Fee",
+      });
+    }
 
     const memo = isPostage
       ? `Postage Report — ${report.period_label}`

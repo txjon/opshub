@@ -27,6 +27,10 @@ export type PostageTotals = {
   insurance: number;
   billed: number;
   margin: number;
+  // Per-package fulfillment fee (added v2). Older reports omit these
+  // and downstream readers default to 0.
+  fulfillment?: number;
+  invoice_total?: number;
 };
 
 function dateOnly(raw: string): string {
@@ -39,6 +43,7 @@ export async function generatePostageXlsx(data: {
   periodLabel: string;
   invoiceNumber: string | null;
   generatedOn: string;
+  perPackageFee?: number;
   lines: PostageLine[];
   totals: PostageTotals;
 }): Promise<Buffer> {
@@ -74,6 +79,10 @@ export async function generatePostageXlsx(data: {
   }
 
   // Totals strip — two rows, label + value pairs.
+  // Row 1: Shipments / Items / Shipping Income / Shipping Cost
+  // Row 2: Insurance / Billed Amount / Client Profit / Fulfillment Fee
+  const fulfillment = Number(data.totals.fulfillment) || 0;
+  const totalInvoice = Number(data.totals.billed || 0) + fulfillment;
   const totalsRow1: (string | number)[] = [
     "Shipments", data.totals.shipments,
     "Items Shipped", data.totals.items,
@@ -84,7 +93,7 @@ export async function generatePostageXlsx(data: {
     "Insurance", data.totals.insurance,
     "Billed Amount", data.totals.billed,
     "Client Profit", data.totals.margin,
-    "", "",
+    "Fulfillment Fee", fulfillment,
   ];
   ws.getRow(7).values = totalsRow1;
   ws.getRow(8).values = totalsRow2;
@@ -103,6 +112,16 @@ export async function generatePostageXlsx(data: {
       }
     });
   }
+
+  // Total Invoice row — grand total = postage billed + fulfillment.
+  // Sits below the totals strip so it reads as the final amount due.
+  ws.getCell("A9").value = "Total Invoice:";
+  ws.getCell("B9").value = totalInvoice;
+  ws.getCell("A9").font = { bold: true, size: 11, color: { argb: "FF111111" } };
+  ws.getCell("A9").alignment = { horizontal: "right" };
+  ws.getCell("B9").font = { bold: true, size: 13, color: { argb: "FF111111" } };
+  ws.getCell("B9").numFmt = '"$"#,##0.00';
+  ws.getCell("B9").alignment = { horizontal: "left" };
 
   // Column headers at row 10.
   const headers = [
