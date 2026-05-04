@@ -49,12 +49,22 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       .single();
     if (error || !report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
 
-    if (report.report_type !== "postage") {
-      return NextResponse.json({ error: "Excel export is only available for postage reports" }, { status: 400 });
+    const isCombined = report.report_type === "combined";
+    if (report.report_type !== "postage" && !isCombined) {
+      return NextResponse.json({ error: "Excel export is only available for postage and Full Service reports" }, { status: 400 });
     }
 
     const clientName = (report.clients as any)?.name || "—";
     const generatedOn = new Date(report.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+    // Combined reports keep the postage half on dedicated columns.
+    // Postage-only reports keep it on line_items / totals.
+    const lines = (isCombined
+      ? (report as any).postage_line_items
+      : report.line_items) || [];
+    const totals = (isCombined
+      ? (report as any).postage_totals
+      : report.totals) || { shipments: 0, items: 0, paid: 0, cost_raw: 0, cost: 0, insurance: 0, billed: 0, margin: 0 };
 
     const buffer = await generatePostageXlsx({
       clientName,
@@ -62,12 +72,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       invoiceNumber: report.qb_invoice_number || null,
       generatedOn,
       perPackageFee: Number((report as any).per_package_fee) || 0,
-      lines: (report.line_items || []) as PostageLine[],
-      totals: (report.totals || { shipments: 0, items: 0, paid: 0, cost_raw: 0, cost: 0, insurance: 0, billed: 0, margin: 0 }) as PostageTotals,
+      lines: lines as PostageLine[],
+      totals: totals as PostageTotals,
     });
 
     const slug = (clientName + "-" + report.period_label).replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "");
-    const filename = `HPD-Fulfillment-Shipments-${slug}.xlsx`;
+    const filename = `HPD-${isCombined ? "Full-Service-Shipments" : "Fulfillment-Shipments"}-${slug}.xlsx`;
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,

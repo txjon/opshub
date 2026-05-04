@@ -69,21 +69,26 @@ export async function POST(req: NextRequest) {
     const greetingName = recipientName ? recipientName.split(" ")[0] : clientName;
     const invoiceNum = report.qb_invoice_number || "";
     const isPostage = report.report_type === "postage";
-    const reportKind = isPostage ? "Fulfillment Invoice" : "Services Invoice";
+    const isCombined = report.report_type === "combined";
+    const reportKind = isCombined
+      ? "Full Service Invoice"
+      : isPostage
+        ? "Fulfillment Invoice"
+        : "Services Invoice";
     const slug = (clientName + "-" + report.period_label).replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "");
-    const pdfFilename = `HPD-${isPostage ? "Fulfillment-Invoice" : "Services-Invoice"}-${slug}.pdf`;
+    const pdfFilename = `HPD-${isCombined ? "Full-Service-Invoice" : isPostage ? "Fulfillment-Invoice" : "Services-Invoice"}-${slug}.pdf`;
 
-    // For postage reports, also fetch the shipment-level xlsx so the
-    // client has the full raw data alongside the invoice summary.
+    // Postage and combined reports both attach the shipment-level xlsx
+    // so the client has the full raw data alongside the invoice summary.
     let xlsxBuffer: Buffer | null = null;
     let xlsxFilename = "";
-    if (isPostage) {
+    if (isPostage || isCombined) {
       const xlsxRes = await fetch(`${baseUrl}/api/excel/shipstation/${reportId}`, {
         headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "" },
       });
       if (xlsxRes.ok) {
         xlsxBuffer = Buffer.from(await xlsxRes.arrayBuffer());
-        xlsxFilename = `HPD-Fulfillment-Shipments-${slug}.xlsx`;
+        xlsxFilename = `HPD-${isCombined ? "Full-Service-Shipments" : "Fulfillment-Shipments"}-${slug}.xlsx`;
       } else {
         const text = await xlsxRes.text();
         console.error("[email/shipstation-report] xlsx generation failed:", text);
@@ -112,9 +117,11 @@ export async function POST(req: NextRequest) {
         heading: `${reportKind} — ${report.period_label}`,
         greeting: `Hi ${greetingName},`,
         bodyHtml: customBody
-          || (isPostage
-            ? `Attached is your fulfillment invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The PDF summarizes the amount due; the accompanying spreadsheet itemizes every shipment with carrier cost and insurance.`
-            : `Attached is your services invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The cover page shows the amount due (HPD service fee) and a line-item sales breakdown follows on the inside pages.`),
+          || (isCombined
+            ? `Attached is your Full Service invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The cover page shows the amount due (HPD service fee + postage + fulfillment), with the per-product sales breakdown on page 2 and the postage summary on page 3. The shipment-level spreadsheet is attached as well.`
+            : isPostage
+              ? `Attached is your fulfillment invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The PDF summarizes the amount due; the accompanying spreadsheet itemizes every shipment with carrier cost and insurance.`
+              : `Attached is your services invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The cover page shows the amount due (HPD service fee) and a line-item sales breakdown follows on the inside pages.`),
         cta: paymentLink ? { label: "Pay Online", url: paymentLink, style: "green" } : undefined,
         secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
       }),

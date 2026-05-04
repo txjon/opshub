@@ -127,7 +127,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     // ready for them to.
     const { data: shipReports } = await db
       .from("shipstation_reports")
-      .select("id, report_type, period_label, totals, qb_invoice_id, qb_invoice_number, qb_payment_link, sent_at, created_at, paid_at, paid_amount")
+      .select("id, report_type, period_label, totals, postage_totals, per_package_fee, qb_invoice_id, qb_invoice_number, qb_payment_link, sent_at, created_at, paid_at, paid_amount")
       .eq("client_id", client.id)
       .not("qb_invoice_number", "is", null)
       .not("sent_at", "is", null);
@@ -135,13 +135,30 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     const fulfillmentOrders = (shipReports || []).map((r: any) => {
       const totals = r.totals || {};
       const isPostage = r.report_type === "postage";
-      // Sales → totals.fee is what we bill. Postage → totals.billed.
-      const total = isPostage
-        ? (Number(totals.billed) || 0)
-        : (Number(totals.fee) || 0);
-      const totalQty = isPostage
-        ? (Number(totals.shipments) || 0)
-        : (Number(totals.qty) || 0);
+      const isCombined = r.report_type === "combined";
+      // What the client owes. Has to match the QB invoice line items:
+      //   Sales-only  → totals.fee
+      //   Postage     → totals.billed + totals.fulfillment (carrier
+      //                 cost+insurance + per-package handling). Older
+      //                 readers used totals.billed alone, which dropped
+      //                 the fulfillment fee — fixed here.
+      //   Combined    → fee + postage_totals.billed + postage_totals.fulfillment
+      let total: number;
+      if (isCombined) {
+        const post = r.postage_totals || {};
+        total = (Number(totals.fee) || 0)
+          + (Number(post.billed) || 0)
+          + (Number(post.fulfillment) || 0);
+      } else if (isPostage) {
+        total = (Number(totals.billed) || 0) + (Number(totals.fulfillment) || 0);
+      } else {
+        total = Number(totals.fee) || 0;
+      }
+      const totalQty = isCombined
+        ? (Number(totals.qty) || 0) + (Number((r.postage_totals || {}).shipments) || 0)
+        : isPostage
+          ? (Number(totals.shipments) || 0)
+          : (Number(totals.qty) || 0);
       // paid_at + paid_amount are set by the QB webhook when the client
       // pays via the Pay Online link (see /api/qb/webhook2).
       const paidAmount = Number(r.paid_amount) || 0;
@@ -154,7 +171,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         id: r.id,
         kind: "fulfillment" as const,
         job_number: null,
-        title: `${isPostage ? "Postage Report" : "Services Invoice"} — ${r.period_label}`,
+        title: `${isCombined ? "Full Service Invoice" : isPostage ? "Postage Report" : "Services Invoice"} — ${r.period_label}`,
         phase: "fulfillment_invoice",
         target_ship_date: null,
         created_at: r.created_at,

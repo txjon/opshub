@@ -102,7 +102,14 @@ function findCol(header: string[], aliases: string[]): number {
 }
 
 type Client = { id: string; name: string; hpd_fee_pct: number | null; hpd_per_package_fee: number | null };
-type ReportType = "sales" | "postage";
+type ReportType = "sales" | "postage" | "combined";
+
+// "Full Service" combines a Sales report and a Postage report into one
+// shipstation_reports row → one PDF, one QB invoice, one email. The
+// combined flow keeps both halves' parsing, selection, and pricing UI
+// intact — every fix made on the individual flows (rounding policy,
+// provider normalization, cost persistence, fulfillment fee, etc.)
+// applies here unchanged.
 
 export default function NewShipstationReportPage() {
   const router = useRouter();
@@ -120,6 +127,7 @@ export default function NewShipstationReportPage() {
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   });
   const [csvError, setCsvError] = useState("");
+  const [csvErrorPostage, setCsvErrorPostage] = useState("");
 
   // Sales-specific
   const [rawRows, setRawRows] = useState<ParsedRow[]>([]);
@@ -135,6 +143,10 @@ export default function NewShipstationReportPage() {
   // additively as (rate × shipments) and reported on its own KPI tile so
   // it doesn't muddy the client's postage performance numbers.
   const [perPackageFee, setPerPackageFee] = useState<string>("0");
+
+  const isCombined = reportType === "combined";
+  const showSales = reportType === "sales" || isCombined;
+  const showPostage = reportType === "postage" || isCombined;
 
   // Stage 4
   const [saving, setSaving] = useState(false);
@@ -155,9 +167,10 @@ export default function NewShipstationReportPage() {
   }, []);
 
   // Pull persisted unit costs + client fee when we know the client. Only
-  // relevant to sales reports — postage has no per-SKU costs.
+  // applies when the report has a sales side. Postage-only reports skip
+  // the SKU costs table; combined reports use it.
   useEffect(() => {
-    if (!clientId || reportType !== "sales") return;
+    if (!clientId || !showSales) return;
     (async () => {
       const { data } = await supabase
         .from("shipstation_sku_costs")
@@ -167,20 +180,32 @@ export default function NewShipstationReportPage() {
       (data || []).forEach((r: any) => { map[r.sku] = Number(r.unit_cost); });
       setSavedCosts(map);
       const c = clients.find(c => c.id === clientId);
+      // hpd_fee_pct on the client doubles as both the sales fee % AND
+      // the postage markup for postage-only reports. For combined we
+      // want it as the sales fee — the postage markup defaults from
+      // hpd_per_package_fee's sibling slot but we don't have a separate
+      // markup column on clients yet, so combined reports inherit the
+      // last sales fee + last postage markup independently and the user
+      // confirms both at stage 3.
       if (c?.hpd_fee_pct != null) setFeePct(String(c.hpd_fee_pct));
     })();
-  }, [clientId, clients, reportType]);
+  }, [clientId, clients, showSales]);
 
   // Pre-fill postage rates from the selected client. Both markup and
   // per-package live on clients so next month auto-populates with the
-  // values used last time.
+  // values used last time. For combined reports the markup is the
+  // postage markup (NOT the sales fee — those are different rates).
   useEffect(() => {
-    if (!clientId || reportType !== "postage") return;
+    if (!clientId || !showPostage) return;
     const c = clients.find(c => c.id === clientId);
     if (!c) return;
-    if (c.hpd_fee_pct != null) setMarkupPct(String(c.hpd_fee_pct));
+    // For postage-only, hpd_fee_pct is the markup. For combined, we
+    // still seed markup from hpd_fee_pct but the user will set both
+    // rates explicitly at stage 3. (The sales effect above already
+    // handled the fee rate for combined.)
+    if (reportType === "postage" && c.hpd_fee_pct != null) setMarkupPct(String(c.hpd_fee_pct));
     if (c.hpd_per_package_fee != null) setPerPackageFee(String(c.hpd_per_package_fee));
-  }, [clientId, clients, reportType]);
+  }, [clientId, clients, showPostage, reportType]);
 
   async function parseSalesCsv(text: string) {
     const parsed = parseCsv(text);
@@ -285,31 +310,41 @@ export default function NewShipstationReportPage() {
     return { rows };
   }
 
-  async function onCsvFile(file: File) {
+  // Two handlers so the combined flow can target each CSV independently.
+  // Single-type flows still call the right one based on reportType.
+  async function onSalesCsvFile(file: File) {
     setCsvError("");
     try {
       const text = await file.text();
-      if (reportType === "sales") {
-        const { rows, merged } = await parseSalesCsv(text);
-        setRawRows(rows);
-        setMergedCount(merged);
-      } else {
-        const { rows } = await parsePostageCsv(text);
-        setRawPostageRows(rows);
-      }
+      const { rows, merged } = await parseSalesCsv(text);
+      setRawRows(rows);
+      setMergedCount(merged);
     } catch (e: any) {
       setCsvError(e.message || "Failed to parse CSV");
-      if (reportType === "sales") setRawRows([]);
-      else setRawPostageRows([]);
+      setRawRows([]);
+      setMergedCount(0);
+    }
+  }
+  async function onPostageCsvFile(file: File) {
+    setCsvErrorPostage("");
+    try {
+      const text = await file.text();
+      const { rows } = await parsePostageCsv(text);
+      setRawPostageRows(rows);
+    } catch (e: any) {
+      setCsvErrorPostage(e.message || "Failed to parse CSV");
+      setRawPostageRows([]);
     }
   }
 
   // Reset row state when the user flips the type toggle after uploading —
-  // the parsed rows don't cross-apply.
+  // parsed rows from one type don't cross-apply, so we clear all data
+  // and bounce back to stage 1.
   function onChangeType(next: ReportType) {
     setReportType(next);
     setStage(1);
     setCsvError("");
+    setCsvErrorPostage("");
     setRawRows([]);
     setRawPostageRows([]);
     setMergedCount(0);
@@ -387,34 +422,49 @@ export default function NewShipstationReportPage() {
     return { shipments, items, paid: round2(paid), cost_raw: round2(cost_raw), cost: round2(cost), insurance: round2(insurance), billed: round2(billed), margin, fulfillment, invoice_total };
   }, [selectedPostageRows, markupPct, perPackageFee]);
 
-  // ── Shared selection handlers ────────────────────────────────────────────
-  const lastClickedIdxRef = useRef<number | null>(null);
-  const toggleRow = useCallback((idx: number, shiftKey: boolean) => {
-    const setter: any = reportType === "sales" ? setRawRows : setRawPostageRows;
-    setter((rs: any[]) => {
-      const target = rs.find((r: any) => r.idx === idx);
+  // ── Per-side selection handlers ───────────────────────────────────────
+  // Combined mode renders both tables together, each with its own
+  // select-all/clear-all + shift-range click. Independent refs keep the
+  // shift-anchor scoped per side so a sales click doesn't extend a
+  // postage range across panels.
+  const lastClickedSalesIdxRef = useRef<number | null>(null);
+  const lastClickedPostageIdxRef = useRef<number | null>(null);
+
+  const toggleSalesRow = useCallback((idx: number, shiftKey: boolean) => {
+    setRawRows(rs => {
+      const target = rs.find(r => r.idx === idx);
       if (!target) return rs;
       const newState = !target.included;
-      if (shiftKey && lastClickedIdxRef.current != null && lastClickedIdxRef.current !== idx) {
-        const [from, to] = [lastClickedIdxRef.current, idx].sort((a, b) => a - b);
-        return rs.map((r: any) => (r.idx >= from && r.idx <= to) ? { ...r, included: newState } : r);
+      if (shiftKey && lastClickedSalesIdxRef.current != null && lastClickedSalesIdxRef.current !== idx) {
+        const [from, to] = [lastClickedSalesIdxRef.current, idx].sort((a, b) => a - b);
+        return rs.map(r => (r.idx >= from && r.idx <= to) ? { ...r, included: newState } : r);
       }
-      return rs.map((r: any) => r.idx === idx ? { ...r, included: newState } : r);
+      return rs.map(r => r.idx === idx ? { ...r, included: newState } : r);
     });
-    if (!shiftKey) lastClickedIdxRef.current = idx;
-  }, [reportType]);
-  const selectAll = useCallback(() => {
-    if (reportType === "sales") setRawRows(rs => rs.map(r => ({ ...r, included: true })));
-    else setRawPostageRows(rs => rs.map(r => ({ ...r, included: true })));
-  }, [reportType]);
-  const clearAll = useCallback(() => {
-    if (reportType === "sales") setRawRows(rs => rs.map(r => ({ ...r, included: false })));
-    else setRawPostageRows(rs => rs.map(r => ({ ...r, included: false })));
-  }, [reportType]);
+    if (!shiftKey) lastClickedSalesIdxRef.current = idx;
+  }, []);
+  const togglePostageRow = useCallback((idx: number, shiftKey: boolean) => {
+    setRawPostageRows(rs => {
+      const target = rs.find(r => r.idx === idx);
+      if (!target) return rs;
+      const newState = !target.included;
+      if (shiftKey && lastClickedPostageIdxRef.current != null && lastClickedPostageIdxRef.current !== idx) {
+        const [from, to] = [lastClickedPostageIdxRef.current, idx].sort((a, b) => a - b);
+        return rs.map(r => (r.idx >= from && r.idx <= to) ? { ...r, included: newState } : r);
+      }
+      return rs.map(r => r.idx === idx ? { ...r, included: newState } : r);
+    });
+    if (!shiftKey) lastClickedPostageIdxRef.current = idx;
+  }, []);
+  const selectAllSales = useCallback(() => setRawRows(rs => rs.map(r => ({ ...r, included: true }))), []);
+  const clearAllSales = useCallback(() => setRawRows(rs => rs.map(r => ({ ...r, included: false }))), []);
+  const selectAllPostage = useCallback(() => setRawPostageRows(rs => rs.map(r => ({ ...r, included: true }))), []);
+  const clearAllPostage = useCallback(() => setRawPostageRows(rs => rs.map(r => ({ ...r, included: false }))), []);
 
-  // Seed groupCosts from savedCosts when entering stage 3 (sales only).
+  // Seed groupCosts from savedCosts when entering stage 3 (any flow with
+  // a sales side — sales-only or combined). Postage-only skips this.
   useEffect(() => {
-    if (stage !== 3 || reportType !== "sales") return;
+    if (stage !== 3 || !showSales) return;
     setGroupCosts(cur => {
       const next = { ...cur };
       for (const g of groups) {
@@ -424,7 +474,65 @@ export default function NewShipstationReportPage() {
       }
       return next;
     });
-  }, [stage, groups, savedCosts, reportType]);
+  }, [stage, groups, savedCosts, showSales]);
+
+  // ── Generate helpers ──
+  // Re-used by both single-type (sales/postage) and combined flows.
+  // Same upsert + save-back-to-client behavior so combined reports
+  // refresh the same per-SKU costs and per-client rates that single
+  // reports do — no rate drift between types.
+
+  function buildSalesPayload(feeRate: number) {
+    const upsertsMap = new Map<string, any>();
+    for (const r of selectedRows) {
+      if (!r.sku) continue;
+      upsertsMap.set(r.sku, {
+        client_id: clientId,
+        sku: r.sku,
+        description: r.description || null,
+        unit_cost: costByRowIdx[r.idx] || 0,
+        updated_at: new Date().toISOString(),
+      });
+    }
+    const upserts = Array.from(upsertsMap.values());
+    const line_items = selectedRows.map(r => ({
+      sku: r.sku,
+      description: r.description,
+      qty_sold: r.qty_sold,
+      product_sales: r.product_sales,
+      unit_cost: costByRowIdx[r.idx] || 0,
+    }));
+    return { upserts, line_items, totals: salesTotals, feeRate };
+  }
+
+  function buildPostagePayload(markup: number) {
+    // Round each line value to 2 decimals so the saved JSON matches
+    // what the totals strip / Excel SUM / QB invoice all roll up to.
+    // Without this, raw 9.295 values display as $9.30 but column SUMs
+    // drift by pennies.
+    const line_items = selectedPostageRows.map(r => {
+      const cost_marked = round2(r.shipping_cost * (1 + markup));
+      const insurance = round2(r.insurance_cost);
+      return {
+        ship_date: r.ship_date,
+        recipient: r.recipient,
+        order_number: r.order_number,
+        provider: r.provider,
+        service: r.service,
+        package_type: r.package_type,
+        items_count: r.items_count,
+        zone: r.zone,
+        shipping_paid: round2(r.shipping_paid),
+        shipping_cost_raw: round2(r.shipping_cost),
+        shipping_cost: cost_marked,
+        insurance_cost: insurance,
+        weight: r.weight,
+        weight_unit: r.weight_unit,
+        billed: round2(cost_marked + insurance),
+      };
+    });
+    return { line_items, totals: postageTotals };
+  }
 
   async function generate() {
     setSaving(true);
@@ -486,7 +594,7 @@ export default function NewShipstationReportPage() {
           .single();
         if (insErr) throw insErr;
         router.push(`/reports/shipstation/${inserted.id}`);
-      } else {
+      } else if (reportType === "postage") {
         // Postage insert — reuses hpd_fee_pct column to store markup %.
         // per_package_fee is its own column so it can be queried/edited
         // independently from totals JSONB.
@@ -551,6 +659,68 @@ export default function NewShipstationReportPage() {
           .single();
         if (insErr) throw insErr;
         router.push(`/reports/shipstation/${inserted.id}`);
+      } else {
+        // Full Service / combined — both halves saved on one row.
+        // Sales side → existing line_items / totals / hpd_fee_pct.
+        // Postage side → new postage_line_items / postage_totals /
+        //                postage_markup_pct + existing per_package_fee.
+        // Mirrors single-type generators line-for-line so combined
+        // inherits every fix (rounding, dedupe, sku-cost persistence,
+        // client-rate save-back).
+        const feeRate = parseMoney(feePct);
+        const markup = parseMoney(markupPct);
+        const perPkg = parseMoney(perPackageFee);
+
+        const sales = buildSalesPayload(feeRate);
+        const postage = buildPostagePayload(markup);
+
+        // Persist per-SKU unit costs so next month pre-fills.
+        if (sales.upserts.length) {
+          const { error: upErr } = await (supabase as any)
+            .from("shipstation_sku_costs")
+            .upsert(sales.upserts, { onConflict: "client_id,sku" });
+          if (upErr) throw upErr;
+        }
+
+        // Save fee + markup + per-package back to client. We only
+        // persist hpd_fee_pct as the SALES rate for combined (matches
+        // sales-only behavior). Postage markup for combined doesn't
+        // currently round-trip back to clients — it persists per-report
+        // and pre-fills from the last single postage report on the
+        // client. (Future: a dedicated clients.hpd_postage_markup_pct
+        // column to round-trip both rates independently.)
+        if (client) {
+          const patch: Record<string, number> = {};
+          if (client.hpd_fee_pct == null || Math.abs(client.hpd_fee_pct - feeRate) > 1e-9) {
+            patch.hpd_fee_pct = feeRate;
+          }
+          if (client.hpd_per_package_fee == null || Math.abs(client.hpd_per_package_fee - perPkg) > 1e-9) {
+            patch.hpd_per_package_fee = perPkg;
+          }
+          if (Object.keys(patch).length > 0) {
+            await (supabase as any).from("clients").update(patch).eq("id", clientId);
+          }
+        }
+
+        const { data: inserted, error: insErr } = await (supabase as any)
+          .from("shipstation_reports")
+          .insert({
+            client_id: clientId,
+            report_type: "combined",
+            period_label: periodLabel,
+            hpd_fee_pct: feeRate,
+            postage_markup_pct: markup,
+            per_package_fee: perPkg,
+            line_items: sales.line_items,
+            totals: sales.totals,
+            postage_line_items: postage.line_items,
+            postage_totals: postage.totals,
+            created_by: user.user?.id || null,
+          })
+          .select("id")
+          .single();
+        if (insErr) throw insErr;
+        router.push(`/reports/shipstation/${inserted.id}`);
       }
     } catch (e: any) {
       setSaveError(e.message || "Generate failed");
@@ -581,39 +751,64 @@ export default function NewShipstationReportPage() {
   );
 
   const isPostage = reportType === "postage";
-  const rowsLoaded = isPostage ? rawPostageRows.length : rawRows.length;
-  const selectedCount = isPostage ? selectedPostageRows.length : selectedRows.length;
-  const canNextFrom1 = clientId && periodLabel.trim() && rowsLoaded > 0 && !csvError;
-  const canNextFrom2 = selectedCount > 0;
-  const canNextFrom3 = isPostage
-    ? parseMoney(markupPct) >= 0
-    : groups.every(g => groupCosts[g.key] !== undefined && groupCosts[g.key] !== "");
+  const isSales = reportType === "sales";
+  const salesLoaded = rawRows.length;
+  const postageLoaded = rawPostageRows.length;
+  const salesSelectedCount = selectedRows.length;
+  const postageSelectedCount = selectedPostageRows.length;
+  // canNextFrom* gates per type. Combined requires both halves at every
+  // stage — empty CSVs / zero rows / missing prices on either side
+  // block the Next button.
+  const canNextFrom1 =
+    !!clientId && !!periodLabel.trim() &&
+    (isCombined
+      ? salesLoaded > 0 && postageLoaded > 0 && !csvError && !csvErrorPostage
+      : isPostage
+        ? postageLoaded > 0 && !csvErrorPostage
+        : salesLoaded > 0 && !csvError);
+  const canNextFrom2 = isCombined
+    ? salesSelectedCount > 0 && postageSelectedCount > 0
+    : isPostage
+      ? postageSelectedCount > 0
+      : salesSelectedCount > 0;
+  const salesPricingComplete = groups.every(g => groupCosts[g.key] !== undefined && groupCosts[g.key] !== "");
+  const postagePricingComplete = parseMoney(markupPct) >= 0;
+  const canNextFrom3 = isCombined
+    ? salesPricingComplete && postagePricingComplete
+    : isPostage
+      ? postagePricingComplete
+      : salesPricingComplete;
+  const typeLabel = isCombined ? "Full Service" : isPostage ? "Postage" : "Sales";
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
         <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Reports · ShipStation</div>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
-          Create {isPostage ? "Postage" : "Sales"} Report
+          Create {typeLabel} Report
         </h1>
       </div>
 
       {/* Report type toggle — only meaningful before rows are parsed; still
           allowed to flip after, but parsed rows get cleared (see onChangeType). */}
       <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
-        {(["sales", "postage"] as const).map(t => (
+        {([
+          { value: "sales", label: "Sales" },
+          { value: "postage", label: "Postage" },
+          { value: "combined", label: "Full Service" },
+        ] as const).map(t => (
           <button
-            key={t}
-            onClick={() => onChangeType(t)}
+            key={t.value}
+            onClick={() => onChangeType(t.value)}
             style={{
-              background: reportType === t ? T.accent : "transparent",
-              color: reportType === t ? "#ffffff" : T.muted,
+              background: reportType === t.value ? T.accent : "transparent",
+              color: reportType === t.value ? "#ffffff" : T.muted,
               border: "none", borderRadius: 6,
               padding: "6px 18px", fontSize: 12, fontWeight: 700,
-              fontFamily: font, cursor: "pointer", textTransform: "capitalize",
+              fontFamily: font, cursor: "pointer",
             }}
           >
-            {t} Report
+            {t.label}{t.value === "combined" ? "" : " Report"}
           </button>
         ))}
       </div>
@@ -621,8 +816,8 @@ export default function NewShipstationReportPage() {
       {/* Stage pills */}
       <div style={{ display: "flex", gap: 8 }}>
         {stagePill(1, "Upload", stage === 1, stage > 1)}
-        {stagePill(2, isPostage ? "Select shipments" : "Select rows", stage === 2, stage > 2)}
-        {stagePill(3, isPostage ? "Markup %" : "Unit costs", stage === 3, stage > 3)}
+        {stagePill(2, isCombined ? "Select rows" : isPostage ? "Select shipments" : "Select rows", stage === 2, stage > 2)}
+        {stagePill(3, isCombined ? "Pricing" : isPostage ? "Markup %" : "Unit costs", stage === 3, stage > 3)}
         {stagePill(4, "Review + generate", stage === 4, false)}
       </div>
 
@@ -643,30 +838,54 @@ export default function NewShipstationReportPage() {
             </div>
           </div>
 
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>
-              {isPostage ? "ShipStation shipment CSV" : "ShipStation sales CSV"}
-            </label>
-            <div style={{ border: `1px dashed ${T.border}`, borderRadius: 10, padding: "18px 16px", background: T.surface, display: "flex", alignItems: "center", gap: 12 }}>
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={e => e.target.files?.[0] && onCsvFile(e.target.files[0])}
-                style={{ fontSize: 12, color: T.muted, fontFamily: font }}
-              />
-              {rowsLoaded > 0 && (
-                <span style={{ fontSize: 12, color: T.green, fontFamily: mono }}>
-                  ✓ {rowsLoaded} {isPostage ? "shipments" : "rows"} parsed
-                </span>
-              )}
+          {/* Sales CSV input — visible for sales-only and combined */}
+          {showSales && (
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>
+                ShipStation sales CSV
+              </label>
+              <div style={{ border: `1px dashed ${T.border}`, borderRadius: 10, padding: "18px 16px", background: T.surface, display: "flex", alignItems: "center", gap: 12 }}>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={e => e.target.files?.[0] && onSalesCsvFile(e.target.files[0])}
+                  style={{ fontSize: 12, color: T.muted, fontFamily: font }}
+                />
+                {salesLoaded > 0 && (
+                  <span style={{ fontSize: 12, color: T.green, fontFamily: mono }}>
+                    ✓ {salesLoaded} rows parsed
+                  </span>
+                )}
+              </div>
+              {csvError && <div style={{ fontSize: 12, color: T.red, marginTop: 8 }}>{csvError}</div>}
             </div>
-            {isPostage && (
+          )}
+
+          {/* Postage CSV input — visible for postage-only and combined */}
+          {showPostage && (
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>
+                ShipStation shipment CSV
+              </label>
+              <div style={{ border: `1px dashed ${T.border}`, borderRadius: 10, padding: "18px 16px", background: T.surface, display: "flex", alignItems: "center", gap: 12 }}>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={e => e.target.files?.[0] && onPostageCsvFile(e.target.files[0])}
+                  style={{ fontSize: 12, color: T.muted, fontFamily: font }}
+                />
+                {postageLoaded > 0 && (
+                  <span style={{ fontSize: 12, color: T.green, fontFamily: mono }}>
+                    ✓ {postageLoaded} shipments parsed
+                  </span>
+                )}
+              </div>
               <div style={{ fontSize: 10, color: T.faint, marginTop: 6, lineHeight: 1.5 }}>
                 Expected columns: Ship Date · Recipient · Order # · Provider · Service · Package · Items · Zone · Shipping Paid · Shipping Cost · Insurance Cost · Weight · Weight Unit. Extra columns are ignored.
               </div>
-            )}
-            {csvError && <div style={{ fontSize: 12, color: T.red, marginTop: 8 }}>{csvError}</div>}
-          </div>
+              {csvErrorPostage && <div style={{ fontSize: 12, color: T.red, marginTop: 8 }}>{csvErrorPostage}</div>}
+            </div>
+          )}
 
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
             <button disabled={!canNextFrom1} onClick={() => setStage(2)} style={{ ...btnPrimary, opacity: canNextFrom1 ? 1 : 0.4, cursor: canNextFrom1 ? "pointer" : "not-allowed" }}>
@@ -676,8 +895,8 @@ export default function NewShipstationReportPage() {
         </div>
       )}
 
-      {/* ── Stage 2 — Select rows ── */}
-      {stage === 2 && !isPostage && (
+      {/* ── Stage 2 — Select rows (sales-only) ── */}
+      {stage === 2 && isSales && (
         <div style={card}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: T.muted }}>
@@ -690,8 +909,8 @@ export default function NewShipstationReportPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={selectAll} style={btnGhost}>Select all</button>
-              <button onClick={clearAll} style={btnGhost}>Clear all</button>
+              <button onClick={selectAllSales} style={btnGhost}>Select all</button>
+              <button onClick={clearAllSales} style={btnGhost}>Clear all</button>
             </div>
           </div>
 
@@ -718,7 +937,7 @@ export default function NewShipstationReportPage() {
                           type="checkbox"
                           checked={r.included}
                           onChange={() => {}}
-                          onClick={(e) => toggleRow(r.idx, e.shiftKey)}
+                          onClick={(e) => toggleSalesRow(r.idx, e.shiftKey)}
                           style={{ cursor: "pointer" }}
                         />
                       </td>
@@ -740,7 +959,7 @@ export default function NewShipstationReportPage() {
         </div>
       )}
 
-      {/* ── Stage 2 — Select shipments (postage) ── */}
+      {/* ── Stage 2 — Select shipments (postage-only) ── */}
       {stage === 2 && isPostage && (
         <div style={card}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
@@ -749,8 +968,8 @@ export default function NewShipstationReportPage() {
               <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={selectAll} style={btnGhost}>Select all</button>
-              <button onClick={clearAll} style={btnGhost}>Clear all</button>
+              <button onClick={selectAllPostage} style={btnGhost}>Select all</button>
+              <button onClick={clearAllPostage} style={btnGhost}>Clear all</button>
             </div>
           </div>
 
@@ -780,7 +999,7 @@ export default function NewShipstationReportPage() {
                           type="checkbox"
                           checked={r.included}
                           onChange={() => {}}
-                          onClick={(e) => toggleRow(r.idx, e.shiftKey)}
+                          onClick={(e) => togglePostageRow(r.idx, e.shiftKey)}
                           style={{ cursor: "pointer" }}
                         />
                       </td>
@@ -808,7 +1027,7 @@ export default function NewShipstationReportPage() {
       )}
 
       {/* ── Stage 3 — Sales: per-product unit costs ── */}
-      {stage === 3 && !isPostage && (
+      {stage === 3 && isSales && (
         <>
           <SalesTotalsStrip totals={salesTotals} />
           <div style={card}>
@@ -957,7 +1176,7 @@ export default function NewShipstationReportPage() {
       )}
 
       {/* ── Stage 4 — Sales Review + generate ── */}
-      {stage === 4 && !isPostage && (
+      {stage === 4 && isSales && (
         <>
           <SalesTotalsStrip totals={salesTotals} />
           <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1048,6 +1267,406 @@ export default function NewShipstationReportPage() {
               {postageTotals.shipments} shipment{postageTotals.shipments === 1 ? "" : "s"} · {fmtD(postageTotals.paid)} shipping income · postage billed {fmtD(postageTotals.billed)} · client profit {fmtD(postageTotals.margin)}
               <br />
               + Fulfillment fee {fmtD(postageTotals.fulfillment)} · <strong style={{ color: T.text }}>Total invoice {fmtD(postageTotals.invoice_total)}</strong>
+            </div>
+
+            {saveError && <div style={{ fontSize: 12, color: T.red, background: T.red + "11", padding: "8px 12px", borderRadius: 6 }}>{saveError}</div>}
+
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <button onClick={() => setStage(3)} style={btnGhost} disabled={saving}>← Back</button>
+              <button onClick={generate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>
+                {saving ? "Generating..." : "Generate Report"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Stage 2 — Select rows + shipments (Full Service) ── */}
+      {/* Two stacked panels in one card so the user moves through both
+          halves before clicking one Next button. Each panel keeps the
+          same counter / select-all / clear-all / shift-range behavior
+          as the single-type flows. */}
+      {stage === 2 && isCombined && (
+        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
+          {/* Sales rows */}
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 12, color: T.muted }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.08em", marginRight: 8 }}>Sales</span>
+                <span style={{ fontWeight: 700, color: T.text }}>{selectedRows.length}</span> of {rawRows.length} rows included
+                <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
+                {mergedCount > 0 && (
+                  <span style={{ marginLeft: 10, fontSize: 11, color: T.amber }}>
+                    · Merged {mergedCount} duplicate-SKU row{mergedCount === 1 ? "" : "s"}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={selectAllSales} style={btnGhost}>Select all</button>
+                <button onClick={clearAllSales} style={btnGhost}>Clear all</button>
+              </div>
+            </div>
+            <div style={{ maxHeight: 360, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
+                  <tr>
+                    <th style={{ ...thStyle, width: 40 }}></th>
+                    <th style={thStyle}>SKU</th>
+                    <th style={thStyle}>Description</th>
+                    <th style={{ ...thStyle, textAlign: "right" }}>Qty Sold</th>
+                    <th style={{ ...thStyle, textAlign: "right" }}>Product Sales</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rawRows.map(r => {
+                    const flagNegative = r.product_sales < 0;
+                    const flagNoSku = !r.sku;
+                    const flag = flagNegative || flagNoSku;
+                    return (
+                      <tr key={r.idx} style={{ background: flag ? "rgba(245,158,11,0.06)" : "transparent", opacity: r.included ? 1 : 0.45 }}>
+                        <td style={{ ...tdStyle, textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={r.included}
+                            onChange={() => {}}
+                            onClick={(e) => toggleSalesRow(r.idx, e.shiftKey)}
+                            style={{ cursor: "pointer" }}
+                          />
+                        </td>
+                        <td style={{ ...tdStyle, color: flagNoSku ? T.amber : T.text, fontWeight: 600 }}>{r.sku || "(no SKU)"}</td>
+                        <td style={{ ...tdStyle, fontFamily: font, color: T.muted }}>{r.description || "—"}</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>{fmtN(r.qty_sold)}</td>
+                        <td style={{ ...tdStyle, textAlign: "right", color: flagNegative ? T.amber : T.text }}>{fmtD(r.product_sales)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style={{ borderTop: `1px solid ${T.border}` }} />
+
+          {/* Postage shipments */}
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 12, color: T.muted }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: "0.08em", marginRight: 8 }}>Postage</span>
+                <span style={{ fontWeight: 700, color: T.text }}>{selectedPostageRows.length}</span> of {rawPostageRows.length} shipments included
+                <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={selectAllPostage} style={btnGhost}>Select all</button>
+                <button onClick={clearAllPostage} style={btnGhost}>Clear all</button>
+              </div>
+            </div>
+            <div style={{ maxHeight: 380, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
+                  <tr>
+                    <th style={{ ...thStyle, width: 36 }}></th>
+                    <th style={thStyle}>Ship Date</th>
+                    <th style={thStyle}>Recipient</th>
+                    <th style={thStyle}>Order #</th>
+                    <th style={thStyle}>Service</th>
+                    <th style={{ ...thStyle, textAlign: "right" }}>Items</th>
+                    <th style={{ ...thStyle, textAlign: "right" }}>Zone</th>
+                    <th style={{ ...thStyle, textAlign: "right" }}>Paid</th>
+                    <th style={{ ...thStyle, textAlign: "right" }}>Cost</th>
+                    <th style={{ ...thStyle, textAlign: "right" }}>Insurance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rawPostageRows.map(r => {
+                    const svcLine = [r.provider, r.service, r.package_type].filter(Boolean).join(" · ");
+                    return (
+                      <tr key={r.idx} style={{ opacity: r.included ? 1 : 0.45 }}>
+                        <td style={{ ...tdStyle, textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={r.included}
+                            onChange={() => {}}
+                            onClick={(e) => togglePostageRow(r.idx, e.shiftKey)}
+                            style={{ cursor: "pointer" }}
+                          />
+                        </td>
+                        <td style={{ ...tdStyle, fontFamily: mono, color: T.muted, fontSize: 11 }}>{dateOnly(r.ship_date) || "—"}</td>
+                        <td style={{ ...tdStyle, fontFamily: font, fontWeight: 600 }}>{r.recipient || "—"}</td>
+                        <td style={{ ...tdStyle, fontFamily: mono, fontSize: 11, color: T.muted }}>{r.order_number || "—"}</td>
+                        <td style={{ ...tdStyle, fontFamily: font, fontSize: 11, color: T.muted }}>{svcLine || "—"}</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>{r.items_count ? fmtN(r.items_count) : "—"}</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>{r.zone || "—"}</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(r.shipping_paid)}</td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(r.shipping_cost)}</td>
+                        <td style={{ ...tdStyle, textAlign: "right", color: r.insurance_cost > 0 ? T.text : T.faint }}>{r.insurance_cost > 0 ? fmtD(r.insurance_cost) : "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+            <button onClick={() => setStage(1)} style={btnGhost}>← Back</button>
+            <button disabled={!canNextFrom2} onClick={() => setStage(3)} style={{ ...btnPrimary, opacity: canNextFrom2 ? 1 : 0.4, cursor: canNextFrom2 ? "pointer" : "not-allowed" }}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Stage 3 — Pricing (Full Service) ── */}
+      {/* Sales fee + per-product unit costs on top, postage markup +
+          per-package fee on bottom. One stage, all pricing in view at
+          once, with both totals strips updating live. */}
+      {stage === 3 && isCombined && (
+        <>
+          <SalesTotalsStrip totals={salesTotals} />
+          <PostageTotalsStrip totals={postageTotals} />
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
+
+            {/* Sales pricing */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Sales Pricing</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <span style={{ fontSize: 11, color: T.muted, fontWeight: 600 }}>HPD Fee</span>
+                <input
+                  type="text" inputMode="decimal"
+                  value={feePct}
+                  onChange={e => setFeePct(e.target.value)}
+                  onFocus={e => e.target.select()}
+                  onBlur={e => {
+                    const v = e.target.value;
+                    if (!v.trim()) { setFeePct("0"); return; }
+                    const n = parseMoney(v);
+                    if (String(n) !== v) setFeePct(String(n));
+                  }}
+                  style={{ ...input, fontSize: 14, fontWeight: 700, width: 100, fontFamily: mono, textAlign: "right" }}
+                />
+                <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>= {(parseMoney(feePct) * 100).toFixed(1)}% of Product Net</span>
+              </div>
+              <div style={{ fontSize: 10, color: T.faint, marginBottom: 10 }}>
+                One unit cost per product. Variants with different sizes share the same cost. Costs save per client so next month pre-fills.
+              </div>
+              <div style={{ maxHeight: 380, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
+                    <tr>
+                      <th style={thStyle}>Product</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Qty</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Sales</th>
+                      <th style={{ ...thStyle, width: 120, textAlign: "right" }}>Unit Cost</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Total Cost</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Net</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groups.map(g => {
+                      const raw = groupCosts[g.key] ?? "";
+                      const uc = parseMoney(raw);
+                      const totalCost = uc * g.qty_sold;
+                      const net = g.product_sales - totalCost;
+                      const skuWithSaved = g.variants.map(v => v.sku).find(sku => sku && savedCosts[sku] !== undefined);
+                      const fromSaved = !!skuWithSaved;
+                      const setCostForGroup = (val: string) => {
+                        setGroupCosts(c => ({ ...c, [g.key]: val }));
+                      };
+                      const sizesLabel = g.variants
+                        .filter(v => v.size || v.qty_sold > 0)
+                        .map(v => `${v.size || v.sku}: ${fmtN(v.qty_sold)}`)
+                        .join("  ·  ");
+                      return (
+                        <tr key={g.key}>
+                          <td style={{ ...tdStyle, fontFamily: font, verticalAlign: "top" }}>
+                            <div style={{ fontWeight: 600, color: T.text }}>{g.root_description}</div>
+                            <div style={{ fontSize: 10, color: T.faint, fontFamily: mono, marginTop: 2 }}>{g.root_sku || "(no SKU)"}</div>
+                            {g.variants.length > 1 && (
+                              <div style={{ fontSize: 10, color: T.muted, marginTop: 4, fontFamily: mono }}>{sizesLabel}</div>
+                            )}
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: "right", verticalAlign: "top" }}>{fmtN(g.qty_sold)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", verticalAlign: "top" }}>{fmtD(g.product_sales)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", padding: "4px 6px", verticalAlign: "top" }}>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={raw}
+                              onChange={e => setCostForGroup(e.target.value)}
+                              onFocus={e => e.target.select()}
+                              onBlur={e => {
+                                const v = e.target.value;
+                                if (!v.trim()) return;
+                                const n = parseMoney(v);
+                                const normalized = n === 0 ? "" : String(n);
+                                if (normalized !== v) setCostForGroup(normalized);
+                              }}
+                              placeholder="0.00"
+                              title={fromSaved && skuWithSaved ? `Saved from last run: ${fmtD(savedCosts[skuWithSaved])}` : undefined}
+                              style={{ ...input, padding: "4px 8px", fontSize: 12, fontFamily: mono, textAlign: "right", width: "100%", borderColor: uc === 0 && raw.trim() ? T.red : fromSaved ? T.green + "55" : T.border }}
+                            />
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: uc > 0 ? T.text : T.faint, verticalAlign: "top" }}>{uc > 0 ? fmtD(totalCost) : "—"}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: net >= 0 ? T.green : T.red, verticalAlign: "top" }}>{uc > 0 ? fmtD(net) : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {!salesPricingComplete && <div style={{ fontSize: 11, color: T.amber, marginTop: 6 }}>Every product needs a unit cost (enter 0 if it's free).</div>}
+            </div>
+
+            <div style={{ borderTop: `1px solid ${T.border}` }} />
+
+            {/* Postage pricing */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Postage Pricing</div>
+
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>HPD Markup</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="text" inputMode="decimal"
+                    value={markupPct}
+                    onChange={e => setMarkupPct(e.target.value)}
+                    onFocus={e => e.target.select()}
+                    onBlur={e => {
+                      const v = e.target.value;
+                      if (!v.trim()) { setMarkupPct("0"); return; }
+                      const n = parseMoney(v);
+                      if (String(n) !== v) setMarkupPct(String(n));
+                    }}
+                    style={{ ...input, fontSize: 14, fontWeight: 700, width: 120, fontFamily: mono, textAlign: "right" }}
+                  />
+                  <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>
+                    = {(parseMoney(markupPct) * 100).toFixed(1)}% markup on raw ShipStation cost
+                  </span>
+                </div>
+                <div style={{ fontSize: 10, color: T.faint, marginTop: 6, lineHeight: 1.5 }}>
+                  Postage billed: <strong style={{ color: T.text }}>Shipping Cost × (1 + markup) + Insurance</strong>.
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Fulfillment Fee — per package</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 14, color: T.muted, fontFamily: mono }}>$</span>
+                  <input
+                    type="text" inputMode="decimal"
+                    value={perPackageFee}
+                    onChange={e => setPerPackageFee(e.target.value)}
+                    onFocus={e => e.target.select()}
+                    onBlur={e => {
+                      const v = e.target.value;
+                      if (!v.trim()) { setPerPackageFee("0"); return; }
+                      const n = parseMoney(v);
+                      if (String(n) !== v) setPerPackageFee(String(n));
+                    }}
+                    style={{ ...input, fontSize: 14, fontWeight: 700, width: 120, fontFamily: mono, textAlign: "right" }}
+                  />
+                  <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>
+                    × {postageTotals.shipments.toLocaleString()} shipments = <strong style={{ color: T.text }}>{fmtD(postageTotals.fulfillment)}</strong>
+                  </span>
+                </div>
+                <div style={{ fontSize: 10, color: T.faint, marginTop: 6, lineHeight: 1.5 }}>
+                  Flat HPD service charge per shipment. Saves to client for next month.
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <button onClick={() => setStage(2)} style={btnGhost}>← Back</button>
+              <button disabled={!canNextFrom3} onClick={() => setStage(4)} style={{ ...btnPrimary, opacity: canNextFrom3 ? 1 : 0.4, cursor: canNextFrom3 ? "pointer" : "not-allowed" }}>Next →</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Stage 4 — Review + generate (Full Service) ── */}
+      {stage === 4 && isCombined && (
+        <>
+          <SalesTotalsStrip totals={salesTotals} />
+          <PostageTotalsStrip totals={postageTotals} />
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{client?.name || "—"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Period</div>
+                <input value={periodLabel} onChange={e => setPeriodLabel(e.target.value)} style={{ ...input, fontSize: 13, fontWeight: 700 }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>HPD Fee</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    type="text" inputMode="decimal"
+                    value={feePct}
+                    onChange={e => setFeePct(e.target.value)}
+                    onFocus={e => e.target.select()}
+                    style={{ ...input, fontSize: 13, fontWeight: 700, width: 80, fontFamily: mono, textAlign: "right" }}
+                  />
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(feePct) * 100).toFixed(1)}%)</span>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Markup</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    type="text" inputMode="decimal"
+                    value={markupPct}
+                    onChange={e => setMarkupPct(e.target.value)}
+                    onFocus={e => e.target.select()}
+                    style={{ ...input, fontSize: 13, fontWeight: 700, width: 80, fontFamily: mono, textAlign: "right" }}
+                  />
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(markupPct) * 100).toFixed(1)}%)</span>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Per Package</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 13, color: T.muted, fontFamily: mono }}>$</span>
+                  <input
+                    type="text" inputMode="decimal"
+                    value={perPackageFee}
+                    onChange={e => setPerPackageFee(e.target.value)}
+                    onFocus={e => e.target.select()}
+                    style={{ ...input, fontSize: 13, fontWeight: 700, width: 80, fontFamily: mono, textAlign: "right" }}
+                  />
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>× {postageTotals.shipments}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Combined invoice breakdown — what the client will pay. */}
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Invoice Breakdown</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, fontFamily: mono }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                  <span style={{ color: T.muted }}>Service Fee ({(parseMoney(feePct) * 100).toFixed(1)}% of {fmtD(salesTotals.net)} net sales)</span>
+                  <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(salesTotals.fee)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                  <span style={{ color: T.muted }}>Postage &amp; Insurance</span>
+                  <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(postageTotals.billed)}</span>
+                </div>
+                {postageTotals.fulfillment > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                    <span style={{ color: T.muted }}>Fulfillment Fee ({fmtD(parseMoney(perPackageFee))} × {fmtN(postageTotals.shipments)})</span>
+                    <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(postageTotals.fulfillment)}</span>
+                  </div>
+                )}
+                <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 6, display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 800 }}>
+                  <span style={{ color: T.text }}>Total Invoice</span>
+                  <span style={{ color: T.text }}>{fmtD(salesTotals.fee + postageTotals.billed + postageTotals.fulfillment)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.6 }}>
+              {groups.length} product{groups.length === 1 ? "" : "s"} ({selectedRows.length} variant{selectedRows.length === 1 ? "" : "s"}) · {fmtN(salesTotals.qty)} units · {fmtD(salesTotals.sales)} in sales
+              <br />
+              {postageTotals.shipments} shipment{postageTotals.shipments === 1 ? "" : "s"} · {fmtD(postageTotals.paid)} shipping income · client profit {fmtD(postageTotals.margin)}
             </div>
 
             {saveError && <div style={{ fontSize: 12, color: T.red, background: T.red + "11", padding: "8px 12px", borderRadius: 6 }}>{saveError}</div>}
