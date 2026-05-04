@@ -356,24 +356,35 @@ export default function NewShipstationReportPage() {
   // collected from end customers vs what HPD charges for the carrier
   // pass-through). The fulfillment fee is HPD's flat handling charge —
   // separate concept. Tracked alongside but never folded into margin.
+  //
+  // Rounding policy: every per-line dollar value is rounded to 2 decimals
+  // at compute time, and aggregate totals are the SUM of those rounded
+  // values. Otherwise SUM() in the exported Excel drifts from what the
+  // eye adds up — e.g. cost_raw × 1.1 = 9.295 displays as $9.30 but a
+  // SUM of three 9.295s would total $27.885 / displayed $27.89, while
+  // the human-readable column adds to $27.90.
   const selectedPostageRows = useMemo(() => rawPostageRows.filter(r => r.included), [rawPostageRows]);
+  const round2 = (n: number) => Math.round(n * 100) / 100;
   const postageTotals = useMemo(() => {
     const mk = parseMoney(markupPct);
     const perPkg = parseMoney(perPackageFee);
-    let shipments = 0, items = 0, paid = 0, cost_raw = 0, insurance = 0;
+    let shipments = 0, items = 0, paid = 0, cost_raw = 0, cost = 0, insurance = 0, billed = 0;
     for (const r of selectedPostageRows) {
+      const lineCost = round2(r.shipping_cost * (1 + mk));
+      const lineInsurance = round2(r.insurance_cost);
+      const lineBilled = round2(lineCost + lineInsurance);
       shipments += 1;
       items += r.items_count || 0;
       paid += r.shipping_paid;
       cost_raw += r.shipping_cost;
-      insurance += r.insurance_cost;
+      cost += lineCost;
+      insurance += lineInsurance;
+      billed += lineBilled;
     }
-    const cost = cost_raw * (1 + mk);
-    const billed = cost + insurance;
-    const margin = paid - billed;
-    const fulfillment = perPkg * shipments;
-    const invoice_total = billed + fulfillment;
-    return { shipments, items, paid, cost_raw, cost, insurance, billed, margin, fulfillment, invoice_total };
+    const margin = round2(paid - billed);
+    const fulfillment = round2(perPkg * shipments);
+    const invoice_total = round2(billed + fulfillment);
+    return { shipments, items, paid: round2(paid), cost_raw: round2(cost_raw), cost: round2(cost), insurance: round2(insurance), billed: round2(billed), margin, fulfillment, invoice_total };
   }, [selectedPostageRows, markupPct, perPackageFee]);
 
   // ── Shared selection handlers ────────────────────────────────────────────
@@ -481,8 +492,14 @@ export default function NewShipstationReportPage() {
         // independently from totals JSONB.
         const markup = parseMoney(markupPct);
         const perPkg = parseMoney(perPackageFee);
+        // Round each line value to 2 decimals so the saved JSON matches
+        // what the totals strip / Excel SUM / QB invoice all roll up to.
+        // Without this, raw 9.295 values display as $9.30 but column
+        // SUMs drift by pennies. Mirrors how a human builds the sheet
+        // in Excel: ROUND(cost × 1.1, 2) per row, then total off that.
         const line_items = selectedPostageRows.map(r => {
-          const cost_marked = r.shipping_cost * (1 + markup);
+          const cost_marked = round2(r.shipping_cost * (1 + markup));
+          const insurance = round2(r.insurance_cost);
           return {
             ship_date: r.ship_date,
             recipient: r.recipient,
@@ -492,13 +509,13 @@ export default function NewShipstationReportPage() {
             package_type: r.package_type,
             items_count: r.items_count,
             zone: r.zone,
-            shipping_paid: r.shipping_paid,
-            shipping_cost_raw: r.shipping_cost,
+            shipping_paid: round2(r.shipping_paid),
+            shipping_cost_raw: round2(r.shipping_cost),
             shipping_cost: cost_marked,
-            insurance_cost: r.insurance_cost,
+            insurance_cost: insurance,
             weight: r.weight,
             weight_unit: r.weight_unit,
-            billed: cost_marked + r.insurance_cost,
+            billed: round2(cost_marked + insurance),
           };
         });
 
