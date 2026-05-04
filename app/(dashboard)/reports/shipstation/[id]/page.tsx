@@ -178,7 +178,9 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         return;
       }
       if (!res.ok) throw new Error(data.error || "Push failed");
-      setQbMsg({ ok: true, text: data.updated ? `Invoice #${data.invoiceNumber} updated in QuickBooks.` : `Invoice #${data.invoiceNumber} created in QuickBooks.` });
+      const healedNote = data.healedFrom ? " (re-linked — previous QB customer was deleted)" : "";
+      const baseMsg = data.updated ? `Invoice #${data.invoiceNumber} updated in QuickBooks.` : `Invoice #${data.invoiceNumber} created in QuickBooks.`;
+      setQbMsg({ ok: true, text: baseMsg + healedNote });
       await load();
     } catch (e: any) {
       setQbMsg({ ok: false, text: e.message || "Push failed" });
