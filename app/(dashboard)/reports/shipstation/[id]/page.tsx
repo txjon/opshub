@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { groupLineItems } from "@/lib/shipstation-group";
+import { QBCustomerChooser, type QBCandidate, type QBCurrent } from "@/components/QBCustomerChooser";
 
 const fmtD = (n: number) =>
   "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -73,6 +74,12 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
 
   const [qbBusy, setQbBusy] = useState(false);
   const [qbMsg, setQbMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // QB customer chooser — opens when push returns 409 with candidates,
+  // and from the explicit "QB customer · change" link in the header.
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [chooserCandidates, setChooserCandidates] = useState<QBCandidate[] | undefined>(undefined);
+  const [chooserCurrent, setChooserCurrent] = useState<QBCurrent | undefined>(undefined);
 
   const [sendOpen, setSendOpen] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -149,15 +156,27 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
     router.push("/reports");
   }
 
-  async function pushToQB() {
+  async function pushToQB(opts: { qbCustomerId?: string; forceCreate?: boolean } = {}) {
     setQbBusy(true); setQbMsg(null);
     try {
+      const body: any = { reportId: params.id };
+      if (opts.qbCustomerId) body.qbCustomerId = opts.qbCustomerId;
+      if (opts.forceCreate) body.forceCreate = true;
       const res = await fetch("/api/qb/shipstation-invoice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reportId: params.id }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
+      if (res.status === 409 && data?.error === "ambiguous_customer") {
+        // Open the chooser instead of creating a duplicate. Caller picks
+        // the right QB customer (or explicitly "Create new"); we retry
+        // pushToQB with the chosen path.
+        setChooserCandidates(data.candidates || []);
+        setChooserCurrent(null);
+        setChooserOpen(true);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "Push failed");
       setQbMsg({ ok: true, text: data.updated ? `Invoice #${data.invoiceNumber} updated in QuickBooks.` : `Invoice #${data.invoiceNumber} created in QuickBooks.` });
       await load();
@@ -165,6 +184,43 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       setQbMsg({ ok: false, text: e.message || "Push failed" });
     } finally {
       setQbBusy(false);
+    }
+  }
+
+  async function openChooserManual() {
+    // "Change QB customer" entry point — chooser fetches current + candidates.
+    setChooserCandidates(undefined);
+    setChooserCurrent(undefined);
+    setChooserOpen(true);
+  }
+
+  async function handleChooserAction(a: { type: "select"; qbCustomerId: string; displayName: string } | { type: "create_new" } | { type: "unlink" }) {
+    if (!report) return;
+    if (a.type === "select") {
+      setChooserOpen(false);
+      setQbMsg({ ok: true, text: `Linked to QuickBooks customer "${a.displayName}". Pushing…` });
+      await pushToQB({ qbCustomerId: a.qbCustomerId });
+      return;
+    }
+    if (a.type === "create_new") {
+      setChooserOpen(false);
+      await pushToQB({ forceCreate: true });
+      return;
+    }
+    if (a.type === "unlink") {
+      try {
+        const res = await fetch("/api/qb/link-customer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId: report.client_id, qbCustomerId: null }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || "Unlink failed");
+        setChooserCurrent(null);
+        setQbMsg({ ok: true, text: "Cleared the linked QB customer. Next push will re-run the smart match." });
+      } catch (e: any) {
+        setQbMsg({ ok: false, text: e.message || "Unlink failed" });
+      }
     }
   }
 
@@ -230,14 +286,25 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
             <a href={`/api/excel/shipstation/${report.id}`} style={btnGhost}>Download Excel</a>
           )}
           {hasQB ? (
-            <button onClick={pushToQB} disabled={qbBusy} style={{ ...btnGhost, borderColor: T.accent + "66", color: T.accent, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Updating…" : "Update QB Invoice"}</button>
+            <button onClick={() => pushToQB()} disabled={qbBusy} style={{ ...btnGhost, borderColor: T.accent + "66", color: T.accent, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Updating…" : "Update QB Invoice"}</button>
           ) : isManualInvoice ? (
             <button disabled style={{ ...btnGhost, borderColor: T.green + "66", color: T.green, cursor: "default", opacity: 1 }}>
               ✓ QB #{report.qb_invoice_number} (manual)
             </button>
           ) : (
-            <button onClick={pushToQB} disabled={qbBusy} style={{ ...btnPrimary, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Pushing…" : "Push to QuickBooks"}</button>
+            <button onClick={() => pushToQB()} disabled={qbBusy} style={{ ...btnPrimary, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Pushing…" : "Push to QuickBooks"}</button>
           )}
+          {/* QB customer linker — lets you verify or re-point the cached
+              QB customer for this client, especially after a duplicate
+              was accidentally created on a previous push. */}
+          <button
+            onClick={openChooserManual}
+            disabled={qbBusy}
+            style={{ ...btnGhost, opacity: qbBusy ? 0.6 : 1 }}
+            title="Verify or change which QuickBooks customer this client is linked to"
+          >
+            QB customer
+          </button>
           {(hasQB || isManualInvoice) && (
             <button onClick={() => setSendOpen(s => !s)} style={btnGreen}>{sendOpen ? "Close" : (sentDate ? "Re-send to client" : "Send to client")}</button>
           )}
@@ -365,6 +432,18 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       ) : (
         <LineItemsTable report={report} />
       )}
+
+      <QBCustomerChooser
+        open={chooserOpen}
+        mode="push"
+        clientId={report.client_id}
+        searchedName={report.clients?.name || ""}
+        candidates={chooserCandidates}
+        current={chooserCurrent}
+        busy={qbBusy}
+        onAction={handleChooserAction}
+        onClose={() => setChooserOpen(false)}
+      />
     </div>
   );
 }
