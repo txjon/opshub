@@ -633,6 +633,25 @@ function renderCombinedReportHTML(data: {
 
   ${salesTotalsStrip}
 
+  <!-- Service fee subtotal — mirrors the postage subtotal block on
+       page 3 so the sales section closes with a clear bold figure
+       (the only sales-side line item on the QB invoice) instead of
+       leaving the reader to spot it inside the KPI strip. -->
+  <div style="padding:20px 40px 24px;font-family:${font};display:flex;justify-content:flex-end">
+    <div style="min-width:340px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#666;padding:6px 0">
+        <span>HPD Service Fee (${(data.feePct * 100).toFixed(1)}% of ${fmtD(data.salesTotals.net)} net sales)</span>
+        <span style="font-family:monospace;font-weight:600;color:#1a1a1a">${fmtD(data.salesTotals.fee)}</span>
+      </div>
+      <div style="padding-top:10px;margin-top:6px;border-top:1.5px solid #1a1a1a;display:flex;justify-content:space-between;align-items:baseline">
+        <div>
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa">Service Fee Subtotal</div>
+        </div>
+        <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em;color:#1a1a1a;font-family:monospace">${fmtD(data.salesTotals.fee)}</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ PAGE BREAK — postage section begins ============ -->
   <div style="page-break-before:always;break-before:page;height:0"></div>
 
