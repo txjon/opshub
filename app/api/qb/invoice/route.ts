@@ -4,7 +4,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { getOrCreateCustomer, createInvoice, updateInvoice, QBAmbiguousCustomerError, type QBLineItem } from "@/lib/quickbooks";
+import { getOrCreateCustomer, createInvoice, updateInvoice, QBAmbiguousCustomerError, getCustomerById, type QBLineItem } from "@/lib/quickbooks";
 import { deductSamples } from "@/lib/qty";
 // Note: logs to job_activity after push so dashboard actions are traceable
 // Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
@@ -64,11 +64,12 @@ export async function POST(req: NextRequest) {
 
     // Check if client has a cached QB customer ID
     const { data: clientRecord } = await admin.from("clients").select("id, qb_customer_id").eq("name", clientName).single();
-    let customerId: string;
+    let customerId: string | null = null;
+    let healedFrom: string | null = null;
 
     // Lookup priority:
     //   1) Caller passed qbCustomerId (chooser → "Link to this one")
-    //   2) Client already has cached qb_customer_id
+    //   2) Client already has cached qb_customer_id (validated active in QB)
     //   3) getOrCreateCustomer with smart match + ambiguous-error safety net
     if (qbCustomerId) {
       customerId = String(qbCustomerId);
@@ -76,8 +77,35 @@ export async function POST(req: NextRequest) {
         await admin.from("clients").update({ qb_customer_id: customerId }).eq("id", clientRecord.id);
       }
     } else if (clientRecord?.qb_customer_id) {
-      customerId = clientRecord.qb_customer_id;
-    } else {
+      // Validate the cached customer still exists + is active in QB.
+      // If it was deleted/inactivated (e.g. user cleaned up a duplicate),
+      // the next push would 400 with "Invalid Customer ... has been
+      // deleted." Self-heal: clear the cache + drop this job's invoice
+      // refs (the invoice was tied to the now-dead customer) so we fall
+      // through to the smart match.
+      const cached = await getCustomerById(clientRecord.qb_customer_id);
+      if (cached && cached.Active !== false) {
+        customerId = clientRecord.qb_customer_id;
+      } else {
+        console.log(`[QB Invoice] Cached qb_customer_id=${clientRecord.qb_customer_id} is missing or inactive — self-healing`);
+        healedFrom = clientRecord.qb_customer_id;
+        await admin.from("clients").update({ qb_customer_id: null }).eq("id", clientRecord.id);
+        const tm = (job.type_meta as any) || {};
+        if (tm.qb_invoice_id) {
+          const cleanedMeta = { ...tm };
+          delete cleanedMeta.qb_invoice_id;
+          delete cleanedMeta.qb_invoice_number;
+          delete cleanedMeta.qb_payment_link;
+          delete cleanedMeta.qb_tax_amount;
+          delete cleanedMeta.qb_total_with_tax;
+          delete cleanedMeta.qb_invoice_created_at;
+          delete cleanedMeta.qb_invoice_updated_at;
+          await admin.from("jobs").update({ type_meta: cleanedMeta }).eq("id", jobId);
+          (job as any).type_meta = cleanedMeta;
+        }
+      }
+    }
+    if (!customerId) {
       try {
         const customer = await getOrCreateCustomer(clientName, primaryEmail || undefined, { forceCreate: !!forceCreate });
         customerId = customer.Id;
@@ -95,10 +123,15 @@ export async function POST(req: NextRequest) {
               email: c.PrimaryEmailAddr?.Address || null,
               active: c.Active !== false,
             })),
+            healed: healedFrom ? { previousCustomerId: healedFrom } : undefined,
           }, { status: 409 });
         }
         throw e;
       }
+    }
+    if (!customerId) {
+      // Should be unreachable — every branch above either sets customerId or returns.
+      return NextResponse.json({ error: "Could not resolve QuickBooks customer" }, { status: 500 });
     }
 
     // items.sell_per_unit is the source of truth — set by CostingTab, rounded to cent
@@ -245,6 +278,7 @@ export async function POST(req: NextRequest) {
         invoiceId: existingInvoiceId,
         invoiceNumber: job.type_meta?.qb_invoice_number,
         paymentLink: healedLink,
+        ...(healedFrom ? { healedFrom } : {}),
       });
     }
 
@@ -282,6 +316,7 @@ export async function POST(req: NextRequest) {
       invoiceId: result.invoiceId,
       invoiceNumber: result.invoiceNumber,
       paymentLink: result.paymentLink,
+      ...(healedFrom ? { healedFrom } : {}),
     });
   } catch (e: any) {
     console.error("[QB Invoice Error]", e);

@@ -134,6 +134,9 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
           qb_payment_link: data.paymentLink || job.type_meta?.qb_payment_link,
         },
       });
+      if (data.healedFrom) {
+        setQbInfo(`Re-linked to the active QB customer (the previously cached one was deleted) and created a fresh invoice #${data.invoiceNumber}.`);
+      }
       if (data.updated) {
         logJobActivity(job.id, `QB Invoice #${data.invoiceNumber} updated with new pricing`);
       } else {
