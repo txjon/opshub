@@ -66,7 +66,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
       return a + (isFlat ? v : v * qty);
     }, 0);
     const poTotal = customTotal;
-    const SHIP_RATES: Record<string, number> = { bandana:0.25,banner:1.5,beanie:0.3,crewneck:1.5,flag:0.4,hat:0.6,hoodie:1.5,jacket:1.5,koozie:0.1,lighter:0.15,longsleeve:0.8,pants:0.8,patch:0.10,pin:0.25,poster:0.1,shorts:0.5,socks:0.5,sticker:0.1,tee:0.65,tote:0.75,towel:0.75,water_bottle:0.75 };
+    const SHIP_RATES: Record<string, number> = { bandana:0.25,banner:1.5,beanie:0.3,crewneck:1.5,flag:0.4,hat:0.6,hoodie:1.5,jacket:1.5,koozie:0.1,lighter:0.15,longsleeve:0.8,pants:0.8,patch:0.10,pin:0.25,poster:0.1,shorts:0.5,socks:0.5,sticker:0.01,tee:0.65,tote:0.75,towel:0.75,water_bottle:0.75 };
     const shipRate = SHIP_RATES[p.garment_type || ""] ?? 0;
     const shipping = inclShip && shipRate > 0 ? qty * shipRate : 0;
     const totalCost = poTotal + shipping;  // blankCost is 0 for non-garment
@@ -244,7 +244,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
   const SHIP_RATES: Record<string, number> = {
     bandana:0.25, banner:1.5, beanie:0.3, crewneck:1.5, flag:0.4, hat:0.6,
     hoodie:1.5, jacket:1.5, koozie:0.1, lighter:0.15, longsleeve:0.8, pants:0.8,
-    patch:0.10, pin:0.25, poster:0.1, shorts:0.5, socks:0.5, sticker:0.1,
+    patch:0.10, pin:0.25, poster:0.1, shorts:0.5, socks:0.5, sticker:0.01,
     tee:0.65, tote:0.75, towel:0.75, water_bottle:0.75,
   };
   const shipRate = SHIP_RATES[p.garment_type || ""] ?? 0;
