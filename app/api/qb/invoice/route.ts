@@ -4,7 +4,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { getOrCreateCustomer, createInvoice, updateInvoice, type QBLineItem } from "@/lib/quickbooks";
+import { getOrCreateCustomer, createInvoice, updateInvoice, QBAmbiguousCustomerError, type QBLineItem } from "@/lib/quickbooks";
 import { deductSamples } from "@/lib/qty";
 // Note: logs to job_activity after push so dashboard actions are traceable
 // Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
@@ -35,9 +35,11 @@ export async function POST(req: NextRequest) {
       userId = user.id;
     }
 
-    const { jobId, useShippedQtys, billableQtys } = await req.json();
+    const { jobId, useShippedQtys, billableQtys, forceCreate, qbCustomerId } = await req.json();
     if (!jobId) return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
     // billableQtys: optional Record<itemId, totalQty> — variance review override (per-line edit/waive)
+    // forceCreate: skip the ambiguous-match safety net (chooser "Create new" path)
+    // qbCustomerId: caller has already picked a QB customer from the chooser
 
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -64,14 +66,38 @@ export async function POST(req: NextRequest) {
     const { data: clientRecord } = await admin.from("clients").select("id, qb_customer_id").eq("name", clientName).single();
     let customerId: string;
 
-    if (clientRecord?.qb_customer_id) {
-      customerId = clientRecord.qb_customer_id;
-    } else {
-      const customer = await getOrCreateCustomer(clientName, primaryEmail || undefined);
-      customerId = customer.Id;
-      // Cache the QB customer ID
+    // Lookup priority:
+    //   1) Caller passed qbCustomerId (chooser → "Link to this one")
+    //   2) Client already has cached qb_customer_id
+    //   3) getOrCreateCustomer with smart match + ambiguous-error safety net
+    if (qbCustomerId) {
+      customerId = String(qbCustomerId);
       if (clientRecord) {
         await admin.from("clients").update({ qb_customer_id: customerId }).eq("id", clientRecord.id);
+      }
+    } else if (clientRecord?.qb_customer_id) {
+      customerId = clientRecord.qb_customer_id;
+    } else {
+      try {
+        const customer = await getOrCreateCustomer(clientName, primaryEmail || undefined, { forceCreate: !!forceCreate });
+        customerId = customer.Id;
+        if (clientRecord) {
+          await admin.from("clients").update({ qb_customer_id: customerId }).eq("id", clientRecord.id);
+        }
+      } catch (e) {
+        if (e instanceof QBAmbiguousCustomerError) {
+          return NextResponse.json({
+            error: "ambiguous_customer",
+            searchedName: e.searchedName,
+            candidates: e.candidates.map((c: any) => ({
+              id: c.Id,
+              displayName: c.DisplayName,
+              email: c.PrimaryEmailAddr?.Address || null,
+              active: c.Active !== false,
+            })),
+          }, { status: 409 });
+        }
+        throw e;
       }
     }
 

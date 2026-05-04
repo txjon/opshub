@@ -221,11 +221,51 @@ async function qbFetch(
 
 // ── Customer operations ──
 
+// Strip common company suffixes so "Low Rollers Club" matches "Low Rollers
+// Club LLC" and similar near-misses. We also lowercase + collapse whitespace
+// to make the comparison forgiving against the actual QB DisplayName.
+const COMPANY_SUFFIX_RE = /\s*,?\s*(inc|incorporated|llc|l\.l\.c\.|ltd|limited|corp|corporation|co|company|llp|lp|plc|gmbh)\.?(\s|$)/gi;
+
+function normalizeForFuzzy(name: string): string {
+  return (name || "")
+    .trim()
+    .replace(COMPANY_SUFFIX_RE, " ")
+    .replace(/[.,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// QB's LIKE is case-insensitive. Without wildcards it acts as a
+// case-insensitive equality check, which is exactly what we want for
+// "exact match" — "acme inc" should match "Acme Inc".
 export async function searchCustomer(name: string): Promise<any | null> {
-  const query = encodeURIComponent(`SELECT * FROM Customer WHERE DisplayName = '${name.replace(/'/g, "\\'")}'`);
+  const q = (name || "").trim();
+  if (!q) return null;
+  const query = encodeURIComponent(`SELECT * FROM Customer WHERE DisplayName LIKE '${q.replace(/'/g, "\\'")}'`);
   const data = await qbFetch(`/query?query=${query}`);
   const customers = data?.QueryResponse?.Customer;
   return customers?.length > 0 ? customers[0] : null;
+}
+
+// Fuzzy substring search. Used by the chooser UI when there's no exact
+// match — e.g. OpsHub "Low Rollers Club" surfaces QB "Low Rollers Club LLC"
+// as a candidate so we don't silently create a duplicate.
+export async function findCustomerCandidates(name: string, limit = 10): Promise<any[]> {
+  const core = normalizeForFuzzy(name);
+  if (!core) return [];
+  const query = encodeURIComponent(`SELECT * FROM Customer WHERE DisplayName LIKE '%${core.replace(/'/g, "\\'")}%' MAXRESULTS ${Math.max(1, Math.min(50, limit))}`);
+  const data = await qbFetch(`/query?query=${query}`);
+  const customers = data?.QueryResponse?.Customer || [];
+  return customers;
+}
+
+export async function getCustomerById(id: string): Promise<any | null> {
+  try {
+    const data = await qbFetch(`/customer/${id}`);
+    return data?.Customer || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function createCustomer(name: string, email?: string): Promise<any> {
@@ -235,12 +275,48 @@ export async function createCustomer(name: string, email?: string): Promise<any>
   return data.Customer;
 }
 
-export async function getOrCreateCustomer(name: string, email?: string): Promise<any> {
-  let customer = await searchCustomer(name);
-  if (!customer) {
-    customer = await createCustomer(name, email);
+// Thrown when no exact-match QB customer exists but fuzzy candidates do.
+// Routes catch this and return 409 with the candidate list so the UI can
+// pop a chooser instead of letting QB collect duplicate customers.
+export class QBAmbiguousCustomerError extends Error {
+  candidates: any[];
+  searchedName: string;
+  constructor(searchedName: string, candidates: any[]) {
+    super(`Possible existing QuickBooks customer for "${searchedName}" — ${candidates.length} candidate(s)`);
+    this.name = "QBAmbiguousCustomerError";
+    this.searchedName = searchedName;
+    this.candidates = candidates;
   }
-  return customer;
+}
+
+export async function getOrCreateCustomer(
+  name: string,
+  email?: string,
+  options: { forceCreate?: boolean } = {}
+): Promise<any> {
+  // 1) Case-insensitive exact DisplayName match (handles whitespace + case).
+  let customer = await searchCustomer(name);
+  if (customer) return customer;
+
+  // 2) Retry with company suffix stripped — catches "Acme" ↔ "Acme LLC".
+  const core = normalizeForFuzzy(name);
+  if (core && core.toLowerCase() !== (name || "").trim().toLowerCase()) {
+    customer = await searchCustomer(core);
+    if (customer) return customer;
+  }
+
+  // 3) Fuzzy LIKE — if QB has anything that looks similar, refuse to
+  //    silently create. Caller pops a chooser; user picks one or
+  //    re-submits with forceCreate=true.
+  if (!options.forceCreate) {
+    const candidates = await findCustomerCandidates(name);
+    if (candidates.length > 0) {
+      throw new QBAmbiguousCustomerError(name, candidates);
+    }
+  }
+
+  // 4) Truly no match anywhere — safe to create.
+  return createCustomer(name, email);
 }
 
 // ── Invoice operations ──

@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SkeletonRows } from "@/components/Skeleton";
+import { QBCustomerChooser, type QBCurrent } from "@/components/QBCustomerChooser";
 import Link from "next/link";
 import { effectiveRevenue } from "@/lib/revenue";
 
-type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; };
+type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
 type ClientFile = { id:string; file_name:string; drive_file_id:string|null; drive_link:string|null; mime_type:string|null; file_size:number|null; kind:string; notes:string|null; created_at:string; };
 type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; payment_records:any[]; };
@@ -38,7 +39,73 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
 
+  // QB customer link state. Loaded once per page render so the row can
+  // show the current QB DisplayName instead of a raw id; the chooser
+  // dialog uses its own GET when opened so search re-queries don't
+  // round-trip through this state.
+  const [qbLinked, setQbLinked] = useState<QBCurrent | "loading">("loading");
+  const [qbChooserOpen, setQbChooserOpen] = useState(false);
+  const [qbBusy, setQbBusy] = useState(false);
+  const [qbMsg, setQbMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   useEffect(() => { load(); }, [params.id]);
+
+  async function loadQbLink() {
+    setQbLinked("loading");
+    try {
+      const res = await fetch(`/api/qb/link-customer?clientId=${params.id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Lookup failed");
+      setQbLinked(data.current ?? null);
+    } catch {
+      setQbLinked(null);
+    }
+  }
+  useEffect(() => { loadQbLink(); }, [params.id]);
+
+  async function handleQbAction(a: { type: "select"; qbCustomerId: string; displayName: string } | { type: "create_new" } | { type: "unlink" }) {
+    if (qbBusy) return;
+    setQbBusy(true); setQbMsg(null);
+    try {
+      if (a.type === "select") {
+        const res = await fetch("/api/qb/link-customer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId: params.id, qbCustomerId: a.qbCustomerId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || "Link failed");
+        setQbLinked(data.current ?? null);
+        setQbChooserOpen(false);
+        setQbMsg({ ok: true, text: `Linked to "${data.current?.displayName || a.displayName}".` });
+      } else if (a.type === "create_new") {
+        const res = await fetch("/api/qb/link-customer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId: params.id, createNew: true }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || "Create failed");
+        setQbLinked(data.current ?? null);
+        setQbChooserOpen(false);
+        setQbMsg({ ok: true, text: `Created new QuickBooks customer "${data.current?.displayName}".` });
+      } else if (a.type === "unlink") {
+        const res = await fetch("/api/qb/link-customer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId: params.id, qbCustomerId: null }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || "Unlink failed");
+        setQbLinked(null);
+        setQbMsg({ ok: true, text: "Unlinked. Next push will re-run the smart match." });
+      }
+    } catch (e: any) {
+      setQbMsg({ ok: false, text: e.message || "Operation failed" });
+    } finally {
+      setQbBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!previewFile) return;
@@ -348,6 +415,52 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   )}
                 </div>
 
+                {/* QuickBooks customer link. Caches in clients.qb_customer_id
+                    and is the single source of truth used by every QB push.
+                    Wrong link → invoices land on the wrong customer in QB,
+                    so this row always shows the resolved DisplayName so
+                    mismatches are visible at a glance. */}
+                <div>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginTop:6,marginBottom:6}}>QuickBooks Customer</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:T.surface,borderRadius:6,border:`1px solid ${T.border}`}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      {qbLinked === "loading" ? (
+                        <div style={{fontSize:12,color:T.muted}}>Loading…</div>
+                      ) : qbLinked ? (
+                        <>
+                          <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                            {qbLinked.displayName || <span style={{color:T.red,fontStyle:"italic"}}>QB id {qbLinked.id} (not found in QB)</span>}
+                            {qbLinked.displayName && qbLinked.active === false && (
+                              <span style={{marginLeft:6,fontSize:10,color:T.muted}}>(inactive)</span>
+                            )}
+                          </div>
+                          <div style={{fontSize:10,color:T.faint,fontFamily:mono,marginTop:2}}>QB id {qbLinked.id}</div>
+                        </>
+                      ) : (
+                        <div style={{fontSize:12,color:T.muted}}>
+                          Not linked — first invoice push will auto-match by name.
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={()=>setQbChooserOpen(true)}
+                      disabled={qbBusy}
+                      style={{padding:"5px 10px",borderRadius:5,border:`1px solid ${T.border}`,background:T.card,color:T.text,fontSize:11,fontWeight:600,cursor:qbBusy?"default":"pointer",fontFamily:font,opacity:qbBusy?0.6:1,whiteSpace:"nowrap"}}
+                    >
+                      {qbLinked && qbLinked !== "loading" ? "Re-link" : "Link to QB"}
+                    </button>
+                  </div>
+                  {qbMsg && (
+                    <div style={{marginTop:6,padding:"6px 10px",borderRadius:5,fontSize:11,background:qbMsg.ok?T.greenDim:T.redDim,color:qbMsg.ok?T.green:T.red,border:`1px solid ${qbMsg.ok?T.green+"55":T.red+"55"}`}}>
+                      {qbMsg.text}
+                    </div>
+                  )}
+                  <div style={{fontSize:10,color:T.faint,marginTop:6,lineHeight:1.4}}>
+                    Re-link if invoices have been landing on the wrong QB customer (e.g. a duplicate created from a name mismatch). Existing invoices in QB stay where they are — merge duplicates inside QuickBooks.
+                  </div>
+                </div>
+
                 {/* QB online payment-method toggles. Default true so
                     behavior matches today; flip off per client if e.g.
                     they should only see Bank Transfer on the QB payment
@@ -599,6 +712,17 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           </div>
         </div>
       )}
+
+      <QBCustomerChooser
+        open={qbChooserOpen}
+        mode="link"
+        clientId={params.id}
+        searchedName={client?.name || ""}
+        current={qbLinked === "loading" ? undefined : qbLinked}
+        busy={qbBusy}
+        onAction={handleQbAction}
+        onClose={()=>setQbChooserOpen(false)}
+      />
     </div>
   );
 }

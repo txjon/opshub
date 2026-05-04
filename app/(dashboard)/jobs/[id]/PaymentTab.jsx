@@ -7,6 +7,7 @@ import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewModal";
 import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 
 export function PaymentTab({ job, items = [], contacts, payments, onReload, onRecalcPhase, onUpdateJob }) {
   const supabase = createClient();
@@ -14,6 +15,11 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
   const [showInvoiceProofsEmail, setShowInvoiceProofsEmail] = useState(false);
   const [pushingToQB, setPushingToQB] = useState(false);
   const [qbError, setQbError] = useState("");
+  const [qbInfo, setQbInfo] = useState("");
+  // QB customer chooser (409-on-push + manual relink)
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [chooserCandidates, setChooserCandidates] = useState(undefined);
+  const [chooserCurrent, setChooserCurrent] = useState(undefined);
   const [showPreview, setShowPreview] = useState(false);
   const [showVarianceModal, setShowVarianceModal] = useState(false);
   const [refreshingLink, setRefreshingLink] = useState(false);
@@ -97,16 +103,28 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
     setShowInvoiceEmail(true);
   }
 
-  async function pushToQB() {
+  async function pushToQB(opts = {}) {
     setPushingToQB(true);
     setQbError("");
+    setQbInfo("");
     try {
+      const body = { jobId: job.id };
+      if (opts.qbCustomerId) body.qbCustomerId = opts.qbCustomerId;
+      if (opts.forceCreate) body.forceCreate = true;
       const res = await fetch("/api/qb/invoice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: job.id }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
+      if (res.status === 409 && data?.error === "ambiguous_customer") {
+        // Open chooser instead of duplicating. Caller picks the right
+        // QB customer, we retry with qbCustomerId (or forceCreate).
+        setChooserCandidates(data.candidates || []);
+        setChooserCurrent(null);
+        setChooserOpen(true);
+        return null;
+      }
       if (!res.ok) throw new Error(data.error || "Failed to push to QuickBooks");
       if (onUpdateJob) onUpdateJob({
         type_meta: {
@@ -131,6 +149,41 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
       return null;
     } finally {
       setPushingToQB(false);
+    }
+  }
+
+  function openChooserManual() {
+    setChooserCandidates(undefined);
+    setChooserCurrent(undefined);
+    setChooserOpen(true);
+  }
+
+  async function handleChooserAction(a) {
+    if (a.type === "select") {
+      setChooserOpen(false);
+      setQbInfo(`Linked to "${a.displayName}". Pushing…`);
+      await pushToQB({ qbCustomerId: a.qbCustomerId });
+      return;
+    }
+    if (a.type === "create_new") {
+      setChooserOpen(false);
+      await pushToQB({ forceCreate: true });
+      return;
+    }
+    if (a.type === "unlink") {
+      try {
+        const res = await fetch("/api/qb/link-customer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId: job.client_id, qbCustomerId: null }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || "Unlink failed");
+        setChooserCurrent(null);
+        setQbInfo("Cleared the linked QB customer. Next push will re-run the smart match.");
+      } catch (e) {
+        setQbError(e.message || "Unlink failed");
+      }
     }
   }
 
@@ -211,6 +264,15 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
               placeholder="—"
               style={{ width: 90, padding: "5px 8px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.card, color: T.text, fontSize: 12, fontFamily: mono, fontWeight: 600, textAlign: "center", outline: "none" }}
             />
+            <button
+              type="button"
+              onClick={openChooserManual}
+              disabled={pushingToQB}
+              title="Verify or change which QuickBooks customer this client is linked to"
+              style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 5, color: T.muted, fontSize: 10, fontWeight: 600, padding: "4px 8px", cursor: pushingToQB ? "default" : "pointer", fontFamily: font, opacity: pushingToQB ? 0.6 : 1 }}
+            >
+              QB customer
+            </button>
           </div>
           {/* Pay link inline (when invoice exists) */}
           {qbInvoiceId && (() => {
@@ -246,6 +308,9 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
         )}
         {qbError && (
           <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 12, color: T.red, background: T.redDim }}>{qbError}</div>
+        )}
+        {qbInfo && !qbError && (
+          <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 12, color: T.green, background: T.greenDim }}>{qbInfo}</div>
         )}
 
         {/* Variance review — appears once invoice exists AND job is fully shipped.
@@ -436,6 +501,18 @@ export function PaymentTab({ job, items = [], contacts, payments, onReload, onRe
         confirmColor={T.amber}
         onConfirm={() => { setShowSendAnywayConfirm(false); setShowInvoiceEmail(true); }}
         onCancel={() => setShowSendAnywayConfirm(false)}
+      />
+
+      <QBCustomerChooser
+        open={chooserOpen}
+        mode="push"
+        clientId={job.client_id}
+        searchedName={job.clients?.name || ""}
+        candidates={chooserCandidates}
+        current={chooserCurrent}
+        busy={pushingToQB}
+        onAction={handleChooserAction}
+        onClose={() => setChooserOpen(false)}
       />
     </div>
   );

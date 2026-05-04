@@ -4,7 +4,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { getOrCreateCustomer, createInvoice, updateInvoice, type QBLineItem } from "@/lib/quickbooks";
+import { getOrCreateCustomer, createInvoice, updateInvoice, QBAmbiguousCustomerError, type QBLineItem } from "@/lib/quickbooks";
 
 // Push a ShipStation Sales Report to QuickBooks as a single-line
 // service-fee invoice. Mirrors /api/qb/invoice but sourced from
@@ -25,8 +25,12 @@ export async function POST(req: NextRequest) {
       userId = user.id;
     }
 
-    const { reportId } = await req.json();
+    const { reportId, forceCreate, qbCustomerId } = await req.json();
     if (!reportId) return NextResponse.json({ error: "Missing reportId" }, { status: 400 });
+    // forceCreate: skip the ambiguous-match safety net and create a new
+    //              QB customer (chooser "Create new" path).
+    // qbCustomerId: caller has already picked an existing QB customer
+    //               from the chooser; cache it on the client and use it.
 
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -63,13 +67,37 @@ export async function POST(req: NextRequest) {
     }
 
     // QB customer — cache on clients.qb_customer_id like the jobs flow.
+    // Lookup priority:
+    //   1) Caller passed qbCustomerId (chooser → "Link to this one")
+    //   2) Client already has cached qb_customer_id
+    //   3) getOrCreateCustomer with smart match + ambiguous-error safety net
     let customerId: string;
-    if (client.qb_customer_id) {
+    if (qbCustomerId) {
+      customerId = String(qbCustomerId);
+      await admin.from("clients").update({ qb_customer_id: customerId }).eq("id", client.id);
+    } else if (client.qb_customer_id) {
       customerId = client.qb_customer_id;
     } else {
-      const customer = await getOrCreateCustomer(clientName, undefined);
-      customerId = customer.Id;
-      await admin.from("clients").update({ qb_customer_id: customerId }).eq("id", client.id);
+      try {
+        const customer = await getOrCreateCustomer(clientName, undefined, { forceCreate: !!forceCreate });
+        customerId = customer.Id;
+        await admin.from("clients").update({ qb_customer_id: customerId }).eq("id", client.id);
+      } catch (e) {
+        if (e instanceof QBAmbiguousCustomerError) {
+          // Hand the chooser the candidates so the user can decide.
+          return NextResponse.json({
+            error: "ambiguous_customer",
+            searchedName: e.searchedName,
+            candidates: e.candidates.map((c: any) => ({
+              id: c.Id,
+              displayName: c.DisplayName,
+              email: c.PrimaryEmailAddr?.Address || null,
+              active: c.Active !== false,
+            })),
+          }, { status: 409 });
+        }
+        throw e;
+      }
     }
 
     // itemName must exist as a QB Product/Service; if not, QB
