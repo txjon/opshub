@@ -39,7 +39,7 @@ type SalesTotals = { qty: number; sales: number; cost: number; net: number; fee:
 // Older reports won't have them; readers default to 0 / sum on demand.
 type PostageTotals = { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number; fulfillment?: number; invoice_total?: number };
 
-type ReportType = "sales" | "postage";
+type ReportType = "sales" | "postage" | "combined";
 type Report = {
   id: string;
   client_id: string;
@@ -49,6 +49,11 @@ type Report = {
   per_package_fee: number | null;
   line_items: any[];
   totals: any;
+  // Combined ("Full Service") reports keep the sales side in
+  // line_items/totals/hpd_fee_pct and the postage side here.
+  postage_line_items: any[] | null;
+  postage_totals: any;
+  postage_markup_pct: number | null;
   created_at: string;
   clients: { name: string } | null;
   qb_invoice_id: string | null;
@@ -101,21 +106,29 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
 
   useEffect(() => { load(); }, [params.id]);
 
-  // Precompute reportType + what "billed" means so both paths below agree.
-  // Postage now includes a per-package fulfillment fee on top of the
-  // postage markup. The invoice total = postage billed + fulfillment.
+  // Precompute reportType + what "billed" means so all surfaces agree.
+  // Combined = sales fee + postage billed + fulfillment.
+  // Postage = billed + fulfillment.
+  // Sales = fee.
   // Older reports don't have totals.fulfillment — fall back to 0.
   const isPostage = report?.report_type === "postage";
+  const isCombined = report?.report_type === "combined";
   const billedAmount = useMemo(() => {
     if (!report) return 0;
+    if (isCombined) {
+      const fee = Number(report.totals?.fee) || 0;
+      const postage = Number(report.postage_totals?.billed) || 0;
+      const fulfillment = Number(report.postage_totals?.fulfillment) || 0;
+      return fee + postage + fulfillment;
+    }
     if (isPostage) {
       const postage = Number(report.totals?.billed) || 0;
       const fulfillment = Number(report.totals?.fulfillment) || 0;
       return postage + fulfillment;
     }
     return Number(report.totals?.fee) || 0;
-  }, [report, isPostage]);
-  const reportKindLabel = isPostage ? "Postage Report" : "Services Invoice";
+  }, [report, isPostage, isCombined]);
+  const reportKindLabel = isCombined ? "Full Service Report" : isPostage ? "Postage Report" : "Services Invoice";
 
   useEffect(() => {
     if (!sendOpen || !report) return;
@@ -133,7 +146,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       }
       if (!subject) {
         const n = report.qb_invoice_number;
-        const kind = isPostage ? "Postage Report" : "Services Invoice";
+        const kind = isCombined ? "Full Service Invoice" : isPostage ? "Postage Report" : "Services Invoice";
         setSubject(`${kind} — ${report.clients?.name || ""} · ${report.period_label}${n ? ` · Invoice ${n}` : ""}`);
       }
     })();
@@ -284,7 +297,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <a href={`/api/pdf/shipstation/${report.id}`} target="_blank" rel="noopener noreferrer" style={btnGhost}>Preview PDF</a>
           <a href={`/api/pdf/shipstation/${report.id}?download=1`} style={btnGhost}>Download PDF</a>
-          {isPostage && (
+          {(isPostage || isCombined) && (
             <a href={`/api/excel/shipstation/${report.id}`} style={btnGhost}>Download Excel</a>
           )}
           {hasQB ? (
@@ -421,15 +434,36 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         </div>
       )}
 
-      {/* Totals strip */}
-      {isPostage ? (
+      {/* Totals strip(s) — combined shows both halves stacked. */}
+      {isCombined ? (
+        <>
+          <SalesTotalsStrip totals={report.totals as SalesTotals} feePct={report.hpd_fee_pct} />
+          <PostageTotalsStrip
+            totals={(report.postage_totals || {}) as PostageTotals}
+            lines={(report.postage_line_items || []) as PostageLineItem[]}
+          />
+          <CombinedInvoiceBreakdown report={report} />
+        </>
+      ) : isPostage ? (
         <PostageTotalsStrip totals={report.totals as PostageTotals} lines={(report.line_items || []) as PostageLineItem[]} />
       ) : (
         <SalesTotalsStrip totals={report.totals as SalesTotals} feePct={report.hpd_fee_pct} />
       )}
 
-      {/* Line items */}
-      {isPostage ? (
+      {/* Line items — combined shows both tables stacked. */}
+      {isCombined ? (
+        <>
+          <LineItemsTable report={report} />
+          <PostageLineItemsTable
+            report={report}
+            postageOverride={{
+              lines: (report.postage_line_items || []) as PostageLineItem[],
+              totals: (report.postage_totals || {}) as PostageTotals,
+              perPackageFee: Number(report.per_package_fee) || 0,
+            }}
+          />
+        </>
+      ) : isPostage ? (
         <PostageLineItemsTable report={report} />
       ) : (
         <LineItemsTable report={report} />
@@ -569,12 +603,21 @@ function LineItemsTable({ report }: { report: Report }) {
   );
 }
 
-function PostageLineItemsTable({ report }: { report: Report }) {
-  const lines = (report.line_items || []) as PostageLineItem[];
-  const totals = (report.totals || {}) as PostageTotals;
+function PostageLineItemsTable({
+  report,
+  postageOverride,
+}: {
+  report: Report;
+  // Combined reports keep postage data on dedicated columns; pass them
+  // through here so this component can render either a postage-only
+  // report or the postage half of a combined report from the same code.
+  postageOverride?: { lines: PostageLineItem[]; totals: PostageTotals; perPackageFee: number };
+}) {
+  const lines = postageOverride?.lines ?? ((report.line_items || []) as PostageLineItem[]);
+  const totals = postageOverride?.totals ?? ((report.totals || {}) as PostageTotals);
   const postageBilled = Number(totals.billed) || 0;
   const fulfillment = Number(totals.fulfillment) || 0;
-  const perPackage = Number(report.per_package_fee) || 0;
+  const perPackage = postageOverride?.perPackageFee ?? (Number(report.per_package_fee) || 0);
   const shipments = Number(totals.shipments) || lines.length;
   const totalInvoice = postageBilled + fulfillment;
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" };
@@ -692,6 +735,48 @@ function ManualInvoiceInput({ reportId, initial, onSaved }: { reportId: string; 
         }}
       />
       {saving && <span style={{ fontSize: 10, color: T.muted }}>Saving…</span>}
+    </div>
+  );
+}
+
+// Combined invoice breakdown — shown between the totals strips and the
+// line items so the user can see at a glance what the QB invoice will
+// total. Lines mirror exactly what the QB push produces:
+//   Service Fee   ← totals.fee (sales side)
+//   Postage       ← postage_totals.billed
+//   Fulfillment   ← postage_totals.fulfillment (only when > 0)
+function CombinedInvoiceBreakdown({ report }: { report: Report }) {
+  const fee = Number((report.totals as any)?.fee) || 0;
+  const billed = Number((report.postage_totals as any)?.billed) || 0;
+  const fulfillment = Number((report.postage_totals as any)?.fulfillment) || 0;
+  const shipments = Number((report.postage_totals as any)?.shipments) || 0;
+  const perPackage = Number(report.per_package_fee) || 0;
+  const feePct = (Number(report.hpd_fee_pct) || 0) * 100;
+  const salesNet = Number((report.totals as any)?.net) || 0;
+  const total = fee + billed + fulfillment;
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Invoice Breakdown</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, fontFamily: mono, maxWidth: 560 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+          <span style={{ color: T.muted }}>Service Fee ({feePct.toFixed(1)}% of {fmtD(salesNet)} net sales)</span>
+          <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(fee)}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+          <span style={{ color: T.muted }}>Postage &amp; Insurance</span>
+          <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(billed)}</span>
+        </div>
+        {fulfillment > 0 && (
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+            <span style={{ color: T.muted }}>Fulfillment Fee {perPackage > 0 ? `(${fmtD(perPackage)} × ${fmtN(shipments)} shipments)` : ""}</span>
+            <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(fulfillment)}</span>
+          </div>
+        )}
+        <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 8, display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 800 }}>
+          <span style={{ color: T.text }}>Total Invoice</span>
+          <span style={{ color: T.text }}>{fmtD(total)}</span>
+        </div>
+      </div>
     </div>
   );
 }

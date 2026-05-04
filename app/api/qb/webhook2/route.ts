@@ -327,7 +327,11 @@ async function tryMatchShipstationReport(supabase: any, qbInvoiceId: string, amo
       const resend = new Resend(process.env.RESEND_API_KEY);
       const clientName = (report.clients as any)?.name || "";
       const invoiceNum = report.qb_invoice_number || "";
-      const reportLabel = report.report_type === "postage" ? "Fulfillment Invoice" : "Services Invoice";
+      const reportLabel = report.report_type === "combined"
+        ? "Full Service Invoice"
+        : report.report_type === "postage"
+          ? "Fulfillment Invoice"
+          : "Services Invoice";
       const { error: sendErr } = await resend.emails.send({
         from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",
         to: clientEmail,

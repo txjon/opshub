@@ -54,7 +54,7 @@ export default function ReportsPage() {
         setLoading(false);
       });
     supabase.from("shipstation_reports")
-      .select("id, client_id, report_type, period_label, created_at, totals, clients(name)")
+      .select("id, client_id, report_type, period_label, created_at, totals, postage_totals, per_package_fee, clients(name)")
       .order("created_at", { ascending: false })
       .limit(25)
       .then(({ data }) => setShipReports((data || []) as any));
@@ -310,16 +310,37 @@ export default function ReportsPage() {
               <tbody>
                 {shipReports.map((r: any) => {
                   const isPostage = r.report_type === "postage";
+                  const isCombined = r.report_type === "combined";
                   const totals = r.totals || {};
-                  const volume = isPostage
-                    ? `${(totals.shipments || 0).toLocaleString()} ship`
-                    : (totals.qty || 0).toLocaleString();
-                  const revenue = isPostage ? (totals.paid || 0) : (totals.sales || 0);
-                  const result = isPostage ? (totals.margin || 0) : (totals.profit || 0);
-                  const resultColor = isPostage && result < 0 ? T.red : T.green;
+                  const post = r.postage_totals || {};
+                  // Combined → show "Full Svc" + sales+postage volume aggregate.
+                  // Volume: sales-only = qty, postage-only = shipments,
+                  // combined = qty units + shipments combined into a
+                  // shorthand so the row stays compact.
+                  const volume = isCombined
+                    ? `${(totals.qty || 0).toLocaleString()} + ${(post.shipments || 0).toLocaleString()} ship`
+                    : isPostage
+                      ? `${(totals.shipments || 0).toLocaleString()} ship`
+                      : (totals.qty || 0).toLocaleString();
+                  const revenue = isCombined
+                    ? (Number(totals.sales) || 0) + (Number(post.paid) || 0)
+                    : isPostage
+                      ? (totals.paid || 0)
+                      : (totals.sales || 0);
+                  // Result column: combined shows total invoice (what
+                  // we billed). Sales-only = net profit, postage = client
+                  // profit (which can go negative).
+                  const result = isCombined
+                    ? (Number(totals.fee) || 0) + (Number(post.billed) || 0) + (Number(post.fulfillment) || 0)
+                    : isPostage
+                      ? (totals.margin || 0)
+                      : (totals.profit || 0);
+                  const resultColor = !isCombined && isPostage && result < 0 ? T.red : T.green;
+                  const typeLabel = isCombined ? "Full Svc" : isPostage ? "Postage" : "Sales";
+                  const typeColor = isCombined ? T.purple : isPostage ? T.amber : T.accent;
                   return (
                     <tr key={r.id}>
-                      <td style={{ ...tdStyle, textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 10, color: isPostage ? T.amber : T.accent, fontWeight: 700 }}>{isPostage ? "Postage" : "Sales"}</td>
+                      <td style={{ ...tdStyle, textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 10, color: typeColor, fontWeight: 700 }}>{typeLabel}</td>
                       <td style={{ ...tdStyle, fontWeight: 600 }}>{r.clients?.name || "—"}</td>
                       <td style={tdStyle}>{r.period_label}</td>
                       <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
