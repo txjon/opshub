@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { groupLineItems } from "@/lib/shipstation-group";
@@ -113,7 +113,16 @@ type ReportType = "sales" | "postage" | "combined";
 
 export default function NewShipstationReportPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
+
+  // Edit mode — when ?edit=<reportId> is present, the wizard hydrates
+  // an existing shipstation_reports row instead of starting from a CSV
+  // upload, and the Generate button UPDATEs that row instead of
+  // INSERTing a new one.
+  const editId = searchParams?.get("edit") || null;
+  const [editLoading, setEditLoading] = useState<boolean>(!!editId);
+  const [editError, setEditError] = useState<string>("");
 
   const [reportType, setReportType] = useState<ReportType>("sales");
   const [stage, setStage] = useState<1 | 2 | 3 | 4>(1);
@@ -161,10 +170,137 @@ export default function NewShipstationReportPage() {
         .select("id, name, hpd_fee_pct, hpd_per_package_fee")
         .order("name");
       setClients(data || []);
-      const fog = (data || []).find(c => c.name.toLowerCase().includes("forward observations"));
-      if (fog) setClientId(fog.id);
+      // Don't auto-select FOG when editing — the report's client_id wins.
+      if (!editId) {
+        const fog = (data || []).find(c => c.name.toLowerCase().includes("forward observations"));
+        if (fog) setClientId(fog.id);
+      }
     })();
-  }, []);
+  }, [editId]);
+
+  // Edit mode hydration — load the existing report and populate state
+  // so the user can adjust prices / drop rows / etc. and re-save.
+  // Hydrates from saved data:
+  //   - clientId, periodLabel, reportType, feePct, markupPct, perPackageFee
+  //   - rawRows (sales) reverse-mapped from line_items so groupCosts
+  //     pre-fill from per-line unit_cost
+  //   - rawPostageRows reverse-mapped from line_items / postage_line_items
+  //     using shipping_cost_raw as the parsed shipping_cost so the wizard's
+  //     markup math re-applies cleanly without double-counting
+  // Lands the user on stage 3 (Pricing) — they can step Back to stage 2
+  // to uncheck rows. Stage 1 (CSV upload) is unreachable in edit mode
+  // because the source CSV isn't kept after generate.
+  useEffect(() => {
+    if (!editId) return;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("shipstation_reports")
+          .select("*")
+          .eq("id", editId)
+          .single();
+        if (error || !data) throw new Error(error?.message || "Report not found");
+        const r = data as any;
+        setClientId(r.client_id);
+        setPeriodLabel(r.period_label || "");
+        setReportType((r.report_type || "sales") as ReportType);
+
+        const isPostageOnly = r.report_type === "postage";
+        const isCombinedSaved = r.report_type === "combined";
+
+        // Sales side — sales-only and combined have line_items with
+        // {sku, description, qty_sold, product_sales, unit_cost}.
+        if (!isPostageOnly) {
+          const lines: any[] = r.line_items || [];
+          const parsed: ParsedRow[] = lines.map((l, i) => ({
+            idx: i,
+            sku: l.sku || "",
+            description: l.description || "",
+            qty_sold: Number(l.qty_sold) || 0,
+            product_sales: Number(l.product_sales) || 0,
+            included: true,
+          }));
+          setRawRows(parsed);
+          setMergedCount(0);
+
+          // Seed groupCosts from per-line unit_cost. Group key matches
+          // groupLineItems' output, so we recompute groups here and
+          // pull the unit_cost off the first variant.
+          const grouped = groupLineItems(lines.map((l: any, i: number) => ({
+            sku: l.sku || "",
+            description: l.description || "",
+            qty_sold: Number(l.qty_sold) || 0,
+            product_sales: Number(l.product_sales) || 0,
+            unit_cost: Number(l.unit_cost) || 0,
+            idx: i,
+          })));
+          const seed: Record<string, string> = {};
+          for (const g of grouped) {
+            const cost = Number(g.unit_cost) || 0;
+            seed[g.key] = cost > 0 ? String(cost) : "0";
+          }
+          setGroupCosts(seed);
+        }
+
+        // Postage side — for combined it lives on postage_line_items;
+        // for postage-only it's on line_items. Either way we use
+        // shipping_cost_raw (the carrier cost before markup) so the
+        // wizard's markup math re-applies cleanly when the user
+        // tweaks the rate.
+        if (isPostageOnly || isCombinedSaved) {
+          const lines: any[] = isCombinedSaved
+            ? (r.postage_line_items || [])
+            : (r.line_items || []);
+          const parsed: ParsedPostageRow[] = lines.map((l, i) => ({
+            idx: i,
+            ship_date: l.ship_date || "",
+            recipient: l.recipient || "",
+            order_number: l.order_number || "",
+            provider: l.provider || "",
+            service: l.service || "",
+            package_type: l.package_type || "",
+            items_count: Number(l.items_count) || 0,
+            zone: l.zone || "",
+            shipping_paid: Number(l.shipping_paid) || 0,
+            // shipping_cost_raw is the carrier's actual cost; saved
+            // shipping_cost has the markup baked in. Edit mode wants
+            // the raw so re-applying the markup gives the same result
+            // (or a different one if the user tweaks it).
+            shipping_cost: Number(l.shipping_cost_raw ?? l.shipping_cost) || 0,
+            insurance_cost: Number(l.insurance_cost) || 0,
+            weight: Number(l.weight) || 0,
+            weight_unit: l.weight_unit || "",
+            included: true,
+          }));
+          setRawPostageRows(parsed);
+        }
+
+        // Rates. hpd_fee_pct doubles as the sales fee for sales/combined
+        // and as the markup for postage-only. postage_markup_pct only
+        // exists on combined rows.
+        if (isPostageOnly) {
+          setMarkupPct(String(Number(r.hpd_fee_pct) || 0));
+        } else if (isCombinedSaved) {
+          setFeePct(String(Number(r.hpd_fee_pct) || 0));
+          setMarkupPct(String(Number(r.postage_markup_pct) || 0));
+        } else {
+          setFeePct(String(Number(r.hpd_fee_pct) || 0));
+        }
+        setPerPackageFee(String(Number(r.per_package_fee) || 0));
+
+        // Skip upload + selection — jump straight to Pricing. User can
+        // step Back to stage 2 if they want to drop rows.
+        setStage(3);
+      } catch (e: any) {
+        setEditError(e.message || "Failed to load report");
+      } finally {
+        setEditLoading(false);
+      }
+    })();
+    // editId is the only dep that should re-trigger this; clients,
+    // supabase, etc. are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId]);
 
   // Pull persisted unit costs + client fee when we know the client. Only
   // applies when the report has a sales side. Postage-only reports skip
@@ -567,7 +703,7 @@ export default function NewShipstationReportPage() {
           await (supabase as any).from("clients").update({ hpd_fee_pct: feeRate }).eq("id", clientId);
         }
 
-        // 3. Insert report.
+        // 3. Insert or update report.
         const line_items = selectedRows.map(r => ({
           sku: r.sku,
           description: r.description,
@@ -579,21 +715,42 @@ export default function NewShipstationReportPage() {
         // read anywhere, so we don't persist it — saves a large JSONB
         // write on every report. If we ever build a re-edit flow, put
         // it back.
-        const { data: inserted, error: insErr } = await (supabase as any)
-          .from("shipstation_reports")
-          .insert({
-            client_id: clientId,
-            report_type: "sales",
-            period_label: periodLabel,
-            hpd_fee_pct: feeRate,
-            line_items,
-            totals: salesTotals,
-            created_by: user.user?.id || null,
-          })
-          .select("id")
-          .single();
-        if (insErr) throw insErr;
-        router.push(`/reports/shipstation/${inserted.id}`);
+        if (editId) {
+          const { error: updErr } = await (supabase as any)
+            .from("shipstation_reports")
+            .update({
+              report_type: "sales",
+              period_label: periodLabel,
+              hpd_fee_pct: feeRate,
+              line_items,
+              totals: salesTotals,
+              // Combined-only fields cleared in case the user changed
+              // type from combined back to sales-only.
+              postage_line_items: null,
+              postage_totals: null,
+              postage_markup_pct: null,
+              per_package_fee: 0,
+            })
+            .eq("id", editId);
+          if (updErr) throw updErr;
+          router.push(`/reports/shipstation/${editId}`);
+        } else {
+          const { data: inserted, error: insErr } = await (supabase as any)
+            .from("shipstation_reports")
+            .insert({
+              client_id: clientId,
+              report_type: "sales",
+              period_label: periodLabel,
+              hpd_fee_pct: feeRate,
+              line_items,
+              totals: salesTotals,
+              created_by: user.user?.id || null,
+            })
+            .select("id")
+            .single();
+          if (insErr) throw insErr;
+          router.push(`/reports/shipstation/${inserted.id}`);
+        }
       } else if (reportType === "postage") {
         // Postage insert — reuses hpd_fee_pct column to store markup %.
         // per_package_fee is its own column so it can be queried/edited
@@ -643,22 +800,43 @@ export default function NewShipstationReportPage() {
           }
         }
 
-        const { data: inserted, error: insErr } = await (supabase as any)
-          .from("shipstation_reports")
-          .insert({
-            client_id: clientId,
-            report_type: "postage",
-            period_label: periodLabel,
-            hpd_fee_pct: markup,
-            per_package_fee: perPkg,
-            line_items,
-            totals: postageTotals,
-            created_by: user.user?.id || null,
-          })
-          .select("id")
-          .single();
-        if (insErr) throw insErr;
-        router.push(`/reports/shipstation/${inserted.id}`);
+        if (editId) {
+          const { error: updErr } = await (supabase as any)
+            .from("shipstation_reports")
+            .update({
+              report_type: "postage",
+              period_label: periodLabel,
+              hpd_fee_pct: markup,
+              per_package_fee: perPkg,
+              line_items,
+              totals: postageTotals,
+              // Combined-only fields cleared in case the user changed
+              // type from combined back to postage-only.
+              postage_line_items: null,
+              postage_totals: null,
+              postage_markup_pct: null,
+            })
+            .eq("id", editId);
+          if (updErr) throw updErr;
+          router.push(`/reports/shipstation/${editId}`);
+        } else {
+          const { data: inserted, error: insErr } = await (supabase as any)
+            .from("shipstation_reports")
+            .insert({
+              client_id: clientId,
+              report_type: "postage",
+              period_label: periodLabel,
+              hpd_fee_pct: markup,
+              per_package_fee: perPkg,
+              line_items,
+              totals: postageTotals,
+              created_by: user.user?.id || null,
+            })
+            .select("id")
+            .single();
+          if (insErr) throw insErr;
+          router.push(`/reports/shipstation/${inserted.id}`);
+        }
       } else {
         // Full Service / combined — both halves saved on one row.
         // Sales side → existing line_items / totals / hpd_fee_pct.
@@ -702,25 +880,44 @@ export default function NewShipstationReportPage() {
           }
         }
 
-        const { data: inserted, error: insErr } = await (supabase as any)
-          .from("shipstation_reports")
-          .insert({
-            client_id: clientId,
-            report_type: "combined",
-            period_label: periodLabel,
-            hpd_fee_pct: feeRate,
-            postage_markup_pct: markup,
-            per_package_fee: perPkg,
-            line_items: sales.line_items,
-            totals: sales.totals,
-            postage_line_items: postage.line_items,
-            postage_totals: postage.totals,
-            created_by: user.user?.id || null,
-          })
-          .select("id")
-          .single();
-        if (insErr) throw insErr;
-        router.push(`/reports/shipstation/${inserted.id}`);
+        if (editId) {
+          const { error: updErr } = await (supabase as any)
+            .from("shipstation_reports")
+            .update({
+              report_type: "combined",
+              period_label: periodLabel,
+              hpd_fee_pct: feeRate,
+              postage_markup_pct: markup,
+              per_package_fee: perPkg,
+              line_items: sales.line_items,
+              totals: sales.totals,
+              postage_line_items: postage.line_items,
+              postage_totals: postage.totals,
+            })
+            .eq("id", editId);
+          if (updErr) throw updErr;
+          router.push(`/reports/shipstation/${editId}`);
+        } else {
+          const { data: inserted, error: insErr } = await (supabase as any)
+            .from("shipstation_reports")
+            .insert({
+              client_id: clientId,
+              report_type: "combined",
+              period_label: periodLabel,
+              hpd_fee_pct: feeRate,
+              postage_markup_pct: markup,
+              per_package_fee: perPkg,
+              line_items: sales.line_items,
+              totals: sales.totals,
+              postage_line_items: postage.line_items,
+              postage_totals: postage.totals,
+              created_by: user.user?.id || null,
+            })
+            .select("id")
+            .single();
+          if (insErr) throw insErr;
+          router.push(`/reports/shipstation/${inserted.id}`);
+        }
       }
     } catch (e: any) {
       setSaveError(e.message || "Generate failed");
@@ -779,46 +976,67 @@ export default function NewShipstationReportPage() {
       ? postagePricingComplete
       : salesPricingComplete;
   const typeLabel = isCombined ? "Full Service" : isPostage ? "Postage" : "Sales";
+  const isEditing = !!editId;
+  const generateBtnLabel = saving
+    ? (isEditing ? "Saving..." : "Generating...")
+    : (isEditing ? "Save Changes" : "Generate Report");
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
         <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Reports · ShipStation</div>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
-          Create {typeLabel} Report
+          {isEditing ? `Edit ${typeLabel} Report` : `Create ${typeLabel} Report`}
         </h1>
+        {isEditing && (
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+            Adjust pricing, drop rows, or update the period. Changes save back to this report — push to QuickBooks afterwards from the report page to update the invoice.
+          </div>
+        )}
       </div>
+
+      {editLoading && (
+        <div style={{ ...card, color: T.muted, fontSize: 13 }}>Loading report…</div>
+      )}
+      {editError && (
+        <div style={{ ...card, color: T.red, fontSize: 13 }}>{editError}</div>
+      )}
 
       {/* Report type toggle — only meaningful before rows are parsed; still
-          allowed to flip after, but parsed rows get cleared (see onChangeType). */}
-      <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
-        {([
-          { value: "sales", label: "Sales" },
-          { value: "postage", label: "Postage" },
-          { value: "combined", label: "Full Service" },
-        ] as const).map(t => (
-          <button
-            key={t.value}
-            onClick={() => onChangeType(t.value)}
-            style={{
-              background: reportType === t.value ? T.accent : "transparent",
-              color: reportType === t.value ? "#ffffff" : T.muted,
-              border: "none", borderRadius: 6,
-              padding: "6px 18px", fontSize: 12, fontWeight: 700,
-              fontFamily: font, cursor: "pointer",
-            }}
-          >
-            {t.label}{t.value === "combined" ? "" : " Report"}
-          </button>
-        ))}
-      </div>
+          allowed to flip after, but parsed rows get cleared (see onChangeType).
+          Hidden in edit mode: changing type would invalidate the hydrated
+          rows since the source CSV isn't kept after generate. */}
+      {!isEditing && (
+        <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
+          {([
+            { value: "sales", label: "Sales" },
+            { value: "postage", label: "Postage" },
+            { value: "combined", label: "Full Service" },
+          ] as const).map(t => (
+            <button
+              key={t.value}
+              onClick={() => onChangeType(t.value)}
+              style={{
+                background: reportType === t.value ? T.accent : "transparent",
+                color: reportType === t.value ? "#ffffff" : T.muted,
+                border: "none", borderRadius: 6,
+                padding: "6px 18px", fontSize: 12, fontWeight: 700,
+                fontFamily: font, cursor: "pointer",
+              }}
+            >
+              {t.label}{t.value === "combined" ? "" : " Report"}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Stage pills */}
+      {/* Stage pills — In edit mode Stage 1 (CSV upload) is unreachable
+          so it stays grey. The 2/3/4 progression still applies. */}
       <div style={{ display: "flex", gap: 8 }}>
-        {stagePill(1, "Upload", stage === 1, stage > 1)}
+        {stagePill(1, isEditing ? "Upload (skipped)" : "Upload", stage === 1, stage > 1)}
         {stagePill(2, isCombined ? "Select rows" : isPostage ? "Select shipments" : "Select rows", stage === 2, stage > 2)}
         {stagePill(3, isCombined ? "Pricing" : isPostage ? "Markup %" : "Unit costs", stage === 3, stage > 3)}
-        {stagePill(4, "Review + generate", stage === 4, false)}
+        {stagePill(4, isEditing ? "Review + save" : "Review + generate", stage === 4, false)}
       </div>
 
       {/* ── Stage 1 — Upload ── */}
@@ -953,7 +1171,7 @@ export default function NewShipstationReportPage() {
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
-            <button onClick={() => setStage(1)} style={btnGhost}>← Back</button>
+            <button onClick={() => isEditing ? router.push(`/reports/shipstation/${editId}`) : setStage(1)} style={btnGhost}>{isEditing ? "Cancel" : "← Back"}</button>
             <button disabled={!canNextFrom2} onClick={() => setStage(3)} style={{ ...btnPrimary, opacity: canNextFrom2 ? 1 : 0.4, cursor: canNextFrom2 ? "pointer" : "not-allowed" }}>Next →</button>
           </div>
         </div>
@@ -1020,7 +1238,7 @@ export default function NewShipstationReportPage() {
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
-            <button onClick={() => setStage(1)} style={btnGhost}>← Back</button>
+            <button onClick={() => isEditing ? router.push(`/reports/shipstation/${editId}`) : setStage(1)} style={btnGhost}>{isEditing ? "Cancel" : "← Back"}</button>
             <button disabled={!canNextFrom2} onClick={() => setStage(3)} style={{ ...btnPrimary, opacity: canNextFrom2 ? 1 : 0.4, cursor: canNextFrom2 ? "pointer" : "not-allowed" }}>Next →</button>
           </div>
         </div>
@@ -1213,7 +1431,7 @@ export default function NewShipstationReportPage() {
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <button onClick={() => setStage(3)} style={btnGhost} disabled={saving}>← Back</button>
               <button onClick={generate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>
-                {saving ? "Generating..." : "Generate Report"}
+                {generateBtnLabel}
               </button>
             </div>
           </div>
@@ -1274,7 +1492,7 @@ export default function NewShipstationReportPage() {
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <button onClick={() => setStage(3)} style={btnGhost} disabled={saving}>← Back</button>
               <button onClick={generate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>
-                {saving ? "Generating..." : "Generate Report"}
+                {generateBtnLabel}
               </button>
             </div>
           </div>
@@ -1408,7 +1626,7 @@ export default function NewShipstationReportPage() {
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-            <button onClick={() => setStage(1)} style={btnGhost}>← Back</button>
+            <button onClick={() => isEditing ? router.push(`/reports/shipstation/${editId}`) : setStage(1)} style={btnGhost}>{isEditing ? "Cancel" : "← Back"}</button>
             <button disabled={!canNextFrom2} onClick={() => setStage(3)} style={{ ...btnPrimary, opacity: canNextFrom2 ? 1 : 0.4, cursor: canNextFrom2 ? "pointer" : "not-allowed" }}>Next →</button>
           </div>
         </div>
@@ -1674,7 +1892,7 @@ export default function NewShipstationReportPage() {
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <button onClick={() => setStage(3)} style={btnGhost} disabled={saving}>← Back</button>
               <button onClick={generate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>
-                {saving ? "Generating..." : "Generate Report"}
+                {generateBtnLabel}
               </button>
             </div>
           </div>
