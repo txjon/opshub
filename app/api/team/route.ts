@@ -21,9 +21,9 @@ export async function POST(req: NextRequest) {
 
     // Derive departments from role
     const ROLE_DEPARTMENTS: Record<string, string[]> = {
-      ops: ["labs", "distro", "contacts"],
+      ops: ["labs", "distro", "ecomm", "contacts"],
       warehouse: ["distro"],
-      viewer: ["labs", "distro", "contacts"],
+      viewer: ["labs", "distro", "ecomm", "contacts"],
     };
 
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -62,10 +62,10 @@ export async function PATCH(req: NextRequest) {
     if (!profileId) return NextResponse.json({ error: "Missing profileId" }, { status: 400 });
 
     const ROLE_DEPARTMENTS: Record<string, string[]> = {
-      owner: ["owner", "labs", "distro", "contacts", "settings"],
-      ops: ["labs", "distro", "contacts"],
+      owner: ["owner", "labs", "distro", "ecomm", "contacts", "settings"],
+      ops: ["labs", "distro", "ecomm", "contacts"],
       warehouse: ["distro"],
-      viewer: ["labs", "distro", "contacts"],
+      viewer: ["labs", "distro", "ecomm", "contacts"],
     };
 
     const updates: any = {};
