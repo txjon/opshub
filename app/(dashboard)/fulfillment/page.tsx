@@ -2,14 +2,29 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
-import { T, font, mono } from "@/lib/theme";
+import { T, font, mono, sortSizes } from "@/lib/theme";
 import { deductSamples } from "@/lib/qty";
 
-type ReceivedItem = {
-  name: string;
+type InventoryLine = {
+  id: string;
+  source_type: "labs_item" | "outside_shipment" | "preexisting";
+  source_item_id: string | null;
+  source_shipment_id: string | null;
+  description: string | null;
+  qtys: Record<string, number>;
+  notes: string | null;
+  webstore_entered_at: string | null;
+  sort_order: number;
+  // hydrated client-side
+  display_name: string;
+  display_meta: string | null;
+  effective_qtys: Record<string, number>;
   sizes: string[];
-  received_qtys: Record<string, number>;
   total: number;
+  source_job_id: string | null;
+  // Labs-only: pipeline state of the underlying item
+  item_status: "at_decorator" | "in_transit" | "received" | "unknown" | null;
+  qty_is_expected: boolean;
 };
 
 type FulfillmentProject = {
@@ -19,12 +34,10 @@ type FulfillmentProject = {
   store_name: string | null;
   status: string;
   notes: string | null;
-  total_units: number;
-  source_job_id: string | null;
   created_at: string;
   client_name: string;
   logs: DailyLog[];
-  received_items: ReceivedItem[];
+  lines: InventoryLine[];
 };
 
 type DailyLog = {
@@ -36,125 +49,153 @@ type DailyLog = {
   notes: string | null;
 };
 
-type IncomingItem = {
+type AvailableItem = {
   id: string;
   name: string;
+  job_id: string;
   job_title: string;
+  client_id: string | null;
   client_name: string;
-  decorator: string;
-  total_units: number;
-  pipeline_stage: string;
-  ship_tracking: string | null;
-  ship_date: string | null;
+  total: number;
+  status: "at_decorator" | "in_transit" | "received" | "unknown";
+  qty_is_expected: boolean;
+};
+
+type AvailableShipment = {
+  id: string;
+  description: string | null;
+  sender: string | null;
+  carrier: string | null;
+  tracking: string | null;
+  received_at: string;
+};
+
+type PickerState = {
+  projectId: string;
+  mode: "labs" | "outside" | "preexisting";
 };
 
 export default function FulfillmentPage() {
   const supabase = createClient();
   const [projects, setProjects] = useState<FulfillmentProject[]>([]);
-  const [incoming, setIncoming] = useState<IncomingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
-  const [newForm, setNewForm] = useState({ name: "", store_name: "", client_id: "", notes: "", source_job_id: "" });
-  const [labsJobs, setLabsJobs] = useState<{ id: string; title: string; client_name: string }[]>([]);
+  const [newForm, setNewForm] = useState({ name: "", store_name: "", client_id: "", notes: "" });
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [outsideShipments, setOutsideShipments] = useState<any[]>([]);
   const [logForm, setLogForm] = useState<Record<string, { starting: string; shipped: string; remaining: string; notes: string }>>({});
-  const [tab, setTab] = useState<"active" | "incoming" | "complete">("active");
+  const [tab, setTab] = useState<"active" | "complete">("active");
+  // Inventory picker state — only one open at a time
+  const [picker, setPicker] = useState<PickerState | null>(null);
+  const [availableItems, setAvailableItems] = useState<AvailableItem[]>([]);
+  const [availableShipments, setAvailableShipments] = useState<AvailableShipment[]>([]);
+  const [preForm, setPreForm] = useState({ description: "", qtys: "", notes: "" });
+  const [shipQtyInput, setShipQtyInput] = useState<Record<string, string>>({});
+  const [pickerFilter, setPickerFilter] = useState({ search: "", clientId: "", jobId: "" });
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
 
   useEffect(() => { loadAll(); }, []);
+
+  function hydrateLine(row: any): InventoryLine {
+    let display_name = "";
+    let display_meta: string | null = null;
+    let effective_qtys: Record<string, number> = {};
+    let sizes: string[] = [];
+    let source_job_id: string | null = null;
+    let item_status: InventoryLine["item_status"] = null;
+    let qty_is_expected = false;
+
+    if (row.source_type === "labs_item" && row.items) {
+      source_job_id = row.items.job_id || null;
+      const item = row.items;
+      display_name = item.name;
+      const bsl = item.buy_sheet_lines || [];
+      const orderedSizes = bsl.map((l: any) => l.size);
+      const rq = item.received_qtys || {};
+      const hasReceivedQtys = Object.keys(rq).length > 0;
+      // Item state drives status badge + whether qty is "expected" or actual.
+      if (item.received_at_hpd) item_status = "received";
+      else if (item.pipeline_stage === "shipped") item_status = "in_transit";
+      else if (item.pipeline_stage === "in_production") item_status = "at_decorator";
+      else item_status = "unknown";
+      qty_is_expected = !hasReceivedQtys;
+      // Use received qtys when available, fall back to ordered qty otherwise
+      const delivered: Record<string, number> = {};
+      for (const l of bsl) {
+        delivered[l.size] = rq[l.size] ?? l.qty_ordered ?? 0;
+      }
+      effective_qtys = deductSamples(delivered, item.sample_qtys);
+      sizes = sortSizes(orderedSizes);
+    } else if (row.source_type === "outside_shipment" && row.outside_shipments) {
+      const sh = row.outside_shipments;
+      display_name = sh.description || sh.sender || "Outside shipment";
+      display_meta = [sh.sender, sh.carrier, sh.tracking].filter(Boolean).join(" · ") || null;
+      effective_qtys = row.qtys || {};
+      sizes = sortSizes(Object.keys(effective_qtys));
+    } else if (row.source_type === "preexisting") {
+      display_name = row.description || "Pre-existing inventory";
+      display_meta = row.notes;
+      effective_qtys = row.qtys || {};
+      sizes = sortSizes(Object.keys(effective_qtys));
+    } else {
+      // Source row missing (item/shipment deleted) — show stub.
+      display_name = row.description || "(source unavailable)";
+      effective_qtys = row.qtys || {};
+      sizes = sortSizes(Object.keys(effective_qtys));
+    }
+
+    const total = Object.values(effective_qtys).reduce((a, v) => a + (Number(v) || 0), 0);
+    return {
+      id: row.id,
+      source_type: row.source_type,
+      source_item_id: row.source_item_id,
+      source_shipment_id: row.source_shipment_id,
+      description: row.description,
+      qtys: row.qtys || {},
+      notes: row.notes,
+      webstore_entered_at: row.webstore_entered_at,
+      sort_order: row.sort_order || 0,
+      display_name, display_meta, effective_qtys, sizes, total, source_job_id,
+      item_status, qty_is_expected,
+    };
+  }
 
   async function loadAll() {
     setLoading(true);
 
-    const [projRes, clientRes, jobsRes] = await Promise.all([
-      supabase.from("fulfillment_projects").select("*, clients(name), fulfillment_daily_logs(*)").order("created_at", { ascending: false }),
+    const [projRes, clientRes, invRes] = await Promise.all([
+      // Ecomm-mode projects live at /ecomm; this page shows manual/legacy fulfillment only.
+      supabase.from("fulfillment_projects")
+        .select("*, clients(name), fulfillment_daily_logs(*)")
+        .is("mode", null)
+        .order("created_at", { ascending: false }),
       supabase.from("clients").select("id, name").order("name"),
-      supabase.from("jobs").select("id, title, clients(name)").not("phase", "in", '("complete","cancelled")').order("created_at", { ascending: false }).limit(50),
+      supabase.from("fulfillment_inventory")
+        .select("*, items:source_item_id(id, name, job_id, sort_order, pipeline_stage, received_at_hpd, received_qtys, sample_qtys, buy_sheet_lines(size, qty_ordered)), outside_shipments:source_shipment_id(id, description, sender, carrier, tracking)")
+        .order("sort_order"),
     ]);
-    setLabsJobs((jobsRes.data || []).map((j: any) => ({ id: j.id, title: j.title, client_name: (j.clients as any)?.name || "" })));
 
-    // Load received items for projects with source jobs
-    const jobLinkedProjects = (projRes.data || []).filter((p: any) => p.source_job_id);
-    const sourceJobIds = jobLinkedProjects.map((p: any) => p.source_job_id);
-    let receivedByJob: Record<string, ReceivedItem[]> = {};
-
-    if (sourceJobIds.length > 0) {
-      const { data: receivedItems } = await supabase
-        .from("items")
-        .select("job_id, name, sort_order, received_qtys, sample_qtys, received_at_hpd, buy_sheet_lines(size, qty_ordered)")
-        .in("job_id", sourceJobIds)
-        .eq("received_at_hpd", true);
-
-      for (const it of (receivedItems || [])) {
-        if (!receivedByJob[it.job_id]) receivedByJob[it.job_id] = [];
-        const lines = it.buy_sheet_lines || [];
-        const sizes = lines.map((l: any) => l.size);
-        const rq = it.received_qtys || {};
-        // Fall back to ordered qty if no received qty recorded.
-        const delivered: Record<string, number> = {};
-        for (const l of lines) {
-          delivered[l.size] = rq[l.size] ?? l.qty_ordered ?? 0;
-        }
-        // Continuing = delivered − samples pulled at receiving. This is what
-        // the fulfillment team has available to pack and ship.
-        const continuing = deductSamples(delivered, (it as any).sample_qtys);
-        receivedByJob[it.job_id].push({
-          name: it.name, letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
-          sizes,
-          received_qtys: continuing,
-          total: Object.values(continuing).reduce((a, v) => a + v, 0),
-        });
-      }
+    const linesByProject: Record<string, InventoryLine[]> = {};
+    for (const row of (invRes.data || [])) {
+      const line = hydrateLine(row);
+      if (!linesByProject[row.project_id]) linesByProject[row.project_id] = [];
+      linesByProject[row.project_id].push(line);
     }
 
     const mapped = (projRes.data || []).map((p: any) => ({
       ...p,
       client_name: p.clients?.name || "Unknown",
       logs: (p.fulfillment_daily_logs || []).sort((a: any, b: any) => b.log_date.localeCompare(a.log_date)),
-      received_items: p.source_job_id ? (receivedByJob[p.source_job_id] || []) : [],
+      lines: linesByProject[p.id] || [],
     }));
     setProjects(mapped);
     setClients(clientRes.data || []);
 
-    // Load incoming pipeline: items in production or shipped (not yet received)
-    const { data: jobs } = await supabase
-      .from("jobs")
-      .select("id, title, target_ship_date, shipping_route, clients(name)")
-      .in("phase", ["production", "receiving", "fulfillment"])
-      .eq("shipping_route", "stage");
-
-    if (jobs?.length) {
-      const jobIds = jobs.map(j => j.id);
-      const jobMap: Record<string, any> = {};
-      jobs.forEach(j => { jobMap[j.id] = j; });
-
-      const { data: items } = await supabase
-        .from("items")
-        .select("id, name, job_id, sort_order, pipeline_stage, ship_tracking, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code))")
-        .in("job_id", jobIds)
-        .in("pipeline_stage", ["in_production", "shipped"])
-        .order("sort_order");
-
-      setIncoming((items || []).map((it: any) => {
-        const job = jobMap[it.job_id];
-        const dec = it.decorator_assignments?.[0]?.decorators;
-        return {
-          id: it.id, name: it.name, letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
-          job_title: job?.title || "",
-          client_name: (job?.clients as any)?.name || "",
-          decorator: dec?.short_code || dec?.name || "—",
-          total_units: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0),
-          pipeline_stage: it.pipeline_stage,
-          ship_tracking: it.ship_tracking,
-          ship_date: job?.target_ship_date,
-        };
-      }));
-    }
-
-    // Load outside shipments routed to stage
+    // Outside shipments routed to staging — exclude any already linked to a project
+    const linkedShipmentIds = new Set((invRes.data || []).filter(r => r.source_shipment_id).map(r => r.source_shipment_id));
     const { data: outsideData } = await supabase.from("outside_shipments").select("*").eq("route", "stage").order("received_at", { ascending: false });
-    setOutsideShipments(outsideData || []);
+    setOutsideShipments((outsideData || []).filter((s: any) => !linkedShipmentIds.has(s.id)));
 
     setLoading(false);
   }
@@ -166,9 +207,8 @@ export default function FulfillmentPage() {
       store_name: newForm.store_name.trim() || null,
       client_id: newForm.client_id || null,
       notes: newForm.notes.trim() || null,
-      source_job_id: newForm.source_job_id || null,
     });
-    setNewForm({ name: "", store_name: "", client_id: "", notes: "", source_job_id: "" });
+    setNewForm({ name: "", store_name: "", client_id: "", notes: "" });
     setShowNew(false);
     loadAll();
   }
@@ -196,14 +236,149 @@ export default function FulfillmentPage() {
     loadAll();
   }
 
+  // Parse "S:24, M:32, L:18" into { S: 24, M: 32, L: 18 }
+  function parseQtys(input: string): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const chunk of input.split(/[,\n]/)) {
+      const m = chunk.trim().match(/^([A-Za-z0-9.]+)\s*[:=]\s*(\d+)/);
+      if (m) out[m[1].toUpperCase()] = parseInt(m[2]);
+    }
+    return out;
+  }
+
+  async function openPicker(projectId: string, mode: PickerState["mode"]) {
+    setPicker({ projectId, mode });
+    setPreForm({ description: "", qtys: "", notes: "" });
+    setShipQtyInput({});
+
+    // Default filters: when the fulfillment project has a client set, pre-narrow
+    // the picker to that client. User can clear/override via the filter row.
+    const proj = projects.find(p => p.id === projectId);
+    setPickerFilter({ search: "", clientId: proj?.client_id || "", jobId: "" });
+    setSelectedItemIds(new Set());
+
+    if (mode === "labs") {
+      const linkedItemIds = new Set((proj?.lines || []).filter(l => l.source_item_id).map(l => l.source_item_id));
+      // Pull any item from a non-cancelled job — Labs FOH may want to attach
+      // items at quote time before they exist physically.
+      const { data } = await supabase
+        .from("items")
+        .select("id, name, job_id, pipeline_stage, received_at_hpd, received_qtys, sample_qtys, buy_sheet_lines(qty_ordered, size), jobs!inner(id, title, phase, client_id, clients(id, name))")
+        .not("jobs.phase", "in", '("cancelled")');
+      const hydrated: AvailableItem[] = (data || [])
+        .filter((it: any) => !linkedItemIds.has(it.id))
+        .map((it: any) => {
+          const lines = it.buy_sheet_lines || [];
+          const rq = it.received_qtys || {};
+          const hasReceivedQtys = Object.keys(rq).length > 0;
+          const delivered: Record<string, number> = {};
+          for (const l of lines) {
+            delivered[l.size] = rq[l.size] ?? l.qty_ordered ?? 0;
+          }
+          const continuing = deductSamples(delivered, it.sample_qtys);
+          const total = Object.values(continuing).reduce((a, v) => a + v, 0);
+          let status: AvailableItem["status"] = "unknown";
+          if (it.received_at_hpd) status = "received";
+          else if (it.pipeline_stage === "shipped") status = "in_transit";
+          else if (it.pipeline_stage === "in_production") status = "at_decorator";
+          return {
+            id: it.id, name: it.name, job_id: it.job_id,
+            job_title: it.jobs?.title || "",
+            client_id: it.jobs?.client_id || null,
+            client_name: it.jobs?.clients?.name || "",
+            total,
+            status,
+            qty_is_expected: !hasReceivedQtys,
+          };
+        });
+      setAvailableItems(hydrated);
+    } else if (mode === "outside") {
+      const linkedShipmentIds = new Set(projects.flatMap(p => p.lines.filter(l => l.source_shipment_id).map(l => l.source_shipment_id)));
+      const { data } = await supabase
+        .from("outside_shipments")
+        .select("id, description, sender, carrier, tracking, received_at")
+        .eq("route", "stage")
+        .order("received_at", { ascending: false });
+      setAvailableShipments((data || []).filter((s: any) => !linkedShipmentIds.has(s.id)));
+    }
+  }
+
+  function toggleItemSelected(itemId: string) {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
+  async function addSelectedLabsItems() {
+    if (!picker || selectedItemIds.size === 0) return;
+    const rows = Array.from(selectedItemIds).map((itemId, idx) => ({
+      project_id: picker.projectId,
+      source_type: "labs_item",
+      source_item_id: itemId,
+      qtys: {},
+      sort_order: idx,
+    }));
+    await supabase.from("fulfillment_inventory").insert(rows);
+    setPicker(null);
+    setSelectedItemIds(new Set());
+    loadAll();
+  }
+
+  async function addOutsideShipment(shipmentId: string) {
+    if (!picker) return;
+    const qtys = parseQtys(shipQtyInput[shipmentId] || "");
+    await supabase.from("fulfillment_inventory").insert({
+      project_id: picker.projectId,
+      source_type: "outside_shipment",
+      source_shipment_id: shipmentId,
+      qtys,
+    });
+    setPicker(null);
+    setShipQtyInput({});
+    loadAll();
+  }
+
+  async function addPreexisting() {
+    if (!picker) return;
+    if (!preForm.description.trim()) return;
+    const qtys = parseQtys(preForm.qtys);
+    await supabase.from("fulfillment_inventory").insert({
+      project_id: picker.projectId,
+      source_type: "preexisting",
+      description: preForm.description.trim(),
+      qtys,
+      notes: preForm.notes.trim() || null,
+    });
+    setPicker(null);
+    setPreForm({ description: "", qtys: "", notes: "" });
+    loadAll();
+  }
+
+  async function removeLine(lineId: string) {
+    if (!confirm("Remove this inventory line?")) return;
+    await supabase.from("fulfillment_inventory").delete().eq("id", lineId);
+    loadAll();
+  }
+
+  async function toggleWebstoreReady(line: InventoryLine) {
+    const newValue = line.webstore_entered_at ? null : new Date().toISOString();
+    await supabase.from("fulfillment_inventory")
+      .update({ webstore_entered_at: newValue })
+      .eq("id", line.id);
+    loadAll();
+  }
+
   const activeProjects = projects.filter(p => p.status === "staging" || p.status === "active");
   const completedProjects = projects.filter(p => p.status === "complete");
-  const inProductionCount = incoming.filter(i => i.pipeline_stage === "in_production").length;
-  const inTransitCount = incoming.filter(i => i.pipeline_stage === "shipped").length;
   const totalRemaining = activeProjects.reduce((a, p) => {
     const latest = p.logs[0];
     return a + (latest?.remaining_orders || 0);
   }, 0);
+  const totalUnitsInProjects = activeProjects.reduce((a, p) => a + p.lines.reduce((b, l) => b + l.total, 0), 0);
+  const unlinkedOutsideCount = outsideShipments.length;
 
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
   const ic: React.CSSProperties = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box" as const, outline: "none" };
@@ -214,13 +389,14 @@ export default function FulfillmentPage() {
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Fulfillment</h1>
 
-      {/* Stats */}
+      {/* Stats — fulfillment is about what's in the building, not what's coming.
+          Items in production live on /production, items in transit on /receiving. */}
       <div style={{ display: "flex", gap: 8 }}>
         {[
           { label: "Active projects", value: activeProjects.length, color: T.accent },
           { label: "Orders remaining", value: totalRemaining, color: totalRemaining > 0 ? T.amber : T.faint },
-          { label: "In production", value: inProductionCount, color: T.accent },
-          { label: "In transit", value: inTransitCount, color: inTransitCount > 0 ? T.green : T.faint },
+          { label: "Units staged", value: totalUnitsInProjects, color: totalUnitsInProjects > 0 ? T.green : T.faint },
+          { label: "Outside · unlinked", value: unlinkedOutsideCount, color: unlinkedOutsideCount > 0 ? T.amber : T.faint },
         ].map(s => (
           <div key={s.label} style={{ flex: 1, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px" }}>
             <div style={{ fontSize: 22, fontWeight: 700, color: s.value > 0 ? s.color : T.faint, fontFamily: mono }}>{s.value}</div>
@@ -233,7 +409,6 @@ export default function FulfillmentPage() {
       <div style={{ display: "flex", gap: 4, padding: 4, background: T.surface, borderRadius: 8 }}>
         {([
           { id: "active" as const, label: "Active", count: activeProjects.length },
-          { id: "incoming" as const, label: "Incoming Pipeline", count: incoming.length },
           { id: "complete" as const, label: "Completed", count: completedProjects.length },
         ]).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
@@ -272,16 +447,12 @@ export default function FulfillmentPage() {
                   <input style={ic} value={newForm.store_name} onChange={e => setNewForm(f => ({ ...f, store_name: e.target.value }))} placeholder="e.g. nike-merch.myshopify.com" />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Link to Labs project (optional)</label>
-                  <select style={ic} value={newForm.source_job_id} onChange={e => setNewForm(f => ({ ...f, source_job_id: e.target.value }))}>
-                    <option value="">— none —</option>
-                    {labsJobs.map(j => <option key={j.id} value={j.id}>{j.client_name} — {j.title}</option>)}
-                  </select>
+                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Notes</label>
+                  <input style={ic} value={newForm.notes} onChange={e => setNewForm(f => ({ ...f, notes: e.target.value }))} placeholder="Any details" />
                 </div>
               </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Notes</label>
-                <input style={ic} value={newForm.notes} onChange={e => setNewForm(f => ({ ...f, notes: e.target.value }))} placeholder="Any details about this fulfillment project" />
+              <div style={{ fontSize: 10, color: T.faint, marginBottom: 10, fontStyle: "italic" }}>
+                Inventory is added line-by-line after the project is created — pull from a Labs job, attach an outside shipment, or enter pre-existing stock.
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={createProject} disabled={!newForm.name.trim()}
@@ -309,6 +480,8 @@ export default function FulfillmentPage() {
             const hasLogToday = latestLog?.log_date === todayStr;
             const lf = logForm[proj.id] || { starting: "", shipped: "", remaining: "", notes: "" };
             const totalShipped = proj.logs.reduce((a, l) => a + l.orders_shipped, 0);
+            const totalUnits = proj.lines.reduce((a, l) => a + l.total, 0);
+            const readyUnits = proj.lines.filter(l => l.webstore_entered_at).reduce((a, l) => a + l.total, 0);
 
             return (
               <div key={proj.id} style={card}>
@@ -328,10 +501,10 @@ export default function FulfillmentPage() {
                   </div>
                   {/* Quick stats */}
                   <div style={{ display: "flex", gap: 16, flexShrink: 0, alignItems: "center" }}>
-                    {proj.received_items.length > 0 && (
+                    {totalUnits > 0 && (
                       <div style={{ textAlign: "center" }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: mono, color: T.text }}>{proj.received_items.reduce((a, ri) => a + ri.total, 0).toLocaleString()}</div>
-                        <div style={{ fontSize: 8, color: T.faint }}>units received</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, fontFamily: mono, color: T.text }}>{totalUnits.toLocaleString()}</div>
+                        <div style={{ fontSize: 8, color: T.faint }}>{readyUnits === totalUnits ? "units ready" : `${readyUnits.toLocaleString()} / ${totalUnits.toLocaleString()} ready`}</div>
                       </div>
                     )}
                     {latestLog && (
@@ -346,7 +519,7 @@ export default function FulfillmentPage() {
                         </div>
                       </>
                     )}
-                    {!hasLogToday && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 99, background: T.redDim, color: T.red, fontWeight: 600 }}>No log today</span>}
+                    {!hasLogToday && proj.status === "active" && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 99, background: T.redDim, color: T.red, fontWeight: 600 }}>No log today</span>}
                     <span style={{ fontSize: 10, color: T.faint }}>{isExpanded ? "▾" : "›"}</span>
                   </div>
                 </div>
@@ -375,29 +548,292 @@ export default function FulfillmentPage() {
 
                     {proj.notes && <div style={{ fontSize: 11, color: T.muted, padding: "6px 10px", background: T.surface, borderRadius: 6 }}>{proj.notes}</div>}
 
-                    {/* Received inventory breakdown */}
-                    {proj.received_items.length > 0 && (
-                      <div>
-                        <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
-                          Received Inventory — {proj.received_items.reduce((a, ri) => a + ri.total, 0).toLocaleString()} units
+                    {/* Inventory section */}
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          Inventory
+                          {totalUnits > 0 && <span style={{ marginLeft: 8, color: T.text, fontWeight: 700, fontFamily: mono }}>{totalUnits.toLocaleString()} units</span>}
+                          {totalUnits > 0 && readyUnits < totalUnits && <span style={{ marginLeft: 6, color: T.amber, fontFamily: mono }}>· {(totalUnits - readyUnits).toLocaleString()} not in webstore</span>}
+                          {totalUnits > 0 && readyUnits === totalUnits && <span style={{ marginLeft: 6, color: T.green }}>· all in webstore</span>}
                         </div>
+                        <button onClick={() => openPicker(proj.id, "labs")}
+                          style={{ fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.muted, cursor: "pointer" }}>
+                          + Add inventory
+                        </button>
+                      </div>
+
+                      {proj.lines.length === 0 ? (
+                        <div style={{ padding: "12px 10px", background: T.surface, borderRadius: 6, fontSize: 11, color: T.faint, textAlign: "center" }}>
+                          No inventory yet. Add a Labs item, an outside shipment, or pre-existing stock.
+                        </div>
+                      ) : (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          {proj.received_items.map((ri, idx) => (
-                            <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: T.surface, borderRadius: 6 }}>
-                              <span style={{ fontSize: 12, fontWeight: 500, color: T.text }}>{ri.name}</span>
-                              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                                {ri.sizes.map(sz => (
-                                  <span key={sz} style={{ fontSize: 9, fontFamily: mono, color: T.muted, padding: "1px 4px", background: T.card, borderRadius: 3 }}>
-                                    {sz}:{ri.received_qtys[sz] || 0}
+                          {proj.lines.map(line => {
+                            const sourceBadge =
+                              line.source_type === "labs_item" ? { label: "Labs", color: T.accent, bg: T.accentDim } :
+                              line.source_type === "outside_shipment" ? { label: "Outside", color: T.purple, bg: "rgba(160,90,200,0.15)" } :
+                              { label: "Stock", color: T.amber, bg: T.amberDim };
+                            const statusBadge = line.source_type === "labs_item" ? (
+                              line.item_status === "received" ? { label: "Received", color: T.green, bg: T.greenDim } :
+                              line.item_status === "in_transit" ? { label: "In transit", color: T.purple, bg: "rgba(160,90,200,0.15)" } :
+                              line.item_status === "at_decorator" ? { label: "At decorator", color: T.accent, bg: T.accentDim } :
+                              { label: "Setup", color: T.faint, bg: T.card }
+                            ) : null;
+                            const ready = !!line.webstore_entered_at;
+                            return (
+                              <div key={line.id} style={{ display: "flex", alignItems: "center", padding: "6px 8px", background: T.surface, borderRadius: 6, gap: 8 }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: sourceBadge.bg, color: sourceBadge.color, textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0 }}>
+                                  {sourceBadge.label}
+                                </span>
+                                {statusBadge && (
+                                  <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: statusBadge.bg, color: statusBadge.color, textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0 }}>
+                                    {statusBadge.label}
                                   </span>
-                                ))}
-                                <span style={{ fontSize: 10, fontWeight: 600, fontFamily: mono, color: T.text, marginLeft: 4 }}>{ri.total}</span>
+                                )}
+                                {line.source_type === "labs_item" && line.source_job_id ? (
+                                  <Link href={`/jobs/${line.source_job_id}`} style={{ fontSize: 12, fontWeight: 500, color: T.text, textDecoration: "none", flexShrink: 0 }}>
+                                    {line.display_name}
+                                  </Link>
+                                ) : (
+                                  <span style={{ fontSize: 12, fontWeight: 500, color: T.text, flexShrink: 0 }}>{line.display_name}</span>
+                                )}
+                                {line.display_meta && <span style={{ fontSize: 10, color: T.faint, flex: 1 }}>{line.display_meta}</span>}
+                                {!line.display_meta && <div style={{ flex: 1 }} />}
+                                <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
+                                  {line.sizes.map(sz => (
+                                    <span key={sz} style={{ fontSize: 9, fontFamily: mono, color: T.muted, padding: "1px 5px", background: T.card, borderRadius: 3 }}>
+                                      {sz}:{line.effective_qtys[sz] || 0}
+                                    </span>
+                                  ))}
+                                  {line.sizes.length === 0 && line.total > 0 && (
+                                    <span style={{ fontSize: 9, fontFamily: mono, color: T.faint, fontStyle: "italic" }}>no sizes</span>
+                                  )}
+                                </div>
+                                <span style={{ fontSize: 11, fontWeight: 700, fontFamily: mono, color: T.text, minWidth: 40, textAlign: "right" }} title={line.qty_is_expected ? "Expected qty — item not yet received" : undefined}>
+                                  {line.total}{line.qty_is_expected && <span style={{ color: T.faint, marginLeft: 1 }}>*</span>}
+                                </span>
+                                <button onClick={() => toggleWebstoreReady(line)}
+                                  style={{ fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 4, border: `1px solid ${ready ? T.green : T.border}`, background: ready ? T.greenDim : "transparent", color: ready ? T.green : T.muted, cursor: "pointer", flexShrink: 0 }}
+                                  title={ready ? `Marked ${new Date(line.webstore_entered_at!).toLocaleString()}` : "Mark as entered into webstore"}>
+                                  {ready ? "✓ In webstore" : "Mark in webstore"}
+                                </button>
+                                <button onClick={() => removeLine(line.id)}
+                                  style={{ fontSize: 12, padding: "0 6px", borderRadius: 4, border: "none", background: "transparent", color: T.faint, cursor: "pointer", flexShrink: 0 }}
+                                  onMouseEnter={e => { e.currentTarget.style.color = T.red; }}
+                                  onMouseLeave={e => { e.currentTarget.style.color = T.faint; }}
+                                  title="Remove">
+                                  ×
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Inline picker */}
+                      {picker?.projectId === proj.id && (
+                        <div style={{ marginTop: 8, padding: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6 }}>
+                          <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
+                            {([
+                              { id: "labs", label: "Labs item" },
+                              { id: "outside", label: "Outside shipment" },
+                              { id: "preexisting", label: "Pre-existing" },
+                            ] as const).map(m => (
+                              <button key={m.id} onClick={() => openPicker(proj.id, m.id)}
+                                style={{ padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", border: `1px solid ${picker.mode === m.id ? T.accent : T.border}`, background: picker.mode === m.id ? T.accentDim : "transparent", color: picker.mode === m.id ? T.accent : T.muted }}>
+                                {m.label}
+                              </button>
+                            ))}
+                            <div style={{ flex: 1 }} />
+                            <button onClick={() => setPicker(null)}
+                              style={{ padding: "5px 10px", borderRadius: 6, fontSize: 11, border: "none", background: "transparent", color: T.faint, cursor: "pointer" }}>
+                              Cancel
+                            </button>
+                          </div>
+
+                          {picker.mode === "labs" && (() => {
+                            // Apply filters
+                            const search = pickerFilter.search.trim().toLowerCase();
+                            const filteredItems = availableItems.filter(it => {
+                              if (pickerFilter.clientId && it.client_id !== pickerFilter.clientId) return false;
+                              if (pickerFilter.jobId && it.job_id !== pickerFilter.jobId) return false;
+                              if (search && !it.name.toLowerCase().includes(search) && !it.job_title.toLowerCase().includes(search)) return false;
+                              return true;
+                            });
+                            // Build dropdown options from the unfiltered set (so user can switch clients)
+                            const clientOptions = Array.from(
+                              new Map(availableItems.filter(it => it.client_id).map(it => [it.client_id!, it.client_name])).entries()
+                            ).sort((a, b) => a[1].localeCompare(b[1]));
+                            const jobOptions = Array.from(
+                              new Map(availableItems.filter(it => !pickerFilter.clientId || it.client_id === pickerFilter.clientId).map(it => [it.job_id, it.job_title])).entries()
+                            ).sort((a, b) => a[1].localeCompare(b[1]));
+                            const allFilteredSelected = filteredItems.length > 0 && filteredItems.every(it => selectedItemIds.has(it.id));
+                            const toggleSelectAll = () => {
+                              setSelectedItemIds(prev => {
+                                const next = new Set(prev);
+                                if (allFilteredSelected) {
+                                  filteredItems.forEach(it => next.delete(it.id));
+                                } else {
+                                  filteredItems.forEach(it => next.add(it.id));
+                                }
+                                return next;
+                              });
+                            };
+                            return (
+                              <div>
+                                {/* Filter row */}
+                                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                                  <input style={{ ...ic, flex: 1 }} placeholder="Search item or project name…"
+                                    value={pickerFilter.search}
+                                    onChange={e => setPickerFilter(f => ({ ...f, search: e.target.value }))} />
+                                  <select style={{ ...ic, width: 160, flexShrink: 0 }} value={pickerFilter.clientId}
+                                    onChange={e => setPickerFilter(f => ({ ...f, clientId: e.target.value, jobId: "" }))}>
+                                    <option value="">All clients</option>
+                                    {clientOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                                  </select>
+                                  <select style={{ ...ic, width: 180, flexShrink: 0 }} value={pickerFilter.jobId}
+                                    onChange={e => setPickerFilter(f => ({ ...f, jobId: e.target.value }))}>
+                                    <option value="">All projects</option>
+                                    {jobOptions.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
+                                  </select>
+                                </div>
+
+                                {/* Select-all / count row */}
+                                {filteredItems.length > 0 && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, padding: "0 4px" }}>
+                                    <button onClick={toggleSelectAll}
+                                      style={{ fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: "pointer" }}>
+                                      {allFilteredSelected ? "Clear visible" : `Select all visible (${filteredItems.length})`}
+                                    </button>
+                                    {selectedItemIds.size > 0 && (
+                                      <span style={{ fontSize: 10, color: T.muted }}>
+                                        {selectedItemIds.size} selected
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+
+                                {filteredItems.length === 0 ? (
+                                  <div style={{ padding: "20px 10px", textAlign: "center", fontSize: 11, color: T.faint }}>
+                                    {availableItems.length === 0
+                                      ? "No Labs items available to link. Add items on a project's Buy Sheet first."
+                                      : "No items match the current filter."}
+                                  </div>
+                                ) : (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 280, overflowY: "auto" }}>
+                                    {filteredItems.map(it => {
+                                      const statusBadge =
+                                        it.status === "received" ? { label: "Received", color: T.green, bg: T.greenDim } :
+                                        it.status === "in_transit" ? { label: "In transit", color: T.purple, bg: "rgba(160,90,200,0.15)" } :
+                                        it.status === "at_decorator" ? { label: "At decorator", color: T.accent, bg: T.accentDim } :
+                                        { label: "Setup", color: T.faint, bg: T.surface };
+                                      const checked = selectedItemIds.has(it.id);
+                                      return (
+                                        <div key={it.id} onClick={() => toggleItemSelected(it.id)}
+                                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: checked ? T.accentDim : T.card, border: `1px solid ${checked ? T.accent : T.border}`, borderRadius: 6, cursor: "pointer", fontFamily: font, userSelect: "none" }}
+                                          onMouseEnter={e => { if (!checked) e.currentTarget.style.borderColor = T.accent; }}
+                                          onMouseLeave={e => { if (!checked) e.currentTarget.style.borderColor = T.border; }}>
+                                          <input type="checkbox" checked={checked} readOnly tabIndex={-1}
+                                            style={{ flexShrink: 0, accentColor: T.accent, pointerEvents: "none" }} />
+                                          <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: statusBadge.bg, color: statusBadge.color, textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0, minWidth: 80, textAlign: "center" }}>
+                                            {statusBadge.label}
+                                          </span>
+                                          <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{it.name}</div>
+                                            <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{it.client_name} · {it.job_title}</div>
+                                          </div>
+                                          <div style={{ textAlign: "right" }}>
+                                            <div style={{ fontSize: 12, fontWeight: 700, fontFamily: mono, color: T.text }}>{it.total}</div>
+                                            <div style={{ fontSize: 9, color: T.faint, fontStyle: it.qty_is_expected ? "italic" : "normal" }}>
+                                              {it.qty_is_expected ? "expected" : "received"}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+
+                                {/* Commit footer */}
+                                <div style={{ display: "flex", gap: 6, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                                  <button onClick={addSelectedLabsItems} disabled={selectedItemIds.size === 0}
+                                    style={{ padding: "6px 16px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 11, fontWeight: 600, cursor: selectedItemIds.size === 0 ? "not-allowed" : "pointer", opacity: selectedItemIds.size === 0 ? 0.5 : 1 }}>
+                                    Add {selectedItemIds.size > 0 ? `${selectedItemIds.size} ` : ""}selected
+                                  </button>
+                                  {selectedItemIds.size > 0 && (
+                                    <button onClick={() => setSelectedItemIds(new Set())}
+                                      style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, fontSize: 11, cursor: "pointer" }}>
+                                      Clear
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {picker.mode === "outside" && (
+                            <div>
+                              {availableShipments.length === 0 ? (
+                                <div style={{ padding: "20px 10px", textAlign: "center", fontSize: 11, color: T.faint }}>
+                                  No staged outside shipments to link. Mark a shipment as routed to staging on the Receiving page.
+                                </div>
+                              ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto" }}>
+                                  {availableShipments.map(s => (
+                                    <div key={s.id} style={{ padding: "8px 10px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 6 }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                        <div style={{ flex: 1 }}>
+                                          <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{s.description || "Outside shipment"}</div>
+                                          <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
+                                            {[s.sender, s.carrier, s.tracking].filter(Boolean).join(" · ") || "—"}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                        <input
+                                          style={{ ...ic, fontSize: 11, fontFamily: mono }}
+                                          placeholder="Qtys, e.g. S:24, M:32, L:18 — or total:100"
+                                          value={shipQtyInput[s.id] || ""}
+                                          onChange={e => setShipQtyInput(prev => ({ ...prev, [s.id]: e.target.value }))}
+                                        />
+                                        <button onClick={() => addOutsideShipment(s.id)}
+                                          style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>
+                                          Add
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {picker.mode === "preexisting" && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                              <div>
+                                <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Description *</label>
+                                <input style={ic} value={preForm.description} onChange={e => setPreForm(f => ({ ...f, description: e.target.value }))} placeholder="e.g. 2024 Tour Tee — black" />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Qtys</label>
+                                <input style={{ ...ic, fontFamily: mono }} value={preForm.qtys} onChange={e => setPreForm(f => ({ ...f, qtys: e.target.value }))} placeholder="S:24, M:32, L:18, XL:10 — or total:100" />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Notes</label>
+                                <input style={ic} value={preForm.notes} onChange={e => setPreForm(f => ({ ...f, notes: e.target.value }))} placeholder="Pulled from existing warehouse stock" />
+                              </div>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <button onClick={addPreexisting} disabled={!preForm.description.trim()}
+                                  style={{ padding: "6px 16px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", opacity: preForm.description.trim() ? 1 : 0.5 }}>
+                                  Add to inventory
+                                </button>
                               </div>
                             </div>
-                          ))}
+                          )}
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
 
                     {/* Daily log entry */}
                     <div>
@@ -467,40 +903,6 @@ export default function FulfillmentPage() {
         </div>
       )}
 
-      {/* ── INCOMING PIPELINE ── */}
-      {tab === "incoming" && (
-        <div style={card}>
-          {incoming.length === 0 ? (
-            <div style={{ padding: "3rem", textAlign: "center", fontSize: 13, color: T.faint }}>No items incoming. Items appear here when in production or shipped from decorator.</div>
-          ) : (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1.5fr 1fr 70px 80px 80px", padding: "6px 14px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-                {["Client", "Project", "Item", "Decorator", "Units", "Status", "Ship date"].map(h =>
-                  <div key={h} style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>{h}</div>
-                )}
-              </div>
-              {incoming.map((item, i) => (
-                <div key={item.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1.5fr 1fr 70px 80px 80px", padding: "8px 14px", alignItems: "center", borderBottom: i < incoming.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                  <div style={{ fontSize: 12, color: T.text }}>{item.client_name}</div>
-                  <div style={{ fontSize: 12, color: T.muted }}>{item.job_title}</div>
-                  <div style={{ fontSize: 12, fontWeight: 600 }}><span style={{ fontSize: 10, fontWeight: 700, color: T.purple, fontFamily: mono, marginRight: 6 }}>{item.letter}</span>{item.name}</div>
-                  <div style={{ fontSize: 11, color: T.accent }}>{item.decorator}</div>
-                  <div style={{ fontSize: 12, fontFamily: mono, fontWeight: 600 }}>{item.total_units.toLocaleString()}</div>
-                  <div>
-                    <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: item.pipeline_stage === "shipped" ? T.greenDim : T.accentDim, color: item.pipeline_stage === "shipped" ? T.green : T.accent }}>
-                      {item.pipeline_stage === "shipped" ? "In transit" : "At decorator"}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 11, fontFamily: mono, color: T.muted }}>
-                    {item.ship_date ? new Date(item.ship_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      )}
-
       {/* ── COMPLETED ── */}
       {tab === "complete" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -527,10 +929,11 @@ export default function FulfillmentPage() {
         </div>
       )}
 
-      {/* Outside shipments routed to staging */}
-      {outsideShipments.length > 0 && (
+      {/* Outside shipments routed to staging — not yet linked to any project */}
+      {outsideShipments.length > 0 && tab === "active" && (
         <>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 8 }}>Outside Shipments — Staged</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 8 }}>Outside Shipments — Unlinked</div>
+          <div style={{ fontSize: 10, color: T.faint, marginTop: -4 }}>Attach these to a fulfillment project via "+ Add inventory → Outside shipment", or mark fulfilled if no longer needed.</div>
           {outsideShipments.map(s => (
             <div key={s.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
