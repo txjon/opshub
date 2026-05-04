@@ -295,6 +295,11 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {/* Edit — re-opens the wizard with this report's data hydrated.
+              Lets you adjust unit costs / markup / per-package fee / etc.
+              and save back without re-uploading the CSV. After saving,
+              click "Update QB Invoice" to push the changes to QB. */}
+          <a href={`/reports/shipstation/new?edit=${report.id}`} style={btnGhost}>Edit</a>
           <a href={`/api/pdf/shipstation/${report.id}`} target="_blank" rel="noopener noreferrer" style={btnGhost}>Preview PDF</a>
           <a href={`/api/pdf/shipstation/${report.id}?download=1`} style={btnGhost}>Download PDF</a>
           {(isPostage || isCombined) && (
