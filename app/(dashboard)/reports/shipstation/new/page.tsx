@@ -101,7 +101,7 @@ function findCol(header: string[], aliases: string[]): number {
   return -1;
 }
 
-type Client = { id: string; name: string; hpd_fee_pct: number | null };
+type Client = { id: string; name: string; hpd_fee_pct: number | null; hpd_per_package_fee: number | null };
 type ReportType = "sales" | "postage";
 
 export default function NewShipstationReportPage() {
@@ -131,6 +131,10 @@ export default function NewShipstationReportPage() {
   // Postage-specific
   const [rawPostageRows, setRawPostageRows] = useState<ParsedPostageRow[]>([]);
   const [markupPct, setMarkupPct] = useState<string>("0.10");
+  // Flat per-package fulfillment fee — separate from the markup. Billed
+  // additively as (rate × shipments) and reported on its own KPI tile so
+  // it doesn't muddy the client's postage performance numbers.
+  const [perPackageFee, setPerPackageFee] = useState<string>("0");
 
   // Stage 4
   const [saving, setSaving] = useState(false);
@@ -142,7 +146,7 @@ export default function NewShipstationReportPage() {
     (async () => {
       const { data } = await supabase
         .from("clients")
-        .select("id, name, hpd_fee_pct")
+        .select("id, name, hpd_fee_pct, hpd_per_package_fee")
         .order("name");
       setClients(data || []);
       const fog = (data || []).find(c => c.name.toLowerCase().includes("forward observations"));
@@ -165,6 +169,17 @@ export default function NewShipstationReportPage() {
       const c = clients.find(c => c.id === clientId);
       if (c?.hpd_fee_pct != null) setFeePct(String(c.hpd_fee_pct));
     })();
+  }, [clientId, clients, reportType]);
+
+  // Pre-fill postage rates from the selected client. Both markup and
+  // per-package live on clients so next month auto-populates with the
+  // values used last time.
+  useEffect(() => {
+    if (!clientId || reportType !== "postage") return;
+    const c = clients.find(c => c.id === clientId);
+    if (!c) return;
+    if (c.hpd_fee_pct != null) setMarkupPct(String(c.hpd_fee_pct));
+    if (c.hpd_per_package_fee != null) setPerPackageFee(String(c.hpd_per_package_fee));
   }, [clientId, clients, reportType]);
 
   async function parseSalesCsv(text: string) {
@@ -337,9 +352,14 @@ export default function NewShipstationReportPage() {
   }, [selectedRows, costByRowIdx, feePct]);
 
   // ── Postage flow derivations ─────────────────────────────────────────────
+  // billed/margin track the client's POSTAGE economics only (what they
+  // collected from end customers vs what HPD charges for the carrier
+  // pass-through). The fulfillment fee is HPD's flat handling charge —
+  // separate concept. Tracked alongside but never folded into margin.
   const selectedPostageRows = useMemo(() => rawPostageRows.filter(r => r.included), [rawPostageRows]);
   const postageTotals = useMemo(() => {
     const mk = parseMoney(markupPct);
+    const perPkg = parseMoney(perPackageFee);
     let shipments = 0, items = 0, paid = 0, cost_raw = 0, insurance = 0;
     for (const r of selectedPostageRows) {
       shipments += 1;
@@ -351,8 +371,10 @@ export default function NewShipstationReportPage() {
     const cost = cost_raw * (1 + mk);
     const billed = cost + insurance;
     const margin = paid - billed;
-    return { shipments, items, paid, cost_raw, cost, insurance, billed, margin };
-  }, [selectedPostageRows, markupPct]);
+    const fulfillment = perPkg * shipments;
+    const invoice_total = billed + fulfillment;
+    return { shipments, items, paid, cost_raw, cost, insurance, billed, margin, fulfillment, invoice_total };
+  }, [selectedPostageRows, markupPct, perPackageFee]);
 
   // ── Shared selection handlers ────────────────────────────────────────────
   const lastClickedIdxRef = useRef<number | null>(null);
@@ -455,7 +477,10 @@ export default function NewShipstationReportPage() {
         router.push(`/reports/shipstation/${inserted.id}`);
       } else {
         // Postage insert — reuses hpd_fee_pct column to store markup %.
+        // per_package_fee is its own column so it can be queried/edited
+        // independently from totals JSONB.
         const markup = parseMoney(markupPct);
+        const perPkg = parseMoney(perPackageFee);
         const line_items = selectedPostageRows.map(r => {
           const cost_marked = r.shipping_cost * (1 + markup);
           return {
@@ -476,6 +501,23 @@ export default function NewShipstationReportPage() {
             billed: cost_marked + r.insurance_cost,
           };
         });
+
+        // Save markup + per-package back to the client so next month
+        // pre-fills. Skip the write if values are unchanged to avoid
+        // bumping clients.updated_at unnecessarily.
+        if (client) {
+          const patch: Record<string, number> = {};
+          if (client.hpd_fee_pct == null || Math.abs(client.hpd_fee_pct - markup) > 1e-9) {
+            patch.hpd_fee_pct = markup;
+          }
+          if (client.hpd_per_package_fee == null || Math.abs(client.hpd_per_package_fee - perPkg) > 1e-9) {
+            patch.hpd_per_package_fee = perPkg;
+          }
+          if (Object.keys(patch).length > 0) {
+            await (supabase as any).from("clients").update(patch).eq("id", clientId);
+          }
+        }
+
         const { data: inserted, error: insErr } = await (supabase as any)
           .from("shipstation_reports")
           .insert({
@@ -483,6 +525,7 @@ export default function NewShipstationReportPage() {
             report_type: "postage",
             period_label: periodLabel,
             hpd_fee_pct: markup,
+            per_package_fee: perPkg,
             line_items,
             totals: postageTotals,
             created_by: user.user?.id || null,
@@ -830,11 +873,11 @@ export default function NewShipstationReportPage() {
         </>
       )}
 
-      {/* ── Stage 3 — Postage: markup % ── */}
+      {/* ── Stage 3 — Postage: markup % + per-package fulfillment fee ── */}
       {stage === 3 && isPostage && (
         <>
           <PostageTotalsStrip totals={postageTotals} />
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>HPD Markup</div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -856,7 +899,35 @@ export default function NewShipstationReportPage() {
                 </span>
               </div>
               <div style={{ fontSize: 11, color: T.faint, marginTop: 8, lineHeight: 1.5 }}>
-                Client is billed: <strong style={{ color: T.text }}>Shipping Cost × (1 + markup) + Insurance</strong>. Margin = what the client collected from their customer minus what we bill them.
+                Postage billed: <strong style={{ color: T.text }}>Shipping Cost × (1 + markup) + Insurance</strong>. Client Profit = what they collected from their customer minus what we bill them for postage.
+              </div>
+            </div>
+
+            <div style={{ borderTop: `1px solid ${T.border}` }} />
+
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Fulfillment Fee — per package</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 16, color: T.muted, fontFamily: mono }}>$</span>
+                <input
+                  type="text" inputMode="decimal"
+                  value={perPackageFee}
+                  onChange={e => setPerPackageFee(e.target.value)}
+                  onFocus={e => e.target.select()}
+                  onBlur={e => {
+                    const v = e.target.value;
+                    if (!v.trim()) { setPerPackageFee("0"); return; }
+                    const n = parseMoney(v);
+                    if (String(n) !== v) setPerPackageFee(String(n));
+                  }}
+                  style={{ ...input, fontSize: 16, fontWeight: 700, width: 140, fontFamily: mono, textAlign: "right" }}
+                />
+                <span style={{ fontSize: 13, color: T.muted, fontFamily: mono }}>
+                  × {postageTotals.shipments.toLocaleString()} shipments = <strong style={{ color: T.text }}>{fmtD(postageTotals.fulfillment)}</strong>
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: T.faint, marginTop: 8, lineHeight: 1.5 }}>
+                Flat HPD service charge per shipment (pick / pack / handoff). Billed as a separate line on the invoice — does not affect Client Profit on postage. Saves to client for next month.
               </div>
             </div>
 
@@ -918,7 +989,7 @@ export default function NewShipstationReportPage() {
         <>
           <PostageTotalsStrip totals={postageTotals} />
           <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{client?.name || "—"}</div>
@@ -935,15 +1006,31 @@ export default function NewShipstationReportPage() {
                     value={markupPct}
                     onChange={e => setMarkupPct(e.target.value)}
                     onFocus={e => e.target.select()}
-                    style={{ ...input, fontSize: 13, fontWeight: 700, width: 90, fontFamily: mono, textAlign: "right" }}
+                    style={{ ...input, fontSize: 13, fontWeight: 700, width: 80, fontFamily: mono, textAlign: "right" }}
                   />
                   <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(markupPct) * 100).toFixed(1)}%)</span>
                 </div>
               </div>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Per Package</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 13, color: T.muted, fontFamily: mono }}>$</span>
+                  <input
+                    type="text" inputMode="decimal"
+                    value={perPackageFee}
+                    onChange={e => setPerPackageFee(e.target.value)}
+                    onFocus={e => e.target.select()}
+                    style={{ ...input, fontSize: 13, fontWeight: 700, width: 80, fontFamily: mono, textAlign: "right" }}
+                  />
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>× {postageTotals.shipments}</span>
+                </div>
+              </div>
             </div>
 
-            <div style={{ fontSize: 11, color: T.muted }}>
-              {postageTotals.shipments} shipment{postageTotals.shipments === 1 ? "" : "s"} · {fmtD(postageTotals.paid)} shipping income · billed amount {fmtD(postageTotals.billed)} · client profit {fmtD(postageTotals.margin)}
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.6 }}>
+              {postageTotals.shipments} shipment{postageTotals.shipments === 1 ? "" : "s"} · {fmtD(postageTotals.paid)} shipping income · postage billed {fmtD(postageTotals.billed)} · client profit {fmtD(postageTotals.margin)}
+              <br />
+              + Fulfillment fee {fmtD(postageTotals.fulfillment)} · <strong style={{ color: T.text }}>Total invoice {fmtD(postageTotals.invoice_total)}</strong>
             </div>
 
             {saveError && <div style={{ fontSize: 12, color: T.red, background: T.red + "11", padding: "8px 12px", borderRadius: 6 }}>{saveError}</div>}
@@ -983,7 +1070,7 @@ function SalesTotalsStrip({ totals }: { totals: { qty: number; sales: number; co
   );
 }
 
-function PostageTotalsStrip({ totals }: { totals: { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number } }) {
+function PostageTotalsStrip({ totals }: { totals: { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number; fulfillment: number; invoice_total: number } }) {
   const fmt = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const tiles: { label: string; value: string; color?: string }[] = [
     { label: "Shipments", value: Number(totals.shipments).toLocaleString() },
@@ -993,9 +1080,10 @@ function PostageTotalsStrip({ totals }: { totals: { shipments: number; items: nu
     { label: "Insurance", value: fmt(totals.insurance), color: T.muted },
     { label: "Billed Amount", value: fmt(totals.billed), color: T.amber },
     { label: "Client Profit", value: fmt(totals.margin), color: totals.margin >= 0 ? T.green : T.red },
+    { label: "Fulfillment", value: fmt(totals.fulfillment), color: T.amber },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8 }}>
       {tiles.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>

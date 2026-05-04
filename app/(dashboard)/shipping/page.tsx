@@ -8,9 +8,24 @@ import { createClient } from "@/lib/supabase/client";
 import { deductSamples } from "@/lib/qty";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 
+type ShippedHistoryEntry = {
+  id: string;
+  jobNumber: string;
+  invoiceNumber: string | null;
+  title: string;
+  clientName: string;
+  fulfillmentTracking: string;
+  shippedAt: string;
+  itemCount: number;
+  totalUnits: number;
+};
+
 export default function ShippingPage() {
   const { loading, shipThrough, undoReceived, updateFulfillment, debounceFulfillmentTracking, supabase, setJobs } = useWarehouse();
   const [outsideShipments, setOutsideShipments] = useState<any[]>([]);
+  const [tab, setTab] = useState<"ready" | "shipped">("ready");
+  const [shippedHistory, setShippedHistory] = useState<ShippedHistoryEntry[]>([]);
+  const [shippedLoading, setShippedLoading] = useState(false);
   const db = createClient();
 
   // Notify Recipient dialog — opens after Mark Shipped flips state. Mirrors
@@ -33,6 +48,64 @@ export default function ShippingPage() {
   useEffect(() => {
     db.from("outside_shipments").select("*").eq("route", "ship_through").eq("resolved", true).order("received_at", { ascending: false }).then(({ data }) => setOutsideShipments(data || []));
   }, []);
+
+  // Load completed ship-through jobs for the Shipped history tab.
+  // Window: last 30 days. Sorted newest first. Refetch when the user
+  // switches to the tab so a freshly-shipped order shows up without
+  // a page reload.
+  async function loadShippedHistory() {
+    setShippedLoading(true);
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data } = await db
+      .from("jobs")
+      .select("id, job_number, title, type_meta, fulfillment_tracking, fulfillment_status, updated_at, clients(name), items(id, received_qtys, ship_qtys, sample_qtys, buy_sheet_lines(size, qty_ordered))")
+      .eq("phase", "complete")
+      .eq("shipping_route", "ship_through")
+      .eq("fulfillment_status", "shipped")
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: false })
+      .limit(50);
+    const mapped: ShippedHistoryEntry[] = ((data as any[]) || []).map(j => {
+      const items = j.items || [];
+      const totalUnits = items.reduce((sum: number, it: any) => {
+        const lines = it.buy_sheet_lines || [];
+        const r = it.received_qtys || {};
+        const s = it.ship_qtys || {};
+        const delivered: Record<string, number> = {};
+        for (const l of lines) delivered[l.size] = r[l.size] ?? s[l.size] ?? l.qty_ordered ?? 0;
+        const continuing = deductSamples(delivered, it.sample_qtys);
+        return sum + Object.values(continuing).reduce((a: number, v) => a + (v || 0), 0);
+      }, 0);
+      // Tracking fallback chain: column → most recent outbound shipping
+      // notification's tracking. The column can be empty in some test or
+      // legacy paths; the notifications array preserves what was emailed
+      // out. Filter to outbound types ("drop_ship_vendor" — set by the
+      // shipping page forcing drop_ship for customer email; "ship_through"
+      // — legacy /warehouse outbound) so an earlier inbound-from-decorator
+      // record doesn't get surfaced as the ship-out tracking.
+      const notifs: any[] = Array.isArray((j.type_meta as any)?.shipping_notifications)
+        ? (j.type_meta as any).shipping_notifications
+        : [];
+      const outboundTypes = new Set(["drop_ship_vendor", "ship_through"]);
+      const lastOutbound = [...notifs].reverse().find(n => n?.tracking && outboundTypes.has(n?.type));
+      const tracking = j.fulfillment_tracking || lastOutbound?.tracking || "";
+      return {
+        id: j.id,
+        jobNumber: j.job_number,
+        invoiceNumber: (j.type_meta as any)?.qb_invoice_number || null,
+        title: j.title || "",
+        clientName: j.clients?.name || "",
+        fulfillmentTracking: tracking,
+        shippedAt: j.updated_at,
+        itemCount: items.length,
+        totalUnits,
+      };
+    });
+    setShippedHistory(mapped);
+    setShippedLoading(false);
+  }
+
+  useEffect(() => { if (tab === "shipped") loadShippedHistory(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab]);
 
   async function loadJobContacts(jobId: string): Promise<Array<{ name: string; email: string; role: string }>> {
     if (contactsByJob[jobId]) return contactsByJob[jobId];
@@ -61,7 +134,10 @@ export default function ShippingPage() {
   // 3. Job removed from local list when dialog closes (sent or cancelled).
   async function markShipped(job: any) {
     if (!job.fulfillment_tracking) return;
-    await updateFulfillment(job.id, "shipped");
+    // Pass tracking through updateFulfillment so it lands in the same
+    // write as the status flip — flushes any in-flight 800ms debounce
+    // and guarantees the column matches what the user just typed.
+    await updateFulfillment(job.id, "shipped", job.fulfillment_tracking);
     logJobActivity(job.id, `Ship-through complete — forwarded to client (${job.fulfillment_tracking})`);
     await supabase.from("jobs").update({ phase: "complete" }).eq("id", job.id);
     const contacts = await loadJobContacts(job.id);
@@ -86,9 +162,39 @@ export default function ShippingPage() {
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Shipping</h1>
-        {shipThrough.length > 0 && <span style={{ fontSize: 12, color: T.muted }}>{shipThrough.length} orders ready to ship</span>}
+        {tab === "ready" && shipThrough.length > 0 && <span style={{ fontSize: 12, color: T.muted }}>{shipThrough.length} orders ready to ship</span>}
+        {tab === "shipped" && <span style={{ fontSize: 12, color: T.muted }}>last 30 days</span>}
       </div>
 
+      {/* Tab bar — Ready (active) / Shipped (history). Read-only history
+          gives Goose a way to look up tracking, qty shipped, and dates
+          for client callbacks without crossing into the production side. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${T.border}`, paddingBottom: 6 }}>
+        {([
+          ["ready", "Ready", shipThrough.length, T.text],
+          ["shipped", "Shipped", shippedHistory.length, T.green],
+        ] as const).map(([k, l, count, tone]) => {
+          const active = tab === k;
+          return (
+            <button key={k} onClick={() => setTab(k as any)}
+              style={{
+                background: "transparent", border: "none", padding: "4px 0",
+                cursor: "pointer", fontFamily: font,
+                fontSize: 13, fontWeight: active ? 800 : 600,
+                color: active ? T.text : T.muted,
+                borderBottom: active ? `2px solid ${T.text}` : "2px solid transparent",
+                marginBottom: -7,
+              }}>
+              {l}
+              {count > 0 && (
+                <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: active ? tone : T.faint }}>{count}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === "ready" && (<>
       {shipThrough.length === 0 ? (
         <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.faint }}>
           No orders ready to ship. Ship-through orders appear here after all items are received.
@@ -263,6 +369,52 @@ export default function ShippingPage() {
             </div>
           ))}
         </>
+      )}
+      </>)}
+
+      {/* ── Shipped history ── */}
+      {tab === "shipped" && (
+        shippedLoading ? (
+          <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.muted }}>Loading…</div>
+        ) : shippedHistory.length === 0 ? (
+          <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.faint }}>
+            No ship-throughs in the last 30 days.
+          </div>
+        ) : (
+          <div style={{ ...card }}>
+            <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 1fr 90px", padding: "8px 14px", background: T.surface, borderBottom: `1px solid ${T.border}`, gap: 12 }}>
+              {["Order", "Client / Project", "Items", "Tracking", "Shipped"].map(h =>
+                <div key={h} style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>{h}</div>
+              )}
+            </div>
+            {shippedHistory.map((row, i) => (
+              <Link key={row.id} href={`/jobs/${row.id}`}
+                style={{
+                  display: "grid", gridTemplateColumns: "120px 1fr 100px 1fr 90px", gap: 12,
+                  padding: "10px 14px", alignItems: "center",
+                  borderBottom: i < shippedHistory.length - 1 ? `1px solid ${T.border}` : "none",
+                  textDecoration: "none", color: "inherit",
+                }}>
+                <div style={{ fontSize: 12, fontFamily: mono, fontWeight: 700, color: T.text }}>
+                  {row.invoiceNumber || row.jobNumber}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.clientName || "—"}</div>
+                  <div style={{ fontSize: 11, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.title}</div>
+                </div>
+                <div style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>
+                  {row.itemCount} item{row.itemCount === 1 ? "" : "s"} · <span style={{ color: T.text, fontWeight: 600 }}>{row.totalUnits.toLocaleString()}</span>
+                </div>
+                <div style={{ fontSize: 11, fontFamily: mono, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {row.fulfillmentTracking || "—"}
+                </div>
+                <div style={{ fontSize: 11, color: T.muted }}>
+                  {new Date(row.shippedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                </div>
+              </Link>
+            ))}
+          </div>
+        )
       )}
 
       {/* Notify Recipient dialog — opens after Mark Shipped. Customer
