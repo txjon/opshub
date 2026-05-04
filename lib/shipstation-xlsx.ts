@@ -78,50 +78,63 @@ export async function generatePostageXlsx(data: {
     ws.getCell(addr).font = { size: 11, color: { argb: "FF111111" } };
   }
 
-  // Totals strip — two rows, label + value pairs.
-  // Row 1: Shipments / Items / Shipping Income / Shipping Cost
-  // Row 2: Insurance / Billed Amount / Client Profit / Fulfillment Fee
+  // Totals strip — two rows of 4 label/value pairs each. Labels are
+  // merged across two columns so longer ones ("Shipping Cost",
+  // "Fulfillment Fee") don't get clipped by the narrow data-table
+  // columns underneath. Each pair occupies 3 columns (2 for label, 1
+  // for value) — 4 pairs × 3 cols = 12 columns of the 13 (A-M) wide.
   const fulfillment = Number(data.totals.fulfillment) || 0;
   const totalInvoice = Number(data.totals.billed || 0) + fulfillment;
-  const totalsRow1: (string | number)[] = [
-    "Shipments", data.totals.shipments,
-    "Items Shipped", data.totals.items,
-    "Shipping Income", data.totals.paid,
-    "Shipping Cost", data.totals.cost,
+  const FMT_INT = "#,##0";
+  const FMT_USD = '"$"#,##0.00';
+  type Pair = { label: string; value: number; fmt: string };
+  const row7Pairs: Pair[] = [
+    { label: "Shipments",       value: data.totals.shipments, fmt: FMT_INT },
+    { label: "Items Shipped",   value: data.totals.items,     fmt: FMT_INT },
+    { label: "Shipping Income", value: data.totals.paid,      fmt: FMT_USD },
+    { label: "Shipping Cost",   value: data.totals.cost,      fmt: FMT_USD },
   ];
-  const totalsRow2: (string | number)[] = [
-    "Insurance", data.totals.insurance,
-    "Billed Amount", data.totals.billed,
-    "Client Profit", data.totals.margin,
-    "Fulfillment Fee", fulfillment,
+  const row8Pairs: Pair[] = [
+    { label: "Insurance",       value: data.totals.insurance, fmt: FMT_USD },
+    { label: "Billed Amount",   value: data.totals.billed,    fmt: FMT_USD },
+    { label: "Client Profit",   value: data.totals.margin,    fmt: FMT_USD },
+    { label: "Fulfillment Fee", value: fulfillment,           fmt: FMT_USD },
   ];
-  ws.getRow(7).values = totalsRow1;
-  ws.getRow(8).values = totalsRow2;
-
-  // Style label cells (odd-indexed) and value cells (even-indexed).
-  for (const rowNum of [7, 8]) {
-    const row = ws.getRow(rowNum);
-    row.eachCell((cell, colNum) => {
-      if (colNum % 2 === 1) {
-        cell.font = { bold: true, size: 9, color: { argb: "FF888888" } };
-        cell.alignment = { horizontal: "right" };
-      } else {
-        cell.font = { bold: true, size: 11, color: { argb: "FF111111" } };
-        cell.numFmt = colNum === 4 ? "#,##0" : '"$"#,##0.00';
-        cell.alignment = { horizontal: "left" };
-      }
-    });
-  }
+  // Pair n (0-indexed) occupies columns starting at 1 + n*3:
+  //   pair 0 → A:B (label) / C (value)
+  //   pair 1 → D:E (label) / F (value)
+  //   pair 2 → G:H (label) / I (value)
+  //   pair 3 → J:K (label) / L (value)
+  const writePair = (rowNum: number, pairIdx: number, p: Pair) => {
+    const labelStartCol = 1 + pairIdx * 3;
+    const valueCol = labelStartCol + 2;
+    const labelCell = ws.getCell(rowNum, labelStartCol);
+    const valueCell = ws.getCell(rowNum, valueCol);
+    labelCell.value = p.label;
+    valueCell.value = p.value;
+    ws.mergeCells(rowNum, labelStartCol, rowNum, labelStartCol + 1);
+    labelCell.font = { bold: true, size: 9, color: { argb: "FF888888" } };
+    labelCell.alignment = { horizontal: "right", vertical: "middle" };
+    valueCell.font = { bold: true, size: 11, color: { argb: "FF111111" } };
+    valueCell.numFmt = p.fmt;
+    valueCell.alignment = { horizontal: "left", vertical: "middle" };
+  };
+  row7Pairs.forEach((p, i) => writePair(7, i, p));
+  row8Pairs.forEach((p, i) => writePair(8, i, p));
 
   // Total Invoice row — grand total = postage billed + fulfillment.
-  // Sits below the totals strip so it reads as the final amount due.
-  ws.getCell("A9").value = "Total Invoice:";
-  ws.getCell("B9").value = totalInvoice;
-  ws.getCell("A9").font = { bold: true, size: 11, color: { argb: "FF111111" } };
-  ws.getCell("A9").alignment = { horizontal: "right" };
-  ws.getCell("B9").font = { bold: true, size: 13, color: { argb: "FF111111" } };
-  ws.getCell("B9").numFmt = '"$"#,##0.00';
-  ws.getCell("B9").alignment = { horizontal: "left" };
+  // Label spans A9:B9 so "Total Invoice:" doesn't overflow into the
+  // value cell. Value lives in C9, formatted as currency.
+  ws.mergeCells("A9:B9");
+  const totalLabel = ws.getCell("A9");
+  totalLabel.value = "Total Invoice:";
+  totalLabel.font = { bold: true, size: 11, color: { argb: "FF111111" } };
+  totalLabel.alignment = { horizontal: "right", vertical: "middle" };
+  const totalValue = ws.getCell("C9");
+  totalValue.value = totalInvoice;
+  totalValue.font = { bold: true, size: 13, color: { argb: "FF111111" } };
+  totalValue.numFmt = FMT_USD;
+  totalValue.alignment = { horizontal: "left", vertical: "middle" };
 
   // Column headers at row 10.
   const headers = [
