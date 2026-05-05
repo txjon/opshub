@@ -675,11 +675,17 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       <ConfirmDialog
         open={!!confirmRemove}
         title="Remove contact"
-        message={confirmRemove ? `Remove ${confirmRemove.name} from this client?` : ""}
+        message={confirmRemove ? `Remove ${confirmRemove.name} from this client? Also unassigns them from any project they're on.` : ""}
         confirmLabel="Remove"
         onConfirm={async () => {
           if (!confirmRemove) return;
-          await supabase.from("contacts").delete().eq("id", confirmRemove.id);
+          // job_contacts.contact_id has no ON DELETE CASCADE so we
+          // unassign first; otherwise the contacts delete fails
+          // silently when the contact is on any job.
+          const jc = await supabase.from("job_contacts").delete().eq("contact_id", confirmRemove.id);
+          if (jc.error) { alert(`Couldn't unassign from projects: ${jc.error.message}`); return; }
+          const c = await supabase.from("contacts").delete().eq("id", confirmRemove.id);
+          if (c.error) { alert(`Couldn't delete contact: ${c.error.message}`); return; }
           setConfirmRemove(null);
           load();
         }}
