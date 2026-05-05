@@ -944,9 +944,25 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
               {/* Contacts */}
               <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:6}}>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
-                  <button onClick={()=>setJob(j=>j?{...j,_addContact:!(j as any)._addContact} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
+                  <div style={{display:"flex",gap:6}}>
+                    {/* Sync from client — backfills any client contacts
+                        added after this job was created. The job-creation
+                        auto-populate only fires once, so this is the
+                        reconciliation path. */}
+                    <button onClick={async()=>{
+                      if(!job?.client_id) return;
+                      const {data:clientContacts} = await supabase.from("contacts").select("id, is_primary").eq("client_id",job.client_id);
+                      const have = new Set(contacts.map((c:any)=>c.id));
+                      const missing = (clientContacts||[]).filter((c:any)=>!have.has(c.id));
+                      if(missing.length===0){alert("All client contacts are already on this project.");return;}
+                      const {error} = await supabase.from("job_contacts").insert(missing.map((c:any)=>({job_id:job.id,contact_id:c.id,role_on_job:c.is_primary?"primary":"cc"})));
+                      if(error){alert(`Couldn't sync contacts: ${error.message}`);return;}
+                      loadData();
+                    }} title="Pull in any client contacts that aren't yet on this project" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Sync from client</button>
+                    <button onClick={()=>setJob(j=>j?{...j,_addContact:!(j as any)._addContact} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
+                  </div>
                 </div>
                 {(job as any)._addContact&&(
                   <div style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10,marginBottom:8}}>
