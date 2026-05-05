@@ -9,7 +9,7 @@ import { QBCustomerChooser, type QBCurrent } from "@/components/QBCustomerChoose
 import Link from "next/link";
 import { effectiveRevenue } from "@/lib/revenue";
 
-type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; };
+type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; client_hub_enabled?:boolean; portal_token?:string|null; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
 type ClientFile = { id:string; file_name:string; drive_file_id:string|null; drive_link:string|null; mime_type:string|null; file_size:number|null; kind:string; notes:string|null; created_at:string; };
 type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; payment_records:any[]; };
@@ -37,6 +37,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [confirmDeleteFile, setConfirmDeleteFile] = useState<ClientFile|null>(null);
   const [previewFile, setPreviewFile] = useState<ClientFile|null>(null);
   const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
+  const [portalCopied, setPortalCopied] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
 
   // QB customer link state. Loaded once per page render so the row can
@@ -177,6 +178,29 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     }, 1500);
   }
 
+  // Toggle the client portal access. Mints a portal_token if missing
+  // when enabling for the first time. Saves immediately (no debounce).
+  async function togglePortal() {
+    if (!client) return;
+    const enabling = !client.client_hub_enabled;
+    const updates: any = { client_hub_enabled: enabling };
+    let token = client.portal_token || null;
+    if (enabling && !token) {
+      token = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
+      updates.portal_token = token;
+    }
+    setClient(c => c ? { ...c, client_hub_enabled: enabling, portal_token: token } : c);
+    await supabase.from("clients").update(updates).eq("id", client.id);
+  }
+
+  async function copyPortalLink() {
+    if (!client?.portal_token) return;
+    const url = `${window.location.origin}/portal/client/${client.portal_token}`;
+    await navigator.clipboard.writeText(url);
+    setPortalCopied(true);
+    setTimeout(() => setPortalCopied(false), 2000);
+  }
+
   if (loading) return (
     <div style={{padding:"2rem"}}>
       <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
@@ -281,6 +305,21 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {/* Client portal — enables the client-facing /portal/client/[token]
+              experience. Off by default; toggle per-client. Copy button
+              appears once enabled and a token is minted. */}
+          {client.client_hub_enabled && client.portal_token ? (
+            <button onClick={copyPortalLink}
+              title={`${typeof window !== "undefined" ? window.location.origin : ""}/portal/client/${client.portal_token}`}
+              style={{padding:"7px 12px",borderRadius:7,background:portalCopied ? T.greenDim : T.surface,color:portalCopied ? T.green : T.text,border:`1px solid ${portalCopied ? T.green : T.border}`,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:font}}>
+              {portalCopied ? "✓ Link copied" : "Copy portal link"}
+            </button>
+          ) : null}
+          <button onClick={togglePortal}
+            title={client.client_hub_enabled ? "Disable the client portal for this client" : "Enable the client portal — mints an access token"}
+            style={{padding:"7px 12px",borderRadius:7,background:"transparent",color:client.client_hub_enabled ? T.muted : T.faint,border:`1px solid ${T.border}`,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:font}}>
+            {client.client_hub_enabled ? "Portal: on" : "Enable portal"}
+          </button>
           {/* + New Project — pre-fills this client on the new project form. */}
           <a href={`/jobs/new?client=${client.id}`}
             style={{padding:"7px 14px",borderRadius:7,background:T.accent,color:"#fff",fontSize:12,fontWeight:700,textDecoration:"none",fontFamily:font}}>

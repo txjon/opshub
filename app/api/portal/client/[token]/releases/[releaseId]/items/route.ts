@@ -8,11 +8,12 @@ function admin() {
 }
 
 // POST /api/portal/client/[token]/releases/[releaseId]/items
-// Body: { item_id: string }
+// Body: { item_id?: string, proposal_id?: string }  (exactly one)
 //
-// Moves an item into this release bucket. Because release_items.item_id
-// is UNIQUE, this enforces "one release per item" — dragging an item from
-// release A to release B physically moves it (delete prior row + insert).
+// Moves an item OR client_proposal_items entry into this release bucket.
+// Each can live in at most one release (partial unique indexes on
+// release_items.item_id and .proposal_id), so dragging from another
+// release physically moves it.
 
 export async function POST(req: NextRequest, { params }: { params: { token: string; releaseId: string } }) {
   try {
@@ -25,41 +26,67 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       .select("id, client_id")
       .eq("id", params.releaseId)
       .single();
-    if (!release || release.client_id !== client.id) {
+    if (!release || (release as any).client_id !== (client as any).id) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const { item_id } = await req.json();
-    if (!item_id) return NextResponse.json({ error: "item_id required" }, { status: 400 });
-
-    // Guard: the item must belong to one of this client's jobs. Prevents
-    // a bad actor from staging items they don't own into their release.
-    const { data: item } = await db
-      .from("items")
-      .select("id, jobs(client_id)")
-      .eq("id", item_id)
-      .single();
-    if (!item || (item as any).jobs?.client_id !== client.id) {
-      return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    const body = await req.json();
+    const itemId = body.item_id || null;
+    const proposalId = body.proposal_id || null;
+    const explicitRow = typeof body.row_index === "number" ? body.row_index : null;
+    const explicitSort = typeof body.sort_order === "number" ? body.sort_order : null;
+    if (!itemId && !proposalId) {
+      return NextResponse.json({ error: "item_id or proposal_id required" }, { status: 400 });
+    }
+    if (itemId && proposalId) {
+      return NextResponse.json({ error: "Provide exactly one of item_id / proposal_id" }, { status: 400 });
     }
 
-    // Move: delete any prior assignment of this item across ANY release
-    // for this client, then insert into the new one. One-release-per-item
-    // is enforced by the unique constraint on item_id.
-    await db.from("release_items").delete().eq("item_id", item_id);
+    if (itemId) {
+      // Item must belong to one of this client's jobs.
+      const { data: item } = await db
+        .from("items")
+        .select("id, jobs(client_id)")
+        .eq("id", itemId)
+        .single();
+      if (!item || (item as any).jobs?.client_id !== (client as any).id) {
+        return NextResponse.json({ error: "Item not found" }, { status: 404 });
+      }
+      await db.from("release_items").delete().eq("item_id", itemId);
+    } else {
+      // Proposal must belong to this client.
+      const { data: proposal } = await db
+        .from("client_proposal_items")
+        .select("id, client_id")
+        .eq("id", proposalId)
+        .single();
+      if (!proposal || (proposal as any).client_id !== (client as any).id) {
+        return NextResponse.json({ error: "Proposal not found" }, { status: 404 });
+      }
+      await db.from("release_items").delete().eq("proposal_id", proposalId);
+    }
 
-    // Compute next sort_order within the destination release
-    const { data: tail } = await db
-      .from("release_items")
-      .select("sort_order")
-      .eq("release_id", params.releaseId)
-      .order("sort_order", { ascending: false })
-      .limit(1);
-    const nextSort = (tail?.[0]?.sort_order || 0) + 10;
+    // Resolve target row + position. If caller supplied row_index, use
+    // it; otherwise default to row 0. Within the chosen row, default to
+    // appending at the end if no sort_order was supplied.
+    const targetRow = explicitRow ?? 0;
+    let nextSort = explicitSort;
+    if (nextSort === null) {
+      const { data: rowTail } = await db
+        .from("release_items")
+        .select("sort_order")
+        .eq("release_id", params.releaseId)
+        .eq("row_index", targetRow)
+        .order("sort_order", { ascending: false })
+        .limit(1);
+      nextSort = ((rowTail as any)?.[0]?.sort_order || 0) + 10;
+    }
 
-    const { error } = await db
-      .from("release_items")
-      .insert({ release_id: params.releaseId, item_id, sort_order: nextSort });
+    const insertRow: any = { release_id: params.releaseId, sort_order: nextSort, row_index: targetRow };
+    if (itemId) insertRow.item_id = itemId;
+    if (proposalId) insertRow.proposal_id = proposalId;
+
+    const { error } = await db.from("release_items").insert(insertRow);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ success: true });
@@ -68,8 +95,8 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   }
 }
 
-// DELETE /api/portal/client/[token]/releases/[releaseId]/items?item_id=...
-// Removes an item from the release (returns it to the pool).
+// DELETE /api/portal/client/[token]/releases/[releaseId]/items?item_id=... | ?proposal_id=...
+// Removes either an item or a proposal from the release (returns to pool).
 export async function DELETE(req: NextRequest, { params }: { params: { token: string; releaseId: string } }) {
   try {
     const db = admin();
@@ -81,18 +108,21 @@ export async function DELETE(req: NextRequest, { params }: { params: { token: st
       .select("id, client_id")
       .eq("id", params.releaseId)
       .single();
-    if (!release || release.client_id !== client.id) {
+    if (!release || (release as any).client_id !== (client as any).id) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const itemId = new URL(req.url).searchParams.get("item_id");
-    if (!itemId) return NextResponse.json({ error: "item_id required" }, { status: 400 });
+    const url = new URL(req.url);
+    const itemId = url.searchParams.get("item_id");
+    const proposalId = url.searchParams.get("proposal_id");
+    if (!itemId && !proposalId) {
+      return NextResponse.json({ error: "item_id or proposal_id required" }, { status: 400 });
+    }
 
-    const { error } = await db
-      .from("release_items")
-      .delete()
-      .eq("release_id", params.releaseId)
-      .eq("item_id", itemId);
+    let q = db.from("release_items").delete().eq("release_id", params.releaseId);
+    if (itemId) q = q.eq("item_id", itemId);
+    if (proposalId) q = q.eq("proposal_id", proposalId);
+    const { error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ success: true });
