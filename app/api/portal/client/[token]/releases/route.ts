@@ -36,14 +36,34 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
 
     const ids = (releases || []).map((r: any) => r.id);
     let itemsByRelease: Record<string, string[]> = {};
+    let proposalsByRelease: Record<string, string[]> = {};
+    // rows: per-release 2D array — outer = row_index, inner = tiles in
+    // sort_order. Drives the staging Brand Planner layout. Empty rows
+    // are dropped client-side so the array stays dense.
+    let rowsByRelease: Record<string, Array<Array<{ kind: "item" | "proposal"; id: string }>>> = {};
     if (ids.length > 0) {
       const { data: ri } = await db
         .from("release_items")
-        .select("release_id, item_id, sort_order")
+        .select("release_id, item_id, proposal_id, sort_order, row_index")
         .in("release_id", ids)
+        .order("row_index", { ascending: true })
         .order("sort_order", { ascending: true });
       for (const r of (ri || [])) {
-        (itemsByRelease[r.release_id] ||= []).push(r.item_id);
+        const rid = (r as any).release_id;
+        if ((r as any).item_id) (itemsByRelease[rid] ||= []).push((r as any).item_id);
+        if ((r as any).proposal_id) (proposalsByRelease[rid] ||= []).push((r as any).proposal_id);
+        const rowIdx = (r as any).row_index ?? 0;
+        const buckets = rowsByRelease[rid] ||= [];
+        // Pad sparse rows so row_index 5 lands at index 5 even when
+        // 0..4 are empty. Empty rows get filtered out below.
+        while (buckets.length <= rowIdx) buckets.push([]);
+        const kind: "item" | "proposal" = (r as any).item_id ? "item" : "proposal";
+        const id = (r as any).item_id || (r as any).proposal_id;
+        if (id) buckets[rowIdx].push({ kind, id });
+      }
+      // Drop fully-empty rows and re-index so the client never sees gaps.
+      for (const k of Object.keys(rowsByRelease)) {
+        rowsByRelease[k] = rowsByRelease[k].filter(row => row.length > 0);
       }
     }
 
@@ -51,6 +71,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       releases: (releases || []).map((r: any) => ({
         ...r,
         item_ids: itemsByRelease[r.id] || [],
+        proposal_ids: proposalsByRelease[r.id] || [],
+        rows: rowsByRelease[r.id] || [],
       })),
     });
   } catch (e: any) {
