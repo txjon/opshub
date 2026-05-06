@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { appBaseUrl } from "@/lib/public-url";
+import { resendKeyForSlug } from "@/lib/resend-client";
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,8 +16,10 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    const { data: designer } = await admin.from("designers").select("id, name, email, portal_token, active").eq("id", designer_id).single();
+    const { data: designer } = await admin.from("designers").select("id, name, email, portal_token, active, companies:company_id(slug)").eq("id", designer_id).single();
     if (!designer || !designer.active) return NextResponse.json({ error: "Designer not found or inactive" }, { status: 404 });
+    const designerSlug = ((designer as any).companies?.slug || "hpd") as string;
+    const designerResendKey = resendKeyForSlug(designerSlug);
 
     const { data: brief } = await admin.from("art_briefs").select("id, title, clients(name)").eq("id", brief_id).single();
     if (!brief) return NextResponse.json({ error: "Brief not found" }, { status: 404 });
@@ -34,7 +37,7 @@ export async function POST(req: NextRequest) {
     const portalUrl = `${await appBaseUrl()}/design/${designer.portal_token}`;
     let emailed = false;
 
-    if (designer.email && process.env.RESEND_API_KEY) {
+    if (designer.email && designerResendKey) {
       try {
         const subject = `New art brief: ${brief.title || "Untitled"}`;
         const clientName = (brief as any).clients?.name || "a client";
@@ -47,7 +50,7 @@ export async function POST(req: NextRequest) {
         });
         const resendRes = await fetch("https://api.resend.com/emails", {
           method: "POST",
-          headers: { "Authorization": `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+          headers: { "Authorization": `Bearer ${designerResendKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",
             to: designer.email,

@@ -80,9 +80,13 @@ export async function POST(req: NextRequest) {
     if (!jobId || !type) return NextResponse.json({ error: "Missing fields" }, { status: 400 });
 
     const { createClient: createAdmin } = await import("@supabase/supabase-js");
-    const { Resend } = await import("resend");
+    const { resendForSlug } = await import("@/lib/resend-client");
     const sb = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    const resend = new Resend(process.env.RESEND_API_KEY);
+    // Pick the Resend key matching the active tenant. Falls back to
+    // RESEND_API_KEY when a tenant-specific key isn't set.
+    const _h = (req.headers.get("host") || "").toLowerCase().split(":")[0];
+    const _slug = (_h === "app.inhousemerchandise.com" || _h === "ihm.localhost") ? "ihm" : "hpd";
+    const resend = resendForSlug(_slug);
 
     // ── Shipping emails (drop-ship + ship-through) ─────────────────────────────
     if (type === "order_shipped_vendor" || type === "order_shipped_hpd") {

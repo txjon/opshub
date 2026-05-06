@@ -2,12 +2,12 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getPortalUrl, getVendorPortalUrl } from "@/lib/auto-email";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { refreshPaymentLink } from "@/lib/quickbooks";
+import { resendForSlug } from "@/lib/resend-client";
 
 // Resolve active tenant from request Host (middleware doesn't run on
 // /api/* routes). Used to pick which company's from-addresses + name
@@ -25,14 +25,15 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const resend = new Resend(process.env.RESEND_API_KEY);
     const { type, jobId, vendor, recipientEmail, ccEmails, recipientName, subject, customBody, rfqItemIds } = await req.json();
 
     // Pull the active tenant's branding (name + from-addresses) so emails
     // ship as "In House Merchandise <info@inhousemerchandise.com>" on
     // app.inhousemerchandise.com and "House Party Distro <hello@...>"
-    // on HPD's URL.
+    // on HPD's URL. The Resend API key is also slug-scoped — each
+    // tenant has its own restricted key for its verified domain.
     const slug = resolveCompanySlugFromRequest(req);
+    const resend = resendForSlug(slug);
     const adminForCompany = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const { data: companyRow } = await adminForCompany.from("companies")
       .select("name, from_email_quotes, from_email_production, from_email_billing")

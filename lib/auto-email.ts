@@ -3,10 +3,10 @@
  * Sends notifications to client contacts without user interaction.
  * Used by: proof upload, payment received, tracking entered, quote approved.
  */
-import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { appBaseUrl } from "@/lib/public-url";
+import { resendForSlug } from "@/lib/resend-client";
 
 const admin = () =>
   createClient(
@@ -33,15 +33,17 @@ type NotifyParams = {
 export async function sendClientNotification(params: NotifyParams) {
   try {
     const sb = admin();
-    const resend = new Resend(process.env.RESEND_API_KEY);
 
-    // Get job details + portal token
+    // Get job details + portal token, including the tenant slug so the
+    // Resend key + from-address pick the right brand.
     const { data: job } = await sb
       .from("jobs")
-      .select("id, title, job_number, type_meta, portal_token, client_id")
+      .select("id, title, job_number, type_meta, portal_token, client_id, companies:company_id(slug)")
       .eq("id", params.jobId)
       .single();
     if (!job) return;
+    const tenantSlug = ((job as any).companies?.slug || "hpd") as string;
+    const resend = resendForSlug(tenantSlug);
 
     // Get client name
     let clientName = "Client";

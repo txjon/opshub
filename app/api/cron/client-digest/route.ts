@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 import { appBaseUrlForSlug } from "@/lib/public-url";
+import { resendForSlug } from "@/lib/resend-client";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -36,7 +36,6 @@ export async function GET(req: NextRequest) {
 
   if (!clients?.length) return NextResponse.json({ sent: 0, message: "No clients with portal" });
 
-  const resend = new Resend(process.env.RESEND_API_KEY);
   const from = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -145,7 +144,9 @@ export async function GET(req: NextRequest) {
 </body></html>`;
 
     try {
-      await resend.emails.send({
+      // Per-tenant Resend key — picked from the client's company slug
+      // so each tenant sends from its own verified domain key.
+      await resendForSlug(c.companies?.slug).emails.send({
         from,
         to: recipients,
         subject: `${c.name || "Your"} design update — ${briefs.length} open`,
