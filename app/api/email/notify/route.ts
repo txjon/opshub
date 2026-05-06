@@ -82,11 +82,15 @@ export async function POST(req: NextRequest) {
     const { createClient: createAdmin } = await import("@supabase/supabase-js");
     const { resendForSlug } = await import("@/lib/resend-client");
     const sb = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    // Pick the Resend key matching the active tenant. Falls back to
-    // RESEND_API_KEY when a tenant-specific key isn't set.
+    // Pick the Resend key + branding matching the active tenant. Falls
+    // back to RESEND_API_KEY / "House Party Distro" when nothing's set.
     const _h = (req.headers.get("host") || "").toLowerCase().split(":")[0];
     const _slug = (_h === "app.inhousemerchandise.com" || _h === "ihm.localhost") ? "ihm" : "hpd";
     const resend = resendForSlug(_slug);
+    const { data: _tenantRow } = await sb.from("companies").select("name, from_email_quotes, from_email_production").eq("slug", _slug).maybeSingle();
+    const tenantName = (_tenantRow as any)?.name || "House Party Distro";
+    const tenantFromQuotes = (_tenantRow as any)?.from_email_quotes || process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
+    const tenantFromProduction = (_tenantRow as any)?.from_email_production || process.env.EMAIL_FROM_PO || "production@housepartydistro.com";
 
     // ── Shipping emails (drop-ship + ship-through) ─────────────────────────────
     if (type === "order_shipped_vendor" || type === "order_shipped_hpd") {
@@ -162,11 +166,12 @@ export async function POST(req: NextRequest) {
         bodyHtml,
         extraHtml: trackingBlock(trackingNumber || null, carrier || null),
         cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
-        closing: "Welcome to the party!\nHouse Party Distro",
+        eyebrow: tenantName,
+        closing: `Welcome to the party!\n${tenantName}`,
       });
 
       await resend.emails.send({
-        from: FROM_ADDR(),
+        from: tenantFromQuotes,
         to: clientEmail,
         subject,
         html,
@@ -245,11 +250,12 @@ export async function POST(req: NextRequest) {
         greeting: `Hi ${clientName || "there"},`,
         bodyHtml: `Production for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment.`,
         cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
-        closing: "Welcome to the party,\nHouse Party Distro",
+        eyebrow: tenantName,
+        closing: `Welcome to the party,\n${tenantName}`,
       });
 
       await resend.emails.send({
-        from: FROM_ADDR(),
+        from: tenantFromQuotes,
         to: clientEmail,
         subject: `Production complete — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`,
         html,
@@ -300,15 +306,17 @@ export async function POST(req: NextRequest) {
       const projectTitle = (job as any).title || "";
 
       const html = renderBrandedEmail({
+        eyebrow: tenantName,
         heading: `Revised invoice #${invoiceNum}`,
         greeting: `Hi ${clientName || "there"},`,
         bodyHtml: `Your invoice for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has been updated with final shipped quantities. The revised copy is attached and waiting in your portal.`,
         cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
         secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
+        closing: `Thanks,\n${tenantName}`,
       });
 
       await resend.emails.send({
-        from: FROM_ADDR(),
+        from: tenantFromQuotes,
         to: clientEmail,
         subject: `Revised invoice — ${clientName}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""} · ${projectTitle}`,
         html,
@@ -451,17 +459,17 @@ export async function POST(req: NextRequest) {
         heading = "Your order has shipped";
         greeting = `Hi ${clientName || "there"},`;
         bodyHtml = `Good news — your order is on the way.${itemsBlock}A packing slip is attached for your records.`;
-        fromAddr = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
-        closing = "If anything looks off when it arrives, just reply here — we'll get you sorted.\n\n— The House Party Distro team\nhello@housepartydistro.com";
+        fromAddr = tenantFromQuotes;
+        closing = `If anything looks off when it arrives, just reply here — we'll get you sorted.\n\n— The ${tenantName} team\n${tenantFromQuotes}`;
       } else {
         subject = customSubject || `Incoming: ${vendorName || "Vendor"} — ${invoiceNum} — ${clientName} — ${trackingNumber}`;
         heading = "Incoming shipment";
-        greeting = "Heads up — a shipment is inbound to HPD.";
+        greeting = `Heads up — a shipment is inbound to ${tenantName}.`;
         const fromLine = vendorName ? `<p style="margin:0 0 6px;font-size:13px;color:#444;"><strong>From:</strong> ${vendorName}</p>` : "";
         const projLine = `<p style="margin:0 0 12px;font-size:13px;color:#444;"><strong>Project:</strong> ${projectTitle}</p>`;
         bodyHtml = `${fromLine}${projLine}${itemsBlock}Packing slip attached. Confirm receipt in OpsHub when it arrives.`;
-        fromAddr = process.env.EMAIL_FROM_PO || "production@housepartydistro.com";
-        closing = "— House Party Labs";
+        fromAddr = tenantFromProduction;
+        closing = `— ${tenantName}`;
       }
 
       // Optional custom-message block — rendered in a quoted callout above
@@ -492,6 +500,7 @@ export async function POST(req: NextRequest) {
 
       // Render branded HTML
       const html = renderBrandedEmail({
+        eyebrow: tenantName,
         heading,
         greeting,
         bodyHtml: customMessageHtml + bodyHtml,
