@@ -111,9 +111,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }
 
-    // Generate the PDF by calling our own endpoint (internal call, pass secret key)
+    // Generate the PDF by calling our own endpoint. Pass the secret key
+    // for auth and x-company-slug so the PDF route resolves the correct
+    // tenant for branding (logo, addresses, from-emails). Without the
+    // slug header the route falls back to the request Host, which is
+    // the shared opshub-umber.vercel.app URL when called internally —
+    // it would render HPD's brand on IHM PDFs.
     const pdfRes = await fetch(pdfUrl, {
-      headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "" },
+      headers: {
+        "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+        "x-company-slug": slug,
+      },
     });
     if (!pdfRes.ok) {
       const text = await pdfRes.text();
