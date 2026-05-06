@@ -9,7 +9,7 @@ import { QBCustomerChooser, type QBCurrent } from "@/components/QBCustomerChoose
 import Link from "next/link";
 import { effectiveRevenue } from "@/lib/revenue";
 
-type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; client_hub_enabled?:boolean; portal_token?:string|null; };
+type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; client_hub_enabled?:boolean; portal_token?:string|null; company_id?:string|null; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
 type ClientFile = { id:string; file_name:string; drive_file_id:string|null; drive_link:string|null; mime_type:string|null; file_size:number|null; kind:string; notes:string|null; created_at:string; };
 type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; payment_records:any[]; };
@@ -49,9 +49,32 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [qbBusy, setQbBusy] = useState(false);
   const [qbMsg, setQbMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Active tenant's payment provider — gates QB-specific UI on this
+  // page (QuickBooks customer link + QB-branded payment toggles).
+  // Stripe-backed tenants (IHM) hide those entirely; the allow_cc/ach
+  // toggles still apply to Stripe but are surfaced under generic
+  // "Online Payment Methods" copy.
+  const [paymentProvider, setPaymentProvider] = useState<"quickbooks" | "stripe" | null>(null);
+
   useEffect(() => { load(); }, [params.id]);
 
+  useEffect(() => {
+    (async () => {
+      if (!client?.company_id) return;
+      const { data } = await supabase
+        .from("companies")
+        .select("default_payment_provider")
+        .eq("id", (client as any).company_id)
+        .single();
+      setPaymentProvider(((data as any)?.default_payment_provider as any) || "quickbooks");
+    })();
+  }, [(client as any)?.company_id]);
+
   async function loadQbLink() {
+    if (paymentProvider && paymentProvider !== "quickbooks") {
+      setQbLinked(null);
+      return;
+    }
     setQbLinked("loading");
     try {
       const res = await fetch(`/api/qb/link-customer?clientId=${params.id}`);
@@ -62,7 +85,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       setQbLinked(null);
     }
   }
-  useEffect(() => { loadQbLink(); }, [params.id]);
+  useEffect(() => { loadQbLink(); }, [params.id, paymentProvider]);
 
   async function handleQbAction(a: { type: "select"; qbCustomerId: string; displayName: string } | { type: "create_new" } | { type: "unlink" }) {
     if (qbBusy) return;
@@ -454,11 +477,13 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   )}
                 </div>
 
-                {/* QuickBooks customer link. Caches in clients.qb_customer_id
-                    and is the single source of truth used by every QB push.
-                    Wrong link → invoices land on the wrong customer in QB,
-                    so this row always shows the resolved DisplayName so
-                    mismatches are visible at a glance. */}
+                {/* QuickBooks customer link — only shown for QB-backed
+                    tenants. Caches in clients.qb_customer_id and is
+                    the single source of truth used by every QB push.
+                    Stripe-backed tenants (IHM) hide this entirely;
+                    Stripe matches customers by email automatically on
+                    invoice push. */}
+                {paymentProvider === "quickbooks" && (<>
                 <div>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginTop:6,marginBottom:6}}>QuickBooks Customer</div>
                   <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:T.surface,borderRadius:6,border:`1px solid ${T.border}`}}>
@@ -499,27 +524,31 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                     Re-link if invoices have been landing on the wrong QB customer (e.g. a duplicate created from a name mismatch). Existing invoices in QB stay where they are — merge duplicates inside QuickBooks.
                   </div>
                 </div>
+                </>)}
 
-                {/* QB online payment-method toggles. Default true so
-                    behavior matches today; flip off per client if e.g.
-                    they should only see Bank Transfer on the QB payment
-                    page. Pushed to QB on the next Update QB Invoice. */}
+                {/* Online payment-method toggles. Apply to whichever
+                    provider this tenant uses (QB or Stripe). Default
+                    true so existing behavior matches; flip off per
+                    client if they should only see one option on the
+                    hosted payment page. */}
                 <div>
-                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginTop:6,marginBottom:6}}>QB Online Payment Methods</div>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginTop:6,marginBottom:6}}>Online Payment Methods</div>
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
                     <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.text,cursor:"pointer",padding:"6px 10px",background:T.surface,borderRadius:6}}>
                       <input type="checkbox" checked={client.allow_cc !== false} onChange={e=>updateClient({allow_cc:e.target.checked} as any)} style={{accentColor:T.accent,width:16,height:16}}/>
                       <span style={{fontWeight:600}}>Accept credit card</span>
-                      <span style={{fontSize:10,color:T.faint,marginLeft:"auto"}}>2.99% per txn</span>
+                      <span style={{fontSize:10,color:T.faint,marginLeft:"auto"}}>{paymentProvider === "stripe" ? "2.9% + 30¢" : "2.99% per txn"}</span>
                     </label>
                     <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:T.text,cursor:"pointer",padding:"6px 10px",background:T.surface,borderRadius:6}}>
                       <input type="checkbox" checked={client.allow_ach !== false} onChange={e=>updateClient({allow_ach:e.target.checked} as any)} style={{accentColor:T.accent,width:16,height:16}}/>
                       <span style={{fontWeight:600}}>Accept bank transfer (ACH)</span>
-                      <span style={{fontSize:10,color:T.faint,marginLeft:"auto"}}>1%, max $20</span>
+                      <span style={{fontSize:10,color:T.faint,marginLeft:"auto"}}>{paymentProvider === "stripe" ? "0.8%, max $5" : "1%, max $20"}</span>
                     </label>
                   </div>
                   <div style={{fontSize:10,color:T.faint,marginTop:6,lineHeight:1.4}}>
-                    Pushed to QB on the next Update QB Invoice. Existing invoices keep whatever was set when they were created until re-pushed.
+                    {paymentProvider === "stripe"
+                      ? "Applied when the next Stripe invoice is created. Existing invoices keep whatever was set when they were sent until re-issued."
+                      : "Pushed to QB on the next Update QB Invoice. Existing invoices keep whatever was set when they were created until re-pushed."}
                   </div>
                 </div>
               </div>
