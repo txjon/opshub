@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getPortalUrl, getVendorPortalUrl } from "@/lib/auto-email";
-import { renderBrandedEmail } from "@/lib/email-template";
+import { renderBrandedEmail, tenantClosing } from "@/lib/email-template";
 import { refreshPaymentLink } from "@/lib/quickbooks";
 import { resendForSlug } from "@/lib/resend-client";
 
@@ -186,7 +186,7 @@ export async function POST(req: NextRequest) {
             bodyHtml: `Your quote ${jobNum || ""} is attached for review. When you're ready to move forward, you can approve it directly in your portal, or request changes if anything needs a second pass.`,
             cta: portalUrl ? { label: "Approve Quote", url: portalUrl, style: "dark" } : undefined,
             secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
-            closing: `Welcome to the party,\n${companyName}`,
+            closing: tenantClosing(slug, companyName),
           })
         : type === "invoice"
         ? (() => {

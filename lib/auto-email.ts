@@ -4,7 +4,7 @@
  * Used by: proof upload, payment received, tracking entered, quote approved.
  */
 import { createClient } from "@supabase/supabase-js";
-import { renderBrandedEmail } from "@/lib/email-template";
+import { renderBrandedEmail, tenantClosing } from "@/lib/email-template";
 import { appBaseUrl } from "@/lib/public-url";
 import { resendForSlug } from "@/lib/resend-client";
 
@@ -118,7 +118,7 @@ export async function sendClientNotification(params: NotifyParams) {
           greeting: `Hi ${clientName},`,
           bodyHtml: `A proof for ${bodyRef} is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.`,
           cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
-          closing: `Welcome to the party,\n${tenantName}`,
+          closing: tenantClosing(tenantSlug, tenantName),
         });
         break;
 

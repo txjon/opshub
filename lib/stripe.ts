@@ -92,6 +92,13 @@ export async function createAndSendInvoice(
     /** Optional Stripe Tax — defaults to off. Stripe Tax requires the
      *  account to have it enabled and the customer's tax address set. */
     autoTax?: boolean;
+    /** Override Stripe's auto-generated invoice number with a custom
+     *  string (e.g. job_number "IHM-2605-001"). Requires the Stripe
+     *  account to have Manual Invoice Numbering enabled (Settings →
+     *  Billing → Invoices). On collision (re-push after voiding the
+     *  prior invoice in Stripe Dashboard), we suffix `-r2`, `-r3`, etc.
+     *  When omitted, Stripe assigns its own sequential number. */
+    customNumber?: string | null;
   }
 ): Promise<{
   invoice_id: string;
@@ -121,6 +128,28 @@ export async function createAndSendInvoice(
     automatic_tax: params.autoTax ? { enabled: true } : undefined,
     payment_settings: { payment_method_types: paymentMethods },
   });
+
+  // Step 1a (optional): apply a custom invoice number to the draft.
+  // Stripe assigns numbers at finalize-time by default; updating
+  // `number` on a draft requires Manual Invoice Numbering. On
+  // collision we suffix `-r2..r5` then surface the original error.
+  if (params.customNumber) {
+    let lastErr: any;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const candidate = attempt === 1 ? params.customNumber : `${params.customNumber}-r${attempt}`;
+      try {
+        await stripe.invoices.update(draft.id!, { number: candidate });
+        lastErr = null;
+        break;
+      } catch (err: any) {
+        const msg = String(err?.message || err?.raw?.message || "").toLowerCase();
+        const looksLikeCollision = msg.includes("number") && /(taken|exists|duplicate|already|use)/.test(msg);
+        if (!looksLikeCollision) throw err;
+        lastErr = err;
+      }
+    }
+    if (lastErr) throw lastErr;
+  }
 
   // Step 2: add line items, attached to the draft. Stripe's
   // invoiceItems.create takes a total `amount` (smallest currency unit)
