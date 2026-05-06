@@ -4,7 +4,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { ProjectPicker } from "@/components/ProjectPicker";
-import { appBaseUrl } from "@/lib/public-url";
+import { appBaseUrlSync } from "@/lib/public-url";
 import {
   resolveBrief,
   type Resolution,
@@ -916,7 +916,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
     });
     const data = await res.json();
     const url = data.client_portal_token
-      ? `${appBaseUrl()}/portal/client/${data.client_portal_token}`
+      ? `${appBaseUrlSync()}/portal/client/${data.client_portal_token}`
       : null;
     if (url) {
       await navigator.clipboard.writeText(url);

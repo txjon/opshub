@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
-import { appBaseUrl } from "@/lib/public-url";
+import { appBaseUrlSync } from "@/lib/public-url";
 
 type Designer = {
   id: string;
@@ -68,7 +68,7 @@ export default function DesignersPage() {
   }
 
   function copyLink(d: Designer) {
-    const url = `${appBaseUrl()}/design/${d.portal_token}`;
+    const url = `${appBaseUrlSync()}/design/${d.portal_token}`;
     navigator.clipboard.writeText(url);
     setCopiedId(d.id);
     setTimeout(() => setCopiedId(null), 2000);
@@ -109,7 +109,7 @@ export default function DesignersPage() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {designers.map(d => {
-            const url = `${appBaseUrl()}/design/${d.portal_token}`;
+            const url = `${appBaseUrlSync()}/design/${d.portal_token}`;
             const editing = editingId === d.id;
             return (
               <div key={d.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, opacity: d.active ? 1 : 0.5 }}>

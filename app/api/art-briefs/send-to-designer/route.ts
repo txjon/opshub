@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     }).eq("id", brief_id);
 
     // Email designer if they have an address + Resend is configured
-    const portalUrl = `${appBaseUrl()}/design/${designer.portal_token}`;
+    const portalUrl = `${await appBaseUrl()}/design/${designer.portal_token}`;
     let emailed = false;
 
     if (designer.email && process.env.RESEND_API_KEY) {

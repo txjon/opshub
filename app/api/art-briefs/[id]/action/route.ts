@@ -230,7 +230,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           const recipients = (contactsRes.data || []).map((c: any) => c.email).filter(Boolean);
           if (recipients.length > 0) {
             const title = brief.title || "your design";
-            const portalUrl = `${appBaseUrl()}/portal/client/${portalToken}/designs?brief=${brief.id}`;
+            const portalUrl = `${await appBaseUrl()}/portal/client/${portalToken}/designs?brief=${brief.id}`;
 
             // Hero file for the email thumbnail. Same visibility rules as
             // the client portal (no print_ready; WIPs only when shared).

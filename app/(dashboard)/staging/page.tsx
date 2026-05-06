@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { appBaseUrl } from "@/lib/public-url";
+import { appBaseUrlSync } from "@/lib/public-url";
 
 export default function StagingBoardsPage() {
   const router = useRouter();
@@ -40,7 +40,7 @@ export default function StagingBoardsPage() {
   }
 
   function copyShareLink(token: string) {
-    const url = `${appBaseUrl()}/staging/share/${token}`;
+    const url = `${appBaseUrlSync()}/staging/share/${token}`;
     navigator.clipboard.writeText(url);
   }
 
