@@ -132,6 +132,12 @@ export async function POST(req: NextRequest) {
       description: `Project: ${job.title}${job.job_number ? ` (${job.job_number})` : ""}`,
       allowCard: (clientRow as any)?.allow_cc !== false,
       allowAch: (clientRow as any)?.allow_ach !== false,
+      // Use the OpsHub job number as the Stripe invoice number so the
+      // same identifier appears in OpsHub, on the PDF, and in Stripe's
+      // dashboard. Requires Manual Invoice Numbering on the Stripe
+      // account; if disabled Stripe ignores the override silently and
+      // falls back to its auto-generated number.
+      customNumber: (job as any).job_number || null,
     });
 
     // Persist invoice ids onto jobs.type_meta

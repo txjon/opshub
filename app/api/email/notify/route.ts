@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { sendClientNotification } from "@/lib/auto-email";
-import { renderBrandedEmail, trackingBlock } from "@/lib/email-template";
+import { renderBrandedEmail, trackingBlock, tenantClosing } from "@/lib/email-template";
 
 // Central auto-email trigger. Shipping + invoice-revised + production-complete
 // emails render inline (they need PDFs / job data). Other client emails
@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
         extraHtml: trackingBlock(trackingNumber || null, carrier || null),
         cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
         eyebrow: tenantName,
-        closing: `Welcome to the party!\n${tenantName}`,
+        closing: tenantClosing(_slug, tenantName, "Welcome to the party!"),
       });
 
       await resend.emails.send({
@@ -251,7 +251,7 @@ export async function POST(req: NextRequest) {
         bodyHtml: `Production for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment.`,
         cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
         eyebrow: tenantName,
-        closing: `Welcome to the party,\n${tenantName}`,
+        closing: tenantClosing(_slug, tenantName),
       });
 
       await resend.emails.send({

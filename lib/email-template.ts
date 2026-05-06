@@ -34,6 +34,22 @@ function ctaButton({ label, url, style = "dark" }: Cta): string {
   return `<a href="${url}" style="display:inline-block;margin-right:8px;margin-bottom:8px;${styles[style] || styles.dark}">${label}</a>`;
 }
 
+// Sign-off line picker. IHM uses its own house copy; everything else
+// (HPD, future tenants without their own override) uses the HPD-voice
+// "Welcome to the party," line — pass a different `hpdLine` for the
+// few one-off variants ("Welcome to the party!", "Thanks,", "—").
+//
+// Returns a two-line string ready to drop into `closing` on
+// renderBrandedEmail. The template renders \n as line breaks.
+export function tenantClosing(
+  slug: string | null | undefined,
+  tenantName: string,
+  hpdLine: string = "Welcome to the party,",
+): string {
+  if (slug === "ihm") return `Thank you for keeping it In House,\n${tenantName}`;
+  return `${hpdLine}\n${tenantName}`;
+}
+
 export function renderBrandedEmail(opts: BrandedEmailOptions): string {
   const eyebrow = opts.eyebrow ?? "House Party Distro";
   const closingRaw = opts.closing ?? "Welcome to the party,\nHouse Party Distro";
