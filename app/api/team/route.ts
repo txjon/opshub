@@ -3,6 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { appBaseUrl } from "@/lib/public-url";
 
+// Same Host → slug map as middleware. /api/* is excluded from middleware
+// so this route has to derive the active tenant from the request itself.
+function resolveCompanySlugFromRequest(req: NextRequest): string {
+  const h = (req.headers.get("host") || "").toLowerCase().split(":")[0];
+  if (h === "app.inhousemerchandise.com" || h === "ihm.localhost") return "ihm";
+  return "hpd";
+}
+
 export async function POST(req: NextRequest) {
   try {
     // Auth check — only managers can invite
@@ -28,6 +36,13 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
+    // Resolve which tenant this invite is for — based on the subdomain
+    // the inviter is currently using. Inviting from app.inhousemerchandise.com
+    // creates a membership in IHM; inviting from HPD creates one in HPD.
+    const slug = resolveCompanySlugFromRequest(req);
+    const { data: company } = await admin.from("companies").select("id").eq("slug", slug).single();
+    if (!company) return NextResponse.json({ error: `No company row for slug "${slug}"` }, { status: 500 });
+
     // Invite user via Supabase auth
     const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${appBaseUrl()}/auth/callback`,
@@ -42,7 +57,17 @@ export async function POST(req: NextRequest) {
       departments: ROLE_DEPARTMENTS[assignedRole] || [],
     });
 
-    return NextResponse.json({ success: true });
+    // Create the company membership so the layout's tenant gate lets
+    // them in once they accept the invite. Idempotent via the unique
+    // constraint on (user_id, company_id).
+    await admin.from("user_company_memberships").upsert({
+      user_id: inviteData.user.id,
+      company_id: (company as any).id,
+      role: assignedRole,
+      is_active: true,
+    }, { onConflict: "user_id,company_id" });
+
+    return NextResponse.json({ success: true, company: slug });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Unknown error" }, { status: 500 });
   }
