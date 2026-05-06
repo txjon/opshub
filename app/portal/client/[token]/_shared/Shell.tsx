@@ -72,7 +72,7 @@ export default function Shell({ children }: { children: ReactNode }) {
               fontSize: 10, color: C.muted, fontWeight: 700,
               letterSpacing: "0.1em", textTransform: "uppercase",
             }}>
-              House Party Distro
+              {data.company?.name || "House Party Distro"}
             </div>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>
               {data.client.name}

@@ -17,10 +17,11 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const db = admin();
     const { data: client } = await db
       .from("clients")
-      .select("id, name")
+      .select("id, name, companies:company_id(name, slug)")
       .eq("portal_token", params.token)
       .single();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+    const tenant = (client as any).companies || { name: "House Party Distro", slug: "hpd" };
 
     const { data: briefs } = await db
       .from("art_briefs")
@@ -274,6 +275,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
 
     return NextResponse.json({
       client: { name: client.name },
+      company: { name: tenant.name, slug: tenant.slug },
       briefs: out,
       orders_summary: {
         active_count: activeJobs.length,
