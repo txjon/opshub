@@ -334,6 +334,11 @@ export default async function DashboardPage() {
       invoiceNumber: invNum,
       href: `/jobs/${job.id}?tab=po`,
       column: "production",
+      // Resolve metadata — surfaces the ✓ Resolve button on the card
+      // and tells the client component which (item, decorator) row to
+      // mark resolved on decorator_assignments.
+      resolveItemId: item.id,
+      resolveDecoratorId: d.decorator_id,
     });
   }
 
@@ -415,6 +420,12 @@ export default async function DashboardPage() {
         itemName: a.itemName || a.action,
         notes: a.notes || null,
         href: a.href,
+      } : undefined,
+      // Vendor discrepancy cards get a server-side resolve action
+      resolve: a.type === "vendor_discrepancy" && a.resolveItemId && a.resolveDecoratorId ? {
+        kind: "vendor_discrepancy" as const,
+        itemId: a.resolveItemId,
+        decoratorId: a.resolveDecoratorId,
       } : undefined,
     });
   }

@@ -413,11 +413,6 @@ export async function POST(
     const body = await req.json();
     const { action, itemId, jobId, tracking, carrier, note, shipQtys } = body;
 
-    // Notifications table deprecated — bell UI was removed. Helper is a no-op.
-    async function notify(_message: string, _type: string, _refId: string) {
-      return;
-    }
-
     // Helper: get item + job info
     async function getItemContext(iId: string) {
       const { data: item } = await sb.from("items").select("id, name, job_id").eq("id", iId).single();
@@ -453,10 +448,6 @@ export async function POST(
           job_id: ctx.job.id, user_id: null, type: "auto",
           message: `Shipped by ${decorator.name}${carrierText} — ${ctx.item.name} · Tracking: ${tracking}`,
         });
-        await notify(
-          `Shipped — ${ctx.item.name} · ${ctx.job.title}${carrierText} · ${tracking}`,
-          "production", ctx.job.id
-        );
 
         // Auto-email client if drop_ship and all decorator's items on this job are now shipped.
         // Same path ProductionTab uses — notify route handles idempotency.
