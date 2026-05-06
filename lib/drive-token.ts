@@ -22,6 +22,26 @@ export async function getDriveToken(): Promise<string> {
   return token.token!;
 }
 
+// Resolve the Drive root folder id for the active tenant. Per-company
+// override is stored on companies.drive_folder_id (set after creating
+// a tenant-specific folder + sharing it with the service account).
+// Falls back to the global GOOGLE_DRIVE_ROOT_FOLDER_ID env var when:
+//   • no row override is set, OR
+//   • we're outside a request lifecycle (cron, background, build)
+//   • lookup fails for any reason
+// HPD continues to use the env var fallback so existing files don't
+// move. IHM (and any future tenant) gets a per-row folder id.
+export async function getTenantRootFolderId(): Promise<string> {
+  const fallback = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+  try {
+    const { getActiveCompany } = await import("./company");
+    const company = await getActiveCompany();
+    return (company as any).drive_folder_id || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 // Find or create a folder, using the token directly via REST API
 async function findOrCreateFolder(token: string, name: string, parentId: string): Promise<string> {
   // Search for existing
@@ -43,7 +63,7 @@ async function findOrCreateFolder(token: string, name: string, parentId: string)
 }
 
 export async function getItemFolderIdDirect(token: string, clientName: string, projectTitle: string, itemName: string): Promise<string> {
-  const rootId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+  const rootId = await getTenantRootFolderId();
   const clientFolder = await findOrCreateFolder(token, clientName, rootId);
   const projectFolder = await findOrCreateFolder(token, projectTitle, clientFolder);
   const itemFolder = await findOrCreateFolder(token, itemName, projectFolder);
@@ -51,7 +71,7 @@ export async function getItemFolderIdDirect(token: string, clientName: string, p
 }
 
 export async function getPackingSlipFolderId(token: string, clientName: string, projectTitle: string): Promise<string> {
-  const rootId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+  const rootId = await getTenantRootFolderId();
   const clientFolder = await findOrCreateFolder(token, clientName, rootId);
   const projectFolder = await findOrCreateFolder(token, projectTitle, clientFolder);
   const slipFolder = await findOrCreateFolder(token, "Packing Slips", projectFolder);
@@ -59,7 +79,7 @@ export async function getPackingSlipFolderId(token: string, clientName: string, 
 }
 
 export async function getReceivingFolderId(token: string, shipmentLabel: string): Promise<string> {
-  const rootId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+  const rootId = await getTenantRootFolderId();
   const receivingFolder = await findOrCreateFolder(token, "Receiving", rootId);
   const shipmentFolder = await findOrCreateFolder(token, shipmentLabel, receivingFolder);
   return shipmentFolder;
@@ -69,7 +89,7 @@ export async function getReceivingFolderId(token: string, shipmentLabel: string)
 // Pass ["Art Studio", "Client Name", "Brief Title"] → returns final folder id.
 // Sanitizes each segment (Drive doesn't like empty names).
 export async function getOrCreateNestedFolder(token: string, segments: string[]): Promise<string> {
-  const rootId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+  const rootId = await getTenantRootFolderId();
   let parent = rootId;
   for (const raw of segments) {
     const name = (raw || "Untitled").trim().replace(/[\/\\]+/g, "-").slice(0, 120) || "Untitled";
