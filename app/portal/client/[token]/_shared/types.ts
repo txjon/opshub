@@ -37,6 +37,7 @@ export type OrdersSummary = {
 
 export type PortalData = {
   client: { name: string };
+  company: { name: string; slug: string };
   briefs: Brief[];
   orders_summary?: OrdersSummary;
 };
