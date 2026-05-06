@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
-import { appBaseUrl } from "@/lib/public-url";
+import { appBaseUrlForSlug } from "@/lib/public-url";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -26,9 +26,11 @@ export async function GET(req: NextRequest) {
 
   const sb = admin();
 
+  // Pull company slug too so each designer's digest links use that
+  // tenant's subdomain (HPD vs IHM, etc.).
   const { data: designers } = await sb
     .from("designers")
-    .select("id, name, email, portal_token")
+    .select("id, name, email, portal_token, companies:company_id(slug)")
     .eq("active", true)
     .not("email", "is", null);
 
@@ -38,7 +40,6 @@ export async function GET(req: NextRequest) {
 
   const resend = new Resend(process.env.RESEND_API_KEY);
   const from = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
-  const appBase = appBaseUrl();
 
   let sent = 0;
   const errors: string[] = [];
@@ -61,7 +62,7 @@ export async function GET(req: NextRequest) {
     const withClient = briefs.filter((b: any) => b.state === "client_review");
     const inPrep = briefs.filter((b: any) => ["pending_prep", "final_approved", "production_ready"].includes(b.state));
 
-    const portalUrl = `${appBase}/design/${d.portal_token}`;
+    const portalUrl = `${appBaseUrlForSlug(d.companies?.slug)}/design/${d.portal_token}`;
 
     const rowHtml = (b: any) => {
       const clientName = (b.clients as any)?.name || "Client";

@@ -88,7 +88,7 @@ export async function sendClientNotification(params: NotifyParams) {
       .map((c: any) => c.email);
 
     // Build portal URL
-    const baseUrl = appBaseUrl();
+    const baseUrl = await appBaseUrl();
     const portalUrl = job.portal_token
       ? `${baseUrl}/portal/${job.portal_token}`
       : null;
@@ -175,7 +175,7 @@ export async function getPortalUrl(jobId: string): Promise<string | null> {
     if (!job) return null;
 
     const client = (job as any).clients;
-    const baseUrl = appBaseUrl();
+    const baseUrl = await appBaseUrl();
 
     if (client?.client_hub_enabled && client?.portal_token) {
       return `${baseUrl}/portal/client/${client.portal_token}/orders/${job.id}`;
@@ -201,7 +201,7 @@ export async function getVendorPortalUrl(vendorName: string): Promise<string | n
       .single();
     if (!dec?.external_token) return null;
 
-    const baseUrl = appBaseUrl();
+    const baseUrl = await appBaseUrl();
     return `${baseUrl}/portal/vendor/${dec.external_token}`;
   } catch {
     return null;

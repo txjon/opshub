@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
 
     // Invite user via Supabase auth
     const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${appBaseUrl()}/auth/callback`,
+      redirectTo: `${await appBaseUrl()}/auth/callback`,
     });
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 });
 

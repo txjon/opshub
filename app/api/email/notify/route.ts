@@ -107,8 +107,8 @@ export async function POST(req: NextRequest) {
       // Client Hub URL when the client is flagged in; legacy per-job
       // portal URL otherwise.
       const portalUrl = hubClient?.client_hub_enabled && hubClient?.portal_token
-        ? `${appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
-        : (portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null);
+        ? `${await appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
+        : (portalToken ? `${await appBaseUrl()}/portal/${portalToken}` : null);
       const projectTitle = (job as any).title || "your order";
 
       let subject = "";
@@ -232,8 +232,8 @@ export async function POST(req: NextRequest) {
       // Client Hub URL when the client is flagged in; legacy per-job
       // portal URL otherwise.
       const portalUrl = hubClient?.client_hub_enabled && hubClient?.portal_token
-        ? `${appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
-        : (portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null);
+        ? `${await appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
+        : (portalToken ? `${await appBaseUrl()}/portal/${portalToken}` : null);
       const projectTitle = (job as any).title || "your order";
 
       const html = renderBrandedEmail({
@@ -291,8 +291,8 @@ export async function POST(req: NextRequest) {
       // Client Hub URL when the client is flagged in; legacy per-job
       // portal URL otherwise.
       const portalUrl = hubClient?.client_hub_enabled && hubClient?.portal_token
-        ? `${appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
-        : (portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null);
+        ? `${await appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
+        : (portalToken ? `${await appBaseUrl()}/portal/${portalToken}` : null);
       const projectTitle = (job as any).title || "";
 
       const html = renderBrandedEmail({
@@ -400,8 +400,8 @@ export async function POST(req: NextRequest) {
       const portalToken = (job as any).portal_token;
       const hubClient = (job as any).clients;
       const portalUrl = hubClient?.client_hub_enabled && hubClient?.portal_token
-        ? `${appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
-        : (portalToken ? `${appBaseUrl()}/portal/${portalToken}` : null);
+        ? `${await appBaseUrl()}/portal/client/${hubClient.portal_token}/orders/${(job as any).id}`
+        : (portalToken ? `${await appBaseUrl()}/portal/${portalToken}` : null);
 
       // Build the shipment-includes HTML list
       const sortSizes = (a: string, b: string) => {
@@ -492,7 +492,7 @@ export async function POST(req: NextRequest) {
         greeting,
         bodyHtml: customMessageHtml + bodyHtml,
         extraHtml: trackingBlock(trackingNumber || null, carrier || null),
-        cta: route === "drop_ship" && portalUrl ? { label: "Open project portal →", url: portalUrl, style: "outline" } : route !== "drop_ship" ? { label: "Open warehouse", url: `${appBaseUrl()}/warehouse`, style: "outline" } : undefined,
+        cta: route === "drop_ship" && portalUrl ? { label: "Open project portal →", url: portalUrl, style: "outline" } : route !== "drop_ship" ? { label: "Open warehouse", url: `${await appBaseUrl()}/warehouse`, style: "outline" } : undefined,
         closing,
       });
 

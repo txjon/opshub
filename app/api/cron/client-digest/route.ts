@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
-import { appBaseUrl } from "@/lib/public-url";
+import { appBaseUrlForSlug } from "@/lib/public-url";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -26,17 +26,18 @@ export async function GET(req: NextRequest) {
 
   const sb = admin();
 
-  // Clients with a portal token AND at least one active brief
+  // Clients with a portal token AND at least one active brief.
+  // Pull company slug too so each client's digest links use that
+  // tenant's subdomain (HPD vs IHM, etc.).
   const { data: clients } = await sb
     .from("clients")
-    .select("id, name, portal_token")
+    .select("id, name, portal_token, companies:company_id(slug)")
     .not("portal_token", "is", null);
 
   if (!clients?.length) return NextResponse.json({ sent: 0, message: "No clients with portal" });
 
   const resend = new Resend(process.env.RESEND_API_KEY);
   const from = process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
-  const appBase = appBaseUrl();
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   let sent = 0;
@@ -104,7 +105,7 @@ export async function GET(req: NextRequest) {
     const totalActivity = awaitingReview.length + recentUploads.length + recentNotes.length;
     if (totalActivity === 0) continue; // Skip — nothing new to report
 
-    const portalUrl = `${appBase}/portal/client/${c.portal_token}`;
+    const portalUrl = `${appBaseUrlForSlug(c.companies?.slug)}/portal/client/${c.portal_token}`;
 
     const briefLine = (b: any) => {
       const due = b.deadline ? ` · due ${new Date(b.deadline).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "";
