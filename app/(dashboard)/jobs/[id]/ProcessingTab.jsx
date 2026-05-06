@@ -44,7 +44,7 @@ export function ProcessingTab({ project, items, onItemsChanged }) {
   const [dragOverIdx, setDragOverIdx] = useState(null);
   const supabase = createClient();
   const clientName = project?.clients?.name || "Unknown Client";
-  const projectTitle = project?.title || "";
+  const projectTitle = project?.title || project?.job_number || "Untitled Project";
 
   // Load existing items and check for PSD files
   useEffect(() => {

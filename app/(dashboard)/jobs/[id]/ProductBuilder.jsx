@@ -419,7 +419,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   // FILE DROP — creates items from PSDs + pairs mockup images
   // ═══════════════════════════════════════════════════════════════
   const clientName = project?.clients?.name || "Unknown Client";
-  const projectTitle = project?.title || "";
+  const projectTitle = project?.title || project?.job_number || "Untitled Project";
 
   function getBaseName(fileName) {
     return fileName

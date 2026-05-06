@@ -24,11 +24,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ token, folderId });
     }
 
-    // Standard item folder request
-    const { clientName, projectTitle, itemName } = body;
-    if (!clientName || !projectTitle || !itemName) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-    }
+    // Standard item folder request — soft fallbacks so a partially-filled
+    // job (no title yet, etc.) still uploads instead of silently failing.
+    // The folder name is just for organization; the item is also tracked
+    // by item_id in the DB so a placeholder folder name is harmless.
+    const clientName = (body.clientName && String(body.clientName).trim()) || "Unknown Client";
+    const projectTitle = (body.projectTitle && String(body.projectTitle).trim()) || "Untitled Project";
+    const itemName = (body.itemName && String(body.itemName).trim()) || "Untitled Item";
 
     const token = await getDriveToken();
     const folderId = await getItemFolderIdDirect(token, clientName, projectTitle, itemName);
