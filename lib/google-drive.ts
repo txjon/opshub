@@ -23,7 +23,22 @@ function getDrive() {
   return google.drive({ version: "v3", auth: getAuth() });
 }
 
-const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+// Per-tenant root folder. Reads companies.drive_folder_id of the
+// active tenant (set by the layout via x-company-slug request header)
+// and falls back to the env var when no tenant context is available
+// (cron jobs, build-time, etc.). HPD's row leaves drive_folder_id
+// NULL → falls through to GOOGLE_DRIVE_ROOT_FOLDER_ID → existing
+// HPD files stay where they are.
+async function getRootFolderId(): Promise<string> {
+  const fallback = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+  try {
+    const { getActiveCompany } = await import("./company");
+    const company = await getActiveCompany();
+    return (company as any).drive_folder_id || fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 // Find or create a subfolder inside a parent folder
 async function findOrCreateFolder(name: string, parentId: string): Promise<string> {
@@ -55,7 +70,8 @@ export async function getItemFolderId(
   projectTitle: string,
   itemName: string
 ): Promise<string> {
-  const clientFolder = await findOrCreateFolder(clientName, ROOT_FOLDER_ID);
+  const root = await getRootFolderId();
+  const clientFolder = await findOrCreateFolder(clientName, root);
   const projectFolder = await findOrCreateFolder(projectTitle, clientFolder);
   const itemFolder = await findOrCreateFolder(itemName, projectFolder);
   return itemFolder;
