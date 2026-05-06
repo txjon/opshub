@@ -39,17 +39,29 @@ export default async function DashboardLayout({ children }: { children: React.Re
     }
   }
 
-  // Departments derived from role — no separate DB column needed
+  // Departments come from two sources, intersected:
+  //   1. ROLE → which depts the user's role grants access to
+  //   2. COMPANY → which depts this tenant actually runs (HPD has all,
+  //      IHM only runs labs at launch, etc.)
+  // Final list is the intersection so an HPD ops user who's also in
+  // IHM via god mode sees only Labs on the IHM domain.
   const ROLE_DEPARTMENTS: Record<string, string[]> = {
     owner: ["owner", "labs", "distro", "ecomm", "contacts", "settings"],
     ops: ["labs", "distro", "ecomm", "contacts"],
     warehouse: ["distro"],
     viewer: ["labs", "distro", "ecomm", "contacts"],
-    // Legacy roles — map gracefully
     manager: ["owner", "labs", "distro", "ecomm", "contacts", "settings"],
     staff: ["labs", "distro", "ecomm", "contacts"],
   };
-  const departments: string[] = ROLE_DEPARTMENTS[role] || [];
+  const roleDepts = ROLE_DEPARTMENTS[role] || [];
+  // "owner" + "settings" are app-wide capabilities, not tenant-specific
+  // ones. Intersect only the tenant-specific depts; keep the app-wide
+  // ones if the role has them.
+  const APP_WIDE = new Set(["owner", "settings"]);
+  const tenantDepts = (company.departments || []);
+  const departments: string[] = roleDepts.filter(d =>
+    APP_WIDE.has(d) || tenantDepts.includes(d)
+  );
   const extraAccess: string[] = profile?.extra_access || [];
 
   return (
