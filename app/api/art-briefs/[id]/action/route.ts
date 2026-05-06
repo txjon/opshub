@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { notifyTeamServer } from "@/lib/notify-server";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { appBaseUrl } from "@/lib/public-url";
+import { resendKeyForSlug } from "@/lib/resend-client";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const db = admin();
     const { data: brief, error: loadErr } = await db
       .from("art_briefs")
-      .select("id, state, title, client_id, job_id, client_aborted_at, sent_to_designer_at, assigned_designer_id, clients(name, portal_token)")
+      .select("id, state, title, client_id, job_id, client_aborted_at, sent_to_designer_at, assigned_designer_id, clients(name, portal_token, companies:company_id(slug))")
       .eq("id", params.id)
       .single();
     if (loadErr || !brief) return NextResponse.json({ error: loadErr?.message || "Not found" }, { status: 404 });
@@ -215,7 +216,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         console.error("[art-brief action] failed to flip shared_with_client_at:", e);
       }
 
-      if (portalToken && process.env.RESEND_API_KEY) {
+      const briefSlug = ((brief as any).clients?.companies?.slug || "hpd") as string;
+      const briefResendKey = resendKeyForSlug(briefSlug);
+      if (portalToken && briefResendKey) {
         try {
           const [contactsRes, filesRes] = await Promise.all([
             db.from("contacts")
@@ -294,7 +297,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             });
             await fetch("https://api.resend.com/emails", {
               method: "POST",
-              headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+              headers: { Authorization: `Bearer ${briefResendKey}`, "Content-Type": "application/json" },
               body: JSON.stringify({
                 from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",
                 to: recipients,

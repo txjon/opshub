@@ -417,7 +417,7 @@ export async function POST(
     async function getItemContext(iId: string) {
       const { data: item } = await sb.from("items").select("id, name, job_id").eq("id", iId).single();
       if (!item) return null;
-      const { data: job } = await sb.from("jobs").select("id, title, job_number, shipping_route").eq("id", item.job_id).single();
+      const { data: job } = await sb.from("jobs").select("id, title, job_number, shipping_route, companies:company_id(slug)").eq("id", item.job_id).single();
       return { item, job };
     }
 
@@ -509,9 +509,10 @@ export async function POST(
         // Email production@ — same address PO emails use as their
         // From, so replies thread back to the right inbox.
         try {
-          const resendKey = process.env.RESEND_API_KEY;
-          if (resendKey) {
-            const resend = new Resend(resendKey);
+          const { resendForSlug } = await import("@/lib/resend-client");
+          const tenantSlug = ((ctx.job as any)?.companies?.slug || "hpd") as string;
+          const resend = resendForSlug(tenantSlug);
+          if (resend) {
             const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
               || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
             const projectRef = ctx.job.job_number || ctx.job.title;

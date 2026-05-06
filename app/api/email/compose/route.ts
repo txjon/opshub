@@ -1,9 +1,9 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { resendForSlug } from "@/lib/resend-client";
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,7 +11,11 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const resend = new Resend(process.env.RESEND_API_KEY);
+    // Pick the tenant Resend key from the request Host (middleware
+    // doesn't run on /api/* routes).
+    const _h = (req.headers.get("host") || "").toLowerCase().split(":")[0];
+    const _slug = (_h === "app.inhousemerchandise.com" || _h === "ihm.localhost") ? "ihm" : "hpd";
+    const resend = resendForSlug(_slug);
     const body = await req.json();
     const { jobId, toEmail, ccEmails, subject, channel, decoratorId } = body;
     const emailBody: string = body.body;

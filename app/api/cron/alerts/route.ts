@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
+import { resendForSlug } from "@/lib/resend-client";
 
 const admin = () =>
   createClient(
@@ -160,7 +160,9 @@ export async function GET(req: NextRequest) {
     // ── Send daily digest email to owner ──
     if (alerts.length > 0 && process.env.OWNER_EMAIL) {
       try {
-        const resend = new Resend(process.env.RESEND_API_KEY);
+        // Owner alerts digest — HPD-tenant only (Jon's OWNER_EMAIL).
+        // If a future cron iterates per-tenant, switch to per-row slug.
+        const resend = resendForSlug("hpd");
 
         // Group by priority
         const critical = alerts.filter(a => a.priority === 0);

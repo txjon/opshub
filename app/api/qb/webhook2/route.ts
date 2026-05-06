@@ -212,8 +212,9 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     // Auto-email client with PAID-stamped invoice PDF
     (async () => {
       try {
-        const { Resend } = await import("resend");
-        const resend = new Resend(process.env.RESEND_API_KEY);
+        const { resendForSlug } = await import("@/lib/resend-client");
+        // QB integration is HPD-tenant only (IHM uses Stripe).
+        const resend = resendForSlug("hpd");
         // Get client email (prefer billing, then primary, then any)
         const { data: contacts } = await supabase.from("job_contacts").select("role_on_job, contacts(email, name)").eq("job_id", job.id);
         const billing = contacts?.find((c: any) => c.role_on_job === "billing")?.contacts;
@@ -323,8 +324,9 @@ async function tryMatchShipstationReport(supabase: any, qbInvoiceId: string, amo
         return;
       }
 
-      const { Resend } = await import("resend");
-      const resend = new Resend(process.env.RESEND_API_KEY);
+      const { resendForSlug } = await import("@/lib/resend-client");
+      // QB integration is HPD-tenant only (IHM uses Stripe).
+      const resend = resendForSlug("hpd");
       const clientName = (report.clients as any)?.name || "";
       const invoiceNum = report.qb_invoice_number || "";
       const reportLabel = report.report_type === "combined"
