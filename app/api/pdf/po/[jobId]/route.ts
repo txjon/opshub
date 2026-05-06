@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
+import { getPdfBranding } from "@/lib/branding";
 
 const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
 const sortSizes = (sizes: string[]) => [...sizes].sort((a, b) => {
@@ -317,13 +318,13 @@ function renderPOHTML(data: any): string {
 
   <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:18px;border-bottom:3px solid #111;margin-bottom:18px">
     <div>
-      ${HPD_LOGO_SVG}
+      ${data.branding.logoSvg}
       <div style="font-size:11px;color:#666;line-height:1.7;margin-top:8px">
-        4670 W Silverado Ranch Blvd, STE 120 · Las Vegas, NV 89139<br/>production@housepartydistro.com
+        ${(data.branding.headerAddressHtml || "").replace(/<br\/>/g, " · ")}<br/>${data.branding.fromEmailProduction}
       </div>
     </div>
     <div style="text-align:right">
-      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#1a1a1a">HPD PO# ${data.job_number || "—"}</div>
+      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#1a1a1a">${data.branding.poNumberPrefix || "PO"}# ${data.job_number || "—"}</div>
       <div style="font-size:10px;color:#888;margin-top:4px">${data.client_name} · ${data.vendor_name}</div>
     </div>
   </div>
@@ -335,7 +336,7 @@ function renderPOHTML(data: any): string {
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;font-size:10px">
     <div>
       <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">Bill to</div>
-      <div style="line-height:1.7">House Party Distro<br/>production@housepartydistro.com<br/>4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89139</div>
+      <div style="line-height:1.7">${data.branding.name}<br/>${data.branding.fromEmailProduction}<br/>${data.branding.billToAddressHtml}</div>
     </div>
     <div>
       <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">Ship to</div>
@@ -466,6 +467,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const itemLetters = vendorItems.map((it: any) => it.letter).join("");
 
+    const branding = await getPdfBranding();
     const poData = {
       job_number: ((job.type_meta as any)?.qb_invoice_number || job.job_number) + itemLetters,
       client_name: (job.clients as any)?.name || "—",
@@ -492,8 +494,12 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       ship_to_address: (job.type_meta as any)?.po_ship_to?.[vendorName]
         || ((job as any).shipping_route === "drop_ship"
           ? (job.type_meta as any)?.venue_address || ""
-          : "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89139"),
+          : `${branding.name}\n${(branding.headerAddressHtml || "").replace(/<br\/>/g, "\n")}`),
       items: vendorItems,
+      branding: {
+        ...branding,
+        poNumberPrefix: branding.name.split(" ").map((w: string) => w[0] || "").join("").toUpperCase() + " PO",
+      },
     };
 
     const html = renderPOHTML(poData);
