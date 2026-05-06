@@ -69,9 +69,14 @@ function detectDept(pathname: string): Department {
 }
 
 export function AppShell({
-  email, role, isOwner, departments, extraAccess, userId, children,
+  email, role, isOwner, departments, extraAccess, userId,
+  companySlug, companyName, isGod,
+  children,
 }: {
-  email: string; role: string; isOwner: boolean; departments: string[]; extraAccess: string[]; userId: string; children: React.ReactNode;
+  email: string; role: string; isOwner: boolean;
+  departments: string[]; extraAccess: string[]; userId: string;
+  companySlug?: string; companyName?: string; isGod?: boolean;
+  children: React.ReactNode;
 }) {
   const pathname = usePathname();
   const isViewer = role === "viewer";
@@ -110,7 +115,7 @@ export function AppShell({
           {/* Logo */}
           <div style={{
             width: 36, height: 36, borderRadius: 8, background: "#222",
-            display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8,
+            display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4,
           }}>
             <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
               <rect x="1" y="1" width="5" height="5" rx="1" fill="white"/>
@@ -119,6 +124,19 @@ export function AppShell({
               <rect x="8" y="8" width="5" height="5" rx="1" fill="white"/>
             </svg>
           </div>
+          {/* Tenant slug — tiny indicator under the logo so the active
+              company is visible at a glance. Useful when god-mode users
+              switch between tenants. */}
+          {companySlug && (
+            <div title={companyName || companySlug}
+              style={{
+                fontSize: 8, fontWeight: 800, letterSpacing: "0.06em",
+                color: "#888", textTransform: "uppercase",
+                marginBottom: 8,
+              }}>
+              {companySlug}
+            </div>
+          )}
 
           {/* Department icons */}
           {(Object.entries(DEPT_ICONS) as [Department, { Icon: any; label: string }][]).map(([dept, { Icon, label }]) => {
