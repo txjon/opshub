@@ -180,11 +180,13 @@ export async function POST(req: NextRequest) {
       subject: defaultSubject,
       html: type === "quote"
         ? renderBrandedEmail({
+            eyebrow: companyName,
             heading: `Quote ${jobNum || ""}`.trim(),
             greeting: `Hi ${clientGreeting},`,
             bodyHtml: `Your quote ${jobNum || ""} is attached for review. When you're ready to move forward, you can approve it directly in your portal, or request changes if anything needs a second pass.`,
             cta: portalUrl ? { label: "Approve Quote", url: portalUrl, style: "dark" } : undefined,
             secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
+            closing: `Welcome to the party,\n${companyName}`,
           })
         : type === "invoice"
         ? (() => {
@@ -192,6 +194,7 @@ export async function POST(req: NextRequest) {
             const invoiceWord = isRevised ? "revised invoice" : "invoice";
             const headingWord = isRevised ? "Revised invoice" : "Invoice";
             return renderBrandedEmail({
+              eyebrow: companyName,
               heading: `${headingWord}${qbInvNum ? ` #${qbInvNum}` : ""}`,
               greeting: `Hi ${clientGreeting},`,
               bodyHtml: qbInvNum && projectTitle
@@ -199,6 +202,7 @@ export async function POST(req: NextRequest) {
                 : `Your ${invoiceWord}${qbInvNum ? ` #${qbInvNum}` : ""} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`,
               cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
               secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
+              closing: `Thanks,\n${companyName}`,
             });
           })()
         : type === "rfq"
@@ -208,6 +212,7 @@ export async function POST(req: NextRequest) {
               ? `<div style="margin:16px 0;padding:14px 16px;background:#f7f7f7;border-left:3px solid #222;border-radius:4px;font-size:14px;color:#333;line-height:1.55;">${escapeHtml(customBody.trim()).replace(/\n/g, "<br/>")}</div>`
               : "";
             return renderBrandedEmail({
+              eyebrow: companyName,
               heading: `Quote request — ${jobNum || ""}`.trim(),
               greeting: `Hi ${vendor || "there"},`,
               bodyHtml: `Can you please provide pricing for the item(s) in the attachment? The PDF lays out each item — please reply with: pricing, setup fees, and estimated shipping cost. In addition, we need realistic production lead time and post-production transit time.`,
@@ -218,6 +223,7 @@ export async function POST(req: NextRequest) {
             });
           })()
         : renderBrandedEmail({
+            eyebrow: companyName,
             heading: `Purchase order${qbInvNum ? ` ${qbInvNum}` : ""}`,
             greeting: `Hi ${vendor || "there"},`,
             bodyHtml: `Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.`,

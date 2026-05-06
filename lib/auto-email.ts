@@ -38,11 +38,12 @@ export async function sendClientNotification(params: NotifyParams) {
     // Resend key + from-address pick the right brand.
     const { data: job } = await sb
       .from("jobs")
-      .select("id, title, job_number, type_meta, portal_token, client_id, companies:company_id(slug)")
+      .select("id, title, job_number, type_meta, portal_token, client_id, companies:company_id(slug, name)")
       .eq("id", params.jobId)
       .single();
     if (!job) return;
     const tenantSlug = ((job as any).companies?.slug || "hpd") as string;
+    const tenantName = ((job as any).companies?.name || "House Party Distro") as string;
     const resend = resendForSlug(tenantSlug);
 
     // Get client name
@@ -112,20 +113,24 @@ export async function sendClientNotification(params: NotifyParams) {
       case "proof_ready":
         subject = `Proof ready for review — ${clientName}${invoiceSuffix} · ${job.title}`;
         html = renderBrandedEmail({
+          eyebrow: tenantName,
           heading: "Proof ready for review",
           greeting: `Hi ${clientName},`,
           bodyHtml: `A proof for ${bodyRef} is ready for your review in the portal. Approve when you're good with it, or request changes and we'll send it back for revisions.`,
           cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
+          closing: `Welcome to the party,\n${tenantName}`,
         });
         break;
 
       case "payment_received":
         subject = `Payment received — ${clientName} · Invoice ${invoiceNum} · ${job.title}`;
         html = renderBrandedEmail({
+          eyebrow: tenantName,
           heading: "Payment received",
           greeting: `Hi ${clientName},`,
           bodyHtml: `Payment${params.amount ? ` of <strong>$${params.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong>` : ""} received for <strong>Invoice ${invoiceNum} · ${job.title}</strong>. Thank you!`,
           cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
+          closing: `Thanks,\n${tenantName}`,
         });
         break;
     }
