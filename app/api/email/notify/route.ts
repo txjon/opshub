@@ -52,8 +52,14 @@ async function loadJobAndClientEmail(sb: any, jobId: string) {
   return { job, clientEmail, clientName: (job as any).clients?.name || "" };
 }
 
-async function fetchPdf(url: string) {
-  const res = await fetch(url, { headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY! } });
+async function fetchPdf(url: string, slug?: string) {
+  // Forward x-company-slug so the PDF route resolves the correct tenant
+  // for branding. Without it, internal calls via NEXT_PUBLIC_SITE_URL
+  // come from the shared opshub-umber.vercel.app host and the PDF
+  // defaults to HPD branding regardless of the source job's tenant.
+  const headers: Record<string, string> = { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY! };
+  if (slug) headers["x-company-slug"] = slug;
+  const res = await fetch(url, { headers });
   if (!res.ok) throw new Error(`PDF fetch ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
@@ -154,7 +160,7 @@ export async function POST(req: NextRequest) {
           if (trackingNumber) params.set("tracking", trackingNumber);
         }
         const slipUrl = `${BASE_URL()}/api/pdf/packing-slip/${jobId}${params.toString() ? `?${params.toString()}` : ""}`;
-        pdfBuffer = await fetchPdf(slipUrl);
+        pdfBuffer = await fetchPdf(slipUrl, _slug);
       } catch (e: any) {
         console.error(`[notify/${type}] packing slip fetch failed:`, e.message);
         return NextResponse.json({ error: "Packing slip generation failed" }, { status: 500 });
@@ -288,7 +294,7 @@ export async function POST(req: NextRequest) {
 
       let pdfBuffer: Buffer;
       try {
-        pdfBuffer = await fetchPdf(`${BASE_URL()}/api/pdf/invoice/${jobId}`);
+        pdfBuffer = await fetchPdf(`${BASE_URL()}/api/pdf/invoice/${jobId}`, _slug);
       } catch {
         return NextResponse.json({ error: "PDF generation failed" }, { status: 500 });
       }
@@ -491,7 +497,7 @@ export async function POST(req: NextRequest) {
           if (trackingNumber) params.set("tracking", trackingNumber);
         }
         const slipUrl = `${BASE_URL()}/api/pdf/packing-slip/${jobId}${params.toString() ? `?${params.toString()}` : ""}`;
-        pdfBuffer = await fetchPdf(slipUrl);
+        pdfBuffer = await fetchPdf(slipUrl, _slug);
       } catch (e: any) {
         console.error(`[notify/shipment_notify] packing slip fetch failed:`, e.message);
         return NextResponse.json({ error: "Packing slip generation failed" }, { status: 500 });
