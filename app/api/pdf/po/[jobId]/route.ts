@@ -358,8 +358,8 @@ function renderPOHTML(data: any): string {
   </div>
 
   <div style="border-top:0.5px solid #ddd;padding-top:10px;font-size:7.5px;color:#aaa;line-height:1.6">
-    <strong style="font-size:8px;font-weight:700;color:#888;display:block;margin-bottom:3px">House Party Distro Purchase Order Conditions</strong>
-    House Party Distro must be notified of any blank shortages or discrepancies within 24 hours of receipt of goods. Outbound shipping is at the sole direction of House Party Distro. Packing lists and tracking numbers must be supplied to House Party Distro immediately after the order has shipped. House Party Distro must be invoiced for any charges within 30 days of the PO date.
+    <strong style="font-size:8px;font-weight:700;color:#888;display:block;margin-bottom:3px">${data.branding.name} Purchase Order Conditions</strong>
+    ${data.branding.name} must be notified of any blank shortages or discrepancies within 24 hours of receipt of goods. Outbound shipping is at the sole direction of ${data.branding.name}. Packing lists and tracking numbers must be supplied to ${data.branding.name} immediately after the order has shipped. ${data.branding.name} must be invoiced for any charges within 30 days of the PO date.
   </div>
 
 </div>
