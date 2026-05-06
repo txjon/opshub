@@ -100,6 +100,8 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
               onChange={e => setRole(e.target.value)}
               className="mt-1 px-3 py-2 text-sm rounded-lg border border-border bg-secondary/50 text-foreground outline-none"
             >
+              <option value="owner">Owner — full access including Owner tab (Insights, Reports, God Mode)</option>
+              <option value="manager">Manager — full access incl. Settings, no Owner tab</option>
               <option value="ops">Ops — full Labs workflow + Contacts</option>
               <option value="warehouse">Warehouse — Distro only</option>
               <option value="viewer">Viewer — read-only everywhere</option>
@@ -152,6 +154,8 @@ export default function SettingsClient({ profiles: initialProfiles, currentUserI
                       autoFocus
                       className="px-2 py-1 text-sm rounded border border-border bg-secondary/50 text-foreground outline-none"
                     >
+                      <option value="owner">Owner</option>
+                      <option value="manager">Manager</option>
                       <option value="ops">Ops</option>
                       <option value="warehouse">Warehouse</option>
                       <option value="viewer">Viewer</option>

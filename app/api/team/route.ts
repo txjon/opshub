@@ -24,11 +24,15 @@ export async function POST(req: NextRequest) {
     const { email, fullName, role } = await req.json();
     if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 });
 
-    const validRoles = ["ops", "warehouse", "viewer"];
+    const validRoles = ["owner", "manager", "ops", "warehouse", "viewer"];
     const assignedRole = validRoles.includes(role) ? role : "viewer";
 
-    // Derive departments from role
+    // Derive departments from role. Owner gets the Owner tab + everything;
+    // manager gets everything except the Owner tab; ops/staff get the
+    // common workspace; warehouse is Distro-only; viewer is read-only.
     const ROLE_DEPARTMENTS: Record<string, string[]> = {
+      owner: ["owner", "labs", "distro", "ecomm", "contacts", "settings"],
+      manager: ["labs", "distro", "ecomm", "contacts", "settings"],
       ops: ["labs", "distro", "ecomm", "contacts"],
       warehouse: ["distro"],
       viewer: ["labs", "distro", "ecomm", "contacts"],
@@ -88,10 +92,16 @@ export async function PATCH(req: NextRequest) {
 
     const ROLE_DEPARTMENTS: Record<string, string[]> = {
       owner: ["owner", "labs", "distro", "ecomm", "contacts", "settings"],
+      manager: ["labs", "distro", "ecomm", "contacts", "settings"],
       ops: ["labs", "distro", "ecomm", "contacts"],
       warehouse: ["distro"],
       viewer: ["labs", "distro", "ecomm", "contacts"],
     };
+
+    const validRoles = ["owner", "manager", "ops", "warehouse", "viewer"];
+    if (role && !validRoles.includes(role)) {
+      return NextResponse.json({ error: `Invalid role "${role}"` }, { status: 400 });
+    }
 
     const updates: any = {};
     if (role) {
@@ -100,7 +110,28 @@ export async function PATCH(req: NextRequest) {
     }
     if (fullName !== undefined) updates.full_name = fullName;
 
-    await supabase.from("profiles").update(updates).eq("id", profileId);
+    // Use the service-role client for the profile + membership writes
+    // — managers should be able to edit teammates but the regular
+    // user_company_memberships RLS policy is owner-only, and the
+    // PATCH route already gate-keeps to owner/manager above.
+    const adminWrite = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    await adminWrite.from("profiles").update(updates).eq("id", profileId);
+
+    // Keep the per-tenant membership role in sync with the global
+    // profile role. Editing happens from a specific subdomain so we
+    // update the membership for THAT tenant only.
+    if (role) {
+      const slug = resolveCompanySlugFromRequest(req);
+      const { data: company } = await adminWrite.from("companies").select("id").eq("slug", slug).single();
+      if (company) {
+        await adminWrite.from("user_company_memberships").upsert({
+          user_id: profileId,
+          company_id: (company as any).id,
+          role,
+          is_active: true,
+        }, { onConflict: "user_id,company_id" });
+      }
+    }
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
