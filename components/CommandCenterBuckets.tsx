@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { T, font, mono } from "@/lib/theme";
+import { createClient } from "@/lib/supabase/client";
 
 export type Urgency = "critical" | "action" | "watch" | "ok";
 
@@ -38,6 +39,14 @@ export type BucketCard = {
     itemName: string;
     notes: string | null;
     href: string;
+  };
+  /** When present, the dismiss × is replaced by a server-side resolve
+   *  affordance that flips issue_resolved_at on decorator_assignments
+   *  and hides the card locally. Currently only vendor_discrepancy. */
+  resolve?: {
+    kind: "vendor_discrepancy";
+    itemId: string;
+    decoratorId: string;
   };
 };
 
@@ -209,11 +218,41 @@ function CardRow({ card, onDismiss, onOpenRevision }: { card: BucketCard; onDism
   const u = URGENCY[card.urgency];
   const isUrgent = card.urgency === "critical" || card.urgency === "action";
   const [hovered, setHovered] = useState(false);
+  const [resolving, setResolving] = useState(false);
 
   const handleDismiss = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     onDismiss(card.id);
+  };
+
+  // Server-side resolve for vendor discrepancy cards. Sets
+  // decorator_assignments.issue_resolved_at = now() so the dashboard
+  // alert query stops surfacing it on next reload, and dismisses the
+  // card locally so the team gets immediate feedback.
+  const handleResolve = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!card.resolve || resolving) return;
+    setResolving(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("decorator_assignments")
+        .update({ issue_resolved_at: new Date().toISOString() })
+        .eq("item_id", card.resolve.itemId)
+        .eq("decorator_id", card.resolve.decoratorId);
+      if (error) {
+        alert(`Couldn't mark resolved: ${error.message}`);
+        setResolving(false);
+        return;
+      }
+      onDismiss(card.id);
+    } catch (err: any) {
+      console.error("[command-center] resolve error", err);
+      alert(`Couldn't mark resolved: ${err.message || "unknown error"}`);
+      setResolving(false);
+    }
   };
 
   // Wrap with a relative container so the dismiss X can sit absolutely
@@ -275,28 +314,53 @@ function CardRow({ card, onDismiss, onOpenRevision }: { card: BucketCard; onDism
           )}
         </div>
       </CardLink>
-      {/* Dismiss X — visible on hover. Outside the Link so it doesn't
-          navigate. preventDefault + stopPropagation on click for safety. */}
-      <button
-        onClick={handleDismiss}
-        title="Dismiss this card"
-        aria-label="Dismiss"
-        style={{
-          position: "absolute", top: 6, right: 4,
-          width: 18, height: 18, padding: 0,
-          background: hovered ? T.surface : "transparent",
-          border: "none", borderRadius: 4,
-          color: T.faint, fontSize: 13, lineHeight: 1,
-          cursor: "pointer",
-          opacity: hovered ? 1 : 0,
-          transition: "opacity 0.1s, background 0.1s",
-          fontFamily: font,
-        }}
-        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = T.text; }}
-        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = T.faint; }}
-      >
-        ×
-      </button>
+      {/* Hover affordance — Resolve (server-side) for cards with
+          card.resolve, otherwise a local Dismiss ×. Both sit absolutely
+          inside the row so they don't disrupt the grid. */}
+      {card.resolve ? (
+        <button
+          onClick={handleResolve}
+          disabled={resolving}
+          title="Mark this discrepancy resolved (clears it for everyone)"
+          aria-label="Mark resolved"
+          style={{
+            position: "absolute", top: 4, right: 4,
+            padding: "3px 8px",
+            background: hovered ? T.greenDim : "transparent",
+            border: `1px solid ${hovered ? T.green : "transparent"}`,
+            borderRadius: 4,
+            color: T.green, fontSize: 10, fontWeight: 700, lineHeight: 1,
+            cursor: resolving ? "wait" : "pointer",
+            opacity: hovered ? 1 : 0,
+            transition: "opacity 0.1s, background 0.1s, border-color 0.1s",
+            fontFamily: font,
+            textTransform: "uppercase", letterSpacing: "0.05em",
+          }}
+        >
+          {resolving ? "…" : "✓ Resolve"}
+        </button>
+      ) : (
+        <button
+          onClick={handleDismiss}
+          title="Dismiss this card"
+          aria-label="Dismiss"
+          style={{
+            position: "absolute", top: 6, right: 4,
+            width: 18, height: 18, padding: 0,
+            background: hovered ? T.surface : "transparent",
+            border: "none", borderRadius: 4,
+            color: T.faint, fontSize: 13, lineHeight: 1,
+            cursor: "pointer",
+            opacity: hovered ? 1 : 0,
+            transition: "opacity 0.1s, background 0.1s",
+            fontFamily: font,
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = T.text; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = T.faint; }}
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 }

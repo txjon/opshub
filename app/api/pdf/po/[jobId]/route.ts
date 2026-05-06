@@ -319,7 +319,7 @@ function renderPOHTML(data: any): string {
     <div>
       ${HPD_LOGO_SVG}
       <div style="font-size:11px;color:#666;line-height:1.7;margin-top:8px">
-        3945 W Reno Ave, Ste A · Las Vegas, NV 89118<br/>jon@housepartydistro.com
+        4670 W Silverado Ranch Blvd, STE 120 · Las Vegas, NV 89139<br/>production@housepartydistro.com
       </div>
     </div>
     <div style="text-align:right">
@@ -335,7 +335,7 @@ function renderPOHTML(data: any): string {
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;font-size:10px">
     <div>
       <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">Bill to</div>
-      <div style="line-height:1.7">House Party Distro<br/>jon@housepartydistro.com<br/>3945 W Reno Ave, Ste A<br/>Las Vegas, NV 89118</div>
+      <div style="line-height:1.7">House Party Distro<br/>production@housepartydistro.com<br/>4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89139</div>
     </div>
     <div>
       <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">Ship to</div>
