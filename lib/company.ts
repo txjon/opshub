@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { cache } from "react";
 
 // Active company resolution for server-side code. Reads the slug
@@ -42,7 +42,16 @@ function slugFromHost(host: string | null): string {
 export const getActiveCompany = cache(async (): Promise<ActiveCompany> => {
   const h = await headers();
   const slug = h.get("x-company-slug") || slugFromHost(h.get("host"));
-  const supabase = await createClient();
+  // Service-role client: companies branding is essentially public config
+  // (name, address, emails, logos) and the slug is already trust-checked
+  // by middleware (or derived from the request Host). Using anon + RLS
+  // here breaks internal flows that have no auth cookie — the email-
+  // send → /api/pdf/quote chain calls with x-internal-key, no user
+  // session, and RLS denies the companies read → PDF gen fails.
+  const supabase = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
   const { data, error } = await supabase
     .from("companies")
     .select("id, slug, name, legal_name, job_number_prefix, default_payment_provider, bill_to_address, warehouse_address, from_email_quotes, from_email_production, from_email_billing, branding, departments, drive_folder_id")
