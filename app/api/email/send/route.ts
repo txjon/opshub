@@ -9,6 +9,15 @@ import { getPortalUrl, getVendorPortalUrl } from "@/lib/auto-email";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { refreshPaymentLink } from "@/lib/quickbooks";
 
+// Resolve active tenant from request Host (middleware doesn't run on
+// /api/* routes). Used to pick which company's from-addresses + name
+// the email gets sent with.
+function resolveCompanySlugFromRequest(req: NextRequest): string {
+  const h = (req.headers.get("host") || "").toLowerCase().split(":")[0];
+  if (h === "app.inhousemerchandise.com" || h === "ihm.localhost") return "ihm";
+  return "hpd";
+}
+
 export async function POST(req: NextRequest) {
   try {
     // Auth check — only logged-in users can send emails
@@ -18,6 +27,28 @@ export async function POST(req: NextRequest) {
 
     const resend = new Resend(process.env.RESEND_API_KEY);
     const { type, jobId, vendor, recipientEmail, ccEmails, recipientName, subject, customBody, rfqItemIds } = await req.json();
+
+    // Pull the active tenant's branding (name + from-addresses) so emails
+    // ship as "In House Merchandise <info@inhousemerchandise.com>" on
+    // app.inhousemerchandise.com and "House Party Distro <hello@...>"
+    // on HPD's URL.
+    const slug = resolveCompanySlugFromRequest(req);
+    const adminForCompany = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const { data: companyRow } = await adminForCompany.from("companies")
+      .select("name, from_email_quotes, from_email_production, from_email_billing")
+      .eq("slug", slug)
+      .single();
+    const company = (companyRow as any) || {};
+    const companyName: string = company.name || "House Party Distro";
+    const fromQuotes: string = company.from_email_quotes || process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
+    const fromProduction: string = company.from_email_production || process.env.EMAIL_FROM_PO || "onboarding@resend.dev";
+    // Domain used for plus-addressing reply-to (production+po.JOB@domain)
+    const emailDomain = (fromQuotes.split("@")[1] || "housepartydistro.com");
+    // Local part of the client-facing inbox — drives reply-to for
+    // non-PO/RFQ emails (so client replies route back through the same
+    // address Resend's inbound capture is watching).
+    const clientLocalPart = (fromQuotes.split("@")[0] || "hello");
+    const productionLocalPart = (fromProduction.split("@")[0] || "production");
 
     if (!recipientEmail || !type) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -44,22 +75,26 @@ export async function POST(req: NextRequest) {
     const projectTitle = (jobData as any)?.title || "";
     const clientGreeting = (jobData as any)?.clients?.name || (recipientName ? recipientName.split(" ")[0] : "there");
 
+    // Wrap the bare email in "Company Name <addr>" so client inboxes
+    // show the friendly name instead of just the local part.
+    const namedFrom = (addr: string) => `${companyName} <${addr}>`;
+    // PO# prefix derives from company name initials so HPD prints
+    // "HPD PO#" and IHM prints "IHM PO#" without us hardcoding either.
+    const poPrefix = companyName.split(/\s+/).filter(Boolean).map(w => w[0]?.toUpperCase() || "").join("") + " PO";
+
     if (type === "quote") {
       pdfUrl = `${baseUrl}/api/pdf/quote/${jobId}`;
-      fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-      defaultSubject = subject || `Quote ${jobNum || ""} — House Party Distro`.trim();
+      fromAddress = namedFrom(fromQuotes);
+      defaultSubject = subject || `Quote ${jobNum || ""} — ${companyName}`.trim();
       filename = `quote-${jobNum || jobId.slice(0, 8)}.pdf`;
     } else if (type === "po") {
       pdfUrl = `${baseUrl}/api/pdf/po/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}`;
-      fromAddress = process.env.EMAIL_FROM_PO || "onboarding@resend.dev";
-      defaultSubject = subject || `HPD PO# ${qbInvNum || jobNum || ""} — House Party Distro`.trim();
+      fromAddress = namedFrom(fromProduction);
+      defaultSubject = subject || `${poPrefix}# ${qbInvNum || jobNum || ""} — ${companyName}`.trim();
       filename = `po-${qbInvNum || jobNum || jobId.slice(0, 8)}.pdf`;
     } else if (type === "invoice") {
       pdfUrl = `${baseUrl}/api/pdf/invoice/${jobId}?download=1`;
-      fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-      // Subject + filename track whether this is a first send or a
-      // re-send after a previous one. invoice_sent_at is the marker —
-      // if it's already set, this is a revised send.
+      fromAddress = namedFrom(company.from_email_billing || fromQuotes);
       const clientName = (jobData as any)?.clients?.name || "";
       const isRevisedInvoice = !!(jobData as any)?.type_meta?.invoice_sent_at;
       const invoiceLabel = isRevisedInvoice ? "Revised invoice" : "Invoice";
@@ -68,7 +103,7 @@ export async function POST(req: NextRequest) {
     } else if (type === "rfq") {
       const itemsQs = Array.isArray(rfqItemIds) && rfqItemIds.length > 0 ? `&items=${encodeURIComponent(rfqItemIds.join(","))}` : "";
       pdfUrl = `${baseUrl}/api/pdf/rfq/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}${itemsQs}`;
-      fromAddress = process.env.EMAIL_FROM_PO || "onboarding@resend.dev";
+      fromAddress = namedFrom(fromProduction);
       defaultSubject = subject || `Quote request — ${jobNum || ""} — ${projectTitle || ""}`.trim();
       filename = `rfq-${jobNum || jobId.slice(0, 8)}.pdf`;
     } else {
@@ -114,14 +149,17 @@ export async function POST(req: NextRequest) {
     const portalUrl = type !== "po" && type !== "rfq" ? await getPortalUrl(jobId) : null;
     const vendorPortalUrl = type === "po" && vendor ? await getVendorPortalUrl(vendor) : null;
 
-    // Reply-to with plus-addressing for Gmail poller matching
+    // Reply-to with plus-addressing for Gmail poller matching. Domain +
+    // local part are derived from the active tenant's from-addresses
+    // so IHM replies route to info+c.JOB@inhousemerchandise.com and
+    // HPD's stay on housepartydistro.com.
     let replyTo: string | undefined;
     if (type === "po" && jobId) {
-      replyTo = `production+po.${jobId}@housepartydistro.com`;
+      replyTo = `${productionLocalPart}+po.${jobId}@${emailDomain}`;
     } else if (type === "rfq" && jobId) {
-      replyTo = `production+rfq.${jobId}@housepartydistro.com`;
+      replyTo = `${productionLocalPart}+rfq.${jobId}@${emailDomain}`;
     } else if (jobId) {
-      replyTo = `hello+c.${jobId}@housepartydistro.com`;
+      replyTo = `${clientLocalPart}+c.${jobId}@${emailDomain}`;
     }
 
     // Send via Resend
@@ -166,7 +204,7 @@ export async function POST(req: NextRequest) {
               bodyHtml: `Can you please provide pricing for the item(s) in the attachment? The PDF lays out each item — please reply with: pricing, setup fees, and estimated shipping cost. In addition, we need realistic production lead time and post-production transit time.`,
               extraHtml: customExtra,
               hint: `Reach out if anything in the spec is unclear or if you need additional info — we'll send through whatever you need.`,
-              closing: "Thanks,\nHouse Party Distro",
+              closing: `Thanks,\n${companyName}`,
               align: "left",
             });
           })()
@@ -176,7 +214,7 @@ export async function POST(req: NextRequest) {
             bodyHtml: `Please find the attached purchase order. Let us know if you have any questions or need clarification on any items.`,
             cta: vendorPortalUrl ? { label: "View in Vendor Portal", url: vendorPortalUrl, style: "dark" } : undefined,
             hint: `You can confirm receipt, update production status, and enter tracking directly from the portal.`,
-            closing: "Thanks,\nHouse Party Distro",
+            closing: `Thanks,\n${companyName}`,
           }),
       attachments: [
         {
@@ -205,7 +243,7 @@ export async function POST(req: NextRequest) {
         channel: (type === "po" || type === "rfq") ? "production" : "client",
         decorator_id: emailDecId,
         from_email: fromAddress,
-        from_name: "House Party Distro",
+        from_name: companyName,
         to_emails: [recipientEmail],
         cc_emails: ccEmails || [],
         subject: defaultSubject,
