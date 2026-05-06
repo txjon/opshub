@@ -31,15 +31,20 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    // Client name
+    // Client name + tenant (for portal branding — logo, wordmark)
     let clientName = "Client";
+    let tenant = { name: "House Party Distro", slug: "hpd" };
     if (job.client_id) {
       const { data: client } = await sb
         .from("clients")
-        .select("name")
+        .select("name, companies:company_id(name, slug)")
         .eq("id", job.client_id)
         .single();
-      if (client) clientName = client.name;
+      if (client) {
+        clientName = client.name;
+        const t = (client as any).companies;
+        if (t?.slug) tenant = { name: t.name, slug: t.slug };
+      }
     }
 
     // All projects for this client (sidebar navigation)
@@ -314,6 +319,7 @@ export async function GET(
         paymentTerms: job.payment_terms,
       },
       client: { name: clientName },
+      company: tenant,
       quote: {
         items: portalQuoteItems,
         subtotal: portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0),

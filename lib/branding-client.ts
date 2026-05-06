@@ -26,6 +26,14 @@ const LOGOS_BY_SLUG: Record<string, string> = {
   ihm: IHM_LOGO_SVG,
 };
 
+// Direct lookup for surfaces that already know their tenant (e.g. public
+// portal pages that get the slug from a server API and don't have auth
+// to query the companies table).
+export function getLogoSvgForSlug(slug: string | null | undefined): string {
+  if (!slug) return LOGOS_BY_SLUG.hpd || "";
+  return LOGOS_BY_SLUG[slug] || LOGOS_BY_SLUG.hpd || "";
+}
+
 export type ClientBranding = {
   slug: string;
   name: string;
