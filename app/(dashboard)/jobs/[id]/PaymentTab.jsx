@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
@@ -8,8 +8,34 @@ import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewMo
 import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
+import { StripePaymentTab } from "./StripePaymentTab";
 
-export function PaymentTab({ job, items = [], contacts, payments, onReload, onRecalcPhase, onUpdateJob }) {
+export function PaymentTab(props) {
+  const { job } = props;
+  const supabase = createClient();
+  // Provider-aware fork — fetch the job's company once and route to
+  // StripePaymentTab when the company is Stripe-backed (IHM at launch).
+  // HPD stays on the existing QB-backed path below, completely untouched.
+  const [provider, setProvider] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!job?.company_id) { setProvider("quickbooks"); return; }
+      const { data } = await supabase
+        .from("companies")
+        .select("default_payment_provider")
+        .eq("id", job.company_id)
+        .single();
+      if (!cancelled) setProvider(data?.default_payment_provider || "quickbooks");
+    })();
+    return () => { cancelled = true; };
+  }, [job?.company_id]);
+  if (provider === null) return null; // brief render while we resolve provider
+  if (provider === "stripe") return <StripePaymentTab {...props} />;
+  return <PaymentTabQB {...props} />;
+}
+
+function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcPhase, onUpdateJob }) {
   const supabase = createClient();
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
   const [showInvoiceProofsEmail, setShowInvoiceProofsEmail] = useState(false);
