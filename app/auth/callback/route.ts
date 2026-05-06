@@ -4,18 +4,24 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
+  // Supabase recovery + signup verify links append type=recovery / type=signup
+  // / type=invite to the redirect target. Treat any of those as "user just
+  // verified via email and almost certainly has no password set" — force
+  // them to /set-password regardless of what `next` was passed.
+  const verifyType = searchParams.get("type");
   const next = searchParams.get("next") || "/dashboard";
 
   if (code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      // Check if user needs to set password (invited users)
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        // If user was invited, they need to set a password
-        const isInvited = user.app_metadata?.invited || !user.confirmed_at;
-        if (isInvited || next.includes("set-password")) {
+        const recoveryFlow = verifyType === "recovery" || verifyType === "invite" || verifyType === "signup";
+        // app_metadata.invited stays set after the initial click; !confirmed_at
+        // covers the very-first invite click. Either signal → set-password.
+        const looksInvited = user.app_metadata?.invited === true || !user.confirmed_at;
+        if (recoveryFlow || looksInvited || next.includes("set-password")) {
           return NextResponse.redirect(new URL("/set-password", request.url));
         }
       }
