@@ -122,21 +122,23 @@ export async function createAndSendInvoice(
     payment_settings: { payment_method_types: paymentMethods },
   });
 
-  // Step 2: add line items, attached to the draft. Using price_data so
-  // each line shows on the invoice as "qty × unit_amount = total"
-  // rather than a single lump sum. product_data names the line item
-  // (Stripe creates an internal Product on the fly — we don't manage
-  // them as long-lived catalog records).
+  // Step 2: add line items, attached to the draft. Stripe's
+  // invoiceItems.create takes a total `amount` (smallest currency unit)
+  // — not unit_amount × quantity. It also doesn't accept price_data
+  // with product_data the way Checkout does (hence the original
+  // "unknown parameter: price_data[product_data]" error). Pre-multiply
+  // here and put qty in the description so the invoice line stays
+  // legible without managing long-lived Stripe Products.
   for (const item of lineItems) {
+    const desc = item.quantity > 1
+      ? `${item.description} (${item.quantity} × $${(item.unit_amount_cents / 100).toFixed(2)})`
+      : item.description;
     await stripe.invoiceItems.create({
       customer: customerId,
       invoice: draft.id,
-      quantity: item.quantity,
-      price_data: {
-        currency: "usd",
-        product_data: { name: item.description },
-        unit_amount: item.unit_amount_cents,
-      },
+      currency: "usd",
+      description: desc,
+      amount: item.quantity * item.unit_amount_cents,
     });
   }
 
