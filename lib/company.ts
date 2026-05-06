@@ -24,6 +24,7 @@ export type ActiveCompany = {
   from_email_billing: string | null;
   branding: Record<string, unknown>;
   departments: string[];
+  drive_folder_id: string | null;
 };
 
 export const getActiveCompany = cache(async (): Promise<ActiveCompany> => {
@@ -31,7 +32,7 @@ export const getActiveCompany = cache(async (): Promise<ActiveCompany> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("companies")
-    .select("id, slug, name, legal_name, job_number_prefix, default_payment_provider, bill_to_address, warehouse_address, from_email_quotes, from_email_production, from_email_billing, branding, departments")
+    .select("id, slug, name, legal_name, job_number_prefix, default_payment_provider, bill_to_address, warehouse_address, from_email_quotes, from_email_production, from_email_billing, branding, departments, drive_folder_id")
     .eq("slug", slug)
     .single();
   if (error || !data) {
@@ -42,7 +43,7 @@ export const getActiveCompany = cache(async (): Promise<ActiveCompany> => {
     console.warn(`[company] no row for slug "${slug}", falling back to hpd`, error);
     const { data: hpd } = await supabase
       .from("companies")
-      .select("id, slug, name, legal_name, job_number_prefix, default_payment_provider, bill_to_address, warehouse_address, from_email_quotes, from_email_production, from_email_billing, branding, departments")
+      .select("id, slug, name, legal_name, job_number_prefix, default_payment_provider, bill_to_address, warehouse_address, from_email_quotes, from_email_production, from_email_billing, branding, departments, drive_folder_id")
       .eq("slug", "hpd")
       .single();
     if (!hpd) throw new Error("[company] no companies rows in DB — run migration 056");
