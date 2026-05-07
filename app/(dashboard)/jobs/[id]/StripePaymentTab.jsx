@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
@@ -38,6 +38,33 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
   const stripePaymentLink = job.type_meta?.stripe_payment_link;
   const stripeInvoiceStatus = job.type_meta?.stripe_invoice_status;
   const stripeTotalCents = job.type_meta?.stripe_total_cents;
+
+  // Auto-resync from Stripe on mount when an invoice exists. Catches
+  // the case where the invoice.voided webhook didn't reach OpsHub
+  // (event not subscribed, replication lag, etc.) and the UI is
+  // showing a stale "open" status. Fires once per mount, fire-and-
+  // forget — onReload picks up the corrected state on next refresh.
+  useEffect(() => {
+    if (!stripeInvoiceId || !job.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/stripe/resync/${job.id}`, { method: "POST" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        // If Stripe truth differs from what's locally rendered, reload.
+        const newStatus = data.resynced_to?.status || (data.all_void ? "void" : null);
+        const newId = data.resynced_to?.id;
+        const drift =
+          (newStatus && newStatus !== stripeInvoiceStatus) ||
+          (newId && newId !== stripeInvoiceId);
+        if (drift && onReload) onReload();
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.id, stripeInvoiceId]);
 
   // Aggregate payments — same math the QB tab uses, kept simple.
   const aggInvoiceTotal = stripeTotalCents ? stripeTotalCents / 100 : 0;
