@@ -171,18 +171,21 @@ export async function createAndSendInvoice(
     });
   }
 
-  // Step 3: finalize → generates the invoice number + makes it sendable
+  // Step 3: finalize → generates the invoice number + payment_intent and
+  // assigns hosted_invoice_url. We do NOT call stripe.invoices.sendInvoice
+  // here — that would email the client a Stripe-hosted invoice link
+  // breaking the white-label flow. OpsHub sends its own branded email
+  // via Resend (email/send route, type=invoice) that points at our
+  // tenant-domain pay page (/portal/{token}/pay), which mounts the
+  // Payment Element directly so the client never sees stripe.com.
   const finalized = await stripe.invoices.finalizeInvoice(draft.id!);
 
-  // Step 4: send → emails the client + activates the hosted_invoice_url
-  const sent = await stripe.invoices.sendInvoice(finalized.id!);
-
   return {
-    invoice_id: sent.id!,
-    invoice_number: sent.number || sent.id!,
-    hosted_invoice_url: sent.hosted_invoice_url || "",
-    total_cents: sent.total,
-    status: sent.status || "draft",
+    invoice_id: finalized.id!,
+    invoice_number: finalized.number || finalized.id!,
+    hosted_invoice_url: finalized.hosted_invoice_url || "",
+    total_cents: finalized.total,
+    status: finalized.status || "draft",
   };
 }
 
