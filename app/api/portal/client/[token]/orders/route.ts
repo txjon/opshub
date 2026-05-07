@@ -21,10 +21,16 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     const db = admin();
     const { data: client } = await db
       .from("clients")
-      .select("id, name")
+      .select("id, name, companies:company_id(slug, default_payment_provider)")
       .eq("portal_token", params.token)
       .single();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+    const tenantProvider = ((client as any).companies?.default_payment_provider || "quickbooks") as string;
+    // Resolve the tenant's public origin so Stripe-tenant pay links
+    // can point at our white-label /portal/{job_token}/pay page on
+    // their domain (vs sending the client to stripe.com hosted pages).
+    const { appBaseUrl } = await import("@/lib/public-url");
+    const tenantOrigin = await appBaseUrl();
 
     const url = new URL(req.url);
     const archive = url.searchParams.get("archive") === "1";
@@ -278,8 +284,22 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         balance,
         payment_status: paymentStatus,
         paid_at: paidAt,
-        qb_invoice_number: isInvoiceSent ? (typeMeta.qb_invoice_number || null) : null,
-        qb_payment_link: isInvoiceSent ? (typeMeta.qb_payment_link || null) : null,
+        // Provider-agnostic invoice fields. For Stripe tenants the pay
+        // link routes through our white-label page; for QB tenants it's
+        // the QB-hosted payment URL. Legacy qb_* fields kept populated
+        // (only for QB tenants) so older portal builds still work.
+        invoice_number: isInvoiceSent
+          ? (tenantProvider === "stripe"
+              ? (typeMeta.stripe_invoice_number || null)
+              : (typeMeta.qb_invoice_number || null))
+          : null,
+        payment_link: isInvoiceSent
+          ? (tenantProvider === "stripe"
+              ? (j.portal_token ? `${tenantOrigin}/portal/${j.portal_token}/pay` : null)
+              : (typeMeta.qb_payment_link || null))
+          : null,
+        qb_invoice_number: isInvoiceSent && tenantProvider !== "stripe" ? (typeMeta.qb_invoice_number || null) : null,
+        qb_payment_link: isInvoiceSent && tenantProvider !== "stripe" ? (typeMeta.qb_payment_link || null) : null,
         has_invoice: isInvoiced,
         pricing_visible: isPricingVisible,
       };
