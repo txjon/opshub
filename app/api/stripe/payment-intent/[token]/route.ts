@@ -56,7 +56,21 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       });
     }
     if (invoice.status === "void" || invoice.status === "uncollectible") {
-      return NextResponse.json({ error: "This invoice is no longer payable. Contact your account manager." }, { status: 400 });
+      // Diagnostic surface — when this fires we want to know which
+      // invoice ID the route resolved + which OpsHub-side number it
+      // matched, so we can chase ghost-invoice cases (saved ID points
+      // at a stale invoice).
+      return NextResponse.json({
+        error: "This invoice is no longer payable. Contact your account manager.",
+        debug: {
+          opshub_stripe_invoice_id: stripeInvoiceId,
+          opshub_stripe_invoice_number: tm.stripe_invoice_number || null,
+          stripe_invoice_id: invoice.id,
+          stripe_invoice_number: invoice.number,
+          stripe_status: invoice.status,
+          tenant: slug,
+        },
+      }, { status: 400 });
     }
 
     // Get or create the PaymentIntent. For collection_method=send_invoice

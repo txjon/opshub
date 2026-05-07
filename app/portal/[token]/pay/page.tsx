@@ -70,6 +70,8 @@ export default function PayPage({ params }: { params: { token: string } }) {
   // Default to the host's tenant so the logo doesn't flash HPD on IHM.
   const [hostSlug, setHostSlug] = useState<string>("hpd");
 
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+
   useEffect(() => {
     setHostSlug(slugFromCurrentHost());
     (async () => {
@@ -78,6 +80,7 @@ export default function PayPage({ params }: { params: { token: string } }) {
         const data = await res.json();
         if (!res.ok) {
           setLoadErr(data?.error || "Unable to load payment details.");
+          if (data?.debug) setDebugInfo(data.debug);
           return;
         }
         setMeta(data);
@@ -90,7 +93,7 @@ export default function PayPage({ params }: { params: { token: string } }) {
     })();
   }, [params.token]);
 
-  if (loadErr) return <CenterCard tenantSlug={hostSlug}><Error msg={loadErr} /></CenterCard>;
+  if (loadErr) return <CenterCard tenantSlug={hostSlug}><Error msg={loadErr} debug={debugInfo} /></CenterCard>;
   if (!meta) return <CenterCard tenantSlug={hostSlug}><Loading /></CenterCard>;
   if (meta.alreadyPaid) return <CenterCard tenantSlug={meta.tenantSlug}><AlreadyPaid invoiceNumber={meta.invoiceNumber} /></CenterCard>;
   if (!meta.clientSecret || !stripePromise) return <CenterCard tenantSlug={meta.tenantSlug}><Loading /></CenterCard>;
@@ -195,11 +198,16 @@ function PaymentForm({ token, amountLabel }: { token: string; amountLabel: strin
 function Loading() {
   return <div style={{ textAlign: "center", color: C.muted, fontSize: 14, padding: "24px 0" }}>Loading payment details…</div>;
 }
-function Error({ msg }: { msg: string }) {
+function Error({ msg, debug }: { msg: string; debug?: any }) {
   return (
     <div style={{ textAlign: "center", padding: "24px 0" }}>
       <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
       <div style={{ fontSize: 14, fontWeight: 600, color: C.red, marginBottom: 4 }}>{msg}</div>
+      {debug && (
+        <pre style={{ marginTop: 16, padding: 12, background: "#f3f3f5", borderRadius: 6, fontSize: 11, color: "#444", textAlign: "left", overflow: "auto" }}>
+          {JSON.stringify(debug, null, 2)}
+        </pre>
+      )}
     </div>
   );
 }
