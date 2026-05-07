@@ -101,27 +101,39 @@ export async function POST(req: NextRequest) {
     const tm = (job as any).type_meta || {};
     const existingInvoiceId = tm.stripe_invoice_id;
 
-    // Currently re-pushing only updates description; line items on a
-    // sent invoice can't be edited via the API. Stripe enforces this.
-    // For now, surface a clear error if the user re-pushes — they need
-    // to void the old invoice in Stripe Dashboard first if items changed.
+    // Re-push handling: line items on a finalized invoice can't be edited
+    // via the API (Stripe enforces this), so a real "update" isn't possible.
+    // Three cases when stripe_invoice_id is already set:
+    //   1. Stripe deleted/missing  → recreate (catch fall-through).
+    //   2. Stripe says it's voided → recreate (this branch). Voiding in
+    //      Stripe Dashboard frees the invoice number for reuse and signals
+    //      "throw this one away" — exactly the user's intent here.
+    //   3. Otherwise (draft/open/paid) → return early with a clear hint.
     if (existingInvoiceId) {
       try {
         const existing = await stripe.invoices.retrieve(existingInvoiceId);
-        await supabase.from("job_activity").insert({
-          job_id: job.id, user_id: user.id, type: "auto",
-          message: `Stripe invoice already exists (#${existing.number || "draft"}) — refresh from Stripe Dashboard if line items changed`,
-        });
-        return NextResponse.json({
-          invoiceId: existing.id,
-          invoiceNumber: existing.number,
-          hostedUrl: existing.hosted_invoice_url,
-          totalCents: existing.total,
-          status: existing.status,
-          alreadyExists: true,
-        });
+        if (existing.status === "void") {
+          await supabase.from("job_activity").insert({
+            job_id: job.id, user_id: user.id, type: "auto",
+            message: `Voided Stripe invoice ${existing.number || existingInvoiceId} — creating a fresh invoice`,
+          });
+          // Fall through to recreate below.
+        } else {
+          await supabase.from("job_activity").insert({
+            job_id: job.id, user_id: user.id, type: "auto",
+            message: `Stripe invoice already exists (#${existing.number || "draft"}, ${existing.status}) — void in Stripe Dashboard before re-pushing`,
+          });
+          return NextResponse.json({
+            invoiceId: existing.id,
+            invoiceNumber: existing.number,
+            hostedUrl: existing.hosted_invoice_url,
+            totalCents: existing.total,
+            status: existing.status,
+            alreadyExists: true,
+          });
+        }
       } catch {
-        // Invoice was deleted / voided in Stripe — fall through to recreate
+        // Invoice was deleted in Stripe — fall through to recreate.
       }
     }
 

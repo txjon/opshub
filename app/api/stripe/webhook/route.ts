@@ -110,6 +110,27 @@ export async function POST(req: NextRequest) {
         break;
       }
 
+      case "invoice.voided": {
+        // User voided the invoice in Stripe Dashboard. Mark the
+        // OpsHub-side status so the StripePaymentTab can show "void"
+        // instead of "✓ Sent" — the next push from the UI will
+        // recreate (route.ts detects status === "void" and falls
+        // through to createAndSendInvoice).
+        const inv = event.data.object as any;
+        const { data: job } = await sb
+          .from("jobs")
+          .select("id, type_meta")
+          .filter("type_meta->>stripe_invoice_id", "eq", inv.id)
+          .single();
+        if (job) {
+          const tm = (job as any).type_meta || {};
+          await sb.from("jobs").update({
+            type_meta: { ...tm, stripe_invoice_status: "void" },
+          }).eq("id", (job as any).id);
+        }
+        break;
+      }
+
       case "invoice.finalized": {
         // Sync hosted_invoice_url if our type_meta is stale
         const inv = event.data.object as any;
