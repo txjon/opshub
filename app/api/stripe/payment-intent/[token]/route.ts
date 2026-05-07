@@ -69,6 +69,12 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           stripe_invoice_number: invoice.number,
           stripe_status: invoice.status,
           tenant: slug,
+          // Probe what Supabase URL this serverless function is actually
+          // talking to — chasing a case where local script + prod route
+          // return different rows for the same portal_token.
+          env_supabase_host: (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/^https?:\/\//, "").split(".")[0],
+          tm_diag_sentinel: tm._diag_sentinel || null,
+          tm_invoice_sent_at: tm.invoice_sent_at || null,
         },
       }, { status: 400 });
     }
