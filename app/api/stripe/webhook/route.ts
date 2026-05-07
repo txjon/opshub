@@ -110,6 +110,32 @@ export async function POST(req: NextRequest) {
         break;
       }
 
+      case "payment_intent.succeeded": {
+        // Tier 3 white-label flow: the pay page creates a stand-alone
+        // PaymentIntent (Stripe doesn't auto-attach one to send_invoice
+        // invoices in all cases), tagged with metadata.stripe_invoice_id.
+        // When that PI succeeds, mark the invoice paid out-of-band so
+        // Stripe's books match — that triggers invoice.paid below which
+        // records the OpsHub payment row + activity.
+        const pi = event.data.object as any;
+        const linkedInvoiceId = pi?.metadata?.stripe_invoice_id as string | undefined;
+        if (linkedInvoiceId) {
+          try {
+            const { getStripeClient } = await import("@/lib/stripe");
+            const stripe = getStripeClient(slug);
+            const inv = await stripe.invoices.retrieve(linkedInvoiceId);
+            if (inv.status === "open") {
+              await stripe.invoices.pay(linkedInvoiceId, {
+                paid_out_of_band: true,
+              });
+            }
+          } catch (e: any) {
+            console.error(`[stripe/webhook] failed to mark invoice paid for PI ${pi.id}:`, e?.message);
+          }
+        }
+        break;
+      }
+
       case "invoice.voided": {
         // User voided the invoice in Stripe Dashboard. Mark the
         // OpsHub-side status so the StripePaymentTab can show "void"
