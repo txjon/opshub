@@ -53,12 +53,25 @@ const fmtMoney = (cents: number, currency: string) => {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: (currency || "usd").toUpperCase() }).format((cents || 0) / 100);
 };
 
+// Resolve the tenant slug from the URL the client is on so the logo
+// renders correctly even before the API responds (or if it errors).
+// Mirrors lib/supabase/client.ts resolveSlugFromHost.
+function slugFromCurrentHost(): string {
+  if (typeof window === "undefined") return "hpd";
+  const h = window.location.hostname.toLowerCase();
+  if (h === "app.inhousemerchandise.com" || h === "ihm.localhost") return "ihm";
+  return "hpd";
+}
+
 export default function PayPage({ params }: { params: { token: string } }) {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [loadErr, setLoadErr] = useState("");
   const [stripePromise, setStripePromise] = useState<Promise<StripeJs | null> | null>(null);
+  // Default to the host's tenant so the logo doesn't flash HPD on IHM.
+  const [hostSlug, setHostSlug] = useState<string>("hpd");
 
   useEffect(() => {
+    setHostSlug(slugFromCurrentHost());
     (async () => {
       try {
         const res = await fetch(`/api/stripe/payment-intent/${params.token}`);
@@ -77,8 +90,8 @@ export default function PayPage({ params }: { params: { token: string } }) {
     })();
   }, [params.token]);
 
-  if (loadErr) return <CenterCard tenantSlug="hpd"><Error msg={loadErr} /></CenterCard>;
-  if (!meta) return <CenterCard tenantSlug="hpd"><Loading /></CenterCard>;
+  if (loadErr) return <CenterCard tenantSlug={hostSlug}><Error msg={loadErr} /></CenterCard>;
+  if (!meta) return <CenterCard tenantSlug={hostSlug}><Loading /></CenterCard>;
   if (meta.alreadyPaid) return <CenterCard tenantSlug={meta.tenantSlug}><AlreadyPaid invoiceNumber={meta.invoiceNumber} /></CenterCard>;
   if (!meta.clientSecret || !stripePromise) return <CenterCard tenantSlug={meta.tenantSlug}><Loading /></CenterCard>;
 

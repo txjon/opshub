@@ -59,11 +59,48 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       return NextResponse.json({ error: "This invoice is no longer payable. Contact your account manager." }, { status: 400 });
     }
 
-    const paymentIntentId = (invoice as any).payment_intent as string | null;
-    if (!paymentIntentId) {
-      return NextResponse.json({ error: "Invoice has no payment intent yet — try again in a moment." }, { status: 400 });
+    // Get or create the PaymentIntent. For collection_method=send_invoice
+    // Stripe sometimes doesn't auto-attach a PI until the customer pays
+    // via the hosted page — which we bypass entirely. Create one
+    // ourselves the first time, store the ID in OpsHub's type_meta to
+    // dedupe future loads, and let the webhook mark the invoice paid
+    // when payment_intent.succeeded fires (matched via metadata).
+    let paymentIntent: any;
+    const cachedPiId = tm.stripe_payment_intent_id as string | undefined;
+    const invoicePiId = (invoice as any).payment_intent as string | null;
+
+    if (cachedPiId || invoicePiId) {
+      try {
+        paymentIntent = await stripe.paymentIntents.retrieve((cachedPiId || invoicePiId)!);
+        // If a cached PI is no longer valid (canceled etc.), drop and recreate.
+        if (paymentIntent.status === "canceled") paymentIntent = null;
+      } catch {
+        paymentIntent = null;
+      }
     }
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+    if (!paymentIntent) {
+      const customerId = typeof invoice.customer === "string"
+        ? invoice.customer
+        : (invoice.customer as any)?.id;
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: invoice.amount_due,
+        currency: invoice.currency,
+        customer: customerId,
+        description: `Invoice ${invoice.number || stripeInvoiceId} — ${(job as any).title || ""}`,
+        metadata: {
+          stripe_invoice_id: stripeInvoiceId,
+          opshub_job_id: (job as any).id,
+        },
+        automatic_payment_methods: { enabled: true },
+      });
+      // Persist the PI ID so subsequent /pay loads return the same
+      // client_secret (avoids creating ghost PIs on every refresh).
+      await sb
+        .from("jobs")
+        .update({ type_meta: { ...tm, stripe_payment_intent_id: paymentIntent.id } })
+        .eq("id", (job as any).id);
+    }
 
     return NextResponse.json({
       clientSecret: paymentIntent.client_secret,
