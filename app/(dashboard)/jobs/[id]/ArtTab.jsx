@@ -5,6 +5,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { buildMockupClient, preloadTemplate, extractPrintInfoFromPsd } from "@/lib/mockup-client";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
+import { useClientBranding } from "@/lib/branding-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { ArtBriefPanel } from "./ArtBriefPanel";
@@ -205,8 +206,9 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     return instr;
   })();
 
-  // Ensure logo is loaded for PDF generation
-  useEffect(() => { preloadLogo(); }, []);
+  const branding = useClientBranding();
+  // Ensure tenant logo is loaded for PDF generation
+  useEffect(() => { preloadLogo(branding.slug); }, [branding.slug]);
 
   const [methods, setMethods] = useState([defaultMethod]);
   const [selInstructions, setSelInstructions] = useState(defaultInstructions);
@@ -368,6 +370,8 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
           method: methods.join(", "),
           instructions: selInstructions,
           notes: notes.trim(),
+          tenantSlug: branding.slug,
+          tenantName: branding.name,
         });
 
         const pdfBlob = doc.output("blob");
@@ -857,7 +861,8 @@ export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId
 }
 
 export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged, onUpdateItem }) {
-  useEffect(() => { preloadLogo(); preloadTemplate(); }, []);
+  const branding = useClientBranding();
+  useEffect(() => { preloadLogo(branding.slug); preloadTemplate(); }, [branding.slug]);
   const [mode, setMode] = useState(null); // null | "auto" | "manual"
   const [mockupData, setMockupData] = useState(null);
   const [generating, setGenerating] = useState(false);
@@ -1023,6 +1028,8 @@ export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged,
       blankVendor: item.blank_vendor || "",
       blankStyle: item.sku || "",
       blankColor: item.color || "",
+      tenantSlug: branding.slug,
+      tenantName: branding.name,
     });
   }
 

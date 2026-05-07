@@ -3,9 +3,11 @@ import React, { useState, useRef, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { buildMockupClient, preloadTemplate, extractPrintInfoFromPsd } from "@/lib/mockup-client";
 import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
+import { useClientBranding } from "@/lib/branding-client";
 
 export default function ToolKitPage() {
-  useEffect(() => { preloadLogo(); preloadTemplate(); }, []);
+  const branding = useClientBranding();
+  useEffect(() => { preloadLogo(branding.slug); preloadTemplate(); }, [branding.slug]);
 
   return (
     <div style={{ fontFamily: font, color: T.text, maxWidth: 800, margin: "0 auto" }}>
@@ -18,6 +20,7 @@ export default function ToolKitPage() {
 }
 
 function MockupTool() {
+  const branding = useClientBranding();
   const [mockupData, setMockupData] = useState<any>(null);
   const [generating, setGenerating] = useState(false);
   const [genStatus, setGenStatus] = useState("");
@@ -135,6 +138,11 @@ function MockupTool() {
         blankVendor: "",
         blankStyle: "",
         blankColor: "",
+        method: undefined,
+        instructions: undefined,
+        notes: undefined,
+        tenantSlug: branding.slug,
+        tenantName: branding.name,
       });
       doc.save(`${itemName || "Item"} — Product Proof.pdf`);
     } catch (err: any) {
