@@ -132,10 +132,13 @@ export async function createAndSendInvoice(
   // Step 1a (optional): apply a custom invoice number to the draft.
   // Stripe assigns numbers at finalize-time by default; updating
   // `number` on a draft requires Manual Invoice Numbering. On
-  // collision we suffix `-r2..r5` then surface the original error.
+  // collision we suffix -r2, -r3, … (Stripe permanently locks
+  // assigned numbers, even on voided invoices). Cap at 99 so heavy
+  // testing churn or repeated revisions on the same job_number
+  // don't dead-end before exhausting realistic suffix space.
   if (params.customNumber) {
     let lastErr: any;
-    for (let attempt = 1; attempt <= 5; attempt++) {
+    for (let attempt = 1; attempt <= 99; attempt++) {
       const candidate = attempt === 1 ? params.customNumber : `${params.customNumber}-r${attempt}`;
       try {
         await stripe.invoices.update(draft.id!, { number: candidate });
