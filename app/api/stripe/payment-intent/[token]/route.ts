@@ -140,6 +140,12 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             verification_method: "instant",
           },
         },
+        // Save the verified bank account / card on the customer so the
+        // next invoice's PaymentElement shows it as a one-click option
+        // and the client doesn't have to re-verify their bank every
+        // time. "on_session" = we'll charge it again with the customer
+        // present (matches our flow — they always click Pay).
+        setup_future_usage: "on_session",
       });
       // Stash the PI on the invoice metadata. Stripe is the source of
       // truth for invoice ↔ PI linkage now; OpsHub's DB is read-only
