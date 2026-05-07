@@ -33,17 +33,17 @@ export async function GET(
 
     // Client name + tenant (for portal branding — logo, wordmark)
     let clientName = "Client";
-    let tenant = { name: "House Party Distro", slug: "hpd" };
+    let tenant = { name: "House Party Distro", slug: "hpd", default_payment_provider: "quickbooks" };
     if (job.client_id) {
       const { data: client } = await sb
         .from("clients")
-        .select("name, companies:company_id(name, slug)")
+        .select("name, companies:company_id(name, slug, default_payment_provider)")
         .eq("id", job.client_id)
         .single();
       if (client) {
         clientName = client.name;
         const t = (client as any).companies;
-        if (t?.slug) tenant = { name: t.name, slug: t.slug };
+        if (t?.slug) tenant = { name: t.name, slug: t.slug, default_payment_provider: t.default_payment_provider || "quickbooks" };
       }
     }
 
@@ -71,7 +71,7 @@ export async function GET(
           phase: j.phase,
           shipDate: j.target_ship_date,
           portalToken: j.portal_token,
-          invoiceNumber: sentAt ? ((j.type_meta as any)?.qb_invoice_number || null) : null,
+          invoiceNumber: sentAt ? (((tenant.default_payment_provider === "stripe" ? (j.type_meta as any)?.stripe_invoice_number : (j.type_meta as any)?.qb_invoice_number)) || null) : null,
           isComplete: j.phase === "complete",
           itemCount,
           unitCount,
@@ -165,7 +165,8 @@ export async function GET(
       else if (/quote approved/i.test(msg)) clientMsg = "Quote approved";
       else if (/quote rejected|revision requested/i.test(msg) && /quote/i.test(msg)) clientMsg = msg;
       else if (/invoice sent to client/i.test(msg)) {
-        const invNum = (job.type_meta as any)?.qb_invoice_number;
+        const tmInv = (job.type_meta as any) || {};
+        const invNum = tenant.default_payment_provider === "stripe" ? tmInv.stripe_invoice_number : tmInv.qb_invoice_number;
         clientMsg = invNum ? `Invoice #${invNum} delivered` : "Invoice delivered";
       }
       else if (/invoice \+ proofs sent/i.test(msg)) clientMsg = "Invoice and proofs delivered";
@@ -349,8 +350,23 @@ export async function GET(
       })),
       // Invoice + pay link gated on invoice_sent_at OR a manual non-draft
       // payment record. Pushing to QB doesn't expose anything to the portal.
-      paymentLink: (typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status))) ? (typeMeta.qb_payment_link || null) : null,
-      invoiceNumber: (typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status))) ? (typeMeta.qb_invoice_number || null) : null,
+      // Provider-aware. Stripe tenants surface stripe_invoice_number +
+      // our white-label /portal/{token}/pay URL. QB tenants keep
+      // qb_invoice_number + qb_payment_link.
+      paymentLink: await (async () => {
+        const sent = !!typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status));
+        if (!sent) return null;
+        if (tenant.default_payment_provider === "stripe") {
+          // The URL token IS this job's portal_token, so we don't need
+          // to re-fetch it.
+          const { appBaseUrl } = await import("@/lib/public-url");
+          return `${await appBaseUrl()}/portal/${token}/pay`;
+        }
+        return typeMeta.qb_payment_link || null;
+      })(),
+      invoiceNumber: ((typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status)))
+        ? ((tenant.default_payment_provider === "stripe" ? typeMeta.stripe_invoice_number : typeMeta.qb_invoice_number) || null)
+        : null),
       activity: (activity || []).map((a: any) => ({
         message: a.message,
         date: a.created_at,
