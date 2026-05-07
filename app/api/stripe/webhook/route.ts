@@ -67,18 +67,22 @@ export async function POST(req: NextRequest) {
           .filter("type_meta->>stripe_invoice_id", "eq", inv.id)
           .single();
         if (job) {
-          // Record the payment in payment_records (cents → dollars)
+          // Record the payment in payment_records (cents → dollars).
+          // type is constrained to deposit/balance/full_payment/refund
+          // (mig 001) — partial → balance, otherwise full_payment.
           const amount = (inv.amount_paid || 0) / 100;
-          await sb.from("payment_records").insert({
+          const totalDue = (inv.total || 0) / 100;
+          const paymentType = totalDue > 0 && amount + 0.01 < totalDue ? "balance" : "full_payment";
+          const { error: payErr } = await sb.from("payment_records").insert({
             job_id: job.id,
             company_id: (company as any)?.id,
             amount,
-            type: "invoice",
+            type: paymentType,
             invoice_number: inv.number || (job as any).type_meta?.stripe_invoice_number,
             status: "paid",
             paid_date: new Date().toISOString().split("T")[0],
-            notes: `Stripe — invoice ${inv.number || inv.id}`,
           });
+          if (payErr) console.error("[stripe/webhook] payment_records insert failed:", payErr.message);
           // Sync invoice status onto jobs.type_meta
           await sb.from("jobs").update({
             type_meta: { ...((job as any).type_meta || {}), stripe_invoice_status: "paid" },
