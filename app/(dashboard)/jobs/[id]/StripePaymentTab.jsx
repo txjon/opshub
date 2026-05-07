@@ -3,18 +3,20 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
+import { SendEmailDialog } from "@/components/SendEmailDialog";
 
 // Stripe-backed invoice tab. Used by IHM (and any other tenant with
-// companies.default_payment_provider = 'stripe'). Simpler than the QB
-// flow:
-//   • Single button creates + finalizes + sends the invoice to the
-//     billing contact's email in one shot — the hosted_invoice_url is
-//     the "Pay Online" link the client uses
-//   • No manual invoice numbers (Stripe assigns)
-//   • No QB-style customer chooser (Stripe matches by email)
-//   • No variance review (Stripe doesn't allow editing line items on
-//     a sent invoice; if pricing changes, void in Stripe Dashboard +
-//     re-push)
+// companies.default_payment_provider = 'stripe'). Two-step flow:
+//   1. "Create Stripe Invoice" — pushes line items to Stripe, finalizes
+//      the invoice (assigns the IHM-2605-### number + PaymentIntent),
+//      but does NOT email the client (Tier 3 white-label).
+//   2. "Email Invoice" — opens SendEmailDialog so the team can confirm
+//      recipients before OpsHub sends the branded email via Resend
+//      (with PDF attachment + Pay Online button pointing at the white-
+//      label /portal/{token}/pay page on the tenant's domain).
+//
+// Voiding the invoice in Stripe Dashboard frees the slot — clicking
+// Create again falls through to recreate (route detects status=void).
 //
 // Payment records + add-payment UI mirror the QB tab so the team's
 // muscle memory carries over.
@@ -29,6 +31,7 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
   const [pmAmount, setPmAmount] = useState("");
   const [pmInvoice, setPmInvoice] = useState("");
   const [pmDue, setPmDue] = useState(new Date().toISOString().split("T")[0]);
+  const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
 
   const stripeInvoiceId = job.type_meta?.stripe_invoice_id;
   const stripeInvoiceNumber = job.type_meta?.stripe_invoice_number;
@@ -67,9 +70,9 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
         },
       });
       if (data.alreadyExists) {
-        setInfo(`Stripe invoice already exists — #${data.invoiceNumber}. Edit or void it in the Stripe Dashboard if line items changed.`);
+        setInfo(`Stripe invoice already exists — #${data.invoiceNumber}. Void it in the Stripe Dashboard before re-pushing if line items changed.`);
       } else {
-        setInfo(`Invoice #${data.invoiceNumber} created and sent via Stripe — $${(data.totalCents / 100).toFixed(2)}`);
+        setInfo(`Invoice #${data.invoiceNumber} created — $${(data.totalCents / 100).toFixed(2)}. Click "Email Invoice" to send the branded email to the client.`);
       }
       if (onReload) onReload();
     } catch (e) {
@@ -90,7 +93,10 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
           {stripeInvoiceNumber && <div style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>#{stripeInvoiceNumber}</div>}
         </div>
 
-        {/* Action button — one shot creates + sends */}
+        {/* Step 1: Create / refresh the Stripe invoice (no email).
+            Step 2: Email the client via Resend with the white-label
+                    pay link. Sequence is decoupled so the team can
+                    inspect / preview before sending. */}
         <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
           <button onClick={pushToStripe} disabled={pushing}
             style={{ flex: 1, height: 38, borderRadius: 7,
@@ -101,18 +107,18 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
               fontSize: 12, fontWeight: 700, fontFamily: font,
               opacity: pushing ? 0.6 : 1, transition: "opacity 0.15s", padding: "0 12px",
               display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-            title={pushing ? "Working…" : stripeInvoiceNumber ? "Invoice already created and sent" : "Create + send invoice via Stripe"}>
+            title={pushing ? "Working…" : stripeInvoiceNumber ? "Invoice created in Stripe — void in Stripe Dashboard before re-pushing" : "Create the invoice in Stripe"}>
             {pushing ? "Working…"
-              : stripeInvoiceNumber ? `✓ Sent #${stripeInvoiceNumber}`
-              : "Create + Send Stripe Invoice"}
+              : stripeInvoiceNumber ? `✓ Created #${stripeInvoiceNumber}`
+              : "Create Stripe Invoice"}
           </button>
-          {stripePaymentLink && (
-            <a href={stripePaymentLink} target="_blank" rel="noopener noreferrer"
-              style={{ height: 38, padding: "0 14px", borderRadius: 7, background: T.accent, color: "#fff",
-                fontSize: 12, fontWeight: 700, fontFamily: font, textDecoration: "none",
+          {stripeInvoiceNumber && (
+            <button onClick={() => setShowInvoiceEmail(true)}
+              style={{ height: 38, padding: "0 16px", borderRadius: 7, background: T.accent, color: "#fff",
+                border: "none", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer",
                 display: "flex", alignItems: "center", gap: 6 }}>
-              Pay Online →
-            </a>
+              Email Invoice
+            </button>
           )}
         </div>
 
@@ -262,6 +268,29 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
           )}
         </div>
       </div>
+
+      {showInvoiceEmail && (() => {
+        const isRevised = !!job.type_meta?.invoice_sent_at;
+        const invoiceLabel = isRevised ? "Revised invoice" : "Invoice";
+        return (
+          <SendEmailDialog
+            type="invoice"
+            jobId={job.id}
+            contacts={(contacts || []).map(c => ({ name: c.name, email: c.email || "" }))}
+            defaultEmail={(contacts || []).find(c => c.role_on_job === "billing")?.email || (contacts || []).find(c => c.role_on_job === "primary")?.email || ""}
+            defaultSubject={`${invoiceLabel} — ${job.clients?.name || ""}${stripeInvoiceNumber ? ` · Invoice ${stripeInvoiceNumber}` : ""} · ${job.title}`}
+            onClose={() => setShowInvoiceEmail(false)}
+            onSent={() => {
+              logJobActivity(job.id, `${invoiceLabel} sent to client`);
+              setShowInvoiceEmail(false);
+              if (onUpdateJob) onUpdateJob({
+                type_meta: { ...(job.type_meta || {}), invoice_sent_at: new Date().toISOString() },
+              });
+              if (onReload) onReload();
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }
