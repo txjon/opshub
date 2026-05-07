@@ -17,7 +17,7 @@ async function authAndLoadJob(token: string, jobId: string) {
   const sb = admin();
   const { data: client } = await sb
     .from("clients")
-    .select("id, name")
+    .select("id, name, companies:company_id(slug, default_payment_provider)")
     .eq("portal_token", token)
     .single();
   if (!client) return { error: "Invalid link", status: 404 as const };
@@ -63,6 +63,10 @@ export async function GET(
         // as the main view, so a project pushed to QB but not yet sent
         // doesn't surface its number on the side-nav either.
         const sentAt = (j.type_meta as any)?.invoice_sent_at;
+        const tmJ = (j.type_meta as any) || {};
+        const sidebarInvNum = sentAt
+          ? (((client as any).companies?.default_payment_provider === "stripe" ? tmJ.stripe_invoice_number : tmJ.qb_invoice_number) || null)
+          : null;
         return {
           jobId: j.id,
           title: j.title,
@@ -70,7 +74,7 @@ export async function GET(
           phase: j.phase,
           shipDate: j.target_ship_date,
           portalToken: j.portal_token,
-          invoiceNumber: sentAt ? ((j.type_meta as any)?.qb_invoice_number || null) : null,
+          invoiceNumber: sidebarInvNum,
           isComplete: j.phase === "complete",
           itemCount,
           unitCount,
@@ -156,7 +160,9 @@ export async function GET(
       else if (/quote approved/i.test(msg)) clientMsg = "Quote approved";
       else if (/quote rejected|revision requested/i.test(msg) && /quote/i.test(msg)) clientMsg = msg;
       else if (/invoice sent to client/i.test(msg)) {
-        const invNum = (job.type_meta as any)?.qb_invoice_number;
+        const provider = ((client as any).companies?.default_payment_provider || "quickbooks") as string;
+        const tmInv = (job.type_meta as any) || {};
+        const invNum = provider === "stripe" ? tmInv.stripe_invoice_number : tmInv.qb_invoice_number;
         clientMsg = invNum ? `Invoice #${invNum} delivered` : "Invoice delivered";
       }
       else if (/invoice \+ proofs sent/i.test(msg)) clientMsg = "Invoice and proofs delivered";
@@ -323,13 +329,27 @@ export async function GET(
         paidDate: p.paid_date,
         invoiceNumber: p.invoice_number,
       })),
-      // Invoice + pay link gated on invoice_sent_at. Pushing to QB
-      // doesn't expose anything to the portal — the client sees
-      // nothing until OpsHub explicitly sends the invoice. Manual
+      // Invoice + pay link gated on invoice_sent_at. Provider-aware:
+      // Stripe tenants use stripe_invoice_number + our white-label
+      // /portal/{job_token}/pay URL. QB tenants use qb_*. Manual
       // payment records (issued/paid) also count as "sent" for legacy
       // out-of-band invoices.
-      paymentLink: (typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status))) ? (typeMeta.qb_payment_link || null) : null,
-      invoiceNumber: (typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status))) ? (typeMeta.qb_invoice_number || null) : null,
+      paymentLink: await (async () => {
+        const sent = !!typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status));
+        if (!sent) return null;
+        const provider = ((client as any).companies?.default_payment_provider || "quickbooks") as string;
+        if (provider === "stripe") {
+          if (!(job as any).portal_token) return null;
+          const { appBaseUrl } = await import("@/lib/public-url");
+          return `${await appBaseUrl()}/portal/${(job as any).portal_token}/pay`;
+        }
+        return typeMeta.qb_payment_link || null;
+      })(),
+      invoiceNumber: ((typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status)))
+        ? (((client as any).companies?.default_payment_provider === "stripe"
+            ? typeMeta.stripe_invoice_number
+            : typeMeta.qb_invoice_number) || null)
+        : null),
       activity: (activity || []).map((a: any) => ({
         message: a.message,
         date: a.created_at,

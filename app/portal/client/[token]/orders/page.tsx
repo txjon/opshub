@@ -32,6 +32,11 @@ type Order = {
   balance: number;
   payment_status: "paid" | "unpaid" | "partial" | "deposit" | "none";
   paid_at?: string | null;
+  // Provider-agnostic — populated for both QB and Stripe tenants.
+  invoice_number: string | null;
+  payment_link: string | null;
+  // Legacy QB-only fields — kept for older clients but `invoice_number`
+  // / `payment_link` should be used everywhere.
   qb_invoice_number: string | null;
   qb_payment_link: string | null;
   pricing_visible?: boolean;
@@ -257,13 +262,13 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
             {order.kind === "fulfillment" ? (
               <>
                 <span>{order.total_qty.toLocaleString()} units sold</span>
-                {order.qb_invoice_number && <span>· Invoice #{order.qb_invoice_number}</span>}
+                {(order.invoice_number || order.qb_invoice_number) && <span>· Invoice #{(order.invoice_number || order.qb_invoice_number)}</span>}
               </>
             ) : (
               <>
                 <span>{order.total_qty} {order.total_qty === 1 ? "pc" : "pcs"}</span>
-                {order.qb_invoice_number
-                  ? <span>· Invoice #{order.qb_invoice_number}</span>
+                {(order.invoice_number || order.qb_invoice_number)
+                  ? <span>· Invoice #{(order.invoice_number || order.qb_invoice_number)}</span>
                   : order.job_number ? <span>· {order.job_number}</span> : null}
               </>
             )}
@@ -455,8 +460,8 @@ function OrderDetail({ order, token }: { order: Order; token: string }) {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
-            {order.qb_payment_link && order.balance > 0.01 && (
-              <a href={order.qb_payment_link} target="_blank" rel="noopener noreferrer"
+            {(order.payment_link || order.qb_payment_link) && order.balance > 0.01 && (
+              <a href={(order.payment_link || order.qb_payment_link) as string} target="_blank" rel="noopener noreferrer"
                 style={{
                   padding: "10px 12px", background: C.green, color: "#fff",
                   border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700,
@@ -484,9 +489,9 @@ function OrderDetail({ order, token }: { order: Order; token: string }) {
             )}
           </div>
 
-          {order.qb_invoice_number && (
+          {(order.invoice_number || order.qb_invoice_number) && (
             <div style={{ marginTop: 10, fontSize: 10, color: C.faint, fontFamily: C.mono }}>
-              Invoice #{order.qb_invoice_number}
+              Invoice #{(order.invoice_number || order.qb_invoice_number)}
             </div>
           )}
         </div>
