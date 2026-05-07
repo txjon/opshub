@@ -176,13 +176,17 @@ export async function POST(req: NextRequest) {
         closing: tenantClosing(_slug, tenantName, "Welcome to the party!"),
       });
 
-      await resend.emails.send({
+      // Resend SDK returns { data, error } — it does NOT throw on 4xx
+      // / 5xx. Without checking the error field we were silently
+      // recording "sent" in OpsHub for emails Resend rejected.
+      const _r1 = await resend.emails.send({
         from: tenantFromQuotes,
         to: clientEmail,
         subject,
         html,
         attachments: [{ filename: pdfFilename, content: pdfBuffer.toString("base64") }],
       });
+      if ((_r1 as any)?.error) throw new Error((_r1 as any).error.message || "Resend rejected the send");
 
       const newRecord: ShipNotificationRecord = {
         type: recordType,
@@ -260,12 +264,13 @@ export async function POST(req: NextRequest) {
         closing: tenantClosing(_slug, tenantName),
       });
 
-      await resend.emails.send({
+      const _r2 = await resend.emails.send({
         from: tenantFromQuotes,
         to: clientEmail,
         subject: `Production complete — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`,
         html,
       });
+      if ((_r2 as any)?.error) throw new Error((_r2 as any).error.message || "Resend rejected the send");
 
       const newRecord: ShipNotificationRecord = {
         type: "stage_production_complete",
@@ -321,13 +326,14 @@ export async function POST(req: NextRequest) {
         closing: `Thanks,\n${tenantName}`,
       });
 
-      await resend.emails.send({
+      const _r3 = await resend.emails.send({
         from: tenantFromQuotes,
         to: clientEmail,
         subject: `Revised invoice — ${clientName}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""} · ${projectTitle}`,
         html,
         attachments: [{ filename: `HPD-Invoice-${invoiceNum}-Revised.pdf`, content: pdfBuffer.toString("base64") }],
       });
+      if ((_r3 as any)?.error) throw new Error((_r3 as any).error.message || "Resend rejected the send");
 
       await sb.from("job_activity").insert({
         job_id: jobId, user_id: null, type: "auto",
@@ -518,9 +524,11 @@ export async function POST(req: NextRequest) {
       // Subject prefix when in test mode so it's obvious
       const finalSubject = testRecipient ? `[TEST] ${subject}` : subject;
 
-      // Send via Resend — multi-recipient
+      // Send via Resend — multi-recipient. SDK returns { data, error };
+      // throw on either an exception or a populated error so we never
+      // record a "sent" notification for a rejected send.
       try {
-        await resend.emails.send({
+        const _rs = await resend.emails.send({
           from: fromAddr,
           to: effectiveTo,
           cc: !testRecipient && ccList.length ? ccList : undefined,
@@ -529,6 +537,7 @@ export async function POST(req: NextRequest) {
           html,
           attachments: [{ filename: pdfFilename, content: pdfBuffer.toString("base64") }],
         } as any);
+        if ((_rs as any)?.error) throw new Error((_rs as any).error.message || "Resend rejected the send");
       } catch (e: any) {
         console.error(`[notify/shipment_notify] send failed:`, e.message);
         return NextResponse.json({ error: `Email send failed: ${e.message}` }, { status: 500 });
