@@ -57,10 +57,21 @@ export async function POST(_req: NextRequest, { params }: { params: { jobId: str
       || invoices.find(i => i.status === "paid")
       || invoices.find(i => i.status === "draft");
     if (!pick) {
+      // Every invoice for this customer is void/uncollectible. Mirror
+      // that into OpsHub so the StripePaymentTab button flips to
+      // "Recreate Invoice" — currently the UI shows green "Created"
+      // because type_meta.stripe_invoice_status is stale ("open").
+      // We keep the saved invoice id/number for context but update
+      // status to "void". Clicking Recreate will push a fresh one.
+      await sb.from("jobs").update({
+        type_meta: { ...tm, stripe_invoice_status: "void" },
+      }).eq("id", (job as any).id);
       return NextResponse.json({
-        error: "No non-void invoice found for this customer.",
+        ok: true,
+        all_void: true,
+        message: "All Stripe invoices for this customer are voided. OpsHub status flipped to 'void' so the UI shows 'Recreate Invoice'.",
         recent: summary,
-      }, { status: 400 });
+      });
     }
 
     const newMeta = {
