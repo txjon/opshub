@@ -36,11 +36,12 @@ export async function POST(req: NextRequest) {
     const resend = resendForSlug(slug);
     const adminForCompany = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const { data: companyRow } = await adminForCompany.from("companies")
-      .select("name, from_email_quotes, from_email_production, from_email_billing")
+      .select("name, from_email_quotes, from_email_production, from_email_billing, default_payment_provider")
       .eq("slug", slug)
       .single();
     const company = (companyRow as any) || {};
     const companyName: string = company.name || "House Party Distro";
+    const tenantPaymentProvider: string = company.default_payment_provider || "quickbooks";
     const fromQuotes: string = company.from_email_quotes || process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
     const fromProduction: string = company.from_email_production || process.env.EMAIL_FROM_PO || "onboarding@resend.dev";
     // Domain used for plus-addressing reply-to (production+po.JOB@domain)
@@ -68,9 +69,11 @@ export async function POST(req: NextRequest) {
     let defaultSubject: string;
     let filename: string;
 
-    // Load job for document numbers + client name (for greeting)
+    // Load job for document numbers + client name (for greeting). Also
+    // pull portal_token so we can build the white-label Stripe pay URL
+    // (/portal/{token}/pay) for tenants on the Stripe payment provider.
     const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    const { data: jobData } = await adminClient.from("jobs").select("job_number, title, type_meta, clients(name)").eq("id", jobId).single();
+    const { data: jobData } = await adminClient.from("jobs").select("job_number, title, type_meta, portal_token, clients(name)").eq("id", jobId).single();
     const qbInvNum = (jobData as any)?.type_meta?.qb_invoice_number;
     const jobNum = (jobData as any)?.job_number;
     const projectTitle = (jobData as any)?.title || "";
@@ -158,6 +161,24 @@ export async function POST(req: NextRequest) {
     const portalUrl = type !== "po" && type !== "rfq" ? await getPortalUrl(jobId) : null;
     const vendorPortalUrl = type === "po" && vendor ? await getVendorPortalUrl(vendor) : null;
 
+    // Unified "Pay Online" link for invoice emails. QB tenants point at
+    // QB's hosted invoice page (qbPaymentLink). Stripe tenants point at
+    // our white-label pay page (/portal/{token}/pay) so the client never
+    // sees stripe.com — Payment Element renders inline on our domain.
+    let payOnlineUrl: string = "";
+    if (type === "invoice") {
+      if (tenantPaymentProvider === "stripe") {
+        const portalToken = (jobData as any)?.portal_token;
+        const stripeInvoiceId = (jobData as any)?.type_meta?.stripe_invoice_id;
+        if (portalToken && stripeInvoiceId) {
+          const { appBaseUrl } = await import("@/lib/public-url");
+          payOnlineUrl = `${await appBaseUrl()}/portal/${portalToken}/pay`;
+        }
+      } else {
+        payOnlineUrl = qbPaymentLink || "";
+      }
+    }
+
     // Reply-to with plus-addressing for Gmail poller matching. Domain +
     // local part are derived from the active tenant's from-addresses
     // so IHM replies route to info+c.JOB@inhousemerchandise.com and
@@ -200,7 +221,7 @@ export async function POST(req: NextRequest) {
               bodyHtml: qbInvNum && projectTitle
                 ? `Your ${invoiceWord} for <strong>Invoice ${qbInvNum} · ${projectTitle}</strong> is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`
                 : `Your ${invoiceWord}${qbInvNum ? ` #${qbInvNum}` : ""} is attached. You can complete payment through your portal, where you'll also find your approved proofs and full project details.`,
-              cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
+              cta: payOnlineUrl ? { label: "Pay Online", url: payOnlineUrl, style: "green" } : undefined,
               secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
               closing: `Thanks,\n${companyName}`,
             });
