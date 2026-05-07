@@ -96,23 +96,32 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
         {/* Step 1: Create / refresh the Stripe invoice (no email).
             Step 2: Email the client via Resend with the white-label
                     pay link. Sequence is decoupled so the team can
-                    inspect / preview before sending. */}
+                    inspect / preview before sending.
+            When the invoice has been voided in Stripe (webhook
+            mirrors the status to type_meta.stripe_invoice_status),
+            the button reverts to "Create" so the team can recreate
+            without manually clearing the saved number. */}
+        {(() => {
+          const isVoid = stripeInvoiceStatus === "void";
+          const hasActiveInvoice = stripeInvoiceNumber && !isVoid;
+          return (
         <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
           <button onClick={pushToStripe} disabled={pushing}
             style={{ flex: 1, height: 38, borderRadius: 7,
-              border: stripeInvoiceNumber ? `1.5px solid ${T.green}` : "none",
+              border: hasActiveInvoice ? `1.5px solid ${T.green}` : "none",
               cursor: pushing ? "default" : "pointer",
-              background: stripeInvoiceNumber ? T.greenDim : T.blue,
-              color: stripeInvoiceNumber ? T.green : "#fff",
+              background: hasActiveInvoice ? T.greenDim : T.blue,
+              color: hasActiveInvoice ? T.green : "#fff",
               fontSize: 12, fontWeight: 700, fontFamily: font,
               opacity: pushing ? 0.6 : 1, transition: "opacity 0.15s", padding: "0 12px",
               display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-            title={pushing ? "Working…" : stripeInvoiceNumber ? "Invoice created in Stripe — void in Stripe Dashboard before re-pushing" : "Create the invoice in Stripe"}>
+            title={pushing ? "Working…" : hasActiveInvoice ? "Invoice created in Stripe — void in Stripe Dashboard before re-pushing" : isVoid ? "Previous invoice voided — click to recreate" : "Create the invoice in Stripe"}>
             {pushing ? "Working…"
-              : stripeInvoiceNumber ? `✓ Created #${stripeInvoiceNumber}`
+              : hasActiveInvoice ? `✓ Created #${stripeInvoiceNumber}`
+              : isVoid ? `Recreate Invoice (${stripeInvoiceNumber} voided)`
               : "Create Stripe Invoice"}
           </button>
-          {stripeInvoiceNumber && (
+          {hasActiveInvoice && (
             <button onClick={() => setShowInvoiceEmail(true)}
               style={{ height: 38, padding: "0 16px", borderRadius: 7, background: T.accent, color: "#fff",
                 border: "none", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer",
@@ -121,6 +130,8 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
             </button>
           )}
         </div>
+          );
+        })()}
 
         {error && (
           <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 12, color: T.red, background: T.redDim }}>{error}</div>
