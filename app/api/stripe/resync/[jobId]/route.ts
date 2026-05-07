@@ -53,9 +53,12 @@ export async function POST(_req: NextRequest, { params }: { params: { jobId: str
       is_current: i.id === tm.stripe_invoice_id,
     }));
 
+    // Skip $0 drafts — those are orphans from a failed create flow
+    // (collision-retry exhausted before line items were attached).
+    // Picking them up would lock OpsHub onto an empty invoice.
     const pick = invoices.find(i => i.status === "open")
       || invoices.find(i => i.status === "paid")
-      || invoices.find(i => i.status === "draft");
+      || invoices.find(i => i.status === "draft" && (i.amount_due || 0) > 0);
     if (!pick) {
       // Every invoice for this customer is void/uncollectible. Mirror
       // that into OpsHub so the StripePaymentTab button flips to

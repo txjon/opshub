@@ -136,6 +136,9 @@ export async function createAndSendInvoice(
   // assigned numbers, even on voided invoices). Cap at 99 so heavy
   // testing churn or repeated revisions on the same job_number
   // don't dead-end before exhausting realistic suffix space.
+  // If we exhaust all attempts (or hit a non-collision error), delete
+  // the empty draft so it doesn't get auto-discovered by the resync
+  // route as a $0 ghost invoice.
   if (params.customNumber) {
     let lastErr: any;
     for (let attempt = 1; attempt <= 99; attempt++) {
@@ -147,11 +150,17 @@ export async function createAndSendInvoice(
       } catch (err: any) {
         const msg = String(err?.message || err?.raw?.message || "").toLowerCase();
         const looksLikeCollision = msg.includes("number") && /(taken|exists|duplicate|already|use)/.test(msg);
-        if (!looksLikeCollision) throw err;
+        if (!looksLikeCollision) {
+          try { await stripe.invoices.del(draft.id!); } catch {}
+          throw err;
+        }
         lastErr = err;
       }
     }
-    if (lastErr) throw lastErr;
+    if (lastErr) {
+      try { await stripe.invoices.del(draft.id!); } catch {}
+      throw lastErr;
+    }
   }
 
   // Step 2: add line items, attached to the draft. Stripe's
