@@ -90,8 +90,18 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       // have samples (sample_qtys is empty) so this is a no-op for them.
       const finalQtys = deductSamples(deliveredQtys, item.sample_qtys);
       const totalQty = Object.values(finalQtys).reduce((a, v) => a + v, 0);
-      // Drop ship: decorator tracking. Ship-through/stage: HPD outbound tracking.
-      const tracking = isDropShip ? (item.ship_tracking || "\u2014") : (job.fulfillment_tracking || "\u2014");
+      // Tracking column resolution:
+      //  - Drop ship \u2192 decorator tracking on the item.
+      //  - Ship-through INBOUND slip (notify-warehouse path passes a
+      //    `tracking` filter) \u2192 use the item's ship_tracking, which is
+      //    the decorator's inbound tracking number.
+      //  - Ship-through OUTBOUND slip (HPD \u2192 customer, no tracking
+      //    filter) \u2192 use job.fulfillment_tracking.
+      const tracking = isDropShip
+        ? (item.ship_tracking || "\u2014")
+        : (trackingFilter
+            ? (item.ship_tracking || trackingFilter || "\u2014")
+            : (job.fulfillment_tracking || "\u2014"));
 
       // Sort sizes via the canonical theme order (XS, S, M, L, XL, 2XL, …)
       // so the slip reads left-to-right in natural order.
