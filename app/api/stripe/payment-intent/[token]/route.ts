@@ -51,7 +51,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // fall back to the customer's latest open/draft invoice. This makes
     // the pay link resilient to read-after-write lag and to old emails
     // that pre-date a recreate cycle.
-    let invoice = await stripe.invoices.retrieve(stripeInvoiceId);
+    let invoice: any = await stripe.invoices.retrieve(stripeInvoiceId);
     if (invoice.status === "void" || invoice.status === "uncollectible") {
       try {
         const list = await stripe.invoices.list({
@@ -130,6 +130,16 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           opshub_job_id: (job as any).id,
         },
         automatic_payment_methods: { enabled: true },
+        // ACH via Stripe Financial Connections — instant bank
+        // verification (the client logs into their bank inline)
+        // instead of the 3-5 day micro-deposit dance. Falls back
+        // gracefully if the account/bank isn't supported.
+        payment_method_options: {
+          us_bank_account: {
+            financial_connections: { permissions: ["payment_method"] },
+            verification_method: "instant",
+          },
+        },
       });
       // Stash the PI on the invoice metadata. Stripe is the source of
       // truth for invoice ↔ PI linkage now; OpsHub's DB is read-only
