@@ -255,7 +255,8 @@ export default function ProductionPage() {
         const earliestShipDate = vDates.length > 0 ? vDates.sort()[0] : null;
         projectMap[it.job_id] = {
           jobId: job.id, jobNumber: job.job_number,
-          invoiceNumber: tm.qb_invoice_number || null,
+          // Provider-agnostic — IHM uses Stripe, HPD uses QB.
+          invoiceNumber: tm.qb_invoice_number || tm.stripe_invoice_number || null,
           jobTitle: job.title,
           clientName: job.clients?.name || "",
           shipDate: earliestShipDate,
@@ -1208,7 +1209,7 @@ export default function ProductionPage() {
                                           });
                                         }}
                                           disabled={!canNotify}
-                                          title={!project.invoiceNumber ? "Generate QB invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
+                                          title={!project.invoiceNumber ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
                                           style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, border, background: bg, color, cursor: canNotify ? "pointer" : "not-allowed", whiteSpace: "nowrap", opacity: canNotify ? 1 : 0.5, fontFamily: font }}>
                                           {label}
                                         </button>
@@ -1411,7 +1412,7 @@ export default function ProductionPage() {
                           tracking: item.ship_tracking || "",
                         });
                       }}
-                      title={!project.invoiceNumber ? "Generate QB invoice first" : (!item.ship_tracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
+                      title={!project.invoiceNumber ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
                       style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
                       {label}
                     </button>
@@ -1586,7 +1587,7 @@ export default function ProductionPage() {
                               tracking: batchTracking,
                             });
                           }}
-                          title={!project.invoiceNumber ? "Generate QB invoice first" : (!batchTracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
+                          title={!project.invoiceNumber ? "Generate invoice first" : (!batchTracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
                           style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
                           {label}
                         </button>
