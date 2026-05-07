@@ -87,10 +87,12 @@ export function NotifyShipmentDialog({
   const dedupRecipients = Array.from(new Set(allRecipients));
   const bccList = bccEmail.trim() ? [bccEmail.trim()] : [];
 
-  const qbMissing = !qbInvoiceNumber;
+  // Renamed from invoiceMissing — the prop is populated with whichever
+  // invoice number the active tenant uses (QB for HPD, Stripe for IHM).
+  const invoiceMissing = !qbInvoiceNumber;
   const trackingMissing = !tracking;
   const recipientCount = dedupRecipients.length;
-  const canSend = !qbMissing && !trackingMissing && recipientCount > 0 && subject.trim() && !sending;
+  const canSend = !invoiceMissing && !trackingMissing && recipientCount > 0 && subject.trim() && !sending;
 
   const labelStyle = { fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 };
   const inp = { width: "100%", padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, outline: "none", boxSizing: "border-box" };
@@ -161,9 +163,9 @@ export function NotifyShipmentDialog({
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 18 }}>
 
           {/* Pre-flight gates */}
-          {qbMissing && (
+          {invoiceMissing && (
             <div style={{ padding: "10px 12px", background: T.amberDim, border: `1px solid ${T.amber}55`, borderRadius: 6, fontSize: 12, color: T.amber, fontWeight: 600 }}>
-              QB invoice number missing — generate the invoice before notifying.
+              Invoice number missing — generate the invoice before notifying.
             </div>
           )}
           {trackingMissing && (

@@ -99,8 +99,18 @@ export function AppShell({
   const navItems = activeDept === "owner" && email === "jon@housepartydistro.com"
     ? [...baseNavItems, { href: "/god-mode", label: "God Mode" }, { href: "/planner/index.html", label: "Planner", external: true }]
     : baseNavItems;
+  // Tenant override for the "Labs" department label. IHM doesn't think
+  // of itself as a "Labs" production shop — it's just the IHM brand —
+  // so show "IHM" in the sidebar + cross-link instead. HPD keeps Labs.
+  const labsLabel = companySlug === "ihm" ? "IHM" : "Labs";
+  const deptIcons: Record<Department, { Icon: any; label: string }> = {
+    ...DEPT_ICONS,
+    labs: { ...DEPT_ICONS.labs, label: labsLabel },
+  };
   const rawCrossLink = DEPT_CROSSLINKS[activeDept];
-  const crossLink = rawCrossLink && hasDept(rawCrossLink.dept) ? rawCrossLink : null;
+  const crossLink = rawCrossLink && hasDept(rawCrossLink.dept)
+    ? (rawCrossLink.dept === "labs" ? { ...rawCrossLink, label: `← ${labsLabel}` } : rawCrossLink)
+    : null;
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", background: "#f4f4f6" }}>
@@ -139,7 +149,7 @@ export function AppShell({
           )}
 
           {/* Department icons */}
-          {(Object.entries(DEPT_ICONS) as [Department, { Icon: any; label: string }][]).map(([dept, { Icon, label }]) => {
+          {(Object.entries(deptIcons) as [Department, { Icon: any; label: string }][]).map(([dept, { Icon, label }]) => {
             if (!hasDept(dept)) return null;
             const isActive = activeDept === dept;
             return (
@@ -272,7 +282,7 @@ export function AppShell({
           padding: "6px 4px",
           borderTop: "1px solid #222",
         }}>
-          {(Object.entries(DEPT_ICONS) as [Department, { Icon: any; label: string }][]).map(([dept, { Icon, label }]) => {
+          {(Object.entries(deptIcons) as [Department, { Icon: any; label: string }][]).map(([dept, { Icon, label }]) => {
             if (!hasDept(dept)) return null;
             const isActive = activeDept === dept;
             return (

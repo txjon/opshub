@@ -84,11 +84,18 @@ function getItemProgress(job: any): string {
 }
 
 import { T, font, mono } from "@/lib/theme";
+import { useClientBranding } from "@/lib/branding-client";
 
 export default function JobsPage() {
   const router = useRouter();
   const supabase = createClient();
   const isMobile = useIsMobile();
+  const branding = useClientBranding();
+  // IHM doesn't push QB invoices, so the leading 68px invoice-number
+  // column on the project list always renders empty for them — that
+  // space gets reclaimed by the client/title block. HPD keeps the
+  // existing layout.
+  const showInvoiceCol = branding.slug !== "ihm";
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("active");
@@ -456,18 +463,25 @@ export default function JobsPage() {
               style={{
                 background:T.card, border:`1px solid ${T.border}`, borderRadius:10,
                 cursor:"pointer", transition:"background 0.1s",
-                display:"grid", gridTemplateColumns:"68px 1fr 130px 130px 200px 100px",
+                display:"grid",
+                // IHM: drop the leading 68px invoice-number column so the
+                // client/title block stretches into that space. HPD keeps
+                // the existing 6-column layout for QB invoice display.
+                gridTemplateColumns: showInvoiceCol
+                  ? "68px 1fr 130px 130px 200px 100px"
+                  : "1fr 130px 130px 200px 100px",
                 alignItems:"center", gap:14, padding:"12px 18px", minHeight:56,
               }}
               onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = T.surface}
               onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = T.card}>
 
               {/* Invoice number — left-anchor identifier when present.
-                  Replaces the priority chip; priority moved to the
-                  right side above ship date. */}
-              <span style={{ fontSize:14, fontWeight:700, color: invNum ? T.text : "transparent", fontFamily:mono, whiteSpace:"nowrap" }}>
-                {invNum || ""}
-              </span>
+                  HPD-only (IHM never has a qb_invoice_number). */}
+              {showInvoiceCol && (
+                <span style={{ fontSize:14, fontWeight:700, color: invNum ? T.text : "transparent", fontFamily:mono, whiteSpace:"nowrap" }}>
+                  {invNum || ""}
+                </span>
+              )}
 
               {/* Client + title */}
               <div style={{ minWidth:0 }}>

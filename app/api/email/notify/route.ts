@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, skipped: "already_sent" });
       }
 
-      const invoiceNum = typeMeta.qb_invoice_number || (job as any).job_number || "";
+      const invoiceNum = typeMeta.qb_invoice_number || typeMeta.stripe_invoice_number || (job as any).job_number || "";
       const portalToken = (job as any).portal_token;
       const hubClient = (job as any).clients;
       // Client Hub URL when the client is flagged in; legacy per-job
@@ -176,13 +176,17 @@ export async function POST(req: NextRequest) {
         closing: tenantClosing(_slug, tenantName, "Welcome to the party!"),
       });
 
-      await resend.emails.send({
+      // Resend SDK returns { data, error } — it does NOT throw on 4xx
+      // / 5xx. Without checking the error field we were silently
+      // recording "sent" in OpsHub for emails Resend rejected.
+      const _r1 = await resend.emails.send({
         from: tenantFromQuotes,
         to: clientEmail,
         subject,
         html,
         attachments: [{ filename: pdfFilename, content: pdfBuffer.toString("base64") }],
       });
+      if ((_r1 as any)?.error) throw new Error((_r1 as any).error.message || "Resend rejected the send");
 
       const newRecord: ShipNotificationRecord = {
         type: recordType,
@@ -241,7 +245,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, skipped: "not_all_received", remaining });
       }
 
-      const invoiceNum = typeMeta.qb_invoice_number || (job as any).job_number || "";
+      const invoiceNum = typeMeta.qb_invoice_number || typeMeta.stripe_invoice_number || (job as any).job_number || "";
       const portalToken = (job as any).portal_token;
       const hubClient = (job as any).clients;
       // Client Hub URL when the client is flagged in; legacy per-job
@@ -260,12 +264,13 @@ export async function POST(req: NextRequest) {
         closing: tenantClosing(_slug, tenantName),
       });
 
-      await resend.emails.send({
+      const _r2 = await resend.emails.send({
         from: tenantFromQuotes,
         to: clientEmail,
         subject: `Production complete — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`,
         html,
       });
+      if ((_r2 as any)?.error) throw new Error((_r2 as any).error.message || "Resend rejected the send");
 
       const newRecord: ShipNotificationRecord = {
         type: "stage_production_complete",
@@ -300,7 +305,7 @@ export async function POST(req: NextRequest) {
       }
 
       const typeMeta = ((job as any).type_meta || {}) as any;
-      const invoiceNum = typeMeta.qb_invoice_number || (job as any).job_number || "";
+      const invoiceNum = typeMeta.qb_invoice_number || typeMeta.stripe_invoice_number || (job as any).job_number || "";
       const qbPaymentLink = typeMeta.qb_payment_link || "";
       const portalToken = (job as any).portal_token;
       const hubClient = (job as any).clients;
@@ -321,13 +326,14 @@ export async function POST(req: NextRequest) {
         closing: `Thanks,\n${tenantName}`,
       });
 
-      await resend.emails.send({
+      const _r3 = await resend.emails.send({
         from: tenantFromQuotes,
         to: clientEmail,
         subject: `Revised invoice — ${clientName}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""} · ${projectTitle}`,
         html,
         attachments: [{ filename: `HPD-Invoice-${invoiceNum}-Revised.pdf`, content: pdfBuffer.toString("base64") }],
       });
+      if ((_r3 as any)?.error) throw new Error((_r3 as any).error.message || "Resend rejected the send");
 
       await sb.from("job_activity").insert({
         job_id: jobId, user_id: null, type: "auto",
@@ -369,10 +375,10 @@ export async function POST(req: NextRequest) {
       if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
       const typeMeta = ((job as any).type_meta || {}) as any;
-      const invoiceNum: string | undefined = typeMeta.qb_invoice_number;
+      // Provider-agnostic — accept either QB or Stripe invoice number.
+      const invoiceNum: string | undefined = typeMeta.qb_invoice_number || typeMeta.stripe_invoice_number;
       if (!invoiceNum) {
-        // QB invoice gate — block until QB invoice exists. Spec decision.
-        return NextResponse.json({ error: "QB invoice number required — generate the QB invoice before notifying", code: "qb_invoice_required" }, { status: 400 });
+        return NextResponse.json({ error: "Invoice number required — generate the invoice before notifying", code: "invoice_required" }, { status: 400 });
       }
 
       // The `route` request param controls which email template renders
@@ -518,9 +524,11 @@ export async function POST(req: NextRequest) {
       // Subject prefix when in test mode so it's obvious
       const finalSubject = testRecipient ? `[TEST] ${subject}` : subject;
 
-      // Send via Resend — multi-recipient
+      // Send via Resend — multi-recipient. SDK returns { data, error };
+      // throw on either an exception or a populated error so we never
+      // record a "sent" notification for a rejected send.
       try {
-        await resend.emails.send({
+        const _rs = await resend.emails.send({
           from: fromAddr,
           to: effectiveTo,
           cc: !testRecipient && ccList.length ? ccList : undefined,
@@ -529,6 +537,7 @@ export async function POST(req: NextRequest) {
           html,
           attachments: [{ filename: pdfFilename, content: pdfBuffer.toString("base64") }],
         } as any);
+        if ((_rs as any)?.error) throw new Error((_rs as any).error.message || "Resend rejected the send");
       } catch (e: any) {
         console.error(`[notify/shipment_notify] send failed:`, e.message);
         return NextResponse.json({ error: `Email send failed: ${e.message}` }, { status: 500 });

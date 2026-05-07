@@ -92,7 +92,9 @@ export default function ShippingPage() {
       return {
         id: j.id,
         jobNumber: j.job_number,
-        invoiceNumber: (j.type_meta as any)?.qb_invoice_number || null,
+        // Provider-agnostic — IHM uses Stripe, HPD uses QB. Whichever
+        // is set is treated as "the invoice has been pushed".
+        invoiceNumber: (j.type_meta as any)?.qb_invoice_number || (j.type_meta as any)?.stripe_invoice_number || null,
         title: j.title || "",
         clientName: j.clients?.name || "",
         fulfillmentTracking: tracking,
@@ -146,7 +148,7 @@ export default function ShippingPage() {
       decoratorId: null,
       decoratorName: "",
       tracking: job.fulfillment_tracking,
-      qbInvoiceNumber: job.qb_invoice_number || "",
+      qbInvoiceNumber: job.invoiceNumber || "",
       clientName: job.client_name || "",
       jobTitle: job.title || "",
       contacts,
@@ -215,9 +217,12 @@ export default function ShippingPage() {
           }
           const totalUnits = job.items.reduce((a, it) =>
             a + Object.values(continuingByItem[it.id]).reduce((x, q) => x + (q || 0), 0), 0);
-          const qbMissing = !job.qb_invoice_number;
+          // Provider-agnostic — IHM reads stripe_invoice_number, HPD reads
+          // qb_invoice_number, both surface as job.invoiceNumber after the
+          // load-time mapping above.
+          const invoiceMissing = !job.invoiceNumber;
           const trackingMissing = !job.fulfillment_tracking;
-          const canShip = !qbMissing && !trackingMissing;
+          const canShip = !invoiceMissing && !trackingMissing;
           return (
             <div key={job.id} style={card}>
               {/* Header */}
@@ -329,7 +334,7 @@ export default function ShippingPage() {
                   </div>
                   <button onClick={() => markShipped(job)}
                     disabled={!canShip}
-                    title={qbMissing ? "Generate QB invoice first" : (trackingMissing ? "Tracking required" : "")}
+                    title={invoiceMissing ? "Generate invoice first" : (trackingMissing ? "Tracking required" : "")}
                     style={{ background: canShip ? T.green : T.surface, border: "none", borderRadius: 6, color: canShip ? "#fff" : T.faint, fontSize: 12, fontWeight: 600, padding: "8px 20px", cursor: canShip ? "pointer" : "not-allowed", opacity: canShip ? 1 : 0.5 }}>
                     Mark Shipped
                   </button>
