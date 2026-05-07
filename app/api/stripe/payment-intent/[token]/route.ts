@@ -96,17 +96,20 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // Get or create the PaymentIntent. For collection_method=send_invoice
     // Stripe sometimes doesn't auto-attach a PI until the customer pays
     // via the hosted page — which we bypass entirely. Create one
-    // ourselves the first time, store the ID in OpsHub's type_meta to
-    // dedupe future loads, and let the webhook mark the invoice paid
-    // when payment_intent.succeeded fires (matched via metadata).
+    // ourselves the first time, then stash the PI ID on the invoice's
+    // own metadata so subsequent /pay loads can find it without us
+    // having to write back to OpsHub's type_meta. (Earlier we wrote
+    // stripe_payment_intent_id to type_meta, but that read-modify-write
+    // could clobber a freshly-updated stripe_invoice_id when Vercel's
+    // serverless layer was reading from a stale Supabase replica —
+    // re-committing the stale read silently downgraded -r4 → -r3.)
     let paymentIntent: any;
-    const cachedPiId = tm.stripe_payment_intent_id as string | undefined;
     const invoicePiId = (invoice as any).payment_intent as string | null;
+    const stashedPiId = invoice.metadata?.tier3_pi as string | undefined;
 
-    if (cachedPiId || invoicePiId) {
+    if (stashedPiId || invoicePiId) {
       try {
-        paymentIntent = await stripe.paymentIntents.retrieve((cachedPiId || invoicePiId)!);
-        // If a cached PI is no longer valid (canceled etc.), drop and recreate.
+        paymentIntent = await stripe.paymentIntents.retrieve((stashedPiId || invoicePiId)!);
         if (paymentIntent.status === "canceled") paymentIntent = null;
       } catch {
         paymentIntent = null;
@@ -123,20 +126,22 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         customer: customerId,
         description: `Invoice ${invoice.number || invoice.id} — ${(job as any).title || ""}`,
         metadata: {
-          // Use the actual invoice we resolved (which may differ from
-          // the OpsHub-saved ID if we fell back to the customer's
-          // latest open invoice).
           stripe_invoice_id: invoice.id!,
           opshub_job_id: (job as any).id,
         },
         automatic_payment_methods: { enabled: true },
       });
-      // Persist the PI ID so subsequent /pay loads return the same
-      // client_secret (avoids creating ghost PIs on every refresh).
-      await sb
-        .from("jobs")
-        .update({ type_meta: { ...tm, stripe_payment_intent_id: paymentIntent.id } })
-        .eq("id", (job as any).id);
+      // Stash the PI on the invoice metadata. Stripe is the source of
+      // truth for invoice ↔ PI linkage now; OpsHub's DB is read-only
+      // from this route. Subsequent reloads pull the same PI back.
+      try {
+        await stripe.invoices.update(invoice.id!, {
+          metadata: { ...(invoice.metadata || {}), tier3_pi: paymentIntent.id },
+        });
+      } catch {
+        // Non-fatal — worst case the next reload creates another PI
+        // and Stripe auto-cancels the orphan after 24h.
+      }
     }
 
     return NextResponse.json({
