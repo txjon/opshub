@@ -494,7 +494,12 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       ship_to_address: (job.type_meta as any)?.po_ship_to?.[vendorName]
         || ((job as any).shipping_route === "drop_ship"
           ? (job.type_meta as any)?.venue_address || ""
-          : `${branding.name}\n${(branding.headerAddressHtml || "").replace(/<br\/>/g, "\n")}`),
+          // ship_through / stage: prefer the fulfillment address (set
+          // on tenants that ship to a partner — IHM ships through HPD's
+          // warehouse). Falls back to the tenant's own header address
+          // for self-fulfilling tenants like HPD. The contact name
+          // remains branding.name so the decorator routes correctly.
+          : `${branding.name}\n${((branding.fulfillmentAddressHtml || branding.headerAddressHtml) || "").replace(/<br\/>/g, "\n")}`),
       items: vendorItems,
       branding: {
         ...branding,

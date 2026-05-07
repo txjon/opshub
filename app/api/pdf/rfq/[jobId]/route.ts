@@ -305,7 +305,9 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // that's the client's venue; for ship-through/stage it's the active
     // tenant's warehouse (from companies.warehouse_address). If a per-vendor
     // override has already been entered on the PO tab, use that.
-    const tenantWarehouse = `${branding.name}\n${branding.headerAddressHtml.replace(/<br\/>/g, "\n")}`;
+    // ship_through default — prefer fulfillment address (IHM uses HPD's
+    // warehouse) then fall back to the tenant's own header address.
+    const tenantWarehouse = `${branding.name}\n${(branding.fulfillmentAddressHtml || branding.headerAddressHtml).replace(/<br\/>/g, "\n")}`;
     const route = (job as any).shipping_route || "ship_through";
     const perVendorShipTo = (job.type_meta as any)?.po_ship_to?.[vendorName];
     const shipToAddress = perVendorShipTo

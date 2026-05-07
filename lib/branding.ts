@@ -35,6 +35,12 @@ export type PdfBranding = {
   headerAddressHtml: string;
   /** Bill-to mailing address (HTML, with <br/>) */
   billToAddressHtml: string;
+  /** Fulfillment / receiving address used as PO ship-to for
+   *  ship_through jobs. Stored on companies.branding.fulfillment_address.
+   *  HPD: usually NULL → falls back to their own warehouse. IHM:
+   *  HPD's warehouse, since IHM uses HPD as its fulfillment partner.
+   *  Pre-formatted with <br/> line breaks. */
+  fulfillmentAddressHtml: string;
   fromEmailQuotes: string;
   fromEmailProduction: string;
   fromEmailBilling: string;
@@ -57,11 +63,13 @@ function addressToHtml(addr: string | null): string {
 
 export async function getPdfBranding(): Promise<PdfBranding> {
   const c = await getActiveCompany();
+  const fulfillmentRaw = (c.branding as any)?.fulfillment_address || c.warehouse_address || null;
   return {
     name: c.name,
     logoSvg: LOGOS_BY_SLUG[c.slug] || "",
     headerAddressHtml: addressToHtml(c.warehouse_address || c.bill_to_address),
     billToAddressHtml: addressToHtml(c.bill_to_address || c.warehouse_address),
+    fulfillmentAddressHtml: addressToHtml(fulfillmentRaw),
     fromEmailQuotes: c.from_email_quotes || "",
     fromEmailProduction: c.from_email_production || "",
     fromEmailBilling: c.from_email_billing || "",
