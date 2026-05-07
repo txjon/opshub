@@ -45,9 +45,33 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const slug = ((job as any).companies?.slug || "hpd") as string;
     const stripe = getStripeClient(slug);
 
-    // Pull the invoice + its payment_intent. PaymentIntent is created at
-    // finalize time; we need its client_secret for the Payment Element.
-    const invoice = await stripe.invoices.retrieve(stripeInvoiceId);
+    // Pull the invoice. If the saved ID points at a voided/uncollectible
+    // invoice (common when the user voided + recreated, but Vercel's
+    // serverless layer is reading a stale cached row from Supabase),
+    // fall back to the customer's latest open/draft invoice. This makes
+    // the pay link resilient to read-after-write lag and to old emails
+    // that pre-date a recreate cycle.
+    let invoice = await stripe.invoices.retrieve(stripeInvoiceId);
+    if (invoice.status === "void" || invoice.status === "uncollectible") {
+      try {
+        const list = await stripe.invoices.list({
+          customer: typeof invoice.customer === "string"
+            ? invoice.customer
+            : (invoice.customer as any)?.id,
+          status: "open",
+          limit: 5,
+        });
+        const fresh = (list.data || [])
+          .filter((i: any) => i.status === "open" && (i.amount_due || 0) > 0)
+          .sort((a: any, b: any) => (b.created || 0) - (a.created || 0))[0];
+        if (fresh) {
+          invoice = fresh;
+        }
+      } catch (e) {
+        // fall through — original invoice will get the error response below
+      }
+    }
+
     if (invoice.status === "paid") {
       return NextResponse.json({
         alreadyPaid: true,
@@ -56,10 +80,6 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       });
     }
     if (invoice.status === "void" || invoice.status === "uncollectible") {
-      // Diagnostic surface — when this fires we want to know which
-      // invoice ID the route resolved + which OpsHub-side number it
-      // matched, so we can chase ghost-invoice cases (saved ID points
-      // at a stale invoice).
       return NextResponse.json({
         error: "This invoice is no longer payable. Contact your account manager.",
         debug: {
@@ -69,12 +89,6 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           stripe_invoice_number: invoice.number,
           stripe_status: invoice.status,
           tenant: slug,
-          // Probe what Supabase URL this serverless function is actually
-          // talking to — chasing a case where local script + prod route
-          // return different rows for the same portal_token.
-          env_supabase_host: (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/^https?:\/\//, "").split(".")[0],
-          tm_diag_sentinel: tm._diag_sentinel || null,
-          tm_invoice_sent_at: tm.invoice_sent_at || null,
         },
       }, { status: 400 });
     }
@@ -107,9 +121,12 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         amount: invoice.amount_due,
         currency: invoice.currency,
         customer: customerId,
-        description: `Invoice ${invoice.number || stripeInvoiceId} — ${(job as any).title || ""}`,
+        description: `Invoice ${invoice.number || invoice.id} — ${(job as any).title || ""}`,
         metadata: {
-          stripe_invoice_id: stripeInvoiceId,
+          // Use the actual invoice we resolved (which may differ from
+          // the OpsHub-saved ID if we fell back to the customer's
+          // latest open invoice).
+          stripe_invoice_id: invoice.id!,
           opshub_job_id: (job as any).id,
         },
         automatic_payment_methods: { enabled: true },
