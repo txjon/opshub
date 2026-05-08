@@ -1270,6 +1270,25 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
       {/* Move + Delete — bottom right corner. Move only shown for saved
           items (real UUID, not an in-session temp id). */}
       <div style={{ position: "absolute", bottom: 14, right: 16, display: "flex", gap: 14, alignItems: "center" }}>
+        {typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && (
+          <button onClick={async e => {
+              e.stopPropagation();
+              if (!window.confirm(`Duplicate "${item.name || "(unnamed)"}" within this job?`)) return;
+              try {
+                const res = await fetch(`/api/items/${item.id}/duplicate`, { method: "POST" });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data?.error || "Duplicate failed");
+                if (onItemsChanged) onItemsChanged();
+              } catch (err) {
+                alert(err.message || "Duplicate failed");
+              }
+            }}
+            title="Make a copy of this item in this same job. Files are shared assets, blank assignment + decoration carry over, pipeline state resets."
+            style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer" }}
+            onMouseEnter={e => e.currentTarget.style.color = T.accent} onMouseLeave={e => e.currentTarget.style.color = T.faint}>
+            Duplicate
+          </button>
+        )}
         {typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && requestCopy && (
           <button onClick={e => { e.stopPropagation(); requestCopy(item); }}
             title="Copy this item into another job (same client). The original stays."
