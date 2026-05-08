@@ -74,7 +74,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
     const ccRate = inclCC ? 0.03 : 0;
     const divisor = 1 - marginPct - ccRate;
     const autoGrossRev = divisor > 0 ? (totalCost / divisor) : 0;
-    const grossRevFinal = p.sellOverride ? p.sellOverride * qty : autoGrossRev;
+    const grossRevFinal = (p.sellOverride != null) ? p.sellOverride * qty : autoGrossRev;
     const sellPerUnitFinal = qty > 0 ? grossRevFinal / qty : 0;
     const ccFees = grossRevFinal * ccRate;
     const totalCostWithCC = totalCost + ccFees;
@@ -254,7 +254,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
   const ccRate = inclCC ? 0.03 : 0;
   const divisor = 1 - marginPct - ccRate;
   const autoGrossRev = divisor > 0 ? (totalCost / divisor) : 0;
-  const grossRevFinal = p.sellOverride ? p.sellOverride * qty : autoGrossRev;
+  const grossRevFinal = (p.sellOverride != null) ? p.sellOverride * qty : autoGrossRev;
   const sellPerUnitFinal = qty > 0 ? grossRevFinal / qty : 0;
   const ccFees = grossRevFinal * ccRate;
   const totalCostWithCC = totalCost + ccFees;

@@ -405,13 +405,13 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
                             {p._sellOverride?(
                               <>
-                                <button onClick={()=>updateProd(i,{...p,sellOverride:parseFloat(p._sellOverrideVal)||null,_sellOverride:false})}
+                                <button onClick={()=>updateProd(i,{...p,sellOverride:(()=>{const _v=parseFloat(p._sellOverrideVal);return Number.isNaN(_v)?null:_v;})(),_sellOverride:false})}
                                   style={{background:T.green,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"}}>save</button>
                                 <button onClick={()=>updateProd(i,{...p,_sellOverride:false,_sellOverrideVal:null})}
                                   style={{background:"none",border:"1px solid "+T.border,borderRadius:4,color:T.muted,cursor:"pointer",padding:"2px 0",fontSize:9,fontFamily:font,width:52,textAlign:"center"}}>cancel</button>
                               </>
                             ):(()=>{
-                              const isOverride = !!p.sellOverride;
+                              const isOverride = p.sellOverride != null;
                               const onStyle = {background:T.text,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
                               const offStyle = {background:"none",border:"1px solid "+T.border,borderRadius:4,color:T.muted,cursor:"pointer",padding:"2px 0",fontSize:9,fontFamily:font,fontWeight:500,width:52,textAlign:"center"};
                               return (
@@ -440,7 +440,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 title="Click to override"
                                 style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box",cursor:project?.type_meta?.costing_locked?"default":"pointer"}}>
                                 <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
-                                <span style={{fontSize:12,fontWeight:700,color:(p.sellOverride||r?.sellPerUnit>0)?T.text:T.faint,fontFamily:mono}}>{p.sellOverride?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
+                                <span style={{fontSize:12,fontWeight:700,color:(p.sellOverride!=null||r?.sellPerUnit>0)?T.text:T.faint,fontFamily:mono}}>{p.sellOverride!=null?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
                               </div>
                             )}
                           </div>
@@ -602,13 +602,13 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
                           {p._sellOverride?(
                             <>
-                              <button onClick={()=>updateProd(i,{...p,sellOverride:parseFloat(p._sellOverrideVal)||null,_sellOverride:false})}
+                              <button onClick={()=>updateProd(i,{...p,sellOverride:(()=>{const _v=parseFloat(p._sellOverrideVal);return Number.isNaN(_v)?null:_v;})(),_sellOverride:false})}
                                 style={{background:T.green,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"}}>save</button>
                               <button onClick={()=>updateProd(i,{...p,_sellOverride:false,_sellOverrideVal:null})}
                                 style={{background:"none",border:"1px solid "+T.border,borderRadius:4,color:T.muted,cursor:"pointer",padding:"2px 0",fontSize:9,fontFamily:font,width:52,textAlign:"center"}}>cancel</button>
                             </>
                           ):(()=>{
-                            const isOverride = !!p.sellOverride;
+                            const isOverride = p.sellOverride != null;
                             const onStyle = {background:T.text,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
                             const offStyle = {background:"none",border:"1px solid "+T.border,borderRadius:4,color:T.muted,cursor:"pointer",padding:"2px 0",fontSize:9,fontFamily:font,fontWeight:500,width:52,textAlign:"center"};
                             return (
@@ -636,7 +636,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                               title="Click to override"
                               style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box",cursor:project?.type_meta?.costing_locked?"default":"pointer"}}>
                               <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
-                              <span style={{fontSize:12,fontWeight:700,color:(p.sellOverride||r?.sellPerUnit>0)?T.text:T.faint,fontFamily:mono}}>{p.sellOverride?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
+                              <span style={{fontSize:12,fontWeight:700,color:(p.sellOverride!=null||r?.sellPerUnit>0)?T.text:T.faint,fontFamily:mono}}>{p.sellOverride!=null?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
                             </div>
                           )}
                         </div>
@@ -1586,10 +1586,13 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
             itemUpdates.blank_costs = cp.blankCosts;
             itemUpdates.cost_per_unit = costValues.length > 0 ? Math.round(costValues.reduce((a, v) => a + v, 0) / costValues.length * 100) / 100 : null;
           }
-          if (r2?.sellPerUnit > 0) {
-            itemUpdates.sell_per_unit = r2.sellPerUnit;
-          } else if (cp.sellOverride > 0) {
-            itemUpdates.sell_per_unit = Math.round(cp.sellOverride * 100) / 100;
+          // Save the calculated sell_per_unit when either (a) there's an
+          // explicit override (including $0 — replacements at no charge),
+          // or (b) the auto-calc produced a positive value. Without the
+          // explicit-override branch, $0 overrides would be skipped here
+          // and items.sell_per_unit would keep its stale prior value.
+          if (r2 && (cp.sellOverride != null || r2.sellPerUnit > 0)) {
+            itemUpdates.sell_per_unit = Math.round((r2.sellPerUnit ?? 0) * 100) / 100;
           }
           // Per-item fully-loaded cost: blanks + decoration + setup + specialty +
           // finishing + packaging, allocated across units. Source of truth for
