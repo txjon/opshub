@@ -100,6 +100,7 @@ export function ProcessingTab({ project, items, onItemsChanged }) {
         // Upload to Drive
         const driveFile = await uploadToDrive({
           blob: file, fileName: file.name, mimeType: "application/octet-stream",
+          itemId: slot.itemId,
           clientName, projectTitle, itemName: slot.name,
         });
         await registerFileInDb({ ...driveFile, itemId: slot.itemId, stage: "client_art", notes: JSON.stringify({ psd_locations: locations, psd_has_tag: hasTag }) });
@@ -125,6 +126,7 @@ export function ProcessingTab({ project, items, onItemsChanged }) {
           // Upload to Drive
           const driveFile = await uploadToDrive({
             blob: file, fileName: file.name, mimeType: "application/octet-stream",
+            itemId: newItem.id,
             clientName, projectTitle, itemName,
           });
           await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "client_art", notes: JSON.stringify({ psd_locations: locations, psd_has_tag: hasTag }) });

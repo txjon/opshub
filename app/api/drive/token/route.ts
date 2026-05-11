@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getDriveToken, getItemFolderIdDirect, getReceivingFolderId, getPackingSlipFolderId } from "@/lib/drive-token";
+import { getDriveToken, getItemFolderIdDirect, getItemFolderIdForItem, getReceivingFolderId, getPackingSlipFolderId } from "@/lib/drive-token";
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,16 +24,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ token, folderId });
     }
 
-    // Standard item folder request — soft fallbacks so a partially-filled
-    // job (no title yet, etc.) still uploads instead of silently failing.
-    // The folder name is just for organization; the item is also tracked
-    // by item_id in the DB so a placeholder folder name is harmless.
-    const clientName = (body.clientName && String(body.clientName).trim()) || "Unknown Client";
-    const projectTitle = (body.projectTitle && String(body.projectTitle).trim()) || "Untitled Project";
-    const itemName = (body.itemName && String(body.itemName).trim()) || "Untitled Item";
-
+    // Standard item folder request. Prefer the item-id path — it reads
+    // the stashed drive_folder_id on items/jobs/clients so a memo or
+    // name rename doesn't split files into a new sibling folder.
+    // Falls back to the legacy string-path resolver only when itemId
+    // isn't provided (toolkit / standalone tools that have no item row).
     const token = await getDriveToken();
-    const folderId = await getItemFolderIdDirect(token, clientName, projectTitle, itemName);
+    let folderId: string;
+    if (body.itemId && typeof body.itemId === "string") {
+      folderId = await getItemFolderIdForItem(token, body.itemId);
+    } else {
+      const clientName = (body.clientName && String(body.clientName).trim()) || "Unknown Client";
+      const projectTitle = (body.projectTitle && String(body.projectTitle).trim()) || "Untitled Project";
+      const itemName = (body.itemName && String(body.itemName).trim()) || "Untitled Item";
+      folderId = await getItemFolderIdDirect(token, clientName, projectTitle, itemName);
+    }
 
     return NextResponse.json({ token, folderId });
   } catch (e: any) {

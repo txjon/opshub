@@ -198,6 +198,17 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       pendingClientUpdates.current = {};
       try { await supabase.from("clients").update(merged).eq("id", params.id); }
       catch (e) { console.error("Client save failed:", e); }
+      // If client name was edited and a Drive folder exists, rename
+      // it in place so future uploads stay in the same folder.
+      if (typeof (merged as any).name === "string") {
+        try {
+          await fetch("/api/drive/rename", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ entity: "client", id: params.id, name: (merged as any).name }),
+          });
+        } catch { /* non-fatal */ }
+      }
     }, 1500);
   }
 
