@@ -63,6 +63,21 @@ async function findOrCreateFolder(token: string, name: string, parentId: string)
   return createData.id;
 }
 
+// Returns true if the folder exists, isn't trashed, and we can read it.
+// Used to validate a stashed folder id before reusing it — covers the
+// case where a user trashed the folder from the Drive UI. When this
+// returns false, the caller clears the stash and re-walks the path.
+async function isFolderUsable(token: string, folderId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,trashed`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return false;
+    const info = await res.json();
+    return !info.trashed;
+  } catch { return false; }
+}
+
 export async function getItemFolderIdDirect(token: string, clientName: string, projectTitle: string, itemName: string): Promise<string> {
   const rootId = await getTenantRootFolderId();
   const clientFolder = await findOrCreateFolder(token, clientName, rootId);
@@ -89,24 +104,39 @@ export async function getItemFolderIdForItem(token: string, itemId: string): Pro
     .single();
   if (error || !item) throw new Error("Item not found");
 
-  // Already stashed — use it.
-  if ((item as any).drive_folder_id) return (item as any).drive_folder_id as string;
-
   const job = (item as any).jobs;
   const client = job?.clients;
   if (!job || !client) throw new Error("Item is missing job/client context");
 
+  // Already stashed — verify it's still usable (not trashed in Drive UI)
+  // before short-circuiting. If unusable, fall through and rebuild.
+  if ((item as any).drive_folder_id) {
+    if (await isFolderUsable(token, (item as any).drive_folder_id)) {
+      return (item as any).drive_folder_id as string;
+    }
+    // Stale stash — clear it so we re-walk and re-stash below.
+    await admin.from("items").update({ drive_folder_id: null }).eq("id", (item as any).id);
+  }
+
   const rootId = await getTenantRootFolderId();
 
-  // Client folder — reuse stashed id, else find-or-create + stash.
-  let clientFolderId: string = client.drive_folder_id;
+  // Client folder — reuse stashed id only if still usable, else rebuild.
+  let clientFolderId: string | null = client.drive_folder_id;
+  if (clientFolderId && !(await isFolderUsable(token, clientFolderId))) {
+    await admin.from("clients").update({ drive_folder_id: null }).eq("id", client.id);
+    clientFolderId = null;
+  }
   if (!clientFolderId) {
     clientFolderId = await findOrCreateFolder(token, client.name || "Unknown Client", rootId);
     await admin.from("clients").update({ drive_folder_id: clientFolderId }).eq("id", client.id);
   }
 
   // Project folder — same pattern.
-  let projectFolderId: string = job.drive_folder_id;
+  let projectFolderId: string | null = job.drive_folder_id;
+  if (projectFolderId && !(await isFolderUsable(token, projectFolderId))) {
+    await admin.from("jobs").update({ drive_folder_id: null }).eq("id", job.id);
+    projectFolderId = null;
+  }
   if (!projectFolderId) {
     projectFolderId = await findOrCreateFolder(token, job.title || "Untitled Project", clientFolderId);
     await admin.from("jobs").update({ drive_folder_id: projectFolderId }).eq("id", job.id);
