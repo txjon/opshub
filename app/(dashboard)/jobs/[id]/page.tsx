@@ -250,6 +250,19 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       const u = pendingJobUpdates.current;
       pendingJobUpdates.current = {};
       await supabase.from("jobs").update(u).eq("id", job.id);
+      // If the memo (title) was edited and the project already has
+      // a Drive folder, rename it in place so the next upload doesn't
+      // create a sibling folder under the new name. No-op when the
+      // job has no drive_folder_id yet.
+      if (typeof (u as any).title === "string") {
+        try {
+          await fetch("/api/drive/rename", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ entity: "job", id: job.id, name: (u as any).title }),
+          });
+        } catch { /* non-fatal */ }
+      }
     }, 800);
   }
   async function flushJobSave() {

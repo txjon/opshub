@@ -399,6 +399,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
           blob: pdfBlob,
           fileName: `${safeName} - Product Proof.pdf`,
           mimeType: "application/pdf",
+          itemId: item.id,
           clientName,
           projectTitle,
           itemName: item.name || "",
@@ -619,6 +620,7 @@ export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId
           blob: file,
           fileName: file.name,
           mimeType: file.type || "application/octet-stream",
+          itemId: item.id,
           clientName,
           projectTitle,
           itemName: item.name,
@@ -973,7 +975,7 @@ export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged,
     setError(null);
 
     const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
-    const driveCtx = { clientName, projectTitle, itemName: item.name || "" };
+    const driveCtx = { itemId: item.id, clientName, projectTitle, itemName: item.name || "" };
 
     try {
       let folderLink = null;

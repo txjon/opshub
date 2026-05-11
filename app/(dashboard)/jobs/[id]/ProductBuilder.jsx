@@ -124,7 +124,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       for (const item of updated) {
         const prev = saved.find(s => s.id === item.id);
         const dbUpdates = {};
-        if (item.name !== prev?.name) dbUpdates.name = item.name;
+        const nameChanged = item.name !== prev?.name;
+        if (nameChanged) dbUpdates.name = item.name;
         if (item.garment_type !== prev?.garment_type) dbUpdates.garment_type = item.garment_type || null;
         if (item.cost_per_unit !== prev?.cost_per_unit) dbUpdates.cost_per_unit = item.cost_per_unit || null;
         if (JSON.stringify(item.blankCosts) !== JSON.stringify(prev?.blankCosts)) dbUpdates.blank_costs = item.blankCosts || null;
@@ -132,6 +133,17 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         if (item.blank_sku) dbUpdates.blank_sku = item.blank_sku;
         dbUpdates.sort_order = current.indexOf(item);
         await supabase.from("items").update(dbUpdates).eq("id", item.id);
+        // If the item's name changed and it already has a Drive folder,
+        // rename it in place — otherwise the next upload would create a
+        // sibling folder under the new name and split print files /
+        // proofs across two locations.
+        if (nameChanged && typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id)) {
+          fetch("/api/drive/rename", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ entity: "item", id: item.id, name: item.name }),
+          }).catch(() => { /* non-fatal */ });
+        }
         if (JSON.stringify(item.qtys) !== JSON.stringify(prev?.qtys) || JSON.stringify(item.sizes) !== JSON.stringify(prev?.sizes)) {
           // Prune stale sizes — when a one-size item gets reassigned to
           // per-size (or vice versa), the old rows would otherwise hang
@@ -495,7 +507,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           const fileCount = (group.psd ? 1 : 0) + (group.mockup ? 1 : 0);
           let filesDone = 0;
           if (group.psd) {
-            const driveFile = await uploadToDrive({ blob: group.psd, fileName: group.psd.name, mimeType: "application/octet-stream", clientName, projectTitle, itemName,
+            const driveFile = await uploadToDrive({ blob: group.psd, fileName: group.psd.name, mimeType: "application/octet-stream", itemId: newItem.id, clientName, projectTitle, itemName,
               onProgress: (pct) => setPsdProcessing(prev => ({ ...prev, uploadPct: Math.round((filesDone / fileCount) * 100 + pct / fileCount) }))
             });
             await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "print_ready", notes: JSON.stringify({ psd_locations: locations, psd_has_tag: hasTag }) });
@@ -504,7 +516,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 
           // Upload mockup image
           if (group.mockup) {
-            const driveFile = await uploadToDrive({ blob: group.mockup, fileName: group.mockup.name, mimeType: group.mockup.type || "image/png", clientName, projectTitle, itemName,
+            const driveFile = await uploadToDrive({ blob: group.mockup, fileName: group.mockup.name, mimeType: group.mockup.type || "image/png", itemId: newItem.id, clientName, projectTitle, itemName,
               onProgress: (pct) => setPsdProcessing(prev => ({ ...prev, uploadPct: Math.round((filesDone / fileCount) * 100 + pct / fileCount) }))
             });
             await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "mockup" });
@@ -1083,7 +1095,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
       setUploadProgress({ total: allFiles.length, done: i, current: allFiles[i].name });
       const stage = detectStage(allFiles[i].name);
       try {
-        const driveFile = await uploadToDrive({ blob: allFiles[i], fileName: allFiles[i].name, mimeType: allFiles[i].type || "application/octet-stream", clientName, projectTitle, itemName: item.name });
+        const driveFile = await uploadToDrive({ blob: allFiles[i], fileName: allFiles[i].name, mimeType: allFiles[i].type || "application/octet-stream", itemId: item.id, clientName, projectTitle, itemName: item.name });
         await registerFileInDb({ ...driveFile, itemId: item.id, stage });
       } catch (err) { console.error("Upload error:", err); }
     }
