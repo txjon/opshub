@@ -368,6 +368,18 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           // Cascade: delete job children first, then jobs, then client data
           const jobIds = jobs.map(j=>j.id);
           if(jobIds.length > 0){
+            // Trash each project's Drive folder before deleting the row.
+            // Uses the stashed drive_folder_id so it works even after a
+            // memo rename. Non-fatal — Drive trash is recoverable for 30
+            // days, so a failed trash never blocks the DB cleanup.
+            for (const jId of jobIds) {
+              try {
+                await fetch("/api/files/cleanup", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "archive-project", jobId: jId }),
+                });
+              } catch {}
+            }
             const itemIds = (jobs.flatMap((j:any)=>(j.items||[]).map((it:any)=>it.id))).filter(Boolean);
             if(itemIds.length > 0){
               await supabase.from("buy_sheet_lines").delete().in("item_id",itemIds);
