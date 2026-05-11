@@ -4,17 +4,21 @@
  * dashboard).
  *
  * The priority chain:
- *   1. If a QB invoice has been pushed — type_meta.qb_total_with_tax minus
- *      qb_tax_amount. This is authoritative because it reflects any
- *      variance-review adjustments + any manual tweaks made in QB, and sales
- *      tax is a pass-through (never revenue).
- *   2. Otherwise — costing_summary.grossRev (the quoted amount).
+ *   1. costing_summary.grossRev — the current costing state. Refreshed on
+ *      every costing-tab save, so adding items after an unlock, removing
+ *      items, or any other edit immediately flows through to KPIs.
+ *   2. Fallback: QB-billed total (qb_total_with_tax minus qb_tax_amount).
+ *      Only used when costing_summary is missing/zero — e.g. legacy jobs
+ *      migrated in without a saved summary, or pre-costing-tab data.
  *
- * Why this matters:
- *   Jobs that go through the variance review flow end up with a QB total
- *   lower than costing_summary.grossRev (e.g. $5,342.25 billed vs $5,355
- *   originally quoted). Without this helper, KPIs over-state revenue by the
- *   variance gap.
+ * Variance-review flow: writes back to costing_summary as well as QB, so
+ * cs.grossRev tracks the adjusted amount.
+ *
+ * Earlier this helper preferred QB over costing. That broke the
+ * "unlock + add items" case Jon hit on HPD-2605-006: items were added,
+ * cost KPI updated, but the revenue chip stayed pinned to the moment QB
+ * was first pushed. Reversed the priority so the chip matches the
+ * costing tab's current numbers.
  *
  * Cost is NOT adjusted — decorator + blanks were committed at ordered qty
  * regardless of what shipped, so costing_summary.totalCost stays authoritative.
@@ -27,15 +31,16 @@ type JobForRevenue = {
 
 export function effectiveRevenue(job: JobForRevenue | null | undefined): number {
   if (!job) return 0;
+  const cs = job.costing_summary;
+  const csGross = Number(cs?.grossRev) || 0;
+  if (csGross > 0) return csGross;
+
   const meta = job.type_meta || {};
   const qbTotal = Number(meta.qb_total_with_tax) || 0;
   const qbTax = Number(meta.qb_tax_amount) || 0;
+  if (qbTotal > 0) return Math.max(0, qbTotal - qbTax);
 
-  if (qbTotal > 0) {
-    return Math.max(0, qbTotal - qbTax);
-  }
-
-  return Number(job.costing_summary?.grossRev) || 0;
+  return 0;
 }
 
 export function effectiveCost(job: JobForRevenue | null | undefined): number {
