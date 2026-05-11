@@ -71,6 +71,18 @@ export async function POST(req: NextRequest) {
     }
 
     const token = await getDriveToken();
+
+    // If the stashed folder was trashed in Drive UI, don't rename
+    // (would silently rename a folder hidden in the trash). Clear the
+    // stash instead — next upload will rebuild under the current name.
+    const checkRes = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,trashed`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!checkRes.ok || ((await checkRes.clone().json())?.trashed)) {
+      await db.from(cfg.table as any).update({ drive_folder_id: null }).eq("id", id);
+      return NextResponse.json({ skipped: "stashed folder missing or trashed — cleared stash, next upload rebuilds", entity, id });
+    }
+
     await renameDriveFolder(token, folderId, String(name));
 
     return NextResponse.json({ ok: true, entity, id, folderId, newName: name });
