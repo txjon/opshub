@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { T } from "@/lib/theme";
 import { CommandCenterBuckets, type BucketCard, type BucketPayload, type BucketSection, type Urgency } from "@/components/CommandCenterBuckets";
+import { attachUnreadStatus } from "@/lib/art-brief-activity";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -351,12 +352,19 @@ export default async function DashboardPage() {
   // designer (sent / in_progress / revisions / final_approved). Active
   // only — aborted briefs are filtered out via client_aborted_at, the
   // delivered ones are simply not "active" for the team.
+  //
+  // We also pull client_review briefs so the Unread detector below can
+  // surface client comments on in-flight proofs. Without unread,
+  // client_review still drops out at the section-mapping step (one
+  // card per brief drowned the column on big jobs — see SECTION_ORDER).
+  // hpd_last_seen_at + state included to feed attachUnreadStatus.
   const { data: briefs } = await supabase
     .from("art_briefs")
-    .select("id, title, state, updated_at, sent_to_designer_at, client_aborted_at, job_id, clients(name), jobs(job_number)")
+    .select("id, title, state, updated_at, sent_to_designer_at, client_aborted_at, hpd_last_seen_at, job_id, clients(name), jobs(job_number)")
     .is("client_aborted_at", null)
     .not("state", "in", '("delivered","draft")')
     .order("updated_at", { ascending: false });
+  const briefsWithUnread = await attachUnreadStatus(briefs || [], supabase);
 
   // ── Build bucket payload ──
   const priorityToUrgency = (p: number): Urgency =>
@@ -386,7 +394,7 @@ export default async function DashboardPage() {
   const SECTION_ORDER: Record<string, string[]> = {
     clients:    ["Past ship date", "Quote feedback", "Proof revisions", "New leads", "Send to client", "Awaiting client"],
     decorators: ["Discrepancies", "Send PO", "Order blanks", "Verify shipping"],
-    designers:  ["Awaiting HPD review", "Prep print-ready", "Mark delivered", "In design"],
+    designers:  ["Unread", "Awaiting HPD review", "Prep print-ready", "Mark delivered", "In design"],
   };
 
   type Grouped = Record<string, Record<string, BucketCard[]>>;
@@ -431,7 +439,7 @@ export default async function DashboardPage() {
   }
 
   // Designer-side cards from art_briefs.
-  const briefRows = (briefs || []) as any[];
+  const briefRows = briefsWithUnread as any[];
   const stateToSection: Record<string, { section: string; urgency: Urgency; subtitlePrefix: string }> = {
     wip_review:       { section: "Awaiting HPD review", urgency: "action",  subtitlePrefix: "Designer uploaded WIP" },
     pending_prep:     { section: "Prep print-ready",   urgency: "action",  subtitlePrefix: "Designer uploaded final · prep print-ready" },
@@ -447,15 +455,55 @@ export default async function DashboardPage() {
     // check; not a Command Center concern.
   };
 
+  // "X ago" for unread subtitles. Coarse — minute / hour / day buckets
+  // are enough for an at-a-glance command center; longer-form lives
+  // inside Art Studio itself.
+  function unreadAgo(iso: string | null): string {
+    if (!iso) return "";
+    const ms = Date.now() - new Date(iso).getTime();
+    if (ms < 0) return "just now";
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days === 1) return "yesterday";
+    if (days < 7) return `${days}d ago`;
+    const weeks = Math.floor(days / 7);
+    return weeks === 1 ? "1w ago" : `${weeks}w ago`;
+  }
+
   for (const b of briefRows) {
-    const map = stateToSection[b.state];
-    if (!map) continue;
     const clientName = (b.clients as any)?.name || "";
     const briefTitle = b.title || "Untitled brief";
     const jobNumber = (b.jobs as any)?.job_number || null;
+    const title = clientName ? `${clientName} — ${briefTitle}` : briefTitle;
+
+    // Unread wins. If a client or designer has activity newer than
+    // HPD's last view, render a single "Unread" card and skip the
+    // state-based mapping — otherwise the brief would appear twice
+    // (once as Unread, once as e.g. "In design"). This is also the
+    // only path that surfaces client_review briefs on the dashboard.
+    if (b.has_unread_external) {
+      const who = b.unread_by_role === "client" ? "Client" : "Designer";
+      pushCard("designers", "Unread", {
+        id: `brief-unread-${b.id}`,
+        title,
+        subtitle: `${who} commented · ${unreadAgo(b.unread_at)}`,
+        meta: jobNumber || undefined,
+        metaKind: jobNumber ? "job" : undefined,
+        urgency: "action",
+        href: `/art-studio?brief=${b.id}`,
+      });
+      continue;
+    }
+
+    const map = stateToSection[b.state];
+    if (!map) continue;
     const card: BucketCard = {
       id: `brief-${b.id}`,
-      title: clientName ? `${clientName} — ${briefTitle}` : briefTitle,
+      title,
       subtitle: map.subtitlePrefix,
       meta: jobNumber || undefined,
       metaKind: jobNumber ? "job" : undefined,
