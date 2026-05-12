@@ -192,11 +192,20 @@ export async function POST(req: NextRequest) {
       replyTo = `${clientLocalPart}+c.${jobId}@${emailDomain}`;
     }
 
+    // BCC the production inbox on every PO send so each outgoing PO
+    // lands in the tenant's production Gmail inbox — the production
+    // team uses that inbox as the starting place for tracking POs.
+    // Sending the PO from that address via Resend doesn't drop a copy
+    // there (Resend tracks sent state in its own dashboard, not Gmail).
+    // Applies to both HPD and IHM; fromProduction is tenant-resolved.
+    const productionBcc = (type === "po") ? fromProduction : null;
+
     // Send via Resend
     const { data, error } = await resend.emails.send({
       from: fromAddress,
       to: recipientEmail,
       ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
+      ...(productionBcc ? { bcc: productionBcc } : {}),
       ...(replyTo ? { replyTo: replyTo } : {}),
       subject: defaultSubject,
       html: type === "quote"
