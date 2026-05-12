@@ -192,11 +192,19 @@ export async function POST(req: NextRequest) {
       replyTo = `${clientLocalPart}+c.${jobId}@${emailDomain}`;
     }
 
+    // BCC the production inbox on HPD POs so every outgoing PO lands
+    // in production@housepartydistro.com — the production team uses
+    // their Gmail inbox as the starting place for tracking POs.
+    // Scoped to HPD only because the user requested it explicitly;
+    // IHM can opt in later by widening this condition.
+    const productionBcc = (slug === "hpd" && type === "po") ? fromProduction : null;
+
     // Send via Resend
     const { data, error } = await resend.emails.send({
       from: fromAddress,
       to: recipientEmail,
       ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
+      ...(productionBcc ? { bcc: productionBcc } : {}),
       ...(replyTo ? { replyTo: replyTo } : {}),
       subject: defaultSubject,
       html: type === "quote"
