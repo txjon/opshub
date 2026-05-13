@@ -22,30 +22,43 @@ function admin() {
 
 type ClientItemStatus = "draft" | "preparing" | "in_production" | "shipping" | "delivered" | "paused" | "cancelled";
 
-function mapStatus(pipelineStage: string | null, phase: string): ClientItemStatus {
-  // Per-item pipeline_stage wins when set — ground truth once work
-  // has started. We deliberately do NOT fall through to a job-phase
-  // "production" mapping for items whose own pipeline hasn't advanced;
-  // otherwise a job with one in-production item would falsely show
-  // every sibling item as in production too.
-  if (pipelineStage === "shipped") return "delivered";
-  if (pipelineStage === "in_production" || pipelineStage === "strike_off") return "in_production";
-  // Post-quote, pre-decorator — blanks ordered but the item hasn't been
-  // picked up by the decorator yet. "Draft" implies pre-quote which is
-  // wrong here; "In Production" is the bug we're trying to fix. Carve
-  // out a distinct client-facing status for this in-between zone.
-  if (pipelineStage === "blanks_ordered") return "preparing";
-
-  // Job-wide states — these apply to every item regardless of the
-  // item's own pipeline_stage (the whole job is paused/cancelled/etc.)
+function mapStatus(
+  pipelineStage: string | null,
+  phase: string,
+  shippingRoute: string | null,
+  receivedAtHpd: boolean,
+  fulfillmentStatus: string | null,
+): ClientItemStatus {
+  // Whole-job locks first — they trump every per-item state.
   if (phase === "cancelled") return "cancelled";
   if (phase === "on_hold") return "paused";
+
+  // "Delivered" from the client's perspective = the order is out the
+  // door TO them. pipeline_stage="shipped" alone doesn't mean delivered
+  // — on stage / ship_through routes it just means the decorator
+  // shipped to HPD, which is still upstream of the client.
   if (phase === "complete") return "delivered";
-  if (phase === "receiving" || phase === "fulfillment" || phase === "shipping") return "shipping";
+  if (shippingRoute === "drop_ship" && pipelineStage === "shipped") return "delivered";
+  if (
+    (shippingRoute === "stage" || shippingRoute === "ship_through") &&
+    fulfillmentStatus === "shipped"
+  ) {
+    return "delivered";
+  }
+
+  // Per-item pipeline_stage for in-flight stages. "Shipped" without a
+  // delivered gate above lands in "shipping" — the item is in the
+  // shipping pipeline (in transit to HPD, at HPD waiting outbound, or
+  // outbound) but not yet at the client.
+  if (pipelineStage === "shipped") return "shipping";
+  if (pipelineStage === "in_production" || pipelineStage === "strike_off") return "in_production";
+  if (pipelineStage === "blanks_ordered") return "preparing";
+
+  // Job-wide states as fallbacks when item-level state is missing.
+  if (phase === "shipping" || phase === "receiving" || phase === "fulfillment") return "shipping";
 
   // pipeline_stage null + job phase = intake / pending / ready /
-  // production → the item itself hasn't reached the decorator yet.
-  // Show "Draft" rather than claiming production.
+  // production → the item itself hasn't entered the production pipeline.
   return "draft";
 }
 
@@ -65,7 +78,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    UI can filter. A "paid to archive" toggle can hide them client-side.)
     const { data: jobs } = await db
       .from("jobs")
-      .select("id, job_number, title, phase, target_ship_date, created_at")
+      .select("id, job_number, title, phase, target_ship_date, created_at, shipping_route, fulfillment_status")
       .eq("client_id", client.id)
       .order("created_at", { ascending: false });
     const jobById: Record<string, any> = {};
@@ -78,7 +91,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // 3. Fetch every item on those jobs.
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, design_id, created_at, sort_order")
+      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, design_id, created_at, sort_order")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -145,7 +158,13 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         garment_type: it.garment_type || null,
         mockup_color: it.mockup_color || null,
         qty: qtyByItem[it.id] || 0,
-        status: mapStatus(it.pipeline_stage, job.phase || ""),
+        status: mapStatus(
+          it.pipeline_stage,
+          job.phase || "",
+          job.shipping_route || null,
+          !!it.received_at_hpd,
+          job.fulfillment_status || null,
+        ),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,
         job: {
