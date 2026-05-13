@@ -20,20 +20,38 @@ function admin() {
 // decorator names, no internal phase labels. Thumbs pulled from
 // item_files (mockup > proof > print_ready).
 
-type ClientItemStatus = "draft" | "in_production" | "shipping" | "delivered" | "paused" | "cancelled";
+type ClientItemStatus = "draft" | "preparing" | "in_production" | "shipping" | "delivered" | "paused" | "cancelled";
 
-function mapStatus(pipelineStage: string | null, phase: string): ClientItemStatus {
-  // Item-level pipeline_stage wins when present — it's the ground truth
-  // once work has started.
-  if (pipelineStage === "shipped") return "delivered";
-  if (pipelineStage === "in_production" || pipelineStage === "strike_off") return "in_production";
-  // Otherwise fall back to job phase.
+function mapStatus(
+  pipelineStage: string | null,
+  phase: string,
+  shippingRoute: string | null,
+  receivedAtHpd: boolean,
+): ClientItemStatus {
+  // Whole-job locks first — they trump every per-item state.
   if (phase === "cancelled") return "cancelled";
   if (phase === "on_hold") return "paused";
   if (phase === "complete") return "delivered";
-  if (phase === "receiving" || phase === "fulfillment") return "shipping";
-  if (phase === "production" || phase === "ready") return "in_production";
-  // intake, pending, draft, etc. → not yet committed
+
+  // Per-item production states (same for every route).
+  if (pipelineStage === "in_production" || pipelineStage === "strike_off") return "in_production";
+  if (pipelineStage === "blanks_ordered") return "preparing";
+
+  // "Shipped" interpretation depends on route. Fulfillment / outbound
+  // to client is intentionally NOT considered yet — that flow is still
+  // half-built; for the client portal, "Delivered" = production is
+  // complete from our side:
+  //   drop_ship → decorator ships direct to client = Delivered
+  //   stage / ship_through → received at HPD = Delivered (it's at our
+  //     warehouse, production complete). In transit to HPD = Shipping.
+  if (pipelineStage === "shipped") {
+    if (shippingRoute === "drop_ship") return "delivered";
+    return receivedAtHpd ? "delivered" : "shipping";
+  }
+
+  // Job-wide fallbacks for items where pipeline_stage isn't set yet.
+  if (phase === "shipping" || phase === "receiving" || phase === "fulfillment") return "shipping";
+
   return "draft";
 }
 
@@ -53,7 +71,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    UI can filter. A "paid to archive" toggle can hide them client-side.)
     const { data: jobs } = await db
       .from("jobs")
-      .select("id, job_number, title, phase, target_ship_date, created_at")
+      .select("id, job_number, title, phase, target_ship_date, created_at, shipping_route")
       .eq("client_id", client.id)
       .order("created_at", { ascending: false });
     const jobById: Record<string, any> = {};
@@ -66,7 +84,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // 3. Fetch every item on those jobs.
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, design_id, created_at, sort_order")
+      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, design_id, created_at, sort_order")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -133,7 +151,12 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         garment_type: it.garment_type || null,
         mockup_color: it.mockup_color || null,
         qty: qtyByItem[it.id] || 0,
-        status: mapStatus(it.pipeline_stage, job.phase || ""),
+        status: mapStatus(
+          it.pipeline_stage,
+          job.phase || "",
+          job.shipping_route || null,
+          !!it.received_at_hpd,
+        ),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,
         job: {
