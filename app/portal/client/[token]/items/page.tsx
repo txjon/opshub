@@ -164,7 +164,7 @@ function ItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
         {item.thumb_id ? (
           <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
             alt="" referrerPolicy="no-referrer" loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
             onError={(e: any) => { e.target.style.display = "none"; }}
           />
         ) : (
@@ -269,7 +269,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
               {item.thumb_id ? (
                 <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
                   alt="" referrerPolicy="no-referrer"
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  style={{ width: "100%", height: "100%", objectFit: "contain" }}
                   onError={(e: any) => { e.target.style.display = "none"; }} />
               ) : (
                 <span style={{ color: C.faint, fontSize: 12 }}>No preview</span>
