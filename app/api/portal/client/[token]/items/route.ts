@@ -27,38 +27,31 @@ function mapStatus(
   phase: string,
   shippingRoute: string | null,
   receivedAtHpd: boolean,
-  fulfillmentStatus: string | null,
 ): ClientItemStatus {
   // Whole-job locks first — they trump every per-item state.
   if (phase === "cancelled") return "cancelled";
   if (phase === "on_hold") return "paused";
-
-  // "Delivered" from the client's perspective = the order is out the
-  // door TO them. pipeline_stage="shipped" alone doesn't mean delivered
-  // — on stage / ship_through routes it just means the decorator
-  // shipped to HPD, which is still upstream of the client.
   if (phase === "complete") return "delivered";
-  if (shippingRoute === "drop_ship" && pipelineStage === "shipped") return "delivered";
-  if (
-    (shippingRoute === "stage" || shippingRoute === "ship_through") &&
-    fulfillmentStatus === "shipped"
-  ) {
-    return "delivered";
-  }
 
-  // Per-item pipeline_stage for in-flight stages. "Shipped" without a
-  // delivered gate above lands in "shipping" — the item is in the
-  // shipping pipeline (in transit to HPD, at HPD waiting outbound, or
-  // outbound) but not yet at the client.
-  if (pipelineStage === "shipped") return "shipping";
+  // Per-item production states (same for every route).
   if (pipelineStage === "in_production" || pipelineStage === "strike_off") return "in_production";
   if (pipelineStage === "blanks_ordered") return "preparing";
 
-  // Job-wide states as fallbacks when item-level state is missing.
+  // "Shipped" interpretation depends on route. Fulfillment / outbound
+  // to client is intentionally NOT considered yet — that flow is still
+  // half-built; for the client portal, "Delivered" = production is
+  // complete from our side:
+  //   drop_ship → decorator ships direct to client = Delivered
+  //   stage / ship_through → received at HPD = Delivered (it's at our
+  //     warehouse, production complete). In transit to HPD = Shipping.
+  if (pipelineStage === "shipped") {
+    if (shippingRoute === "drop_ship") return "delivered";
+    return receivedAtHpd ? "delivered" : "shipping";
+  }
+
+  // Job-wide fallbacks for items where pipeline_stage isn't set yet.
   if (phase === "shipping" || phase === "receiving" || phase === "fulfillment") return "shipping";
 
-  // pipeline_stage null + job phase = intake / pending / ready /
-  // production → the item itself hasn't entered the production pipeline.
   return "draft";
 }
 
@@ -78,7 +71,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    UI can filter. A "paid to archive" toggle can hide them client-side.)
     const { data: jobs } = await db
       .from("jobs")
-      .select("id, job_number, title, phase, target_ship_date, created_at, shipping_route, fulfillment_status")
+      .select("id, job_number, title, phase, target_ship_date, created_at, shipping_route")
       .eq("client_id", client.id)
       .order("created_at", { ascending: false });
     const jobById: Record<string, any> = {};
@@ -163,7 +156,6 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           job.phase || "",
           job.shipping_route || null,
           !!it.received_at_hpd,
-          job.fulfillment_status || null,
         ),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,
