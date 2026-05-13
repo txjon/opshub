@@ -162,7 +162,7 @@ function ItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
       onMouseEnter={e => { e.currentTarget.style.borderColor = C.text; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}
     >
-      <div style={{ aspectRatio: "1", background: "#f4f4f7", overflow: "hidden", position: "relative" }}>
+      <div style={{ aspectRatio: "1", background: "#fff", overflow: "hidden", position: "relative" }}>
         {item.thumb_id ? (
           <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
             alt="" referrerPolicy="no-referrer" loading="lazy"
@@ -265,7 +265,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
           <div className="item-detail-body" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
             {/* Thumb */}
             <div style={{
-              aspectRatio: "1", background: "#f4f4f7", borderRadius: 10,
+              aspectRatio: "1", background: "#fff", borderRadius: 10,
               overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
             }}>
               {item.thumb_id ? (
