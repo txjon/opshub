@@ -173,7 +173,11 @@ export default async function DashboardPage() {
     }
 
     // 5. Send invoice / follow up
-    if (quoteApproved && invoiceNum && payments.length === 0) {
+    // QB push now opens a "sent" payment_records row up-front, so the
+    // legacy `payments.length === 0` gate was too tight — it suppressed
+    // the pre-due nag once that row existed. Switch to "no PAID record
+    // yet" so the block fires whenever there's still money to collect.
+    if (quoteApproved && invoiceNum && !hasPaidPayment) {
       const invoiceSentAt = typeMeta.invoice_sent_at ? new Date(typeMeta.invoice_sent_at) : null;
       const daysSinceInvoiceSent = invoiceSentAt ? Math.ceil((now.getTime() - invoiceSentAt.getTime()) / 86400000) : 0;
       if (invoiceSentAt && daysSinceInvoiceSent >= 2) {
@@ -234,7 +238,12 @@ export default async function DashboardPage() {
     }
 
     // 7. Upload proofs / Awaiting approval (both can fire — items can be in different states)
-    if (quoteApproved && !allProofsApproved) {
+    // Phase-gated to pending/intake only — once the job has advanced
+    // to ready or beyond, the proof gate is closed (lifecycle either
+    // approved them or accepted the manual artwork_status override).
+    // Continuing to nag past that point is stale noise.
+    const proofPhase = j.phase === "intake" || j.phase === "pending";
+    if (proofPhase && quoteApproved && !allProofsApproved) {
       // Exclude items with manual override (artwork_status='approved') — they
       // don't need client approval even if the underlying proof is pending.
       const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0 && it.artwork_status !== "approved");
