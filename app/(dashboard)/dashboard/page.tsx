@@ -11,7 +11,8 @@ export default async function DashboardPage() {
   // JSONB. last_dashboard_seen_at drives "auto-read" of new external
   // events on dashboard open; dashboard_unread_overrides forces
   // specific cards back to unread regardless (Jon → Drake/Taylor pings).
-  const { data: companiesRow } = await supabase.from("companies").select("branding").limit(1);
+  const { data: companiesRow } = await supabase.from("companies").select("id, branding").limit(1);
+  const companyId: string | null = ((companiesRow || [])[0] as any)?.id || null;
   const branding = ((companiesRow || [])[0] as any)?.branding || {};
   const lastSeen: string = branding.last_dashboard_seen_at || "1970-01-01T00:00:00.000Z";
   const unreadOverrides: string[] = Array.isArray(branding.dashboard_unread_overrides)
@@ -652,6 +653,28 @@ export default async function DashboardPage() {
       parts.push(`${n} ${name.toLowerCase()}`);
     }
     return parts.join(" · ") || "All clear";
+  }
+
+  // Prune stale unread overrides — anything in the team's
+  // dashboard_unread_overrides list that doesn't match a card we just
+  // rendered (ID format changed, card resolved, etc.) gets dropped.
+  // Keeps the badge count honest: badge = currently-displaying unread
+  // cards, never inflated by orphan entries.
+  if (companyId) {
+    const renderedIds: string[] = [];
+    for (const bucket of Object.values(grouped)) {
+      for (const cards of Object.values(bucket)) {
+        for (const c of cards) renderedIds.push(c.id);
+      }
+    }
+    if (unreadOverrides.length > 0) {
+      try {
+        await (supabase as any).rpc("prune_dashboard_unread_overrides", {
+          p_company_id: companyId,
+          p_valid_card_ids: renderedIds,
+        });
+      } catch {}
+    }
   }
 
   return <CommandCenterBuckets buckets={buckets} />;
