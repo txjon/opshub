@@ -22,18 +22,15 @@ export async function POST(req: NextRequest) {
     const cardId = typeof body.cardId === "string" ? body.cardId : "";
     if (!cardId) return NextResponse.json({ ok: false, error: "cardId required" }, { status: 400 });
 
-    const { data: companies } = await supabase.from("companies").select("id, branding").limit(1);
+    const { data: companies } = await supabase.from("companies").select("id").limit(1);
     const company = (companies || [])[0] as any;
     if (!company) return NextResponse.json({ ok: false }, { status: 404 });
 
-    const branding = company.branding || {};
-    const current: string[] = Array.isArray(branding.dashboard_unread_overrides)
-      ? branding.dashboard_unread_overrides : [];
-    const next = current.includes(cardId) ? current : [...current, cardId];
-
-    const newBranding = { ...branding, dashboard_unread_overrides: next };
-    await (supabase.from("companies") as any).update({ branding: newBranding }).eq("id", company.id);
-    return NextResponse.json({ ok: true, overrides: next });
+    await (supabase as any).rpc("add_dashboard_unread_override", {
+      p_company_id: company.id,
+      p_card_id: cardId,
+    });
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("[mark-unread]", e?.message || e);
     return NextResponse.json({ ok: false }, { status: 500 });

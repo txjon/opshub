@@ -20,15 +20,16 @@ export async function POST() {
     if (!user) return NextResponse.json({ ok: false }, { status: 401 });
 
     // RLS filters companies to the user's tenant — first row is ours.
-    const { data: companies } = await supabase.from("companies").select("id, branding").limit(1);
+    const { data: companies } = await supabase.from("companies").select("id").limit(1);
     const company = (companies || [])[0] as any;
     if (!company) return NextResponse.json({ ok: false }, { status: 404 });
 
-    const newBranding = {
-      ...(company.branding || {}),
-      last_dashboard_seen_at: new Date().toISOString(),
-    };
-    await (supabase.from("companies") as any).update({ branding: newBranding }).eq("id", company.id);
+    // Atomic JSONB-key update via RPC — doesn't race with
+    // mark-unread / mark-read which touch a sibling key.
+    await (supabase as any).rpc("bump_dashboard_seen", {
+      p_company_id: company.id,
+      p_ts: new Date().toISOString(),
+    });
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("[dashboard/seen]", e?.message || e);
