@@ -959,6 +959,12 @@ export default function ProductionPage() {
                           {ship.dateStr} · {ship.label}
                         </div>
                       )}
+                      <button onClick={() => { setModalProject(null); router.push(`/jobs/${project.jobId}`); }}
+                        style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontSize: 11, fontWeight: 700, padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontFamily: font, letterSpacing: "0.04em" }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>
+                        View Project →
+                      </button>
                       <button onClick={() => setModalProject(null)} title="Close (Esc)"
                         style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
                     </div>
