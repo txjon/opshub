@@ -923,20 +923,20 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </div>
                 )}
                 {contacts.length===0&&!(job as any)._addContact&&<p style={{fontSize:12,color:T.muted}}>No contacts assigned.</p>}
-                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
                   {contacts.map((c,i)=>(
-                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,paddingBottom:i<contacts.length-1?6:0,borderBottom:i<contacts.length-1?`1px solid ${T.border}`:"none"}}>
-                      <div style={{width:26,height:26,borderRadius:"50%",background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
+                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,paddingBottom:i<contacts.length-1?8:0,borderBottom:i<contacts.length-1?`1px solid ${T.border}`:"none"}}>
+                      <div style={{width:34,height:34,borderRadius:"50%",background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.accent,flexShrink:0}}>
                         {c.name.split(" ").map((n:string)=>n[0]).join("").slice(0,2)}
                       </div>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name} <span style={{fontWeight:400,color:T.muted,fontSize:11}}>· {c.role_label} · {c.role_on_job}</span></div>
-                        {c.email&&<div style={{fontSize:10,color:T.accent,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</div>}
+                        <div style={{fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name} <span style={{fontWeight:400,color:T.muted,fontSize:12}}>· {c.role_label} · {c.role_on_job}</span></div>
+                        {c.email&&<div style={{fontSize:12,color:T.accent,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</div>}
                       </div>
                       <button onClick={async()=>{
                         await supabase.from("job_contacts").delete().eq("job_id",job.id).eq("contact_id",c.id);
                         loadData();
-                      }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11,padding:"0 2px"}}
+                      }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:13,padding:"0 4px"}}
                         onMouseEnter={e=>e.currentTarget.style.color=T.red}
                         onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
                     </div>
