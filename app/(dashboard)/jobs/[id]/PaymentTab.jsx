@@ -61,7 +61,7 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
   const [pmType, setPmType] = useState("deposit");
   const [pmAmount, setPmAmount] = useState("");
   const [pmInvoice, setPmInvoice] = useState("");
-  const [pmDue, setPmDue] = useState(new Date().toISOString().split("T")[0]);
+  const [pmPaid, setPmPaid] = useState(new Date().toISOString().split("T")[0]);
 
   const qbInvoiceNumber = job.type_meta?.qb_invoice_number;
   const qbPaymentLink = job.type_meta?.qb_payment_link;
@@ -409,23 +409,26 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
                 <input type="text" inputMode="decimal" placeholder="0.00" value={pmAmount} onChange={e => setPmAmount(e.target.value)} style={{ ...ic, paddingLeft: 22, fontFamily: mono }} />
               </div>
               <input placeholder="Invoice #" value={pmInvoice} onChange={e => setPmInvoice(e.target.value)} style={ic} />
-              <input type="date" value={pmDue} onChange={e => setPmDue(e.target.value)} style={ic} />
+              <div style={{position:"relative"}}>
+                <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:10,fontWeight:600,color:T.faint,letterSpacing:"0.06em",textTransform:"uppercase",pointerEvents:"none"}}>Paid</span>
+                <input type="date" value={pmPaid} onChange={e => setPmPaid(e.target.value)} style={{...ic,paddingLeft:46}} />
+              </div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={async () => {
                 const amount = parseFloat(String(pmAmount).replace(/[^0-9.\-]/g, "")) || 0;
                 if (!amount) return;
                 const invoice_number = pmInvoice.trim() || null;
-                const due_date = pmDue || null;
-                await supabase.from("payment_records").insert({ job_id: job.id, type: pmType, amount, invoice_number, due_date, status: "paid", paid_date: new Date().toISOString().split("T")[0] });
+                const paid_date = pmPaid || new Date().toISOString().split("T")[0];
+                await supabase.from("payment_records").insert({ job_id: job.id, type: pmType, amount, invoice_number, status: "paid", paid_date });
                 logJobActivity(job.id, `Payment received: ${pmType.replace(/_/g, " ")} — $${amount.toLocaleString()}${invoice_number ? ` (${invoice_number})` : ""}`);
                 notifyTeam(`Payment received — $${amount.toLocaleString()} · ${job.clients?.name || ""} · ${job.title}`, "payment", job.id, "job");
-                setPmType("deposit"); setPmAmount(""); setPmInvoice(""); setPmDue(new Date().toISOString().split("T")[0]);
+                setPmType("deposit"); setPmAmount(""); setPmInvoice(""); setPmPaid(new Date().toISOString().split("T")[0]);
                 setAddingPayment(false);
                 if (onReload) onReload();
                 if (onRecalcPhase) setTimeout(onRecalcPhase, 500);
               }} style={{ background: T.green, border: "none", borderRadius: 5, color: "#fff", fontSize: 11, fontWeight: 600, padding: "5px 12px", cursor: "pointer" }}>Save</button>
-              <button onClick={() => { setAddingPayment(false); setPmType("deposit"); setPmAmount(""); setPmInvoice(""); setPmDue(new Date().toISOString().split("T")[0]); }} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 5, color: T.muted, fontSize: 11, padding: "5px 10px", cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => { setAddingPayment(false); setPmType("deposit"); setPmAmount(""); setPmInvoice(""); setPmPaid(new Date().toISOString().split("T")[0]); }} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 5, color: T.muted, fontSize: 11, padding: "5px 10px", cursor: "pointer" }}>Cancel</button>
             </div>
           </div>
         )}
