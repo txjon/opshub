@@ -596,14 +596,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               );
             })()}
-            {(job as any).portal_token && (
-              <button onClick={()=>setPortalOpen(true)}
-                style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:10,fontWeight:600,color:T.muted}}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-                Client Portal
-              </button>
-            )}
           </div>
         </div>
         {/* KPI strip — compact */}
@@ -975,13 +967,21 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </button>
               );
               return (
-                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
                   {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
                   {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
                   {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
                   {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
                   {docVendors.length === 0 && docBtn("PO", null, false)}
                   {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
+                  {(job as any).portal_token && (
+                    <button onClick={()=>setPortalOpen(true)}
+                      style={{marginLeft:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+                      Client Portal
+                    </button>
+                  )}
                 </div>
               );
             })()}
