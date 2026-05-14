@@ -19,6 +19,17 @@ const NON_GARMENT = new Set([
 
 export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick, selectedItemId }) {
   const items = useMemo(() => allItems.filter(it => !NON_GARMENT.has(it.garment_type)), [allItems]);
+  // Letter designators are canonical across surfaces (ProductBuilder,
+  // PO, Blanks) — they must reflect the item's position in the FULL
+  // sort_order-ordered list, not its position in the filtered apparel
+  // subset. Without this map, an item at position E in ProductBuilder
+  // would show as A in Blanks if patches/flags filtered out ahead of it.
+  const letterByItemId = useMemo(() => {
+    const sorted = [...allItems].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const map = {};
+    sorted.forEach((it, idx) => { map[it.id] = String.fromCharCode(65 + idx); });
+    return map;
+  }, [allItems]);
   const supabase = createClient();
   const [localFields, setLocalFields] = useState({});
   const [proofStatus, setProofStatus] = useState({});
@@ -127,16 +138,17 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
         const status = order.orderStatus || order.OrderStatus || order.status || "";
 
         // Match to items: PO number might be "HPD-2603-014" (whole project)
-        // or "HPD-2603-014A" (specific item letter)
+        // or "HPD-2603-014A" (specific item letter). The letter is the
+        // canonical one shown across ProductBuilder / PO / Blanks (full
+        // sort-order position), not a position within the apparel-only
+        // subset — so we resolve via letterByItemId.
         const itemLetter = poNumber.replace(job.job_number, "").trim().toUpperCase();
 
         let matchedItems = [];
         if (itemLetter && itemLetter.length === 1) {
-          // Specific item: match by letter index (A=0, B=1, etc)
-          const idx = itemLetter.charCodeAt(0) - 65;
-          if (idx >= 0 && idx < ssItems.length) {
-            matchedItems = [ssItems[idx]];
-          }
+          const targetId = Object.entries(letterByItemId).find(([, l]) => l === itemLetter)?.[0];
+          const target = targetId ? ssItems.find(it => it.id === targetId) : null;
+          if (target) matchedItems = [target];
         } else if (ssItems.length === 1) {
           // Only one S&S item — auto-match
           matchedItems = [ssItems[0]];
@@ -337,7 +349,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           const actualCost = f.blanks_order_cost ? parseFloat(String(f.blanks_order_cost).replace(/[^0-9.\-]/g, "")) : null;
           const costDiff = calcCost !== null && actualCost !== null ? actualCost - calcCost : null;
           const hasOrder = (actualCost ?? 0) > 0;
-          const itemLetter = String.fromCharCode(65 + i);
+          const itemLetter = letterByItemId[item.id] || String.fromCharCode(65 + i);
           // QB invoice # is the primary reference for ordering. Format
           // matches the PO PDF naming: invoice number + item letter.
           const qbInvNum = job?.type_meta?.qb_invoice_number;

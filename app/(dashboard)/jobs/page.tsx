@@ -11,7 +11,7 @@ type Job = {
   target_ship_date: string|null; job_number: string; created_at: string;
   type_meta?: Record<string, any>|null;
   clients?: { name: string }|null;
-  items?: { id: string; pipeline_stage: string|null }[];
+  items?: { id: string; name?: string|null; pipeline_stage: string|null; received_at_hpd?: boolean|null }[];
 };
 
 // Phase labels only — no background colors. List rows use plain
@@ -102,6 +102,12 @@ export default function JobsPage() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState("target_ship_date");
   const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
+  // Items-list hover popover: hoveredJobId is set on the row that
+  // currently has the mouse, after a small delay. Clearing is
+  // immediate on leave to avoid stuck popovers when the cursor
+  // moves between rows.
+  const [hoveredJobId, setHoveredJobId] = useState<string|null>(null);
+  const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout>|null>(null);
   const now = new Date();
 
   useEffect(() => { loadJobs(); }, []);
@@ -110,7 +116,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), costing_summary, costing_data, type_meta, payment_records(amount, status), items(id, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, garment_type, received_at_hpd, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, costing_data, type_meta, payment_records(amount, status), items(id, name, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, garment_type, received_at_hpd, sort_order, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -471,9 +477,19 @@ export default function JobsPage() {
                   ? "68px 1fr 130px 130px 200px 100px"
                   : "1fr 130px 130px 200px 100px",
                 alignItems:"center", gap:14, padding:"12px 18px", minHeight:56,
+                position:"relative",
               }}
-              onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = T.surface}
-              onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = T.card}>
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLDivElement).style.background = T.surface;
+                // 250ms delay so brushing past rows doesn't pop the panel.
+                if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                hoverTimerRef.current = setTimeout(() => setHoveredJobId(job.id), 250);
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLDivElement).style.background = T.card;
+                if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                setHoveredJobId(prev => prev === job.id ? null : prev);
+              }}>
 
               {/* Invoice number — left-anchor identifier when present.
                   HPD-only (IHM never has a qb_invoice_number). */}
@@ -551,6 +567,63 @@ export default function JobsPage() {
                   </>
                 ) : !pri && <span style={{ fontSize:10, color:T.faint }}>No date</span>}
               </div>
+
+              {/* Items hover popover. Anchored bottom-left of the row,
+                  shows item names with their per-item state. Reads
+                  from the same items array already loaded for status
+                  bucket math — no extra fetch. Click navigates to job
+                  (event bubbles up); the popover doesn't intercept. */}
+              {hoveredJobId === job.id && (job.items?.length || 0) > 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    left: 18,
+                    background: T.card,
+                    border: `1px solid ${T.border}`,
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    minWidth: 280,
+                    maxWidth: 480,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+                    zIndex: 10,
+                    fontFamily: font,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
+                    Items · {job.items!.length}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {[...(job.items || [])]
+                      .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+                      .map((it: any) => {
+                        const stageLabel =
+                          it.received_at_hpd ? "At HPD" :
+                          it.pipeline_stage === "shipped" ? "Shipped" :
+                          it.pipeline_stage === "in_production" ? "In Production" :
+                          it.pipeline_stage === "blanks_ordered" ? "Blanks Ordered" :
+                          "—";
+                        const stageColor =
+                          it.received_at_hpd ? T.purple :
+                          it.pipeline_stage === "shipped" ? T.blue :
+                          it.pipeline_stage === "in_production" ? T.accent :
+                          it.pipeline_stage === "blanks_ordered" ? T.amber :
+                          T.muted;
+                        return (
+                          <div key={it.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+                            <span style={{ fontSize: 12, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+                              {it.name || "Untitled"}
+                            </span>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: stageColor, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>
+                              {stageLabel}
+                            </span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
 
             </div>
           );
