@@ -29,8 +29,10 @@ export async function GET() {
     if (!user) return NextResponse.json({ count: 0 });
 
     const { data: companies } = await supabase.from("companies").select("branding").limit(1);
-    const lastSeen = ((companies || [])[0] as any)?.branding?.last_dashboard_seen_at
-      || "1970-01-01T00:00:00.000Z";
+    const branding = ((companies || [])[0] as any)?.branding || {};
+    const lastSeen = branding.last_dashboard_seen_at || "1970-01-01T00:00:00.000Z";
+    const overrides: string[] = Array.isArray(branding.dashboard_unread_overrides)
+      ? branding.dashboard_unread_overrides : [];
 
     const [quoteRej, proofRev, vendorDisc, briefs] = await Promise.all([
       supabase.from("jobs")
@@ -65,7 +67,12 @@ export async function GET() {
       ).length;
     }
 
-    const count = (quoteRej.count || 0) + (proofRev.count || 0) + (vendorDisc.count || 0) + briefUnread;
+    const eventCount = (quoteRej.count || 0) + (proofRev.count || 0) + (vendorDisc.count || 0) + briefUnread;
+    // Manual overrides — cards Jon (or anyone) explicitly flagged as
+    // unread to ping Drake / Taylor. These persist independent of
+    // last_seen_at until explicitly marked read.
+    const overrideCount = overrides.length;
+    const count = eventCount + overrideCount;
     return NextResponse.json({ count });
   } catch (e: any) {
     console.error("[unread-count]", e?.message || e);

@@ -7,6 +7,26 @@ export default async function DashboardPage() {
   const supabase = await createClient();
   const now = new Date();
 
+  // Read team-wide messenger state from the active tenant's branding
+  // JSONB. last_dashboard_seen_at drives "auto-read" of new external
+  // events on dashboard open; dashboard_unread_overrides forces
+  // specific cards back to unread regardless (Jon → Drake/Taylor pings).
+  const { data: companiesRow } = await supabase.from("companies").select("branding").limit(1);
+  const branding = ((companiesRow || [])[0] as any)?.branding || {};
+  const lastSeen: string = branding.last_dashboard_seen_at || "1970-01-01T00:00:00.000Z";
+  const unreadOverrides: string[] = Array.isArray(branding.dashboard_unread_overrides)
+    ? branding.dashboard_unread_overrides : [];
+  const overrideSet = new Set(unreadOverrides);
+  // Decide read state for a given card. Defaults to read; flips to
+  // unread when the underlying event is newer than lastSeen OR when
+  // the card was explicitly flagged. Server-side so the result is
+  // identical for every team member.
+  const computeRead = (cardId: string, eventAt?: string | null): boolean => {
+    if (overrideSet.has(cardId)) return false;
+    if (eventAt && eventAt > lastSeen) return false;
+    return true;
+  };
+
   // ── Data Loading ──
   const { data: jobs } = await supabase
     .from("jobs")
@@ -21,7 +41,7 @@ export default async function DashboardPage() {
 
   const allItemIds = (jobs || []).flatMap(j => (j.items || []).map((it: any) => it.id));
   const { data: proofFiles } = allItemIds.length > 0
-    ? await supabase.from("item_files").select("item_id, stage, approval, notes").in("item_id", allItemIds).in("stage", ["proof", "mockup"]).is("superseded_at", null)
+    ? await supabase.from("item_files").select("item_id, stage, approval, notes, created_at").in("item_id", allItemIds).in("stage", ["proof", "mockup"]).is("superseded_at", null)
     : { data: [] };
 
   // Load contacts for email modals
@@ -31,14 +51,16 @@ export default async function DashboardPage() {
     : { data: [] };
 
   // ── Proof status map ──
-  const proofMap: Record<string, { allApproved: boolean; hasRevision: boolean; pendingCount: number; revisionNotes: string | null }> = {};
+  const proofMap: Record<string, { allApproved: boolean; hasRevision: boolean; pendingCount: number; revisionNotes: string | null; revisionAt: string | null }> = {};
   for (const id of allItemIds) {
     const proofs = (proofFiles || []).filter(f => f.item_id === id && f.stage === "proof");
+    const rev = proofs.find(f => f.approval === "revision_requested");
     proofMap[id] = {
       allApproved: proofs.length > 0 && proofs.every(f => f.approval === "approved"),
       hasRevision: proofs.some(f => f.approval === "revision_requested"),
       pendingCount: proofs.filter(f => f.approval === "pending").length,
-      revisionNotes: proofs.find(f => f.approval === "revision_requested")?.notes || null,
+      revisionNotes: rev?.notes || null,
+      revisionAt: rev?.created_at || null,
     };
   }
 
@@ -86,6 +108,7 @@ export default async function DashboardPage() {
       jobId: "", jobTitle: "", clientName: c.name, invoiceNumber: null,
       jobNumber: "", shipDate: null, contacts: [],
       href: `/clients/${c.id}`, column: "sales",
+      event_at: c.created_at,
     });
   }
 
@@ -137,7 +160,8 @@ export default async function DashboardPage() {
     if (rejectionNotes && !quoteApproved) {
       alerts.push({ ...base, priority: 0, type: "quote_rejected", color: T.red,
         action: "Quote rejected — review client notes", notes: rejectionNotes,
-        href: `/jobs/${j.id}?tab=quote`, column: "sales" });
+        href: `/jobs/${j.id}?tab=quote`, column: "sales",
+        event_at: (j as any).updated_at });
     }
 
     // 3. Proof revision requested — with client notes
@@ -149,6 +173,7 @@ export default async function DashboardPage() {
           // Used by the Command Center to open a per-revision modal with
           // mockup thumbnail + client message.
           itemId: it.id, itemName: it.name,
+          event_at: proofMap[it.id]?.revisionAt || (j as any).updated_at,
         });
       }
     }
@@ -227,9 +252,13 @@ export default async function DashboardPage() {
     // approved" badge when relevant so the team doesn't ship into a
     // proof-gate violation.
     if (hasPaidPayment && unsentVendors.length > 0) {
-      const paidSum = payments
-        .filter((p: any) => p.status === "paid" || p.status === "partial")
-        .reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      const paidPays = payments.filter((p: any) => p.status === "paid" || p.status === "partial");
+      const paidSum = paidPays.reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      const latestPaidDate = paidPays
+        .map((p: any) => p.paid_date || p.created_at)
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0] || null;
       alerts.push({
         ...base,
         priority: 1,
@@ -239,6 +268,7 @@ export default async function DashboardPage() {
         badge: !allProofsApproved ? "Proofs not approved" : undefined,
         href: `/jobs/${j.id}?tab=po`,
         column: "sales",
+        event_at: latestPaidDate,
       });
     }
 
@@ -279,11 +309,13 @@ export default async function DashboardPage() {
         if (daysSinceProofsSent >= 2) {
           alerts.push({ ...base, priority: 1, type: "follow_up_proofs", color: T.amber,
             action: `Follow up — proofs pending ${daysSinceProofsSent}d, no response`,
-            href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+            href: `/jobs/${j.id}?tab=proofs`, column: "sales",
+            event_at: proofsSentAt ? proofsSentAt.toISOString() : null });
         } else {
           alerts.push({ ...base, priority: 2, type: "proofs_pending", color: T.muted,
             action: `Awaiting proof approval · ${pendingItems.length} item${pendingItems.length !== 1 ? "s" : ""} pending`,
-            href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+            href: `/jobs/${j.id}?tab=proofs`, column: "sales",
+            event_at: proofsSentAt ? proofsSentAt.toISOString() : null });
         }
       }
       if (itemsNeedingProofs.length > 0) {
@@ -365,6 +397,7 @@ export default async function DashboardPage() {
       invoiceNumber: invNum,
       href: `/jobs/${job.id}?tab=po`,
       column: "production",
+      event_at: (d as any).last_issue_at,
       // Resolve metadata — surfaces the ✓ Resolve button on the card
       // and tells the client component which (item, decorator) row to
       // mark resolved on decorator_assignments.
@@ -449,8 +482,9 @@ export default async function DashboardPage() {
     if (!map) continue; // billing + anything we don't surface drops here
     const titleParts = [a.clientName, a.jobTitle].filter(Boolean);
     const metaKind: "invoice" | "job" | undefined = a.invoiceNumber ? "invoice" : a.jobNumber ? "job" : undefined;
+    const cardId = `alert-${a.type}-${a.jobId || a.clientName}-${a.action.slice(0, 30)}`;
     pushCard(map.bucket, map.section, {
-      id: `alert-${a.type}-${a.jobId || a.clientName}-${a.action.slice(0, 30)}`,
+      id: cardId,
       title: titleParts.join(" — ") || a.action,
       subtitle: a.action,
       meta: a.invoiceNumber || a.jobNumber || undefined,
@@ -458,6 +492,7 @@ export default async function DashboardPage() {
       badge: a.badge || undefined,
       urgency: priorityToUrgency(a.priority),
       href: a.href,
+      read: computeRead(cardId, a.event_at),
       // Revision cards open a per-revision preview modal instead of a navigation
       revision: a.type === "revision" && a.itemId && a.jobId ? {
         jobId: a.jobId,
@@ -524,14 +559,16 @@ export default async function DashboardPage() {
     // only path that surfaces client_review briefs on the dashboard.
     if (b.has_unread_external) {
       const who = b.unread_by_role === "client" ? "Client" : "Designer";
+      const cardId = `brief-unread-${b.id}`;
       pushCard("designers", "Unread", {
-        id: `brief-unread-${b.id}`,
+        id: cardId,
         title,
         subtitle: `${who} commented · ${unreadAgo(b.unread_at)}`,
         meta: jobNumber || undefined,
         metaKind: jobNumber ? "job" : undefined,
         urgency: "action",
         href: `/art-studio?brief=${b.id}`,
+        read: computeRead(cardId, b.unread_at),
       });
       continue;
     }
