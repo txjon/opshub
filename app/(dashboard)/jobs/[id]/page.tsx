@@ -944,9 +944,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
 
-              {/* Col 2: Small shipping fields */}
+              {/* Col 2: Client-provided info — When + Where */}
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>Shipping</div>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>From client</div>
                 <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date</label><input style={{...ic,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
                   const ship = e.target.value;
                   const updates: any = { target_ship_date: ship };
@@ -954,6 +954,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   setJob(j => j ? {...j, ...updates} : j);
                   saveJob(updates);
                 }}/></div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client delivery address</label>
+                  <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/>
+                </div>
+              </div>
+
+              {/* Col 3: HPD-side decisions — How + Extras */}
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>HPD plan</div>
                 <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
                   <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
                     <option value="drop_ship">Drop ship (direct to client)</option>
@@ -961,16 +969,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     <option value="stage">Stage (fulfillment from HPD)</option>
                   </select>
                 </div>
-              </div>
-
-              {/* Col 3: Address + notes textareas */}
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0,visibility:"hidden"}}>·</div>
-                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client delivery address</label>
-                  <textarea style={{...ic,minHeight:74,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/>
-                </div>
                 <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
-                  <textarea style={{...ic,minHeight:74,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
+                  <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
                 </div>
               </div>
             </div>
