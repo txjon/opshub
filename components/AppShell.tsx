@@ -107,6 +107,14 @@ export function AppShell({
         if (!cancelled) setDashboardUnread(Number(body.count) || 0);
       } catch {}
     };
+    // Strict-messenger flow: landing on /dashboard bumps the team-wide
+    // last-seen-at via POST /api/dashboard/seen, which clears the badge.
+    // We also optimistically zero it locally so the UI doesn't flash a
+    // stale number while the round-trip completes.
+    if (pathname === "/dashboard") {
+      setDashboardUnread(0);
+      fetch("/api/dashboard/seen", { method: "POST", cache: "no-store" }).catch(() => {});
+    }
     load();
     const id = setInterval(load, 60_000);
     return () => { cancelled = true; clearInterval(id); };

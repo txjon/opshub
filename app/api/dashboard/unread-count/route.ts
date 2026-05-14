@@ -6,22 +6,21 @@ export const dynamic = "force-dynamic";
 
 // GET /api/dashboard/unread-count
 //
-// Returns { count } — how many external-driven items are awaiting an
-// HPD response. Mirrors the conceptual filter used by the Designs
-// portal's "has_unread_external" badge: external party (client, vendor,
-// designer) made a move, OpsHub hasn't responded yet.
+// Strict messenger model: returns count of NEW external-driven events
+// since the team last opened /dashboard. The "last seen" timestamp
+// lives team-wide on companies.branding.last_dashboard_seen_at and is
+// bumped by /api/dashboard/seen on dashboard mount.
 //
-// Counted:
-//   - quote_rejection_notes set on a job that hasn't been re-approved
-//   - item_files with approval = "revision_requested" (client wants
-//     proof changes)
-//   - decorator_assignments.last_issue_at set + issue_resolved_at null
-//     (vendor flagged an issue, HPD hasn't cleared it)
-//   - art_briefs with has_unread_external = true (client / designer
-//     posted/uploaded since HPD's last seen)
+// Each source filters by its own existing event timestamp:
+//   - jobs.updated_at         → quote rejections (noisy: job edits
+//     also bump this; the card itself stays visible until resolved
+//     so the slight badge noise is acceptable for v1)
+//   - item_files.created_at   → proof revisions
+//   - decorator_assignments.last_issue_at → vendor flags
+//   - art_briefs unread_at    → unread external activity on briefs
 //
-// Polled from AppShell on a short interval to drive the Dashboard
-// nav badge.
+// First visit (no timestamp saved) → treat as Unix epoch → all
+// existing items count once, after which they clear on dashboard open.
 
 export async function GET() {
   try {
@@ -29,20 +28,27 @@ export async function GET() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ count: 0 });
 
+    const { data: companies } = await supabase.from("companies").select("branding").limit(1);
+    const lastSeen = ((companies || [])[0] as any)?.branding?.last_dashboard_seen_at
+      || "1970-01-01T00:00:00.000Z";
+
     const [quoteRej, proofRev, vendorDisc, briefs] = await Promise.all([
       supabase.from("jobs")
         .select("id", { count: "exact", head: true })
         .not("quote_rejection_notes", "is", null)
         .eq("quote_approved", false)
-        .not("phase", "in", '("complete","cancelled")'),
+        .not("phase", "in", '("complete","cancelled")')
+        .gt("updated_at", lastSeen),
       supabase.from("item_files")
         .select("id", { count: "exact", head: true })
         .eq("approval", "revision_requested")
-        .is("superseded_at", null),
+        .is("superseded_at", null)
+        .gt("created_at", lastSeen),
       supabase.from("decorator_assignments")
         .select("id", { count: "exact", head: true })
         .not("last_issue_at", "is", null)
-        .is("issue_resolved_at", null),
+        .is("issue_resolved_at", null)
+        .gt("last_issue_at", lastSeen),
       // Briefs need the activity merge — fetch ids + hpd_last_seen_at,
       // then run attachUnreadStatus to score them.
       supabase.from("art_briefs")
@@ -54,7 +60,9 @@ export async function GET() {
     let briefUnread = 0;
     if (briefs.data && briefs.data.length > 0) {
       const scored = await attachUnreadStatus(briefs.data as any[], supabase);
-      briefUnread = scored.filter(b => b.has_unread_external).length;
+      briefUnread = scored.filter(b =>
+        b.has_unread_external && b.unread_at && b.unread_at > lastSeen
+      ).length;
     }
 
     const count = (quoteRej.count || 0) + (proofRev.count || 0) + (vendorDisc.count || 0) + briefUnread;
