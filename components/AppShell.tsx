@@ -191,7 +191,7 @@ export function AppShell({
       )}
 
       {/* ── Main content area ── */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto", minWidth: 0 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* ── Top nav bar ── */}
         <div style={{
           background: "#fff", borderBottom: "1px solid #dcdce0",
@@ -268,6 +268,8 @@ export function AppShell({
           flex: 1,
           padding: isMobile ? "12px 12px" : 24,
           paddingBottom: isMobile ? 76 : 24, // account for fixed bottom nav
+          overflow: "auto",
+          minHeight: 0,
         }}>
           {children}
         </div>
