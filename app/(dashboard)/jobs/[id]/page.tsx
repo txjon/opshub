@@ -758,67 +758,16 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               if (it.pipeline_stage === "shipped") g.shipped++; else g.inProduction++;
             }
             if (groups.length === 0) return null;
-
-            const tm = (job as any).type_meta || {};
-            const invoiceNumber = tm.qb_invoice_number || tm.stripe_invoice_number || null;
-            const poShipDates = (tm.po_ship_dates || {}) as Record<string,string>;
-            const costProds = ((job as any).costing_data?.costProds || []) as any[];
-            const cpById: Record<string,any> = {};
-            for (const cp of costProds) cpById[cp.id] = cp;
-            const ciKey = (k: string|null|undefined) => (k || "").toLowerCase().trim();
-            const ciDates: Record<string,string> = {};
-            for (const [k, v] of Object.entries(poShipDates)) {
-              if (typeof v === "string" && v) ciDates[ciKey(k)] = v;
-            }
-            // Earliest ship date among vendors with unshipped items —
-            // matches the production page's project.shipDate logic.
-            const activeDates: string[] = [];
-            for (const g of groups) {
-              if (g.items.every(it => it.pipeline_stage === "shipped")) continue;
-              let printVendor: string|undefined;
-              for (const it of g.items) {
-                const cp = cpById[it.id];
-                if (cp?.printVendor) { printVendor = cp.printVendor; break; }
-              }
-              const d = (printVendor && poShipDates[printVendor]) || poShipDates[g.decoratorName] || ciDates[ciKey(printVendor)] || ciDates[ciKey(g.decoratorName)] || null;
-              if (d) activeDates.push(d);
-            }
-            const shipDate = activeDates.length > 0 ? activeDates.sort()[0] : null;
-            const totalUnits = groups.reduce((a, g) => a + g.totalUnits, 0);
             const allShipped = groups.every(g => g.items.every((it: any) => it.pipeline_stage === "shipped"));
-            const priority = (job as any).priority as string|null;
-            const pri = priority === "hot" ? { label: "HOT", color: T.red }
-              : priority === "rush" ? { label: "RUSH", color: T.amber }
-              : null;
-            // Ship date pill formatting — same logic as /production
-            const shipPill = (() => {
-              if (!shipDate) return null;
-              const d = new Date(shipDate);
-              const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
-              const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-              const label = days < 0 ? `${Math.abs(days)}d over` : days === 0 ? "Today" : `${days}d`;
-              const color = days < 0 ? T.red : days <= 1 ? T.amber : T.text;
-              return { label, color, dateStr };
-            })();
 
             return (
               <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
-                <div style={{ padding: "14px 18px", display: "flex", gap: 16, alignItems: "flex-start" }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, width: 220, flexShrink: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: invoiceNumber ? T.text : "transparent", fontFamily: mono, whiteSpace: "nowrap", alignSelf: "center" }}>
-                      {invoiceNumber || ""}
-                    </span>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <span>Production</span>
-                        {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>All Shipped</span>}
-                      </div>
-                      <div style={{ fontSize: 12, color: T.faint, marginTop: 2 }}>
-                        {groups.length} decorator{groups.length !== 1 ? "s" : ""} · {groups.reduce((a,g)=>a+g.items.length,0)} item{groups.reduce((a,g)=>a+g.items.length,0) !== 1 ? "s" : ""}
-                      </div>
-                    </div>
+                <div style={{ padding: "10px 14px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    <span>Production</span>
+                    {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>All Shipped</span>}
                   </div>
-                  <div style={{ flex: 1, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div style={{ flex: 1, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     {groups.map(g => {
                       const decKey = g.decoratorId || g.decoratorName;
                       return (
@@ -840,16 +789,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         </button>
                       );
                     })}
-                  </div>
-                  <div style={{ flexShrink: 0, marginLeft: 12, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 70 }}>
-                    {pri && <span style={{ fontSize: 10, fontWeight: 800, color: pri.color, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{pri.label}</span>}
-                    {shipPill && (
-                      <>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: shipPill.color, fontFamily: mono, whiteSpace: "nowrap" }}>{shipPill.label}</div>
-                        <div style={{ fontSize: 10, color: T.faint, whiteSpace: "nowrap" }}>{shipPill.dateStr}</div>
-                      </>
-                    )}
-                    <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{totalUnits.toLocaleString()} units</span>
                   </div>
                 </div>
               </div>
