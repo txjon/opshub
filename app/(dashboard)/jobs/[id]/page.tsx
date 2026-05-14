@@ -761,35 +761,33 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const allShipped = groups.every(g => g.items.every((it: any) => it.pipeline_stage === "shipped"));
 
             return (
-              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
-                <div style={{ padding: "10px 14px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                    <span>Production</span>
-                    {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>All Shipped</span>}
-                  </div>
-                  <div style={{ flex: 1, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                    {groups.map(g => {
-                      const decKey = g.decoratorId || g.decoratorName;
-                      return (
-                        <button key={decKey}
-                          onClick={() => router.push(`/production?openProject=${job.id}&decorator=${encodeURIComponent(decKey)}`)}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 6,
-                            padding: "4px 10px", borderRadius: 6, background: T.surface,
-                            fontSize: 11, border: `1px solid ${T.border}`, cursor: "pointer",
-                            fontFamily: font, transition: "all 0.12s",
-                          }}
-                          onMouseEnter={e => { e.currentTarget.style.background = T.accentDim; e.currentTarget.style.borderColor = T.accent; }}
-                          onMouseLeave={e => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
-                          <span style={{ fontWeight: 600, color: T.text }}>{g.shortCode || g.decoratorName}</span>
-                          <span style={{ color: T.muted }}>{g.items.length} item{g.items.length !== 1 ? "s" : ""}</span>
-                          <span style={{ color: T.faint }}>·</span>
-                          {g.inProduction > 0 && <span style={{ color: T.accent }}>{g.inProduction} active</span>}
-                          {g.shipped > 0 && <span style={{ color: T.green }}>{g.shipped} shipped</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
+              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Production</div>
+                  {allShipped && <div style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>All Shipped</div>}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  {groups.map(g => {
+                    const decKey = g.decoratorId || g.decoratorName;
+                    return (
+                      <button key={decKey}
+                        onClick={() => router.push(`/production?openProject=${job.id}&decorator=${encodeURIComponent(decKey)}`)}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 6,
+                          padding: "7px 14px", borderRadius: 6, background: T.surface,
+                          fontSize: 11, border: `1px solid ${T.border}`, cursor: "pointer",
+                          fontFamily: font, transition: "all 0.12s",
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = T.accentDim; e.currentTarget.style.borderColor = T.accent; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
+                        <span style={{ fontWeight: 600, color: T.text }}>{g.shortCode || g.decoratorName}</span>
+                        <span style={{ color: T.muted }}>{g.items.length} item{g.items.length !== 1 ? "s" : ""}</span>
+                        <span style={{ color: T.faint }}>·</span>
+                        {g.inProduction > 0 && <span style={{ color: T.accent }}>{g.inProduction} active</span>}
+                        {g.shipped > 0 && <span style={{ color: T.green }}>{g.shipped} shipped</span>}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             );
