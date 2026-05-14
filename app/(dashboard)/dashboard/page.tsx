@@ -388,11 +388,16 @@ export default async function DashboardPage() {
   // client_review still drops out at the section-mapping step (one
   // card per brief drowned the column on big jobs — see SECTION_ORDER).
   // hpd_last_seen_at + state included to feed attachUnreadStatus.
+  // Include draft state so client-submitted intake briefs (source=client,
+  // has_unread_external=true) surface in the Unread section. The state-
+  // based mapping below has no entry for "draft" — silent drafts still
+  // drop out via the "no map → continue" path, so only unread drafts
+  // render. Matches the badge counter, which also includes drafts.
   const { data: briefs } = await supabase
     .from("art_briefs")
-    .select("id, title, state, updated_at, sent_to_designer_at, client_aborted_at, hpd_last_seen_at, job_id, clients(name), jobs(job_number)")
+    .select("id, title, state, source, updated_at, sent_to_designer_at, client_aborted_at, hpd_last_seen_at, job_id, clients(name), jobs(job_number)")
     .is("client_aborted_at", null)
-    .not("state", "in", '("delivered","draft")')
+    .neq("state", "delivered")
     .order("updated_at", { ascending: false });
   const briefsWithUnread = await attachUnreadStatus(briefs || [], supabase);
 
