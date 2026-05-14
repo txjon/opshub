@@ -858,32 +858,120 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             );
           })()}
 
-          {/* Shipping details — full width, promoted up so the ship
-              date + delivery address aren't buried in the side column. */}
+          {/* Shipping + Contacts — 3 equal columns. Contacts on the
+              left (who); small shipping fields middle; address +
+              notes textareas right. */}
           <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
-            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
-            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:7}}>
-              <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date</label><input style={{...ic,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
-                const ship = e.target.value;
-                const updates: any = { target_ship_date: ship };
-                if (ship) updates.priority = calculatePriority(ship);
-                setJob(j => j ? {...j, ...updates} : j);
-                saveJob(updates);
-              }}/></div>
-              <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
-                <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
-                  <option value="drop_ship">Drop ship (direct to client)</option>
-                  <option value="ship_through">Ship-through (forward from HPD)</option>
-                  <option value="stage">Stage (fulfillment from HPD)</option>
-                </select>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:14,alignItems:"start"}}>
+              {/* Col 1: Contacts */}
+              <div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:6}}>
+                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={async()=>{
+                      if(!job?.client_id) return;
+                      const {data:clientContacts} = await supabase.from("contacts").select("id, is_primary").eq("client_id",job.client_id);
+                      const have = new Set(contacts.map((c:any)=>c.id));
+                      const missing = (clientContacts||[]).filter((c:any)=>!have.has(c.id));
+                      if(missing.length===0){alert("All client contacts are already on this project.");return;}
+                      const {error} = await supabase.from("job_contacts").insert(missing.map((c:any)=>({job_id:job.id,contact_id:c.id,role_on_job:c.is_primary?"primary":"cc"})));
+                      if(error){alert(`Couldn't sync contacts: ${error.message}`);return;}
+                      loadData();
+                    }} title="Pull in any client contacts that aren't yet on this project" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Sync</button>
+                    <button onClick={()=>setJob(j=>j?{...j,_addContact:!(j as any)._addContact} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
+                  </div>
+                </div>
+                {(job as any)._addContact&&(
+                  <div style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10,marginBottom:8}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+                      <input id="ct-name" placeholder="Name" style={ic}/>
+                      <input id="ct-email" placeholder="Email" style={ic}/>
+                      <input id="ct-phone" placeholder="Phone" style={ic}/>
+                      <select id="ct-role" style={ic}>
+                        <option value="primary">Primary</option>
+                        <option value="billing">Billing</option>
+                        <option value="creative">Creative</option>
+                        <option value="logistics">Logistics</option>
+                        <option value="cc">CC</option>
+                      </select>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={async()=>{
+                        const name=(document.getElementById("ct-name") as HTMLInputElement).value.trim();
+                        if(!name) return;
+                        const email=(document.getElementById("ct-email") as HTMLInputElement).value.trim();
+                        const phone=(document.getElementById("ct-phone") as HTMLInputElement).value.trim();
+                        const role=(document.getElementById("ct-role") as HTMLSelectElement).value;
+                        if(email && contacts.some(c=>c.email?.toLowerCase()===email.toLowerCase())){
+                          alert(`${email} is already on this project.`);
+                          return;
+                        }
+                        let contactId:string;
+                        if(email){
+                          const {data:existing}=await supabase.from("contacts").select("id").eq("email",email).single();
+                          if(existing) contactId=existing.id;
+                          else {const {data:nc}=await supabase.from("contacts").insert({name,email,phone:phone||null,client_id:job.client_id}).select("id").single();contactId=nc!.id;}
+                        } else {
+                          const {data:nc}=await supabase.from("contacts").insert({name,email:null,phone:phone||null,client_id:job.client_id}).select("id").single();contactId=nc!.id;
+                        }
+                        await supabase.from("job_contacts").insert({job_id:job.id,contact_id:contactId,role_on_job:role});
+                        setJob(j=>j?{...j,_addContact:false} as any:j);
+                        loadData();
+                      }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>
+                      <button onClick={()=>setJob(j=>j?{...j,_addContact:false} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:11,padding:"5px 10px",cursor:"pointer"}}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+                {contacts.length===0&&!(job as any)._addContact&&<p style={{fontSize:12,color:T.muted}}>No contacts assigned.</p>}
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {contacts.map((c,i)=>(
+                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,paddingBottom:i<contacts.length-1?6:0,borderBottom:i<contacts.length-1?`1px solid ${T.border}`:"none"}}>
+                      <div style={{width:26,height:26,borderRadius:"50%",background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
+                        {c.name.split(" ").map((n:string)=>n[0]).join("").slice(0,2)}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name} <span style={{fontWeight:400,color:T.muted,fontSize:11}}>· {c.role_label} · {c.role_on_job}</span></div>
+                        {c.email&&<div style={{fontSize:10,color:T.accent,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</div>}
+                      </div>
+                      <button onClick={async()=>{
+                        await supabase.from("job_contacts").delete().eq("job_id",job.id).eq("contact_id",c.id);
+                        loadData();
+                      }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11,padding:"0 2px"}}
+                        onMouseEnter={e=>e.currentTarget.style.color=T.red}
+                        onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:7,marginTop:7}}>
-              <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client delivery address</label>
-                <textarea style={{...ic,minHeight:100,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/>
+
+              {/* Col 2: Small shipping fields */}
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>Shipping</div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date</label><input style={{...ic,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
+                  const ship = e.target.value;
+                  const updates: any = { target_ship_date: ship };
+                  if (ship) updates.priority = calculatePriority(ship);
+                  setJob(j => j ? {...j, ...updates} : j);
+                  saveJob(updates);
+                }}/></div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
+                  <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
+                    <option value="drop_ship">Drop ship (direct to client)</option>
+                    <option value="ship_through">Ship-through (forward from HPD)</option>
+                    <option value="stage">Stage (fulfillment from HPD)</option>
+                  </select>
+                </div>
               </div>
-              <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
-                <textarea style={{...ic,minHeight:100,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
+
+              {/* Col 3: Address + notes textareas */}
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0,visibility:"hidden"}}>·</div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client delivery address</label>
+                  <textarea style={{...ic,minHeight:74,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/>
+                </div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
+                  <textarea style={{...ic,minHeight:74,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
+                </div>
               </div>
             </div>
           </div>
@@ -1002,91 +1090,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
             {/* Right column: Contacts, Email, Items */}
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
-
-              {/* Contacts */}
-              <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:6}}>
-                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
-                  <div style={{display:"flex",gap:6}}>
-                    {/* Sync from client — backfills any client contacts
-                        added after this job was created. The job-creation
-                        auto-populate only fires once, so this is the
-                        reconciliation path. */}
-                    <button onClick={async()=>{
-                      if(!job?.client_id) return;
-                      const {data:clientContacts} = await supabase.from("contacts").select("id, is_primary").eq("client_id",job.client_id);
-                      const have = new Set(contacts.map((c:any)=>c.id));
-                      const missing = (clientContacts||[]).filter((c:any)=>!have.has(c.id));
-                      if(missing.length===0){alert("All client contacts are already on this project.");return;}
-                      const {error} = await supabase.from("job_contacts").insert(missing.map((c:any)=>({job_id:job.id,contact_id:c.id,role_on_job:c.is_primary?"primary":"cc"})));
-                      if(error){alert(`Couldn't sync contacts: ${error.message}`);return;}
-                      loadData();
-                    }} title="Pull in any client contacts that aren't yet on this project" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Sync from client</button>
-                    <button onClick={()=>setJob(j=>j?{...j,_addContact:!(j as any)._addContact} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
-                  </div>
-                </div>
-                {(job as any)._addContact&&(
-                  <div style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10,marginBottom:8}}>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-                      <input id="ct-name" placeholder="Name" style={ic}/>
-                      <input id="ct-email" placeholder="Email" style={ic}/>
-                      <input id="ct-phone" placeholder="Phone" style={ic}/>
-                      <select id="ct-role" style={ic}>
-                        <option value="primary">Primary</option>
-                        <option value="billing">Billing</option>
-                        <option value="creative">Creative</option>
-                        <option value="logistics">Logistics</option>
-                        <option value="cc">CC</option>
-                      </select>
-                    </div>
-                    <div style={{display:"flex",gap:6}}>
-                      <button onClick={async()=>{
-                        const name=(document.getElementById("ct-name") as HTMLInputElement).value.trim();
-                        if(!name) return;
-                        const email=(document.getElementById("ct-email") as HTMLInputElement).value.trim();
-                        const phone=(document.getElementById("ct-phone") as HTMLInputElement).value.trim();
-                        const role=(document.getElementById("ct-role") as HTMLSelectElement).value;
-                        if(email && contacts.some(c=>c.email?.toLowerCase()===email.toLowerCase())){
-                          alert(`${email} is already on this project.`);
-                          return;
-                        }
-                        let contactId:string;
-                        if(email){
-                          const {data:existing}=await supabase.from("contacts").select("id").eq("email",email).single();
-                          if(existing) contactId=existing.id;
-                          else {const {data:nc}=await supabase.from("contacts").insert({name,email,phone:phone||null,client_id:job.client_id}).select("id").single();contactId=nc!.id;}
-                        } else {
-                          const {data:nc}=await supabase.from("contacts").insert({name,email:null,phone:phone||null,client_id:job.client_id}).select("id").single();contactId=nc!.id;
-                        }
-                        await supabase.from("job_contacts").insert({job_id:job.id,contact_id:contactId,role_on_job:role});
-                        setJob(j=>j?{...j,_addContact:false} as any:j);
-                        loadData();
-                      }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>
-                      <button onClick={()=>setJob(j=>j?{...j,_addContact:false} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:11,padding:"5px 10px",cursor:"pointer"}}>Cancel</button>
-                    </div>
-                  </div>
-                )}
-                {contacts.length===0&&!(job as any)._addContact&&<p style={{fontSize:12,color:T.muted}}>No contacts assigned.</p>}
-                <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                  {contacts.map((c,i)=>(
-                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,paddingBottom:i<contacts.length-1?6:0,borderBottom:i<contacts.length-1?"1px solid ${T.border}":"none"}}>
-                      <div style={{width:26,height:26,borderRadius:"50%",background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
-                        {c.name.split(" ").map((n:string)=>n[0]).join("").slice(0,2)}
-                      </div>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:12,fontWeight:600}}>{c.name} <span style={{fontWeight:400,color:T.muted,fontSize:11}}>· {c.role_label} · {c.role_on_job}</span></div>
-                        {c.email&&<div style={{fontSize:10,color:T.accent}}>{c.email}</div>}
-                      </div>
-                      <button onClick={async()=>{
-                        await supabase.from("job_contacts").delete().eq("job_id",job.id).eq("contact_id",c.id);
-                        loadData();
-                      }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11,padding:"0 2px"}}
-                        onMouseEnter={e=>e.currentTarget.style.color=T.red}
-                        onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
 
               {/* Payment summary */}
               <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
