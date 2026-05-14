@@ -17,7 +17,7 @@ const NON_GARMENT = new Set([
   "pens","napkins","balloons","stencils",
 ]);
 
-export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick, selectedItemId }) {
+export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick, onRegisterSave, selectedItemId }) {
   const items = useMemo(() => allItems.filter(it => !NON_GARMENT.has(it.garment_type)), [allItems]);
   // Letter designators are canonical across surfaces (ProductBuilder,
   // PO, Blanks) — they must reflect the item's position in the FULL
@@ -38,12 +38,33 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
   const [ssSyncing, setSsSyncing] = useState(false);
   const [ssResult, setSsResult] = useState(null); // { matched, total } or error string
 
-  // Save pending changes on unmount
+  // Flush every pending debounced save in parallel. Resolves once all
+  // Supabase writes complete + onUpdateItem has propagated, so the
+  // parent has fresh values before a tab switch unmounts us. Also
+  // cancels outstanding setTimeout schedules so they don't double-fire.
+  const flushAll = async () => {
+    const fns = Object.values(pendingSaves.current).filter(fn => typeof fn === "function");
+    pendingSaves.current = {};
+    Object.values(saveTimers.current).forEach(t => clearTimeout(t));
+    saveTimers.current = {};
+    if (fns.length === 0) return;
+    await Promise.all(fns.map(fn => Promise.resolve().then(fn)));
+  };
+
+  // Register flush with parent so switchTab awaits it before unmount.
+  // Mirrors the BuySheet / Costing tab pattern — without this, a fast
+  // tab switch can unmount before the 800ms debounce fires, the save
+  // runs orphaned in the background, and the remount reads stale items.
   useEffect(() => {
+    if (typeof onRegisterSave === "function") onRegisterSave(flushAll);
     return () => {
-      Object.values(pendingSaves.current).forEach(fn => { if (typeof fn === "function") fn(); });
+      // Best-effort flush on unmount in case the parent didn't await us
+      // (e.g. browser navigation, hard reload). Fire-and-forget; the
+      // explicit onRegisterSave path is the one switchTab waits on.
+      flushAll();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onRegisterSave]);
 
   // Load proof status
   useEffect(() => {

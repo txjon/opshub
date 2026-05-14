@@ -151,6 +151,33 @@ export default function ProductionPage() {
     }
   }, [modalProject?.jobId]);
 
+  // Deep-link auto-open: callers (currently the Overview tab strip
+  // on /jobs/[id]) navigate here with `?openProject=<jobId>` and an
+  // optional `&decorator=<decKey>` to land directly in the per-project
+  // modal focused on a specific vendor. We fire once after projects
+  // load, then strip the query params via history.replaceState so a
+  // refresh doesn't re-trigger and Back behavior stays clean.
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenedRef.current || projects.length === 0) return;
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const target = url.searchParams.get("openProject");
+    if (!target) return;
+    const project = projects.find(p => p.jobId === target);
+    if (!project) return;
+    autoOpenedRef.current = true;
+    const decKey = url.searchParams.get("decorator");
+    if (decKey) {
+      setModalDecoratorKey(decKey);
+      setExpandedDecorators(new Set([decKey]));
+    }
+    setModalProject(project);
+    url.searchParams.delete("openProject");
+    url.searchParams.delete("decorator");
+    window.history.replaceState(null, "", url.pathname + (url.search ? url.search : "") + url.hash);
+  }, [projects]);
+
   function toggleItemSelected(itemId: string) {
     setSelectedItemIds(prev => {
       const next = new Set(prev);
@@ -203,6 +230,11 @@ export default function ProductionPage() {
       // pipeline_stage is set to "in_production" when the PO is sent
       // and rolls to "shipped" when tracking is entered.
       if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped") continue;
+      // Once an item has been received at HPD, it has moved past the
+      // production stage from this vendor's POV (it's in receiving /
+      // fulfillment / outbound now). Drop it so the decorator chip
+      // clears when all of that vendor's items are received.
+      if (it.received_at_hpd) continue;
 
       const assignment = it.decorator_assignments?.[0];
       const decName = assignment?.decorators?.name || "Unassigned";
@@ -959,6 +991,12 @@ export default function ProductionPage() {
                           {ship.dateStr} · {ship.label}
                         </div>
                       )}
+                      <button onClick={() => { setModalProject(null); router.push(`/jobs/${project.jobId}`); }}
+                        style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontSize: 11, fontWeight: 700, padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontFamily: font, letterSpacing: "0.04em" }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>
+                        View Project →
+                      </button>
                       <button onClick={() => setModalProject(null)} title="Close (Esc)"
                         style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
                     </div>

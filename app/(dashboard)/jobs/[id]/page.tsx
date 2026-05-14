@@ -96,6 +96,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   }, []);
   const saveBuySheetRef = useRef<(() => Promise<void>) | null>(null);
   const saveCostingRef = useRef<(() => Promise<void>) | null>(null);
+  const saveBlanksRef = useRef<(() => Promise<void>) | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const autoSelectedRef = useRef(false);
   const [job, setJob] = useState<Job|null>(null);
@@ -119,6 +120,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [saveError, setSaveError] = useState(false);
   const [saveOk, setSaveOk] = useState(false);
   const [portalCopied, setPortalCopied] = useState(false);
+  const [portalOpen, setPortalOpen] = useState(false);
   const saveErrorTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
   const saveOkTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
   const handleSaveStatus = useCallback((s: string) => {
@@ -163,7 +165,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           sizes, qtys,
           decorator: assignment?.decorators?.name || null,
           decoration_type: assignment?.decoration_type || null,
-          pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || "blanks_ordered",
+          pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || null,
           decorator_assignment_id: assignment?.id || null,
           blankCosts: it.blank_costs || null,
           pipeline_timestamps: it.pipeline_timestamps || {},
@@ -200,7 +202,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           sizes, qtys,
           decorator: assignment?.decorators?.name || null,
           decoration_type: assignment?.decoration_type || null,
-          pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || "blanks_ordered",
+          pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || null,
           decorator_assignment_id: assignment?.id || null,
           blankCosts: it.blank_costs || null,
           pipeline_timestamps: it.pipeline_timestamps || {},
@@ -342,6 +344,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         flushJobSave(),
         saveBuySheetRef.current?.(),
         saveCostingRef.current?.(),
+        saveBlanksRef.current?.(),
       ]);
     } catch (e) {
       console.error("Save flush failed on tab switch:", e);
@@ -498,7 +501,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     <div style={{fontFamily:"var(--font-sans)",color:T.text,maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
       {/* Back */}
       <button onClick={async ()=>{
-        try { await Promise.all([flushJobSave(), saveBuySheetRef.current?.(), saveCostingRef.current?.()]); } catch(e) {}
+        try { await Promise.all([flushJobSave(), saveBuySheetRef.current?.(), saveCostingRef.current?.(), saveBlanksRef.current?.()]); } catch(e) {}
         router.push("/jobs");
       }} style={{background:"none",border:"none",color:T.faint,fontSize:11,cursor:"pointer",marginBottom:8,padding:0,fontFamily:font}}>
         ← All projects
@@ -513,7 +516,45 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                 <span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(job as any).type_meta?.qb_invoice_number || job.job_number}</span>
                 {(job as any).type_meta?.qb_invoice_number && <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>{job.job_number}</span>}
-                <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>
+                {(() => {
+                  // Per-item status buckets — matches /jobs project list
+                  // status column. Multi-vendor projects often have items
+                  // in different states; show every state with a count
+                  // instead of a single dominant phase label.
+                  const isTerminal = ["complete","cancelled","on_hold"].includes(job.phase);
+                  if (isTerminal || items.length === 0) {
+                    return <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>;
+                  }
+                  const costProds = ((job as any).costing_data?.costProds || []) as any[];
+                  const cpById: Record<string, any> = {};
+                  for (const cp of costProds) cpById[cp.id] = cp;
+                  const poSent = new Set<string>((job as any).type_meta?.po_sent_vendors || []);
+                  const counts = { needs_po: 0, production: 0, receiving: 0, at_hpd: 0 };
+                  for (const it of items as any[]) {
+                    if (it.received_at_hpd === true) { counts.at_hpd++; continue; }
+                    if (it.pipeline_stage === "shipped") { counts.receiving++; continue; }
+                    if (it.pipeline_stage === "in_production") { counts.production++; continue; }
+                    const vendor = cpById[it.id]?.printVendor;
+                    if (vendor && !poSent.has(vendor)) counts.needs_po++;
+                  }
+                  const buckets: { label: string; color: string; count: number }[] = [];
+                  if (counts.needs_po) buckets.push({ label: "Needs PO", color: T.amber, count: counts.needs_po });
+                  if (counts.production) buckets.push({ label: "Production", color: T.accent, count: counts.production });
+                  if (counts.receiving) buckets.push({ label: "Receiving", color: T.blue, count: counts.receiving });
+                  if (counts.at_hpd) buckets.push({ label: "At HPD", color: T.purple, count: counts.at_hpd });
+                  if (buckets.length === 0) {
+                    return <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>;
+                  }
+                  return (
+                    <span style={{display:"inline-flex",flexWrap:"wrap",gap:"0 10px",alignItems:"center"}}>
+                      {buckets.map((b, i) => (
+                        <span key={i} style={{fontSize:10,fontWeight:700,color:b.color,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>
+                          {b.label} <span style={{fontFamily:mono,fontWeight:600}}>· {b.count}</span>
+                        </span>
+                      ))}
+                    </span>
+                  );
+                })()}
                 {job.priority==="rush"&&<span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Rush</span>}
                 {job.priority==="hot"&&<span style={{fontSize:10,fontWeight:700,color:T.red,letterSpacing:"0.06em",textTransform:"uppercase"}}>Hot</span>}
                 {saving&&<span style={{fontSize:10,color:T.muted}}>Saving...</span>}
@@ -555,73 +596,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 </div>
               );
             })()}
-            {(job as any).portal_token && (
-              <button onClick={()=>{
-                navigator.clipboard.writeText(`${appBaseUrlSync()}/portal/${(job as any).portal_token}`);
-                setPortalCopied(true);
-                setTimeout(()=>setPortalCopied(false),2000);
-              }} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:10,fontWeight:600,color:portalCopied?T.green:T.muted}}>
-                {portalCopied?"Copied!":"Portal Link"}
-              </button>
-            )}
-            <button onClick={async()=>{
-              if(!window.confirm(`Duplicate "${job.title}" with all items and costing?`)) return;
-              const {data:newJob}=await supabase.from("jobs").insert({
-                title:job.title+" (Copy)",job_type:job.job_type,phase:"intake",priority:job.priority,
-                payment_terms:job.payment_terms,target_ship_date:null,
-                type_meta:(()=>{const m={...(job.type_meta||{})}; delete m.qb_invoice_id; delete m.qb_invoice_number; delete m.qb_payment_link; delete m.qb_tax_amount; delete m.qb_total_with_tax; delete m.po_sent_vendors; return m;})(),
-                notes:job.notes,client_id:job.client_id,job_number:"",
-                costing_data:job.costing_data||null,costing_summary:null,
-                quote_approved:false,quote_approved_at:null,
-              }).select("id").single();
-              if(!newJob) return;
-              // Copy items + buy sheet lines
-              const idMap:Record<string,string>={};
-              for(const item of items){
-                const {data:ni}=await supabase.from("items").insert({
-                  job_id:newJob.id,name:item.name,blank_vendor:item.blank_vendor,blank_sku:item.blank_sku,
-                  cost_per_unit:item.cost_per_unit,sell_per_unit:item.sell_per_unit,status:"tbd",
-                  artwork_status:"not_started",sort_order:item.sort_order,
-                  blank_costs:(item as any).blank_costs||null,
-                  garment_type:(item as any).garment_type||null,
-                  drive_link:(item as any).drive_link||null,
-                }).select("id").single();
-                if(ni){
-                  idMap[item.id]=ni.id;
-                  if(item.sizes?.length){
-                    await supabase.from("buy_sheet_lines").insert(
-                      item.sizes.map((sz:string)=>({item_id:ni.id,size:sz,qty_ordered:item.qtys?.[sz]||0,qty_shipped_from_vendor:0,qty_received_at_hpd:0,qty_shipped_to_customer:0}))
-                    );
-                  }
-                  // Copy artwork/mockups/proofs (same Drive files, new item IDs)
-                  const {data:files}=await supabase.from("item_files").select("*").eq("item_id",item.id);
-                  if(files?.length){
-                    await supabase.from("item_files").insert(
-                      files.map((f:any)=>({
-                        item_id:ni.id,file_name:f.file_name,stage:f.stage,
-                        drive_file_id:f.drive_file_id,drive_link:f.drive_link,
-                        approval:f.stage==="proof"?"pending":f.approval,
-                        approved_at:null,
-                      }))
-                    );
-                  }
-                }
-              }
-              // Remap costing_data item IDs
-              if(newJob && job.costing_data?.costProds){
-                const remapped=job.costing_data.costProds.map((cp:any)=>({...cp,id:idMap[cp.id]||cp.id}));
-                await supabase.from("jobs").update({costing_data:{...job.costing_data,costProds:remapped}}).eq("id",newJob.id);
-              }
-              // Copy contacts
-              for(const c of contacts){
-                await supabase.from("job_contacts").insert({job_id:newJob.id,contact_id:c.id,role_on_job:c.role_on_job});
-              }
-              router.push(`/jobs/${newJob.id}`);
-            }} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:10,padding:"4px 10px",cursor:"pointer"}}
-              onMouseEnter={e=>e.currentTarget.style.color=T.text}
-              onMouseLeave={e=>e.currentTarget.style.color=T.muted}>
-              Duplicate
-            </button>
           </div>
         </div>
         {/* KPI strip — compact */}
@@ -731,242 +705,157 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   {tab==="overview"&&(
         <div style={{fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
 
-          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"start"}}>
-            {/* Left column: Project info + Shipping details */}
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project info</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div style={{position:"relative"}} ref={clientDropdownRef}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client</label>
-                    <input style={ic} value={clientQuery} onChange={e=>{setClientQuery(e.target.value);setShowClientDropdown(true);}}
-                      onFocus={()=>setShowClientDropdown(true)} placeholder="Search or assign client..."/>
-                    {showClientDropdown&&clientQuery.trim().length>0&&(
-                      <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,maxHeight:200,overflowY:"auto",marginTop:4}}>
-                        {clientResults.map(c=>(
-                          <div key={c.id} onClick={async()=>{
-                            await supabase.from("jobs").update({client_id:c.id}).eq("id",job.id);
-                            await swapJobContactsForClient(c.id);
-                            setJob(j=>j?{...j,client_id:c.id,clients:{name:c.name}} as any:j);
-                            setClientQuery(c.name);
-                            setShowClientDropdown(false);
-                          }} style={{padding:"8px 12px",fontSize:12,cursor:"pointer",borderBottom:`1px solid ${T.border}`}}
-                            onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
-                            onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                            {c.name}
-                          </div>
-                        ))}
-                        {clientResults.length===0&&<div style={{padding:"8px 12px",fontSize:11,color:T.faint}}>No matching clients</div>}
-                        <div onClick={async()=>{
-                          const name=clientQuery.trim();
-                          if(!name) return;
-                          const {data:newClient}=await supabase.from("clients").insert({name}).select("id,name").single();
-                          if(newClient){
-                            await supabase.from("jobs").update({client_id:newClient.id}).eq("id",job.id);
-                            await swapJobContactsForClient(newClient.id);
-                            setJob(j=>j?{...j,client_id:newClient.id,clients:{name:newClient.name}} as any:j);
-                            setAllClients(prev=>[...prev,newClient].sort((a,b)=>a.name.localeCompare(b.name)));
-                            setClientQuery(newClient.name);
-                            setShowClientDropdown(false);
-                          }
-                        }} style={{padding:"8px 12px",fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",borderTop:`1px solid ${T.border}`}}
-                          onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
-                          onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                          + Create "{clientQuery.trim()}"
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project memo</label>
-                    <input style={ic} value={job.title} placeholder="Optional description..." onChange={e=>upd("title",e.target.value)}/>
-                  </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Priority</label>
-                    <div style={{padding:"6px 10px",borderRadius:6,fontSize:12,fontWeight:600,textAlign:"center",
-                      background:job.priority==="hot"?T.redDim:job.priority==="rush"?T.amberDim:T.greenDim,
-                      color:job.priority==="hot"?T.red:job.priority==="rush"?T.amber:T.green}}>
-                      {(job.priority||"normal").toUpperCase()}
-                    </div>
-                  </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Phase</label>
-                    <div style={{...ic,background:T.card,display:"flex",alignItems:"center",gap:6}}>
-                      <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>
-                      {(()=>{
-                        const r=calculatePhase({
-                          job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
-                          items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,blanks_order_cost:(it as any).blanks_order_cost ?? null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
-                          payments:payments.map(p=>({amount:p.amount,status:p.status})),
-                          proofStatus,
-                          poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
-                          costingVendors:[...new Set(((job as any).costing_data?.costProds||[]).map((cp:any)=>cp.printVendor).filter(Boolean))],
-                        });
-                        return r.itemProgress?<span style={{fontSize:10,color:T.muted}}>{r.itemProgress}</span>:null;
-                      })()}
-                    </div>
-                  </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
-                    <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
-                  </div>
-                  <div>
-                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Documents</label>
-                    {(()=>{
-                      const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
-                      const qbInvNum = (job as any).type_meta?.qb_invoice_number;
-                      const hasItems = items.length > 0;
-                      const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
-                      const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
-                        <button key={label}
-                          onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
-                          disabled={!available}
-                          title={available?undefined:"Not available yet"}
-                          style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",textAlign:"left"}}
-                          onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
-                          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
-                          {label}
-                        </button>
-                      );
-                      return (
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,alignItems:"start"}}>
-                          {/* Left column: Quote, Invoice, Packing Slip, Art Files */}
-                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                            {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
-                            {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
-                            {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
-                            {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
-                          </div>
-                          {/* Right column: PO per vendor */}
-                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                            {docVendors.length === 0 && docBtn("PO", null, false)}
-                            {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
+          {/* Production strip — mirrors the per-project row on /production.
+              Same visual + decorator chip behavior; clicking a chip
+              deep-links to /production with the modal pre-opened on this
+              project + vendor. Only renders when the job is actually in
+              production / receiving / fulfillment phases. */}
+          {(() => {
+            // Visibility mirrors /production page — active phases plus
+            // shipping (ship_through outbound) and recently complete so
+            // the chips stay visible as a quick-jump from shipped jobs.
+            if (!job || !["production","receiving","fulfillment","shipping","complete"].includes(job.phase)) return null;
+            // Group items by decorator (matches shapeProjectGroup in /production).
+            type DG = { decoratorId: string|null; decoratorName: string; shortCode: string; items: any[]; inProduction: number; shipped: number; totalUnits: number; };
+            const groups: DG[] = [];
+            for (const it of items) {
+              if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped") continue;
+              const assignment = (it as any).decorator_assignments?.[0];
+              const decName = assignment?.decorators?.name || it.decorator || "Unassigned";
+              const decId = assignment?.decorator_id || assignment?.decorators?.id || null;
+              const shortCode = assignment?.decorators?.short_code || "";
+              const decKey = decId || decName;
+              let g = groups.find(x => (x.decoratorId || x.decoratorName) === decKey);
+              if (!g) { g = { decoratorId: decId, decoratorName: decName, shortCode, items: [], inProduction: 0, shipped: 0, totalUnits: 0 }; groups.push(g); }
+              const totalUnits = Object.values(it.qtys || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+              g.items.push(it);
+              g.totalUnits += totalUnits;
+              if (it.pipeline_stage === "shipped") g.shipped++; else g.inProduction++;
+            }
+            if (groups.length === 0) return null;
+            const allShipped = groups.every(g => g.items.every((it: any) => it.pipeline_stage === "shipped"));
+
+            return (
+              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Production</div>
+                  {allShipped && <div style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>All Shipped</div>}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  {groups.map(g => {
+                    const decKey = g.decoratorId || g.decoratorName;
+                    return (
+                      <button key={decKey}
+                        onClick={() => router.push(`/production?openProject=${job.id}&decorator=${encodeURIComponent(decKey)}`)}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 6,
+                          padding: "7px 14px", borderRadius: 6, background: T.surface,
+                          fontSize: 11, border: `1px solid ${T.border}`, cursor: "pointer",
+                          fontFamily: font, transition: "all 0.12s",
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = T.accentDim; e.currentTarget.style.borderColor = T.accent; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
+                        <span style={{ fontWeight: 600, color: T.text }}>{g.shortCode || g.decoratorName}</span>
+                        <span style={{ color: T.muted }}>{g.items.length} item{g.items.length !== 1 ? "s" : ""}</span>
+                        <span style={{ color: T.faint }}>·</span>
+                        {g.inProduction > 0 && <span style={{ color: T.accent }}>{g.inProduction} active</span>}
+                        {g.shipped > 0 && <span style={{ color: T.green }}>{g.shipped} shipped</span>}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
+            );
+          })()}
 
-              {/* Shipping details */}
-              <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date</label><input style={{...ic,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
-                    const ship = e.target.value;
-                    const updates: any = { target_ship_date: ship };
-                    if (ship) updates.priority = calculatePriority(ship);
-                    setJob(j => j ? {...j, ...updates} : j);
-                    saveJob(updates);
-                  }}/></div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
-                    <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
-                      <option value="drop_ship">Drop ship (direct to client)</option>
-                      <option value="ship_through">Ship-through (forward from HPD)</option>
-                      <option value="stage">Stage (fulfillment from HPD)</option>
-                    </select>
-                  </div>
+          {/* Key Facts bar — ship date, payment status, route, terms.
+              Promotes the time-critical numbers above the fold so they
+              can't get buried in the Shipping details card below. */}
+          {(() => {
+            const tm = (job as any).type_meta || {};
+            const shipDateRaw = job.target_ship_date || null;
+            let shipLabel = "—", shipSub: string | null = null, shipColor: string = T.muted;
+            // Terminal phases bypass the "X days over" countdown — the
+            // ship date already happened (or was cancelled), so showing
+            // "12d over" on a complete job reads wrong.
+            const completedAt = (job as any).phase_timestamps?.complete || null;
+            const cancelledAt = (job as any).phase_timestamps?.cancelled || null;
+            if (job.phase === "complete") {
+              shipLabel = "Complete";
+              shipColor = T.green;
+              shipSub = completedAt
+                ? new Date(completedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                : (shipDateRaw ? new Date(shipDateRaw).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null);
+            } else if (job.phase === "cancelled") {
+              shipLabel = "Cancelled";
+              shipColor = T.red;
+              shipSub = cancelledAt ? new Date(cancelledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
+            } else if (shipDateRaw) {
+              const d = new Date(shipDateRaw);
+              const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
+              shipSub = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+              shipLabel = days < 0 ? `${Math.abs(days)}d over` : days === 0 ? "Today" : `In ${days}d`;
+              shipColor = days < 0 ? T.red : days <= 3 ? T.amber : T.text;
+            }
+            const invoiceTotal = Number(tm.qb_total_with_tax) || Number((job as any)?.costing_summary?.grossRev) || 0;
+            const paidSum = (payments || []).filter((p: any) => p.status === "paid" || p.status === "partial").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+            const balance = Math.max(0, invoiceTotal - paidSum);
+            const isPaid = paidSum > 0.01 && balance <= 0.01;
+            const isPartial = paidSum > 0.01 && balance > 0.01;
+            const payLabel = isPaid ? "Paid" : isPartial ? "Partial" : invoiceTotal > 0 ? "Unpaid" : "—";
+            const paySub = invoiceTotal > 0 ? `$${Number(paidSum).toLocaleString()} of $${Number(invoiceTotal).toLocaleString()}` : null;
+            const payColor = isPaid ? T.green : isPartial ? T.amber : invoiceTotal > 0 ? T.red : T.muted;
+            const route = (job as any).shipping_route || "ship_through";
+            const routeLabel = route === "drop_ship" ? "Drop Ship" : route === "stage" ? "Stage" : "Ship-Through";
+            const termsLabel = job.payment_terms ? job.payment_terms.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—";
+            const priLabel = (job.priority || "normal").toUpperCase();
+            const priColor = job.priority === "hot" ? T.red : job.priority === "rush" ? T.amber : T.green;
+            const cellStyle: React.CSSProperties = { flex: 1, minWidth: 120, padding: "2px 16px", display: "flex", flexDirection: "column", gap: 2 };
+            const labelStyle: React.CSSProperties = { fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.08em", textTransform: "uppercase" };
+            const valueStyle: React.CSSProperties = { fontSize: 15, fontWeight: 700, lineHeight: 1.1, fontFamily: font };
+            const subStyle: React.CSSProperties = { fontSize: 10, color: T.faint };
+            return (
+              <div style={{ display: "flex", flexWrap: "wrap", padding: "12px 0", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 10, alignItems: "stretch" }}>
+                <div style={cellStyle}>
+                  <span style={labelStyle}>Ships</span>
+                  <span style={{ ...valueStyle, color: shipColor }}>{shipLabel}</span>
+                  {shipSub && <span style={subStyle}>{shipSub}</span>}
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginTop:7}}>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client delivery address</label>
-                    <textarea style={{...ic,minHeight:130,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/>
-                  </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
-                    <textarea style={{...ic,minHeight:130,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
-                  </div>
+                <div style={{ width: 1, background: T.border }} />
+                <div style={cellStyle}>
+                  <span style={labelStyle}>Payment</span>
+                  <span style={{ ...valueStyle, color: payColor }}>{payLabel}</span>
+                  {paySub && <span style={subStyle}>{paySub}</span>}
+                </div>
+                <div style={{ width: 1, background: T.border }} />
+                <div style={cellStyle}>
+                  <span style={labelStyle}>Route</span>
+                  <span style={{ ...valueStyle, color: T.text }}>{routeLabel}</span>
+                </div>
+                <div style={{ width: 1, background: T.border }} />
+                <div style={cellStyle}>
+                  <span style={labelStyle}>Terms</span>
+                  <span style={{ ...valueStyle, color: T.text }}>{termsLabel}</span>
+                </div>
+                <div style={{ width: 1, background: T.border }} />
+                <div style={cellStyle}>
+                  <span style={labelStyle}>Priority</span>
+                  <span style={{ ...valueStyle, color: priColor }}>{priLabel}</span>
                 </div>
               </div>
+            );
+          })()}
 
-              {/* Project Summary */}
-              <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Project Summary</div>
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
-                    <span style={{color:T.muted}}>Created</span>
-                    <span>{new Date((job as any).created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
-                  </div>
-                  {(()=>{
-                    const costProds=(job as any).costing_data?.costProds||[];
-                    const suppliers=[...new Set(costProds.map((cp:any)=>cp.supplier).filter(Boolean))];
-                    return suppliers.length>0?(
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,alignItems:"flex-start"}}>
-                        <span style={{color:T.muted,flexShrink:0}}>Blank Suppliers</span>
-                        <span style={{textAlign:"right"}}>{suppliers.join(", ")}</span>
-                      </div>
-                    ):null;
-                  })()}
-                  {(()=>{
-                    const costProds=(job as any).costing_data?.costProds||[];
-                    const vendors=[...new Set(costProds.map((cp:any)=>cp.printVendor).filter(Boolean))];
-                    return vendors.length>0?(
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,alignItems:"flex-start"}}>
-                        <span style={{color:T.muted,flexShrink:0}}>Decorators</span>
-                        <span style={{textAlign:"right"}}>{vendors.join(", ")}</span>
-                      </div>
-                    ):null;
-                  })()}
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
-                    <span style={{color:T.muted}}>Items</span>
-                    <span>{items.length} items · {totalUnits.toLocaleString()} units</span>
-                  </div>
-                  {(()=>{
-                    const r=calculatePhase({
-                      job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
-                      items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,blanks_order_cost:(it as any).blanks_order_cost ?? null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
-                      payments:payments.map(p=>({amount:p.amount,status:p.status})),
-                      proofStatus,
-                      poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
-                    });
-                    return r.itemProgress?(
-                      <div style={{borderTop:`1px solid ${T.border}`,paddingTop:8,marginTop:2}}>
-                        <div style={{fontSize:10,color:T.muted,marginBottom:3}}>NEXT STEP</div>
-                        <div style={{fontSize:12,fontWeight:600,color:T.accent}}>{r.itemProgress}</div>
-                      </div>
-                    ):null;
-                  })()}
-                </div>
-              </div>
-
-              {/* Hold + Delete */}
-              <div style={{display:"flex",gap:8}}>
-                {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
-                  <button onClick={()=>{upd("phase","on_hold");}}
-                    style={{flex:1,padding:"8px",background:"transparent",border:`1px solid ${T.amber}`,borderRadius:8,color:T.amber,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
-                    onMouseEnter={e=>(e.currentTarget.style.background=T.amberDim)}
-                    onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                    Place on Hold
-                  </button>
-                )}
-                {job.phase==="on_hold"&&(
-                  <button onClick={async()=>{
-                    await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
-                    setJob(j=>j?{...j,phase:"intake"} as any:j);
-                    setTimeout(recalcPhase, 300);
-                  }}
-                    style={{flex:1,padding:"8px",background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,color:T.green,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
-                    onMouseEnter={e=>(e.currentTarget.style.opacity="0.8")}
-                    onMouseLeave={e=>(e.currentTarget.style.opacity="1")}>
-                    Resume
-                  </button>
-                )}
-                <button
-                  onClick={() => setConfirmDeleteProject(true)}
-                  style={{flex:1,padding:"8px",background:"transparent",border:`1px solid ${T.red}`,borderRadius:8,color:T.red,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
-                  onMouseEnter={e=>(e.currentTarget.style.background=T.redDim)}
-                  onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                  Delete project
-                </button>
-              </div>
-            </div>
-
-            {/* Right column: Contacts, Email, Items */}
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-
-              {/* Contacts */}
-              <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px"}}>
+          {/* Shipping + Contacts — 3 equal columns. Contacts on the
+              left (who); small shipping fields middle; address +
+              notes textareas right. */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:14,alignItems:"start"}}>
+              {/* Col 1: Contacts */}
+              <div>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:6}}>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
                   <div style={{display:"flex",gap:6}}>
-                    {/* Sync from client — backfills any client contacts
-                        added after this job was created. The job-creation
-                        auto-populate only fires once, so this is the
-                        reconciliation path. */}
                     <button onClick={async()=>{
                       if(!job?.client_id) return;
                       const {data:clientContacts} = await supabase.from("contacts").select("id, is_primary").eq("client_id",job.client_id);
@@ -976,7 +865,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       const {error} = await supabase.from("job_contacts").insert(missing.map((c:any)=>({job_id:job.id,contact_id:c.id,role_on_job:c.is_primary?"primary":"cc"})));
                       if(error){alert(`Couldn't sync contacts: ${error.message}`);return;}
                       loadData();
-                    }} title="Pull in any client contacts that aren't yet on this project" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Sync from client</button>
+                    }} title="Pull in any client contacts that aren't yet on this project" style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Sync</button>
                     <button onClick={()=>setJob(j=>j?{...j,_addContact:!(j as any)._addContact} as any:j)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
                   </div>
                 </div>
@@ -1022,26 +911,164 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </div>
                 )}
                 {contacts.length===0&&!(job as any)._addContact&&<p style={{fontSize:12,color:T.muted}}>No contacts assigned.</p>}
-                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
                   {contacts.map((c,i)=>(
-                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,paddingBottom:i<contacts.length-1?6:0,borderBottom:i<contacts.length-1?"1px solid ${T.border}":"none"}}>
-                      <div style={{width:26,height:26,borderRadius:"50%",background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
+                    <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,paddingBottom:i<contacts.length-1?8:0,borderBottom:i<contacts.length-1?`1px solid ${T.border}`:"none"}}>
+                      <div style={{width:34,height:34,borderRadius:"50%",background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.accent,flexShrink:0}}>
                         {c.name.split(" ").map((n:string)=>n[0]).join("").slice(0,2)}
                       </div>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:12,fontWeight:600}}>{c.name} <span style={{fontWeight:400,color:T.muted,fontSize:11}}>· {c.role_label} · {c.role_on_job}</span></div>
-                        {c.email&&<div style={{fontSize:10,color:T.accent}}>{c.email}</div>}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name} <span style={{fontWeight:400,color:T.muted,fontSize:12}}>· {c.role_label} · {c.role_on_job}</span></div>
+                        {c.email&&<div style={{fontSize:12,color:T.accent,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</div>}
                       </div>
                       <button onClick={async()=>{
                         await supabase.from("job_contacts").delete().eq("job_id",job.id).eq("contact_id",c.id);
                         loadData();
-                      }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11,padding:"0 2px"}}
+                      }} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:13,padding:"0 4px"}}
                         onMouseEnter={e=>e.currentTarget.style.color=T.red}
                         onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* Col 2: Client-provided info — When + Where */}
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>From client</div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date</label><input style={{...ic,height:34,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
+                  const ship = e.target.value;
+                  const updates: any = { target_ship_date: ship };
+                  if (ship) updates.priority = calculatePriority(ship);
+                  setJob(j => j ? {...j, ...updates} : j);
+                  saveJob(updates);
+                }}/></div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client delivery address</label>
+                  <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/>
+                </div>
+              </div>
+
+              {/* Col 3: HPD-side decisions — How + Extras */}
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>HPD plan</div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
+                  <select style={{...ic,height:34}} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
+                    <option value="drop_ship">Drop ship (direct to client)</option>
+                    <option value="ship_through">Ship-through (forward from HPD)</option>
+                    <option value="stage">Stage (fulfillment from HPD)</option>
+                  </select>
+                </div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
+                  <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Documents — full-width action bar, no longer nested
+              inside Project info. Treated as actions, not setup data. */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Documents</div>
+            {(()=>{
+              const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
+              const qbInvNum = (job as any).type_meta?.qb_invoice_number;
+              const hasItems = items.length > 0;
+              const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
+              const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
+                <button key={label}
+                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
+                  disabled={!available}
+                  title={available?undefined:"Not available yet"}
+                  style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap"}}
+                  onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                  {label}
+                </button>
+              );
+              return (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
+                  {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
+                  {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
+                  {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
+                  {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
+                  {docVendors.length === 0 && docBtn("PO", null, false)}
+                  {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
+                  {(job as any).portal_token && (
+                    <button onClick={()=>setPortalOpen(true)}
+                      style={{marginLeft:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+                      Client Portal
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"stretch"}}>
+            {/* Left column: Project info + Shipping details */}
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",flex:1}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project info</div>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"stretch",flex:1}}>
+                  {/* Left: Client (typeahead) + Memo stacked */}
+                  <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                    <div style={{position:"relative"}} ref={clientDropdownRef}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client</label>
+                      <input style={ic} value={clientQuery} onChange={e=>{setClientQuery(e.target.value);setShowClientDropdown(true);}}
+                        onFocus={()=>setShowClientDropdown(true)} placeholder="Search or assign client..."/>
+                      {showClientDropdown&&clientQuery.trim().length>0&&(
+                        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,maxHeight:200,overflowY:"auto",marginTop:4}}>
+                          {clientResults.map(c=>(
+                            <div key={c.id} onClick={async()=>{
+                              await supabase.from("jobs").update({client_id:c.id}).eq("id",job.id);
+                              await swapJobContactsForClient(c.id);
+                              setJob(j=>j?{...j,client_id:c.id,clients:{name:c.name}} as any:j);
+                              setClientQuery(c.name);
+                              setShowClientDropdown(false);
+                            }} style={{padding:"8px 12px",fontSize:12,cursor:"pointer",borderBottom:`1px solid ${T.border}`}}
+                              onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
+                              onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                              {c.name}
+                            </div>
+                          ))}
+                          {clientResults.length===0&&<div style={{padding:"8px 12px",fontSize:11,color:T.faint}}>No matching clients</div>}
+                          <div onClick={async()=>{
+                            const name=clientQuery.trim();
+                            if(!name) return;
+                            const {data:newClient}=await supabase.from("clients").insert({name}).select("id,name").single();
+                            if(newClient){
+                              await supabase.from("jobs").update({client_id:newClient.id}).eq("id",job.id);
+                              await swapJobContactsForClient(newClient.id);
+                              setJob(j=>j?{...j,client_id:newClient.id,clients:{name:newClient.name}} as any:j);
+                              setAllClients(prev=>[...prev,newClient].sort((a,b)=>a.name.localeCompare(b.name)));
+                              setClientQuery(newClient.name);
+                              setShowClientDropdown(false);
+                            }
+                          }} style={{padding:"8px 12px",fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",borderTop:`1px solid ${T.border}`}}
+                            onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
+                            onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                            + Create "{clientQuery.trim()}"
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project memo</label>
+                      <input style={ic} value={job.title} placeholder="Optional description..." onChange={e=>upd("title",e.target.value)}/>
+                    </div>
+                  </div>
+
+                  {/* Right: Notes textarea grows to match Payments card height */}
+                  <div style={{display:"flex",flexDirection:"column",minHeight:0}}>
+                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
+                    <textarea style={{...ic,minHeight:96,resize:"vertical",lineHeight:1.4,flex:1}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Right column: Contacts, Email, Items */}
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
 
               {/* Payment summary */}
               <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
@@ -1118,33 +1145,121 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 })()}
               </div>
 
-              {/* Items */}
-              <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Items</div>
-                  <span style={{fontSize:10,color:T.muted}}>{items.length} items · {totalUnits.toLocaleString()} units</span>
-                </div>
-                {items.length===0&&<p style={{fontSize:12,color:T.muted}}>No items yet. Add items in the Buy Sheet tab.</p>}
-                <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                  {items.map(item=>{
-                    const qty=tQty(item.qtys||{});
-                    const dc=(item as any).decoration_type;
-                    const isAccessory=(item as any).garment_type==="accessory";
-                    return (
-                      <div key={item.id} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",background:T.surface,borderRadius:6}}>
-                        <div style={{flex:1,minWidth:0}}>
-                          <span style={{fontSize:12,fontWeight:600,color:T.text}}>{item.name}</span>
-                          <span style={{fontSize:10,color:T.muted,marginLeft:7}}>{item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}</span>
-                        </div>
-                        {!isAccessory&&dc&&<span style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{dc.replace(/_/g," ")}</span>}
-                        {isAccessory&&<span style={{fontSize:10,fontWeight:700,color:T.purple,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Accessory</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
             </div>
+          </div>
+
+          {/* Items — full-width compact list */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginTop:10}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+              <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Items</div>
+              <span style={{fontSize:10,color:T.muted}}>{items.length} items · {totalUnits.toLocaleString()} units</span>
+            </div>
+            {items.length===0&&<p style={{fontSize:12,color:T.muted}}>No items yet. Add items in the Buy Sheet tab.</p>}
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:4}}>
+              {items.map(item=>{
+                const qty=tQty(item.qtys||{});
+                const dc=(item as any).decoration_type;
+                const isAccessory=(item as any).garment_type==="accessory";
+                return (
+                  <div key={item.id} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",background:T.surface,borderRadius:6}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <span style={{fontSize:12,fontWeight:600,color:T.text}}>{item.name}</span>
+                      <span style={{fontSize:10,color:T.muted,marginLeft:7}}>{item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}</span>
+                    </div>
+                    {!isAccessory&&dc&&<span style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{dc.replace(/_/g," ")}</span>}
+                    {isAccessory&&<span style={{fontSize:10,fontWeight:700,color:T.purple,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Accessory</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Hold + Delete — small action links, bottom-right */}
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}}>
+            {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
+              <button onClick={()=>{upd("phase","on_hold");}}
+                style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.amber;e.currentTarget.style.color=T.amber;}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+                Place on Hold
+              </button>
+            )}
+            {job.phase==="on_hold"&&(
+              <button onClick={async()=>{
+                await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
+                setJob(j=>j?{...j,phase:"intake"} as any:j);
+                setTimeout(recalcPhase, 300);
+              }}
+                style={{padding:"6px 14px",background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:6,color:T.green,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}>
+                Resume
+              </button>
+            )}
+            <button onClick={async()=>{
+                if(!window.confirm(`Duplicate "${job.title}" with all items and costing?`)) return;
+                const {data:newJob}=await supabase.from("jobs").insert({
+                  title:job.title+" (Copy)",job_type:job.job_type,phase:"intake",priority:job.priority,
+                  payment_terms:job.payment_terms,target_ship_date:null,
+                  type_meta:(()=>{const m={...(job.type_meta||{})}; delete m.qb_invoice_id; delete m.qb_invoice_number; delete m.qb_payment_link; delete m.qb_tax_amount; delete m.qb_total_with_tax; delete m.po_sent_vendors; return m;})(),
+                  notes:job.notes,client_id:job.client_id,job_number:"",
+                  costing_data:job.costing_data||null,costing_summary:null,
+                  quote_approved:false,quote_approved_at:null,
+                }).select("id").single();
+                if(!newJob) return;
+                // Copy items + buy sheet lines
+                const idMap:Record<string,string>={};
+                for(const item of items){
+                  const {data:ni}=await supabase.from("items").insert({
+                    job_id:newJob.id,name:item.name,blank_vendor:item.blank_vendor,blank_sku:item.blank_sku,
+                    cost_per_unit:item.cost_per_unit,sell_per_unit:item.sell_per_unit,status:"tbd",
+                    artwork_status:"not_started",sort_order:item.sort_order,
+                    blank_costs:(item as any).blank_costs||null,
+                    garment_type:(item as any).garment_type||null,
+                    drive_link:(item as any).drive_link||null,
+                  }).select("id").single();
+                  if(ni){
+                    idMap[item.id]=ni.id;
+                    if(item.sizes?.length){
+                      await supabase.from("buy_sheet_lines").insert(
+                        item.sizes.map((sz:string)=>({item_id:ni.id,size:sz,qty_ordered:item.qtys?.[sz]||0,qty_shipped_from_vendor:0,qty_received_at_hpd:0,qty_shipped_to_customer:0}))
+                      );
+                    }
+                    // Copy artwork/mockups/proofs (same Drive files, new item IDs)
+                    const {data:files}=await supabase.from("item_files").select("*").eq("item_id",item.id);
+                    if(files?.length){
+                      await supabase.from("item_files").insert(
+                        files.map((f:any)=>({
+                          item_id:ni.id,file_name:f.file_name,stage:f.stage,
+                          drive_file_id:f.drive_file_id,drive_link:f.drive_link,
+                          approval:f.stage==="proof"?"pending":f.approval,
+                          approved_at:null,
+                        }))
+                      );
+                    }
+                  }
+                }
+                // Remap costing_data item IDs
+                if(newJob && job.costing_data?.costProds){
+                  const remapped=job.costing_data.costProds.map((cp:any)=>({...cp,id:idMap[cp.id]||cp.id}));
+                  await supabase.from("jobs").update({costing_data:{...job.costing_data,costProds:remapped}}).eq("id",newJob.id);
+                }
+                // Copy contacts
+                for(const c of contacts){
+                  await supabase.from("job_contacts").insert({job_id:newJob.id,contact_id:c.id,role_on_job:c.role_on_job});
+                }
+                router.push(`/jobs/${newJob.id}`);
+              }}
+              style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+              Duplicate
+            </button>
+            <button
+              onClick={() => setConfirmDeleteProject(true)}
+              style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.red;e.currentTarget.style.color=T.red;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+              Delete project
+            </button>
           </div>
 
           {/* Email history — outbound only. Inbound routing via a shared
@@ -1154,6 +1269,47 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           <div style={{ marginTop: 18 }}>
             <EmailThread jobId={job.id} title="Emails sent from OpsHub" outboundOnly />
           </div>
+
+          {/* Client portal preview modal — iframes the client's
+              read-only view of this job so you can see exactly what
+              they see + copy/open the live URL without leaving. */}
+          {portalOpen && (job as any).portal_token && (
+            <div onClick={()=>setPortalOpen(false)}
+              style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+              <div onClick={e=>e.stopPropagation()}
+                style={{background:T.card,borderRadius:12,width:"100%",maxWidth:760,height:"90vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 16px 48px rgba(0,0,0,0.5)"}}>
+                <div style={{padding:"10px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexShrink:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:T.text}}>Client Portal</div>
+                    <div style={{fontSize:11,color:T.faint,fontFamily:mono,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {`${appBaseUrlSync()}/portal/${(job as any).portal_token}`}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                    <button onClick={()=>{
+                      navigator.clipboard.writeText(`${appBaseUrlSync()}/portal/${(job as any).portal_token}`);
+                      setPortalCopied(true);
+                      setTimeout(()=>setPortalCopied(false),2000);
+                    }}
+                      style={{padding:"4px 10px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:portalCopied?T.green:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}>
+                      {portalCopied?"Copied":"Copy link"}
+                    </button>
+                    <a href={`${appBaseUrlSync()}/portal/${(job as any).portal_token}`} target="_blank" rel="noopener noreferrer"
+                      style={{padding:"4px 10px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer",textDecoration:"none"}}>
+                      Open in tab
+                    </a>
+                    <button onClick={()=>setPortalOpen(false)}
+                      style={{padding:"4px 10px",background:"transparent",border:"none",color:T.muted,fontSize:18,cursor:"pointer",lineHeight:1}}>×</button>
+                  </div>
+                </div>
+                <iframe
+                  src={`${appBaseUrlSync()}/portal/${(job as any).portal_token}`}
+                  style={{flex:1,width:"100%",border:"none"}}
+                />
+              </div>
+            </div>
+          )}
+
         </div>
       )}
 
@@ -1293,7 +1449,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </>
       )}
       {tab==="blanks"&&(
-        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={switchTab} />
+        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={switchTab} onRegisterSave={(fn: () => Promise<void>) => { saveBlanksRef.current = fn; }} />
       )}
       {tab==="po"&&(
         <POTab

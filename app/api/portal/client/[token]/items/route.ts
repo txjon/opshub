@@ -27,6 +27,8 @@ function mapStatus(
   phase: string,
   shippingRoute: string | null,
   receivedAtHpd: boolean,
+  blanksOrderCost: number | null,
+  sellPerUnit: number | null,
 ): ClientItemStatus {
   // Whole-job locks first — they trump every per-item state.
   if (phase === "cancelled") return "cancelled";
@@ -35,7 +37,6 @@ function mapStatus(
 
   // Per-item production states (same for every route).
   if (pipelineStage === "in_production" || pipelineStage === "strike_off") return "in_production";
-  if (pipelineStage === "blanks_ordered") return "preparing";
 
   // "Shipped" interpretation depends on route. Fulfillment / outbound
   // to client is intentionally NOT considered yet — that flow is still
@@ -47,6 +48,16 @@ function mapStatus(
   if (pipelineStage === "shipped") {
     if (shippingRoute === "drop_ship") return "delivered";
     return receivedAtHpd ? "delivered" : "shipping";
+  }
+
+  // "Preparing" = HPD has taken concrete action on the item. The
+  // earliest signal is costing — once sell_per_unit is set, the
+  // item has been priced + a decorator/route picked, which from
+  // the client's view means we're prepping their order. Blanks
+  // ordering and the legacy pipeline_stage='blanks_ordered' label
+  // both also qualify.
+  if ((sellPerUnit ?? 0) > 0 || (blanksOrderCost ?? 0) > 0 || pipelineStage === "blanks_ordered") {
+    return "preparing";
   }
 
   // Job-wide fallbacks for items where pipeline_stage isn't set yet.
@@ -84,7 +95,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // 3. Fetch every item on those jobs.
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, design_id, created_at, sort_order")
+      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -156,6 +167,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           job.phase || "",
           job.shipping_route || null,
           !!it.received_at_hpd,
+          it.blanks_order_cost != null ? Number(it.blanks_order_cost) : null,
+          it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
         ),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,
