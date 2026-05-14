@@ -711,7 +711,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               project + vendor. Only renders when the job is actually in
               production / receiving / fulfillment phases. */}
           {(() => {
-            if (!job || !["production","receiving","fulfillment"].includes(job.phase)) return null;
+            // Visibility mirrors /production page — active phases plus
+            // shipping (ship_through outbound) and recently complete so
+            // the chips stay visible as a quick-jump from shipped jobs.
+            if (!job || !["production","receiving","fulfillment","shipping","complete"].includes(job.phase)) return null;
             // Group items by decorator (matches shapeProjectGroup in /production).
             type DG = { decoratorId: string|null; decoratorName: string; shortCode: string; items: any[]; inProduction: number; shipped: number; totalUnits: number; };
             const groups: DG[] = [];
@@ -772,7 +775,22 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const tm = (job as any).type_meta || {};
             const shipDateRaw = job.target_ship_date || null;
             let shipLabel = "—", shipSub: string | null = null, shipColor: string = T.muted;
-            if (shipDateRaw) {
+            // Terminal phases bypass the "X days over" countdown — the
+            // ship date already happened (or was cancelled), so showing
+            // "12d over" on a complete job reads wrong.
+            const completedAt = (job as any).phase_timestamps?.complete || null;
+            const cancelledAt = (job as any).phase_timestamps?.cancelled || null;
+            if (job.phase === "complete") {
+              shipLabel = "Complete";
+              shipColor = T.green;
+              shipSub = completedAt
+                ? new Date(completedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                : (shipDateRaw ? new Date(shipDateRaw).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null);
+            } else if (job.phase === "cancelled") {
+              shipLabel = "Cancelled";
+              shipColor = T.red;
+              shipSub = cancelledAt ? new Date(cancelledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
+            } else if (shipDateRaw) {
               const d = new Date(shipDateRaw);
               const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
               shipSub = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
