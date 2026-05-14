@@ -515,7 +515,45 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                 <span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(job as any).type_meta?.qb_invoice_number || job.job_number}</span>
                 {(job as any).type_meta?.qb_invoice_number && <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>{job.job_number}</span>}
-                <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>
+                {(() => {
+                  // Per-item status buckets — matches /jobs project list
+                  // status column. Multi-vendor projects often have items
+                  // in different states; show every state with a count
+                  // instead of a single dominant phase label.
+                  const isTerminal = ["complete","cancelled","on_hold"].includes(job.phase);
+                  if (isTerminal || items.length === 0) {
+                    return <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>;
+                  }
+                  const costProds = ((job as any).costing_data?.costProds || []) as any[];
+                  const cpById: Record<string, any> = {};
+                  for (const cp of costProds) cpById[cp.id] = cp;
+                  const poSent = new Set<string>((job as any).type_meta?.po_sent_vendors || []);
+                  const counts = { needs_po: 0, production: 0, receiving: 0, at_hpd: 0 };
+                  for (const it of items as any[]) {
+                    if (it.received_at_hpd === true) { counts.at_hpd++; continue; }
+                    if (it.pipeline_stage === "shipped") { counts.receiving++; continue; }
+                    if (it.pipeline_stage === "in_production") { counts.production++; continue; }
+                    const vendor = cpById[it.id]?.printVendor;
+                    if (vendor && !poSent.has(vendor)) counts.needs_po++;
+                  }
+                  const buckets: { label: string; color: string; count: number }[] = [];
+                  if (counts.needs_po) buckets.push({ label: "Needs PO", color: T.amber, count: counts.needs_po });
+                  if (counts.production) buckets.push({ label: "Production", color: T.accent, count: counts.production });
+                  if (counts.receiving) buckets.push({ label: "Receiving", color: T.blue, count: counts.receiving });
+                  if (counts.at_hpd) buckets.push({ label: "At HPD", color: T.purple, count: counts.at_hpd });
+                  if (buckets.length === 0) {
+                    return <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>;
+                  }
+                  return (
+                    <span style={{display:"inline-flex",flexWrap:"wrap",gap:"0 10px",alignItems:"center"}}>
+                      {buckets.map((b, i) => (
+                        <span key={i} style={{fontSize:10,fontWeight:700,color:b.color,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>
+                          {b.label} <span style={{fontFamily:mono,fontWeight:600}}>· {b.count}</span>
+                        </span>
+                      ))}
+                    </span>
+                  );
+                })()}
                 {job.priority==="rush"&&<span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Rush</span>}
                 {job.priority==="hot"&&<span style={{fontSize:10,fontWeight:700,color:T.red,letterSpacing:"0.06em",textTransform:"uppercase"}}>Hot</span>}
                 {saving&&<span style={{fontSize:10,color:T.muted}}>Saving...</span>}
