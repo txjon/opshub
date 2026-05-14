@@ -1007,12 +1007,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             })()}
           </div>
 
-          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"start"}}>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"stretch"}}>
             {/* Left column: Project info + Shipping details */}
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
+              <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",flex:1}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project info</div>
-                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"start"}}>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"stretch",flex:1}}>
                   {/* Left: Client (typeahead) + Memo stacked */}
                   <div style={{display:"flex",flexDirection:"column",gap:7}}>
                     <div style={{position:"relative"}} ref={clientDropdownRef}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client</label>
@@ -1059,10 +1059,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     </div>
                   </div>
 
-                  {/* Right: Notes textarea spanning the height of client + memo */}
-                  <div style={{display:"flex",flexDirection:"column"}}>
+                  {/* Right: Notes textarea grows to match Payments card height */}
+                  <div style={{display:"flex",flexDirection:"column",minHeight:0}}>
                     <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
-                    <textarea style={{...ic,minHeight:96,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
+                    <textarea style={{...ic,minHeight:96,resize:"vertical",lineHeight:1.4,flex:1}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
                   </div>
                 </div>
               </div>
