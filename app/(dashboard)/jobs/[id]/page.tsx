@@ -96,6 +96,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   }, []);
   const saveBuySheetRef = useRef<(() => Promise<void>) | null>(null);
   const saveCostingRef = useRef<(() => Promise<void>) | null>(null);
+  const saveBlanksRef = useRef<(() => Promise<void>) | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const autoSelectedRef = useRef(false);
   const [job, setJob] = useState<Job|null>(null);
@@ -342,6 +343,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         flushJobSave(),
         saveBuySheetRef.current?.(),
         saveCostingRef.current?.(),
+        saveBlanksRef.current?.(),
       ]);
     } catch (e) {
       console.error("Save flush failed on tab switch:", e);
@@ -498,7 +500,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     <div style={{fontFamily:"var(--font-sans)",color:T.text,maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
       {/* Back */}
       <button onClick={async ()=>{
-        try { await Promise.all([flushJobSave(), saveBuySheetRef.current?.(), saveCostingRef.current?.()]); } catch(e) {}
+        try { await Promise.all([flushJobSave(), saveBuySheetRef.current?.(), saveCostingRef.current?.(), saveBlanksRef.current?.()]); } catch(e) {}
         router.push("/jobs");
       }} style={{background:"none",border:"none",color:T.faint,fontSize:11,cursor:"pointer",marginBottom:8,padding:0,fontFamily:font}}>
         ← All projects
@@ -1293,7 +1295,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </>
       )}
       {tab==="blanks"&&(
-        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={switchTab} />
+        <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={switchTab} onRegisterSave={(fn: () => Promise<void>) => { saveBlanksRef.current = fn; }} />
       )}
       {tab==="po"&&(
         <POTab
