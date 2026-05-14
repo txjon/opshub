@@ -221,6 +221,27 @@ export default async function DashboardPage() {
       }
     }
 
+    // 5c. Payment received — surfaces every paid invoice on the Clients
+    // bucket until POs are sent (the cue that the team has acted on the
+    // payment by moving the job into production). Adds a "Proofs not
+    // approved" badge when relevant so the team doesn't ship into a
+    // proof-gate violation.
+    if (hasPaidPayment && unsentVendors.length > 0) {
+      const paidSum = payments
+        .filter((p: any) => p.status === "paid" || p.status === "partial")
+        .reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      alerts.push({
+        ...base,
+        priority: 1,
+        type: "payment_received",
+        color: T.green,
+        action: `Payment received · $${paidSum.toLocaleString()}`,
+        badge: !allProofsApproved ? "Proofs not approved" : undefined,
+        href: `/jobs/${j.id}?tab=po`,
+        column: "sales",
+      });
+    }
+
     // 6. Send quote — escalate to follow-up after 2 days with no response
     if (j.phase === "intake" && !quoteApproved && items.length > 0 && costingSet && !rejectionNotes) {
       const quoteSentAt = typeMeta.quote_sent_at ? new Date(typeMeta.quote_sent_at) : null;
@@ -383,6 +404,7 @@ export default async function DashboardPage() {
   // Clients / Decorators bucket. Anything not here is dropped (billing
   // types live on /billing, not the team dashboard).
   const SECTION_BY_TYPE: Record<string, { bucket: "clients" | "decorators"; section: string }> = {
+    payment_received:  { bucket: "clients",    section: "Payments" },
     overdue:           { bucket: "clients",    section: "Past ship date" },
     quote_rejected:    { bucket: "clients",    section: "Quote feedback" },
     revision:          { bucket: "clients",    section: "Proof revisions" },
@@ -398,10 +420,10 @@ export default async function DashboardPage() {
     vendor_discrepancy:{ bucket: "decorators", section: "Discrepancies" },
   };
 
-  // Order in which sections appear inside each bucket — critical-tinted
-  // sections at the top so eyes land on red first.
+  // Order in which sections appear inside each bucket — Payments lands
+  // at the top so cash-in surfaces draw the eye first.
   const SECTION_ORDER: Record<string, string[]> = {
-    clients:    ["Past ship date", "Quote feedback", "Proof revisions", "New leads", "Send to client", "Awaiting client"],
+    clients:    ["Payments", "Past ship date", "Quote feedback", "Proof revisions", "New leads", "Send to client", "Awaiting client"],
     decorators: ["Discrepancies", "Send PO", "Order blanks", "Verify shipping"],
     designers:  ["Unread", "Awaiting HPD review", "Prep print-ready", "Mark delivered", "In design"],
   };
@@ -428,6 +450,7 @@ export default async function DashboardPage() {
       subtitle: a.action,
       meta: a.invoiceNumber || a.jobNumber || undefined,
       metaKind,
+      badge: a.badge || undefined,
       urgency: priorityToUrgency(a.priority),
       href: a.href,
       // Revision cards open a per-revision preview modal instead of a navigation

@@ -126,7 +126,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     // Primary match: by qb_invoice_id
     let { data: jobs } = await supabase
       .from("jobs")
-      .select("id, title, type_meta, phase, costing_summary, clients(name)")
+      .select("id, title, type_meta, phase, costing_summary, quote_approved, clients(name)")
       .filter("type_meta->>qb_invoice_id", "eq", qbInvoiceId);
 
     // Fallback match: by qb_invoice_number (in case ID wasn't saved)
@@ -134,7 +134,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
       console.log("[QB Webhook2] No match on qb_invoice_id:", qbInvoiceId, "— trying invoice number");
       const { data: fallback } = await supabase
         .from("jobs")
-        .select("id, title, type_meta, phase, costing_summary, clients(name)")
+        .select("id, title, type_meta, phase, costing_summary, quote_approved, clients(name)")
         .filter("type_meta->>qb_invoice_number", "eq", String(qbInvoiceId));
       if (fallback?.length) jobs = fallback;
     }
@@ -219,6 +219,21 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     if (insertErr) {
       console.error("[QB Webhook2] WRITE FAILED:", insertErr.message, insertErr.details);
       continue;
+    }
+
+    // Payment is implicit quote approval — flip the gate so downstream
+    // alerts (Order Blanks / Send PO) can fire even if the team never
+    // explicitly clicked Approve.
+    if (!(job as any).quote_approved) {
+      await supabase.from("jobs").update({
+        quote_approved: true,
+        quote_approved_at: new Date().toISOString(),
+        quote_rejection_notes: null,
+      }).eq("id", job.id);
+      await supabase.from("job_activity").insert({
+        job_id: job.id, user_id: null, type: "auto",
+        message: "Quote auto-approved via QB payment",
+      });
     }
 
     // Log activity
