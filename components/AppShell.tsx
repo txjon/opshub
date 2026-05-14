@@ -113,7 +113,7 @@ export function AppShell({
     : null;
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", background: "#f4f4f6" }}>
+    <div style={{ height: "100vh", display: "flex", background: "#f4f4f6" }}>
       {/* ── Slim sidebar (department switcher) — desktop only ── */}
       {!isMobile && (
       <div style={{
