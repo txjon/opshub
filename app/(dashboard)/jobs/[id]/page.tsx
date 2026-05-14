@@ -586,6 +586,19 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </div>
                 );
               }
+              // Receive-side phases retire the "X overdue" countdown — items
+              // are at HPD (or partly there). Matches the Key Facts Ships cell.
+              if (job.phase === "fulfillment" || job.phase === "shipping" || job.phase === "receiving") {
+                const dateStr = job.target_ship_date
+                  ? new Date(job.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})
+                  : null;
+                return (
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:16,fontWeight:700,color:T.green}}>At HPD</div>
+                    {dateStr && <div style={{fontSize:10,color:T.muted}}>{dateStr}</div>}
+                  </div>
+                );
+              }
               if (daysLeft === null) return null;
               return (
                 <div style={{textAlign:"right"}}>
@@ -793,7 +806,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               shipLabel = "Cancelled";
               shipColor = T.red;
               shipSub = cancelledAt ? new Date(cancelledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
-            } else if (job.phase === "fulfillment" || job.phase === "shipping") {
+            } else if (job.phase === "fulfillment" || job.phase === "shipping" || job.phase === "receiving") {
+              // All receive-side phases retire the countdown — items are
+              // partly or fully at HPD, so the production deadline is met
+              // (or about to be). "At HPD" reads correctly even when a
+              // straggler item is still in transit.
               shipLabel = "At HPD";
               shipColor = T.green;
               shipSub = shipDateRaw ? new Date(shipDateRaw).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
