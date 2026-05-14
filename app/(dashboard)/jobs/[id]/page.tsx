@@ -795,6 +795,132 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             );
           })()}
 
+          {/* Key Facts bar — ship date, payment status, route, terms.
+              Promotes the time-critical numbers above the fold so they
+              can't get buried in the Shipping details card below. */}
+          {(() => {
+            const tm = (job as any).type_meta || {};
+            const shipDateRaw = job.target_ship_date || null;
+            let shipLabel = "—", shipSub: string | null = null, shipColor: string = T.muted;
+            if (shipDateRaw) {
+              const d = new Date(shipDateRaw);
+              const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
+              shipSub = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+              shipLabel = days < 0 ? `${Math.abs(days)}d over` : days === 0 ? "Today" : `In ${days}d`;
+              shipColor = days < 0 ? T.red : days <= 3 ? T.amber : T.text;
+            }
+            const invoiceTotal = Number(tm.qb_total_with_tax) || Number((job as any)?.costing_summary?.grossRev) || 0;
+            const paidSum = (payments || []).filter((p: any) => p.status === "paid" || p.status === "partial").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+            const balance = Math.max(0, invoiceTotal - paidSum);
+            const isPaid = paidSum > 0.01 && balance <= 0.01;
+            const isPartial = paidSum > 0.01 && balance > 0.01;
+            const payLabel = isPaid ? "Paid" : isPartial ? "Partial" : invoiceTotal > 0 ? "Unpaid" : "—";
+            const paySub = invoiceTotal > 0 ? `$${Number(paidSum).toLocaleString()} of $${Number(invoiceTotal).toLocaleString()}` : null;
+            const payColor = isPaid ? T.green : isPartial ? T.amber : invoiceTotal > 0 ? T.red : T.muted;
+            const route = (job as any).shipping_route || "ship_through";
+            const routeLabel = route === "drop_ship" ? "Drop Ship" : route === "stage" ? "Stage" : "Ship-Through";
+            const termsLabel = job.payment_terms ? job.payment_terms.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—";
+            const priLabel = (job.priority || "normal").toUpperCase();
+            const priColor = job.priority === "hot" ? T.red : job.priority === "rush" ? T.amber : T.green;
+            const cellStyle: React.CSSProperties = { flex: 1, minWidth: 120, padding: "2px 16px", display: "flex", flexDirection: "column", gap: 2 };
+            const labelStyle: React.CSSProperties = { fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.08em", textTransform: "uppercase" };
+            const valueStyle: React.CSSProperties = { fontSize: 15, fontWeight: 700, lineHeight: 1.1, fontFamily: font };
+            const subStyle: React.CSSProperties = { fontSize: 10, color: T.faint };
+            return (
+              <div style={{ display: "flex", flexWrap: "wrap", padding: "12px 0", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 10, alignItems: "stretch" }}>
+                <div style={cellStyle}>
+                  <span style={labelStyle}>Ships</span>
+                  <span style={{ ...valueStyle, color: shipColor }}>{shipLabel}</span>
+                  {shipSub && <span style={subStyle}>{shipSub}</span>}
+                </div>
+                <div style={{ width: 1, background: T.border }} />
+                <div style={cellStyle}>
+                  <span style={labelStyle}>Payment</span>
+                  <span style={{ ...valueStyle, color: payColor }}>{payLabel}</span>
+                  {paySub && <span style={subStyle}>{paySub}</span>}
+                </div>
+                <div style={{ width: 1, background: T.border }} />
+                <div style={cellStyle}>
+                  <span style={labelStyle}>Route</span>
+                  <span style={{ ...valueStyle, color: T.text }}>{routeLabel}</span>
+                </div>
+                <div style={{ width: 1, background: T.border }} />
+                <div style={cellStyle}>
+                  <span style={labelStyle}>Terms</span>
+                  <span style={{ ...valueStyle, color: T.text }}>{termsLabel}</span>
+                </div>
+                <div style={{ width: 1, background: T.border }} />
+                <div style={cellStyle}>
+                  <span style={labelStyle}>Priority</span>
+                  <span style={{ ...valueStyle, color: priColor }}>{priLabel}</span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Shipping details — full width, promoted up so the ship
+              date + delivery address aren't buried in the side column. */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:7}}>
+              <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date</label><input style={{...ic,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
+                const ship = e.target.value;
+                const updates: any = { target_ship_date: ship };
+                if (ship) updates.priority = calculatePriority(ship);
+                setJob(j => j ? {...j, ...updates} : j);
+                saveJob(updates);
+              }}/></div>
+              <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
+                <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
+                  <option value="drop_ship">Drop ship (direct to client)</option>
+                  <option value="ship_through">Ship-through (forward from HPD)</option>
+                  <option value="stage">Stage (fulfillment from HPD)</option>
+                </select>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:7,marginTop:7}}>
+              <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client delivery address</label>
+                <textarea style={{...ic,minHeight:100,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/>
+              </div>
+              <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
+                <textarea style={{...ic,minHeight:100,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
+              </div>
+            </div>
+          </div>
+
+          {/* Documents — full-width action bar, no longer nested
+              inside Project info. Treated as actions, not setup data. */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Documents</div>
+            {(()=>{
+              const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
+              const qbInvNum = (job as any).type_meta?.qb_invoice_number;
+              const hasItems = items.length > 0;
+              const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
+              const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
+                <button key={label}
+                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
+                  disabled={!available}
+                  title={available?undefined:"Not available yet"}
+                  style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap"}}
+                  onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                  {label}
+                </button>
+              );
+              return (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
+                  {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
+                  {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
+                  {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
+                  {docVendors.length === 0 && docBtn("PO", null, false)}
+                  {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
+                </div>
+              );
+            })()}
+          </div>
+
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"start"}}>
             {/* Left column: Project info + Shipping details */}
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -869,154 +995,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
                     <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
                   </div>
-                  <div>
-                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Documents</label>
-                    {(()=>{
-                      const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
-                      const qbInvNum = (job as any).type_meta?.qb_invoice_number;
-                      const hasItems = items.length > 0;
-                      const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
-                      const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
-                        <button key={label}
-                          onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
-                          disabled={!available}
-                          title={available?undefined:"Not available yet"}
-                          style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",textAlign:"left"}}
-                          onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
-                          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
-                          {label}
-                        </button>
-                      );
-                      return (
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,alignItems:"start"}}>
-                          {/* Left column: Quote, Invoice, Packing Slip, Art Files */}
-                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                            {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
-                            {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
-                            {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
-                            {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
-                          </div>
-                          {/* Right column: PO per vendor */}
-                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                            {docVendors.length === 0 && docBtn("PO", null, false)}
-                            {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
                 </div>
               </div>
 
-              {/* Shipping details */}
-              <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Shipping details</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date</label><input style={{...ic,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
-                    const ship = e.target.value;
-                    const updates: any = { target_ship_date: ship };
-                    if (ship) updates.priority = calculatePriority(ship);
-                    setJob(j => j ? {...j, ...updates} : j);
-                    saveJob(updates);
-                  }}/></div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
-                    <select style={ic} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
-                      <option value="drop_ship">Drop ship (direct to client)</option>
-                      <option value="ship_through">Ship-through (forward from HPD)</option>
-                      <option value="stage">Stage (fulfillment from HPD)</option>
-                    </select>
-                  </div>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginTop:7}}>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client delivery address</label>
-                    <textarea style={{...ic,minHeight:130,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/>
-                  </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
-                    <textarea style={{...ic,minHeight:130,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
-                  </div>
-                </div>
-              </div>
-
-              {/* Project Summary */}
-              <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px"}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:10}}>Project Summary</div>
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
-                    <span style={{color:T.muted}}>Created</span>
-                    <span>{new Date((job as any).created_at||Date.now()).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
-                  </div>
-                  {(()=>{
-                    const costProds=(job as any).costing_data?.costProds||[];
-                    const suppliers=[...new Set(costProds.map((cp:any)=>cp.supplier).filter(Boolean))];
-                    return suppliers.length>0?(
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,alignItems:"flex-start"}}>
-                        <span style={{color:T.muted,flexShrink:0}}>Blank Suppliers</span>
-                        <span style={{textAlign:"right"}}>{suppliers.join(", ")}</span>
-                      </div>
-                    ):null;
-                  })()}
-                  {(()=>{
-                    const costProds=(job as any).costing_data?.costProds||[];
-                    const vendors=[...new Set(costProds.map((cp:any)=>cp.printVendor).filter(Boolean))];
-                    return vendors.length>0?(
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,alignItems:"flex-start"}}>
-                        <span style={{color:T.muted,flexShrink:0}}>Decorators</span>
-                        <span style={{textAlign:"right"}}>{vendors.join(", ")}</span>
-                      </div>
-                    ):null;
-                  })()}
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
-                    <span style={{color:T.muted}}>Items</span>
-                    <span>{items.length} items · {totalUnits.toLocaleString()} units</span>
-                  </div>
-                  {(()=>{
-                    const r=calculatePhase({
-                      job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
-                      items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,blanks_order_cost:(it as any).blanks_order_cost ?? null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
-                      payments:payments.map(p=>({amount:p.amount,status:p.status})),
-                      proofStatus,
-                      poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
-                    });
-                    return r.itemProgress?(
-                      <div style={{borderTop:`1px solid ${T.border}`,paddingTop:8,marginTop:2}}>
-                        <div style={{fontSize:10,color:T.muted,marginBottom:3}}>NEXT STEP</div>
-                        <div style={{fontSize:12,fontWeight:600,color:T.accent}}>{r.itemProgress}</div>
-                      </div>
-                    ):null;
-                  })()}
-                </div>
-              </div>
-
-              {/* Hold + Delete */}
-              <div style={{display:"flex",gap:8}}>
-                {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
-                  <button onClick={()=>{upd("phase","on_hold");}}
-                    style={{flex:1,padding:"8px",background:"transparent",border:`1px solid ${T.amber}`,borderRadius:8,color:T.amber,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
-                    onMouseEnter={e=>(e.currentTarget.style.background=T.amberDim)}
-                    onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                    Place on Hold
-                  </button>
-                )}
-                {job.phase==="on_hold"&&(
-                  <button onClick={async()=>{
-                    await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
-                    setJob(j=>j?{...j,phase:"intake"} as any:j);
-                    setTimeout(recalcPhase, 300);
-                  }}
-                    style={{flex:1,padding:"8px",background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,color:T.green,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
-                    onMouseEnter={e=>(e.currentTarget.style.opacity="0.8")}
-                    onMouseLeave={e=>(e.currentTarget.style.opacity="1")}>
-                    Resume
-                  </button>
-                )}
-                <button
-                  onClick={() => setConfirmDeleteProject(true)}
-                  style={{flex:1,padding:"8px",background:"transparent",border:`1px solid ${T.red}`,borderRadius:8,color:T.red,fontSize:12,fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif",fontWeight:500,cursor:"pointer",textAlign:"center"}}
-                  onMouseEnter={e=>(e.currentTarget.style.background=T.redDim)}
-                  onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                  Delete project
-                </button>
-              </div>
             </div>
 
             {/* Right column: Contacts, Email, Items */}
@@ -1182,33 +1163,62 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 })()}
               </div>
 
-              {/* Items */}
-              <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                  <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Items</div>
-                  <span style={{fontSize:10,color:T.muted}}>{items.length} items · {totalUnits.toLocaleString()} units</span>
-                </div>
-                {items.length===0&&<p style={{fontSize:12,color:T.muted}}>No items yet. Add items in the Buy Sheet tab.</p>}
-                <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                  {items.map(item=>{
-                    const qty=tQty(item.qtys||{});
-                    const dc=(item as any).decoration_type;
-                    const isAccessory=(item as any).garment_type==="accessory";
-                    return (
-                      <div key={item.id} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",background:T.surface,borderRadius:6}}>
-                        <div style={{flex:1,minWidth:0}}>
-                          <span style={{fontSize:12,fontWeight:600,color:T.text}}>{item.name}</span>
-                          <span style={{fontSize:10,color:T.muted,marginLeft:7}}>{item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}</span>
-                        </div>
-                        {!isAccessory&&dc&&<span style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{dc.replace(/_/g," ")}</span>}
-                        {isAccessory&&<span style={{fontSize:10,fontWeight:700,color:T.purple,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Accessory</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
             </div>
+          </div>
+
+          {/* Items — full-width compact list */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginTop:10}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+              <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Items</div>
+              <span style={{fontSize:10,color:T.muted}}>{items.length} items · {totalUnits.toLocaleString()} units</span>
+            </div>
+            {items.length===0&&<p style={{fontSize:12,color:T.muted}}>No items yet. Add items in the Buy Sheet tab.</p>}
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:4}}>
+              {items.map(item=>{
+                const qty=tQty(item.qtys||{});
+                const dc=(item as any).decoration_type;
+                const isAccessory=(item as any).garment_type==="accessory";
+                return (
+                  <div key={item.id} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",background:T.surface,borderRadius:6}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <span style={{fontSize:12,fontWeight:600,color:T.text}}>{item.name}</span>
+                      <span style={{fontSize:10,color:T.muted,marginLeft:7}}>{item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}</span>
+                    </div>
+                    {!isAccessory&&dc&&<span style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{dc.replace(/_/g," ")}</span>}
+                    {isAccessory&&<span style={{fontSize:10,fontWeight:700,color:T.purple,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Accessory</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Hold + Delete — small action links, bottom-right */}
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}}>
+            {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
+              <button onClick={()=>{upd("phase","on_hold");}}
+                style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.amber;e.currentTarget.style.color=T.amber;}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+                Place on Hold
+              </button>
+            )}
+            {job.phase==="on_hold"&&(
+              <button onClick={async()=>{
+                await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
+                setJob(j=>j?{...j,phase:"intake"} as any:j);
+                setTimeout(recalcPhase, 300);
+              }}
+                style={{padding:"6px 14px",background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:6,color:T.green,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}>
+                Resume
+              </button>
+            )}
+            <button
+              onClick={() => setConfirmDeleteProject(true)}
+              style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.red;e.currentTarget.style.color=T.red;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+              Delete project
+            </button>
           </div>
 
           {/* Email history — outbound only. Inbound routing via a shared
