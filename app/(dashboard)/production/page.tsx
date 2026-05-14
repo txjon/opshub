@@ -230,6 +230,11 @@ export default function ProductionPage() {
       // pipeline_stage is set to "in_production" when the PO is sent
       // and rolls to "shipped" when tracking is entered.
       if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped") continue;
+      // Once an item has been received at HPD, it has moved past the
+      // production stage from this vendor's POV (it's in receiving /
+      // fulfillment / outbound now). Drop it so the decorator chip
+      // clears when all of that vendor's items are received.
+      if (it.received_at_hpd) continue;
 
       const assignment = it.decorator_assignments?.[0];
       const decName = assignment?.decorators?.name || "Unassigned";
