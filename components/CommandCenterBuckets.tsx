@@ -340,6 +340,8 @@ function CardRow({ card, onDismiss, onOpenRevision }: { card: BucketCard; onDism
           fontSize: 11, color: T.muted, fontWeight: 500,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           minWidth: 0,
+          paddingLeft: !isRead ? 16 : 0,
+          transition: "padding-left 0.12s",
         }}>
           {card.subtitle}
         </div>
