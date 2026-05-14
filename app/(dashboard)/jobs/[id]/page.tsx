@@ -777,7 +777,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             let shipLabel = "—", shipSub: string | null = null, shipColor: string = T.muted;
             // Terminal phases bypass the "X days over" countdown — the
             // ship date already happened (or was cancelled), so showing
-            // "12d over" on a complete job reads wrong.
+            // "12d over" on a complete / fulfillment / shipping job
+            // reads wrong. Once items reach HPD (fulfillment / shipping
+            // for stage / ship_through routes), the decorator-side
+            // deadline is met and the countdown should retire.
             const completedAt = (job as any).phase_timestamps?.complete || null;
             const cancelledAt = (job as any).phase_timestamps?.cancelled || null;
             if (job.phase === "complete") {
@@ -790,6 +793,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               shipLabel = "Cancelled";
               shipColor = T.red;
               shipSub = cancelledAt ? new Date(cancelledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
+            } else if (job.phase === "fulfillment" || job.phase === "shipping") {
+              shipLabel = "At HPD";
+              shipColor = T.green;
+              shipSub = shipDateRaw ? new Date(shipDateRaw).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
             } else if (shipDateRaw) {
               const d = new Date(shipDateRaw);
               const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
