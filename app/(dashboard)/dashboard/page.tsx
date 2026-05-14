@@ -594,14 +594,16 @@ export default async function DashboardPage() {
 
     const map = stateToSection[b.state];
     if (!map) continue;
+    const cardId = `brief-${b.id}`;
     const card: BucketCard = {
-      id: `brief-${b.id}`,
+      id: cardId,
       title,
       subtitle: map.subtitlePrefix,
       meta: jobNumber || undefined,
       metaKind: jobNumber ? "job" : undefined,
       urgency: map.urgency,
       href: `/art-studio?brief=${b.id}`,
+      read: computeRead(cardId, b.updated_at),
     };
     // client_review briefs land under Clients (it's a client-side conversation),
     // others under Designers.
