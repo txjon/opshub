@@ -28,6 +28,7 @@ function mapStatus(
   shippingRoute: string | null,
   receivedAtHpd: boolean,
   blanksOrderCost: number | null,
+  sellPerUnit: number | null,
 ): ClientItemStatus {
   // Whole-job locks first — they trump every per-item state.
   if (phase === "cancelled") return "cancelled";
@@ -49,13 +50,15 @@ function mapStatus(
     return receivedAtHpd ? "delivered" : "shipping";
   }
 
-  // "Preparing" = blanks have actually been ordered. Driven by
-  // blanks_order_cost > 0 (set in BlanksTab) rather than the
-  // legacy pipeline_stage='blanks_ordered' default that bled into
-  // every new item before migration 069. Keep pipeline_stage as a
-  // fallback for any item that was legitimately advanced via the
-  // old path.
-  if ((blanksOrderCost ?? 0) > 0 || pipelineStage === "blanks_ordered") return "preparing";
+  // "Preparing" = HPD has taken concrete action on the item. The
+  // earliest signal is costing — once sell_per_unit is set, the
+  // item has been priced + a decorator/route picked, which from
+  // the client's view means we're prepping their order. Blanks
+  // ordering and the legacy pipeline_stage='blanks_ordered' label
+  // both also qualify.
+  if ((sellPerUnit ?? 0) > 0 || (blanksOrderCost ?? 0) > 0 || pipelineStage === "blanks_ordered") {
+    return "preparing";
+  }
 
   // Job-wide fallbacks for items where pipeline_stage isn't set yet.
   if (phase === "shipping" || phase === "receiving" || phase === "fulfillment") return "shipping";
@@ -92,7 +95,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // 3. Fetch every item on those jobs.
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, design_id, created_at, sort_order")
+      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -165,6 +168,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           job.shipping_route || null,
           !!it.received_at_hpd,
           it.blanks_order_cost != null ? Number(it.blanks_order_cost) : null,
+          it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
         ),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,
