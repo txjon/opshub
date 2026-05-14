@@ -126,14 +126,15 @@ export async function POST(req: NextRequest) {
 
       const job = jobs[0];
 
-      // Check for existing payment. Match across status values so a
-      // re-sync of a partial payment doesn't double-record.
+      // Check for existing PAID payment with same amount — that's a
+      // duplicate (re-sync of an already-recorded payment).
       const today = new Date().toISOString().split("T")[0];
       const { data: existing } = await admin
         .from("payment_records")
         .select("id")
         .eq("job_id", job.id)
-        .eq("amount", amount);
+        .eq("amount", amount)
+        .eq("status", "paid");
 
       if (existing?.length) {
         results.push({ qbInvoiceId, jobId: job.id, jobTitle: job.title, status: "already_exists", paymentRecordId: existing[0].id });
@@ -153,15 +154,36 @@ export async function POST(req: NextRequest) {
         || 0;
       const paymentType = derivePaymentType({ newAmount: amount, priorPaidTotal, invoiceTotal });
 
-      // Insert payment
-      const { error: insertErr } = await admin.from("payment_records").insert({
-        job_id: job.id,
-        type: paymentType,
-        amount,
-        status: "paid",
-        paid_date: payment.TxnDate || today,
-        invoice_number: (job.type_meta as any)?.qb_invoice_number || null,
-      });
+      // Upgrade an AR-opened "sent" row (created on invoice push) if it
+      // exists, instead of inserting a duplicate. Match by qb_invoice_id
+      // for accuracy.
+      const { data: pending } = await admin
+        .from("payment_records")
+        .select("id")
+        .eq("job_id", job.id)
+        .eq("qb_invoice_id", qbInvoiceId)
+        .neq("status", "paid")
+        .limit(1);
+
+      let insertErr: any = null;
+      if (pending && pending.length > 0) {
+        const { error } = await admin
+          .from("payment_records")
+          .update({ status: "paid", paid_date: payment.TxnDate || today, amount, type: paymentType })
+          .eq("id", pending[0].id);
+        insertErr = error;
+      } else {
+        const { error } = await admin.from("payment_records").insert({
+          job_id: job.id,
+          qb_invoice_id: qbInvoiceId,
+          type: paymentType,
+          amount,
+          status: "paid",
+          paid_date: payment.TxnDate || today,
+          invoice_number: (job.type_meta as any)?.qb_invoice_number || null,
+        });
+        insertErr = error;
+      }
 
       if (insertErr) {
         results.push({ qbInvoiceId, jobId: job.id, status: "insert_error", error: insertErr.message });

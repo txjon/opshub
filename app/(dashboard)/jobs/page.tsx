@@ -400,10 +400,12 @@ export default function JobsPage() {
             job.priority === "hot" ? { label: "HOT", color: T.red } :
             job.priority === "rush" ? { label: "RUSH", color: T.amber } : null;
 
-          // Once a project is complete/cancelled, the countdown is just
+          // Once a project is past production (complete / cancelled /
+          // receiving / shipping / fulfillment), the countdown is just
           // historical — don't keep flagging "Xd over" in red. Active
-          // jobs still get the urgency coloring + the "Xd over" wording.
-          const isClosed = job.phase === "complete" || job.phase === "cancelled";
+          // (intake / pending / ready / production) jobs still get the
+          // urgency coloring + the "Xd over" wording.
+          const isClosed = ["complete","cancelled","receiving","shipping","fulfillment"].includes(job.phase);
           const dateColor = daysLeft === null
             ? T.muted
             : isClosed
@@ -453,7 +455,12 @@ export default function JobsPage() {
                 {daysLeft !== null && (
                   <div style={{ display:"flex", alignItems:"baseline", gap:6, fontFamily:mono }}>
                     <span style={{ fontSize:12, fontWeight:700, color:dateColor }}>
-                      {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Ships today":daysLeft+"d to ship"}
+                      {job.phase === "complete" ? "Complete"
+                        : job.phase === "cancelled" ? "Cancelled"
+                        : ["receiving","shipping","fulfillment"].includes(job.phase) ? "At HPD"
+                        : daysLeft < 0 ? Math.abs(daysLeft)+"d over"
+                        : daysLeft === 0 ? "Ships today"
+                        : daysLeft+"d to ship"}
                     </span>
                     <span style={{ fontSize:10, color:T.faint }}>
                       {ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}

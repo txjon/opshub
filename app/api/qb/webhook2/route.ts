@@ -182,20 +182,42 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
       || 0;
     const paymentType = derivePaymentType({ newAmount: amount, priorPaidTotal, invoiceTotal });
 
-    // Record the payment. The row-level status stays "paid" (this slice
-    // was received in full); the project-level partial state is
-    // computed from sum vs total at read time.
-    const { error: insertErr } = await supabase.from("payment_records").insert({
-      job_id: job.id,
-      type: paymentType,
-      amount,
-      status: "paid",
-      paid_date: today,
-      invoice_number: (job.type_meta as any)?.qb_invoice_number || null,
-    });
+    // If an AR row already exists for this invoice (opened by
+    // /api/qb/invoice on push, status="sent"), upgrade it to paid
+    // rather than insert a duplicate. Matched by qb_invoice_id which
+    // is the canonical link back to the QB record.
+    const { data: pending } = await supabase
+      .from("payment_records")
+      .select("id")
+      .eq("job_id", job.id)
+      .eq("qb_invoice_id", qbInvoiceId)
+      .neq("status", "paid")
+      .limit(1);
+
+    let insertErr: any = null;
+    if (pending && pending.length > 0) {
+      const { error } = await supabase
+        .from("payment_records")
+        .update({ status: "paid", paid_date: today, amount, type: paymentType })
+        .eq("id", pending[0].id);
+      insertErr = error;
+    } else {
+      // No pending row — out-of-band payment or pre-AR-tracking job.
+      // Record the payment as today's row (legacy behavior).
+      const { error } = await supabase.from("payment_records").insert({
+        job_id: job.id,
+        qb_invoice_id: qbInvoiceId,
+        type: paymentType,
+        amount,
+        status: "paid",
+        paid_date: today,
+        invoice_number: (job.type_meta as any)?.qb_invoice_number || null,
+      });
+      insertErr = error;
+    }
 
     if (insertErr) {
-      console.error("[QB Webhook2] INSERT FAILED:", insertErr.message, insertErr.details);
+      console.error("[QB Webhook2] WRITE FAILED:", insertErr.message, insertErr.details);
       continue;
     }
 

@@ -339,9 +339,9 @@ export default function ShippingPage() {
                     Mark Shipped
                   </button>
                 </div>
-                {qbMissing && (
+                {invoiceMissing && (
                   <div style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>
-                    QB invoice not yet generated — required before notifying customer.
+                    Invoice not yet generated — required before notifying customer.
                   </div>
                 )}
               </div>

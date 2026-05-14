@@ -305,6 +305,42 @@ export async function POST(req: NextRequest) {
       },
     }).eq("id", jobId);
 
+    // Open an AR row on payment_records so the dashboard's
+    // overdue-payment card + the Key Facts Payment cell can fire
+    // as soon as the due date passes. Webhook2 / sync-payment will
+    // flip this row's status to "paid" when the customer pays
+    // (matched by qb_invoice_id, so no dup is created). Skip if a
+    // row already exists for this qb_invoice_id (re-push case).
+    const totalAmount = Number(result.totalWithTax) || 0;
+    if (totalAmount > 0) {
+      const { data: existing } = await admin.from("payment_records")
+        .select("id")
+        .eq("job_id", jobId)
+        .eq("qb_invoice_id", result.invoiceId)
+        .maybeSingle();
+      if (!existing) {
+        // Due date computed from payment terms. Prepaid/deposit_balance
+        // bookings often pay before or alongside the invoice — no due
+        // date means the dashboard won't ever mark them overdue.
+        const today = new Date();
+        const terms = (job.payment_terms || "") as string;
+        const daysOut = terms === "net_15" ? 15 : terms === "net_30" ? 30 : null;
+        const dueDate = daysOut !== null
+          ? new Date(today.getTime() + daysOut * 86400000).toISOString().split("T")[0]
+          : null;
+        await admin.from("payment_records").insert({
+          job_id: jobId,
+          qb_invoice_id: result.invoiceId,
+          invoice_number: result.invoiceNumber,
+          type: "full_payment",
+          amount: totalAmount,
+          status: "sent",
+          due_date: dueDate,
+          paid_date: null,
+        });
+      }
+    }
+
     // Log activity
     await admin.from("job_activity").insert({
       job_id: jobId, user_id: userId, type: "auto",
