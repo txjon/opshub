@@ -1012,74 +1012,57 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
               <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column"}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project info</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-                  <div style={{position:"relative"}} ref={clientDropdownRef}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client</label>
-                    <input style={ic} value={clientQuery} onChange={e=>{setClientQuery(e.target.value);setShowClientDropdown(true);}}
-                      onFocus={()=>setShowClientDropdown(true)} placeholder="Search or assign client..."/>
-                    {showClientDropdown&&clientQuery.trim().length>0&&(
-                      <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,maxHeight:200,overflowY:"auto",marginTop:4}}>
-                        {clientResults.map(c=>(
-                          <div key={c.id} onClick={async()=>{
-                            await supabase.from("jobs").update({client_id:c.id}).eq("id",job.id);
-                            await swapJobContactsForClient(c.id);
-                            setJob(j=>j?{...j,client_id:c.id,clients:{name:c.name}} as any:j);
-                            setClientQuery(c.name);
-                            setShowClientDropdown(false);
-                          }} style={{padding:"8px 12px",fontSize:12,cursor:"pointer",borderBottom:`1px solid ${T.border}`}}
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"start"}}>
+                  {/* Left: Client (typeahead) + Memo stacked */}
+                  <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                    <div style={{position:"relative"}} ref={clientDropdownRef}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client</label>
+                      <input style={ic} value={clientQuery} onChange={e=>{setClientQuery(e.target.value);setShowClientDropdown(true);}}
+                        onFocus={()=>setShowClientDropdown(true)} placeholder="Search or assign client..."/>
+                      {showClientDropdown&&clientQuery.trim().length>0&&(
+                        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,maxHeight:200,overflowY:"auto",marginTop:4}}>
+                          {clientResults.map(c=>(
+                            <div key={c.id} onClick={async()=>{
+                              await supabase.from("jobs").update({client_id:c.id}).eq("id",job.id);
+                              await swapJobContactsForClient(c.id);
+                              setJob(j=>j?{...j,client_id:c.id,clients:{name:c.name}} as any:j);
+                              setClientQuery(c.name);
+                              setShowClientDropdown(false);
+                            }} style={{padding:"8px 12px",fontSize:12,cursor:"pointer",borderBottom:`1px solid ${T.border}`}}
+                              onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
+                              onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                              {c.name}
+                            </div>
+                          ))}
+                          {clientResults.length===0&&<div style={{padding:"8px 12px",fontSize:11,color:T.faint}}>No matching clients</div>}
+                          <div onClick={async()=>{
+                            const name=clientQuery.trim();
+                            if(!name) return;
+                            const {data:newClient}=await supabase.from("clients").insert({name}).select("id,name").single();
+                            if(newClient){
+                              await supabase.from("jobs").update({client_id:newClient.id}).eq("id",job.id);
+                              await swapJobContactsForClient(newClient.id);
+                              setJob(j=>j?{...j,client_id:newClient.id,clients:{name:newClient.name}} as any:j);
+                              setAllClients(prev=>[...prev,newClient].sort((a,b)=>a.name.localeCompare(b.name)));
+                              setClientQuery(newClient.name);
+                              setShowClientDropdown(false);
+                            }
+                          }} style={{padding:"8px 12px",fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",borderTop:`1px solid ${T.border}`}}
                             onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
                             onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                            {c.name}
+                            + Create "{clientQuery.trim()}"
                           </div>
-                        ))}
-                        {clientResults.length===0&&<div style={{padding:"8px 12px",fontSize:11,color:T.faint}}>No matching clients</div>}
-                        <div onClick={async()=>{
-                          const name=clientQuery.trim();
-                          if(!name) return;
-                          const {data:newClient}=await supabase.from("clients").insert({name}).select("id,name").single();
-                          if(newClient){
-                            await supabase.from("jobs").update({client_id:newClient.id}).eq("id",job.id);
-                            await swapJobContactsForClient(newClient.id);
-                            setJob(j=>j?{...j,client_id:newClient.id,clients:{name:newClient.name}} as any:j);
-                            setAllClients(prev=>[...prev,newClient].sort((a,b)=>a.name.localeCompare(b.name)));
-                            setClientQuery(newClient.name);
-                            setShowClientDropdown(false);
-                          }
-                        }} style={{padding:"8px 12px",fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",borderTop:`1px solid ${T.border}`}}
-                          onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
-                          onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                          + Create "{clientQuery.trim()}"
                         </div>
-                      </div>
-                    )}
-                  </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project memo</label>
-                    <input style={ic} value={job.title} placeholder="Optional description..." onChange={e=>upd("title",e.target.value)}/>
-                  </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Priority</label>
-                    <div style={{padding:"6px 10px",borderRadius:6,fontSize:12,fontWeight:600,textAlign:"center",
-                      background:job.priority==="hot"?T.redDim:job.priority==="rush"?T.amberDim:T.greenDim,
-                      color:job.priority==="hot"?T.red:job.priority==="rush"?T.amber:T.green}}>
-                      {(job.priority||"normal").toUpperCase()}
+                      )}
+                    </div>
+                    <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project memo</label>
+                      <input style={ic} value={job.title} placeholder="Optional description..." onChange={e=>upd("title",e.target.value)}/>
                     </div>
                   </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Phase</label>
-                    <div style={{...ic,background:T.card,display:"flex",alignItems:"center",gap:6}}>
-                      <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>
-                      {(()=>{
-                        const r=calculatePhase({
-                          job:{job_type:job.job_type,shipping_route:(job as any).shipping_route||"ship_through",payment_terms:job.payment_terms,quote_approved:(job as any).quote_approved||false,phase:job.phase,fulfillment_status:(job as any).fulfillment_status||null},
-                          items:items.map(it=>({id:it.id,pipeline_stage:it.pipeline_stage||null,blanks_order_number:(it as any).blanks_order_number||null,blanks_order_cost:(it as any).blanks_order_cost ?? null,ship_tracking:(it as any).ship_tracking||null,received_at_hpd:(it as any).received_at_hpd||false,artwork_status:(it as any).artwork_status||null,garment_type:(it as any).garment_type||null})),
-                          payments:payments.map(p=>({amount:p.amount,status:p.status})),
-                          proofStatus,
-                          poSentVendors:(job as any).type_meta?.po_sent_vendors||[],
-                          costingVendors:[...new Set(((job as any).costing_data?.costProds||[]).map((cp:any)=>cp.printVendor).filter(Boolean))],
-                        });
-                        return r.itemProgress?<span style={{fontSize:10,color:T.muted}}>{r.itemProgress}</span>:null;
-                      })()}
-                    </div>
-                  </div>
-                  <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
-                    <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
+
+                  {/* Right: Notes textarea spanning the height of client + memo */}
+                  <div style={{display:"flex",flexDirection:"column"}}>
+                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
+                    <textarea style={{...ic,minHeight:96,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
                   </div>
                 </div>
               </div>
