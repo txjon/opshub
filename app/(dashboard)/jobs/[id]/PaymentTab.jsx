@@ -423,6 +423,17 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
                 await supabase.from("payment_records").insert({ job_id: job.id, type: pmType, amount, invoice_number, status: "paid", paid_date });
                 logJobActivity(job.id, `Payment received: ${pmType.replace(/_/g, " ")} — $${amount.toLocaleString()}${invoice_number ? ` (${invoice_number})` : ""}`);
                 notifyTeam(`Payment received — $${amount.toLocaleString()} · ${job.clients?.name || ""} · ${job.title}`, "payment", job.id, "job");
+                // Recording a payment is implicit quote approval. Flip the
+                // gate now so downstream alerts (Send PO, Order Blanks) can
+                // fire without a separate "Approve Quote" click.
+                if (!job.quote_approved) {
+                  await supabase.from("jobs").update({
+                    quote_approved: true,
+                    quote_approved_at: new Date().toISOString(),
+                    quote_rejection_notes: null,
+                  }).eq("id", job.id);
+                  logJobActivity(job.id, "Quote auto-approved via payment");
+                }
                 setPmType("deposit"); setPmAmount(""); setPmInvoice(""); setPmPaid(new Date().toISOString().split("T")[0]);
                 setAddingPayment(false);
                 if (onReload) onReload();
@@ -462,7 +473,17 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
                       const ns = nextStatus();
                       await supabase.from("payment_records").update({ status: ns, paid_date: ns === "paid" ? new Date().toISOString().split("T")[0] : null }).eq("id", p.id);
                       logJobActivity(job.id, `Payment ${p.invoice_number || "#"} status → ${ns}${ns === "paid" ? " — $" + p.amount.toLocaleString() : ""}`);
-                      if (ns === "paid") notifyTeam(`Payment received — $${p.amount.toLocaleString()} · ${job.clients?.name || ""} · ${job.title}`, "payment", job.id, "job");
+                      if (ns === "paid") {
+                        notifyTeam(`Payment received — $${p.amount.toLocaleString()} · ${job.clients?.name || ""} · ${job.title}`, "payment", job.id, "job");
+                        if (!job.quote_approved) {
+                          await supabase.from("jobs").update({
+                            quote_approved: true,
+                            quote_approved_at: new Date().toISOString(),
+                            quote_rejection_notes: null,
+                          }).eq("id", job.id);
+                          logJobActivity(job.id, "Quote auto-approved via payment");
+                        }
+                      }
                       if (onReload) onReload();
                       if (onRecalcPhase) setTimeout(onRecalcPhase, 500);
                     }} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 11, fontWeight: 700, color: display.color, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: font }}>{rowLabel}</button>

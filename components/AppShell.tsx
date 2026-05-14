@@ -85,11 +85,39 @@ export function AppShell({
   const [activeDept, setActiveDept] = useState<Department>(detectDept(pathname));
   const [showSideQuests, setShowSideQuests] = useState(false);
   const isMobile = useIsMobile();
+  // Dashboard nav badge — count of external-driven items awaiting an
+  // HPD response (quote rejections, proof revisions, vendor flags,
+  // unread Art Studio briefs). Refreshes when the user navigates
+  // away from /dashboard and on a slow background poll.
+  const [dashboardUnread, setDashboardUnread] = useState(0);
 
   // Sync dept when pathname changes (after navigation completes, not during render)
   useEffect(() => {
     const deptFromPath = detectDept(pathname);
     setActiveDept(deptFromPath);
+  }, [pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/dashboard/unread-count", { cache: "no-store" });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!cancelled) setDashboardUnread(Number(body.count) || 0);
+      } catch {}
+    };
+    // Strict-messenger flow: landing on /dashboard bumps the team-wide
+    // last-seen-at via POST /api/dashboard/seen, which clears the badge.
+    // We also optimistically zero it locally so the UI doesn't flash a
+    // stale number while the round-trip completes.
+    if (pathname === "/dashboard") {
+      setDashboardUnread(0);
+      fetch("/api/dashboard/seen", { method: "POST", cache: "no-store" }).catch(() => {});
+    }
+    load();
+    const id = setInterval(load, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
   }, [pathname]);
 
   const baseNavItems = DEPT_NAV[activeDept] || [];
@@ -207,24 +235,37 @@ export function AppShell({
           }}>
             {navItems.map((item: any) => {
               const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+              const isDashboard = item.href === "/dashboard";
+              const showBadge = isDashboard && dashboardUnread > 0;
               const linkStyle = {
                 padding: "6px 14px", borderRadius: 6, fontSize: 13, fontWeight: isActive ? 700 : 500,
                 textDecoration: "none", transition: "all 0.12s",
                 color: isActive ? "#000" : "#6b6b78",
                 background: isActive ? "#eaeaee" : "transparent",
                 flexShrink: 0, whiteSpace: "nowrap",
+                display: "inline-flex", alignItems: "center", gap: 8,
               } as const;
+              const badge = showBadge ? (
+                <span style={{
+                  background: "#e8569b", color: "#fff",
+                  fontSize: 10, fontWeight: 800,
+                  padding: "2px 7px", borderRadius: 99, lineHeight: 1.3,
+                  minWidth: 18, textAlign: "center",
+                }}>{dashboardUnread}</span>
+              ) : null;
               // External links (static files outside Next routing) use <a> + target=_blank
               if (item.external) {
                 return (
                   <a key={item.href} href={item.href} target="_blank" rel="noopener noreferrer" style={linkStyle}>
                     {item.label}
+                    {badge}
                   </a>
                 );
               }
               return (
                 <Link key={item.href} href={item.href} style={linkStyle}>
                   {item.label}
+                  {badge}
                 </Link>
               );
             })}

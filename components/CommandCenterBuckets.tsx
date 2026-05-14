@@ -30,6 +30,11 @@ export type BucketCard = {
   badge?: string;
   urgency: Urgency;
   href?: string;
+  /** Read state — Apple-Mail style. false = bold + dot, looks new
+   *  and demands attention. true = muted, already-seen weight.
+   *  Computed server-side per card from last_dashboard_seen_at +
+   *  the team-wide override list. */
+  read?: boolean;
   /** When present, clicking the card opens a per-revision modal
    *  (mockup thumbnail + client message + link into Proofs tab)
    *  instead of just navigating to the job. Used for revision cards. */
@@ -219,11 +224,33 @@ function CardRow({ card, onDismiss, onOpenRevision }: { card: BucketCard; onDism
   const isUrgent = card.urgency === "critical" || card.urgency === "action";
   const [hovered, setHovered] = useState(false);
   const [resolving, setResolving] = useState(false);
+  // Optimistic local read state — server is the truth, but flipping
+  // here gives immediate UI feedback before the API roundtrip. Starts
+  // from the server-computed value, falls back to "read" if unset
+  // (back-compat for callers that don't supply it yet).
+  const [localRead, setLocalRead] = useState<boolean>(card.read !== false);
+  const isRead = localRead;
 
   const handleDismiss = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     onDismiss(card.id);
+  };
+
+  const handleMarkUnread = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLocalRead(false);
+    try { await fetch("/api/dashboard/mark-unread", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cardId: card.id }) }); }
+    catch {}
+  };
+
+  const handleMarkRead = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLocalRead(true);
+    try { await fetch("/api/dashboard/mark-read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cardId: card.id }) }); }
+    catch {}
   };
 
   // Server-side resolve for vendor discrepancy cards. Sets
@@ -261,10 +288,22 @@ function CardRow({ card, onDismiss, onOpenRevision }: { card: BucketCard; onDism
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ position: "relative" }}
+      style={{ position: "relative", opacity: isRead ? 0.55 : 1, transition: "opacity 0.12s" }}
     >
       <CardLink card={card} onOpenRevision={onOpenRevision}>
-        {isUrgent && (
+        {/* Unread indicator — Apple Mail style left dot, full color
+            on unread cards. Replaces the existing urgency bar when
+            unread; the urgency color still drives the dot color. */}
+        {!isRead && (
+          <span style={{
+            position: "absolute", left: 4, top: "50%",
+            transform: "translateY(-50%)",
+            width: 8, height: 8, borderRadius: "50%",
+            background: u.color,
+            boxShadow: `0 0 0 2px ${u.bg}`,
+          }} />
+        )}
+        {isRead && isUrgent && (
           <span style={{
             position: "absolute", left: 0, top: 8, bottom: 8,
             width: 2, borderRadius: 2,
@@ -272,13 +311,15 @@ function CardRow({ card, onDismiss, onOpenRevision }: { card: BucketCard; onDism
           }} />
         )}
         <div style={{
-          fontSize: 12.5, fontWeight: isUrgent ? 700 : 600,
+          fontSize: 12.5, fontWeight: !isRead ? 800 : (isUrgent ? 700 : 600),
           color: T.text,
           display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
           overflow: "hidden",
           wordBreak: "break-word",
           lineHeight: 1.3,
           minWidth: 0,
+          paddingLeft: !isRead ? 16 : 0,
+          transition: "padding-left 0.12s",
         }}>
           {card.title}
         </div>
@@ -299,6 +340,8 @@ function CardRow({ card, onDismiss, onOpenRevision }: { card: BucketCard; onDism
           fontSize: 11, color: T.muted, fontWeight: 500,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           minWidth: 0,
+          paddingLeft: !isRead ? 16 : 0,
+          transition: "padding-left 0.12s",
         }}>
           {card.subtitle}
         </div>
@@ -361,6 +404,30 @@ function CardRow({ card, onDismiss, onOpenRevision }: { card: BucketCard; onDism
           ×
         </button>
       )}
+      {/* Mark Unread / Mark Read toggle — Apple Mail style. Click flips
+          the team-wide override list on companies.branding so Drake +
+          Taylor see the card as bold/unread on their next dashboard
+          load. Sits left of the dismiss/resolve button on hover. */}
+      <button
+        onClick={isRead ? handleMarkUnread : handleMarkRead}
+        title={isRead ? "Mark unread — pings the team" : "Mark read"}
+        aria-label={isRead ? "Mark unread" : "Mark read"}
+        style={{
+          position: "absolute", top: 6, right: card.resolve ? 86 : 26,
+          padding: "1px 6px",
+          background: hovered ? T.surface : "transparent",
+          border: "none", borderRadius: 4,
+          color: isRead ? T.faint : u.color, fontSize: 10, fontWeight: 700, lineHeight: 1.4,
+          letterSpacing: "0.06em", textTransform: "uppercase",
+          cursor: "pointer",
+          opacity: hovered ? 1 : 0,
+          transition: "opacity 0.1s, background 0.1s, color 0.1s",
+          fontFamily: font,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {isRead ? "Unread" : "Read"}
+      </button>
     </div>
   );
 }

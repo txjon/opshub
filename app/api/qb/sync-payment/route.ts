@@ -107,14 +107,14 @@ export async function POST(req: NextRequest) {
       // Match by qb_invoice_id
       let { data: jobs } = await admin
         .from("jobs")
-        .select("id, title, type_meta, costing_summary, clients(name)")
+        .select("id, title, type_meta, costing_summary, quote_approved, clients(name)")
         .filter("type_meta->>qb_invoice_id", "eq", qbInvoiceId);
 
       // Fallback: match by qb_invoice_number
       if (!jobs?.length) {
         const { data: fallback } = await admin
           .from("jobs")
-          .select("id, title, type_meta, costing_summary, clients(name)")
+          .select("id, title, type_meta, costing_summary, quote_approved, clients(name)")
           .filter("type_meta->>qb_invoice_number", "eq", String(qbInvoiceId));
         if (fallback?.length) jobs = fallback;
       }
@@ -188,6 +188,19 @@ export async function POST(req: NextRequest) {
       if (insertErr) {
         results.push({ qbInvoiceId, jobId: job.id, status: "insert_error", error: insertErr.message });
         continue;
+      }
+
+      // Payment is implicit quote approval — flip the gate.
+      if (!(job as any).quote_approved) {
+        await admin.from("jobs").update({
+          quote_approved: true,
+          quote_approved_at: new Date().toISOString(),
+          quote_rejection_notes: null,
+        }).eq("id", job.id);
+        await admin.from("job_activity").insert({
+          job_id: job.id, user_id: null, type: "auto",
+          message: "Quote auto-approved via QB payment",
+        });
       }
 
       // Log activity + notify

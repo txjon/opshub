@@ -7,6 +7,27 @@ export default async function DashboardPage() {
   const supabase = await createClient();
   const now = new Date();
 
+  // Read team-wide messenger state from the active tenant's branding
+  // JSONB. last_dashboard_seen_at drives "auto-read" of new external
+  // events on dashboard open; dashboard_unread_overrides forces
+  // specific cards back to unread regardless (Jon → Drake/Taylor pings).
+  const { data: companiesRow } = await supabase.from("companies").select("id, branding").limit(1);
+  const companyId: string | null = ((companiesRow || [])[0] as any)?.id || null;
+  const branding = ((companiesRow || [])[0] as any)?.branding || {};
+  const lastSeen: string = branding.last_dashboard_seen_at || "1970-01-01T00:00:00.000Z";
+  const unreadOverrides: string[] = Array.isArray(branding.dashboard_unread_overrides)
+    ? branding.dashboard_unread_overrides : [];
+  const overrideSet = new Set(unreadOverrides);
+  // Decide read state for a given card. Defaults to read; flips to
+  // unread when the underlying event is newer than lastSeen OR when
+  // the card was explicitly flagged. Server-side so the result is
+  // identical for every team member.
+  const computeRead = (cardId: string, eventAt?: string | null): boolean => {
+    if (overrideSet.has(cardId)) return false;
+    if (eventAt && eventAt > lastSeen) return false;
+    return true;
+  };
+
   // ── Data Loading ──
   const { data: jobs } = await supabase
     .from("jobs")
@@ -21,7 +42,7 @@ export default async function DashboardPage() {
 
   const allItemIds = (jobs || []).flatMap(j => (j.items || []).map((it: any) => it.id));
   const { data: proofFiles } = allItemIds.length > 0
-    ? await supabase.from("item_files").select("item_id, stage, approval, notes").in("item_id", allItemIds).in("stage", ["proof", "mockup"]).is("superseded_at", null)
+    ? await supabase.from("item_files").select("item_id, stage, approval, notes, created_at").in("item_id", allItemIds).in("stage", ["proof", "mockup"]).is("superseded_at", null)
     : { data: [] };
 
   // Load contacts for email modals
@@ -31,14 +52,16 @@ export default async function DashboardPage() {
     : { data: [] };
 
   // ── Proof status map ──
-  const proofMap: Record<string, { allApproved: boolean; hasRevision: boolean; pendingCount: number; revisionNotes: string | null }> = {};
+  const proofMap: Record<string, { allApproved: boolean; hasRevision: boolean; pendingCount: number; revisionNotes: string | null; revisionAt: string | null }> = {};
   for (const id of allItemIds) {
     const proofs = (proofFiles || []).filter(f => f.item_id === id && f.stage === "proof");
+    const rev = proofs.find(f => f.approval === "revision_requested");
     proofMap[id] = {
       allApproved: proofs.length > 0 && proofs.every(f => f.approval === "approved"),
       hasRevision: proofs.some(f => f.approval === "revision_requested"),
       pendingCount: proofs.filter(f => f.approval === "pending").length,
-      revisionNotes: proofs.find(f => f.approval === "revision_requested")?.notes || null,
+      revisionNotes: rev?.notes || null,
+      revisionAt: rev?.created_at || null,
     };
   }
 
@@ -86,6 +109,7 @@ export default async function DashboardPage() {
       jobId: "", jobTitle: "", clientName: c.name, invoiceNumber: null,
       jobNumber: "", shipDate: null, contacts: [],
       href: `/clients/${c.id}`, column: "sales",
+      event_at: c.created_at,
     });
   }
 
@@ -137,7 +161,8 @@ export default async function DashboardPage() {
     if (rejectionNotes && !quoteApproved) {
       alerts.push({ ...base, priority: 0, type: "quote_rejected", color: T.red,
         action: "Quote rejected — review client notes", notes: rejectionNotes,
-        href: `/jobs/${j.id}?tab=quote`, column: "sales" });
+        href: `/jobs/${j.id}?tab=quote`, column: "sales",
+        event_at: (j as any).updated_at });
     }
 
     // 3. Proof revision requested — with client notes
@@ -149,6 +174,7 @@ export default async function DashboardPage() {
           // Used by the Command Center to open a per-revision modal with
           // mockup thumbnail + client message.
           itemId: it.id, itemName: it.name,
+          event_at: proofMap[it.id]?.revisionAt || (j as any).updated_at,
         });
       }
     }
@@ -173,7 +199,11 @@ export default async function DashboardPage() {
     }
 
     // 5. Send invoice / follow up
-    if (quoteApproved && invoiceNum && payments.length === 0) {
+    // QB push now opens a "sent" payment_records row up-front, so the
+    // legacy `payments.length === 0` gate was too tight — it suppressed
+    // the pre-due nag once that row existed. Switch to "no PAID record
+    // yet" so the block fires whenever there's still money to collect.
+    if (quoteApproved && invoiceNum && !hasPaidPayment) {
       const invoiceSentAt = typeMeta.invoice_sent_at ? new Date(typeMeta.invoice_sent_at) : null;
       const daysSinceInvoiceSent = invoiceSentAt ? Math.ceil((now.getTime() - invoiceSentAt.getTime()) / 86400000) : 0;
       if (invoiceSentAt && daysSinceInvoiceSent >= 2) {
@@ -212,9 +242,36 @@ export default async function DashboardPage() {
       if (p.due_date && new Date(p.due_date) < now && p.status !== "paid" && p.status !== "void") {
         const days = Math.ceil((now.getTime() - new Date(p.due_date).getTime()) / 86400000);
         alerts.push({ ...base, priority: 1, type: "overdue_payment", color: T.red,
+          paymentId: p.id,
           action: `Payment ${days}d overdue${p.amount ? ` · $${Number(p.amount).toLocaleString()}` : ""}`,
           href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
       }
+    }
+
+    // 5c. Payment received — surfaces every paid invoice on the Clients
+    // bucket until POs are sent (the cue that the team has acted on the
+    // payment by moving the job into production). Adds a "Proofs not
+    // approved" badge when relevant so the team doesn't ship into a
+    // proof-gate violation.
+    if (hasPaidPayment && unsentVendors.length > 0) {
+      const paidPays = payments.filter((p: any) => p.status === "paid" || p.status === "partial");
+      const paidSum = paidPays.reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      const latestPaidDate = paidPays
+        .map((p: any) => p.paid_date || p.created_at)
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0] || null;
+      alerts.push({
+        ...base,
+        priority: 1,
+        type: "payment_received",
+        color: T.green,
+        action: `Payment received · $${paidSum.toLocaleString()}`,
+        badge: !allProofsApproved ? "Proofs not approved" : undefined,
+        href: `/jobs/${j.id}?tab=po`,
+        column: "sales",
+        event_at: latestPaidDate,
+      });
     }
 
     // 6. Send quote — escalate to follow-up after 2 days with no response
@@ -234,7 +291,12 @@ export default async function DashboardPage() {
     }
 
     // 7. Upload proofs / Awaiting approval (both can fire — items can be in different states)
-    if (quoteApproved && !allProofsApproved) {
+    // Phase-gated to pending/intake only — once the job has advanced
+    // to ready or beyond, the proof gate is closed (lifecycle either
+    // approved them or accepted the manual artwork_status override).
+    // Continuing to nag past that point is stale noise.
+    const proofPhase = j.phase === "intake" || j.phase === "pending";
+    if (proofPhase && quoteApproved && !allProofsApproved) {
       // Exclude items with manual override (artwork_status='approved') — they
       // don't need client approval even if the underlying proof is pending.
       const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0 && it.artwork_status !== "approved");
@@ -249,11 +311,13 @@ export default async function DashboardPage() {
         if (daysSinceProofsSent >= 2) {
           alerts.push({ ...base, priority: 1, type: "follow_up_proofs", color: T.amber,
             action: `Follow up — proofs pending ${daysSinceProofsSent}d, no response`,
-            href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+            href: `/jobs/${j.id}?tab=proofs`, column: "sales",
+            event_at: proofsSentAt ? proofsSentAt.toISOString() : null });
         } else {
           alerts.push({ ...base, priority: 2, type: "proofs_pending", color: T.muted,
             action: `Awaiting proof approval · ${pendingItems.length} item${pendingItems.length !== 1 ? "s" : ""} pending`,
-            href: `/jobs/${j.id}?tab=proofs`, column: "sales" });
+            href: `/jobs/${j.id}?tab=proofs`, column: "sales",
+            event_at: proofsSentAt ? proofsSentAt.toISOString() : null });
         }
       }
       if (itemsNeedingProofs.length > 0) {
@@ -335,6 +399,7 @@ export default async function DashboardPage() {
       invoiceNumber: invNum,
       href: `/jobs/${job.id}?tab=po`,
       column: "production",
+      event_at: (d as any).last_issue_at,
       // Resolve metadata — surfaces the ✓ Resolve button on the card
       // and tells the client component which (item, decorator) row to
       // mark resolved on decorator_assignments.
@@ -358,11 +423,16 @@ export default async function DashboardPage() {
   // client_review still drops out at the section-mapping step (one
   // card per brief drowned the column on big jobs — see SECTION_ORDER).
   // hpd_last_seen_at + state included to feed attachUnreadStatus.
+  // Include draft state so client-submitted intake briefs (source=client,
+  // has_unread_external=true) surface in the Unread section. The state-
+  // based mapping below has no entry for "draft" — silent drafts still
+  // drop out via the "no map → continue" path, so only unread drafts
+  // render. Matches the badge counter, which also includes drafts.
   const { data: briefs } = await supabase
     .from("art_briefs")
-    .select("id, title, state, updated_at, sent_to_designer_at, client_aborted_at, hpd_last_seen_at, job_id, clients(name), jobs(job_number)")
+    .select("id, title, state, source, updated_at, sent_to_designer_at, client_aborted_at, hpd_last_seen_at, job_id, clients(name), jobs(job_number)")
     .is("client_aborted_at", null)
-    .not("state", "in", '("delivered","draft")')
+    .neq("state", "delivered")
     .order("updated_at", { ascending: false });
   const briefsWithUnread = await attachUnreadStatus(briefs || [], supabase);
 
@@ -374,6 +444,7 @@ export default async function DashboardPage() {
   // Clients / Decorators bucket. Anything not here is dropped (billing
   // types live on /billing, not the team dashboard).
   const SECTION_BY_TYPE: Record<string, { bucket: "clients" | "decorators"; section: string }> = {
+    payment_received:  { bucket: "clients",    section: "Payments" },
     overdue:           { bucket: "clients",    section: "Past ship date" },
     quote_rejected:    { bucket: "clients",    section: "Quote feedback" },
     revision:          { bucket: "clients",    section: "Proof revisions" },
@@ -389,10 +460,10 @@ export default async function DashboardPage() {
     vendor_discrepancy:{ bucket: "decorators", section: "Discrepancies" },
   };
 
-  // Order in which sections appear inside each bucket — critical-tinted
-  // sections at the top so eyes land on red first.
+  // Order in which sections appear inside each bucket — Payments lands
+  // at the top so cash-in surfaces draw the eye first.
   const SECTION_ORDER: Record<string, string[]> = {
-    clients:    ["Past ship date", "Quote feedback", "Proof revisions", "New leads", "Send to client", "Awaiting client"],
+    clients:    ["Payments", "Past ship date", "Quote feedback", "Proof revisions", "New leads", "Send to client", "Awaiting client"],
     decorators: ["Discrepancies", "Send PO", "Order blanks", "Verify shipping"],
     designers:  ["Unread", "Awaiting HPD review", "Prep print-ready", "Mark delivered", "In design"],
   };
@@ -405,6 +476,23 @@ export default async function DashboardPage() {
     grouped[bucket][section].push(card);
   }
 
+  // Stable card ID generator. The previous version sliced 30 chars of
+  // a.action into the id, which broke override persistence — actions
+  // include day counters ("4d ago"), running dollar totals, vendor
+  // lists, etc. that shift between renders. Switch to a logical key:
+  // type + jobId/clientName, plus a disambiguator for the few types
+  // that legitimately have multiples per job (revision per item,
+  // vendor flag per assignment, overdue per payment row).
+  const cardIdFor = (a: any): string => {
+    if (a.type === "revision" && a.itemId) return `alert-revision-${a.itemId}`;
+    if (a.type === "vendor_discrepancy" && a.resolveItemId && a.resolveDecoratorId) {
+      return `alert-vendor_discrepancy-${a.resolveItemId}-${a.resolveDecoratorId}`;
+    }
+    if (a.type === "overdue_payment" && a.paymentId) return `alert-overdue_payment-${a.paymentId}`;
+    if (a.type === "new_client") return `alert-new_client-${a.clientName}`;
+    return `alert-${a.type}-${a.jobId || a.clientName}`;
+  };
+
   // Convert job-level alerts into cards. Invoice number takes priority
   // over the OpsHub job number when present — it's the reference the
   // client recognizes, and the team chases payments by it.
@@ -413,14 +501,17 @@ export default async function DashboardPage() {
     if (!map) continue; // billing + anything we don't surface drops here
     const titleParts = [a.clientName, a.jobTitle].filter(Boolean);
     const metaKind: "invoice" | "job" | undefined = a.invoiceNumber ? "invoice" : a.jobNumber ? "job" : undefined;
+    const cardId = cardIdFor(a);
     pushCard(map.bucket, map.section, {
-      id: `alert-${a.type}-${a.jobId || a.clientName}-${a.action.slice(0, 30)}`,
+      id: cardId,
       title: titleParts.join(" — ") || a.action,
       subtitle: a.action,
       meta: a.invoiceNumber || a.jobNumber || undefined,
       metaKind,
+      badge: a.badge || undefined,
       urgency: priorityToUrgency(a.priority),
       href: a.href,
+      read: computeRead(cardId, a.event_at),
       // Revision cards open a per-revision preview modal instead of a navigation
       revision: a.type === "revision" && a.itemId && a.jobId ? {
         jobId: a.jobId,
@@ -487,28 +578,32 @@ export default async function DashboardPage() {
     // only path that surfaces client_review briefs on the dashboard.
     if (b.has_unread_external) {
       const who = b.unread_by_role === "client" ? "Client" : "Designer";
+      const cardId = `brief-unread-${b.id}`;
       pushCard("designers", "Unread", {
-        id: `brief-unread-${b.id}`,
+        id: cardId,
         title,
         subtitle: `${who} commented · ${unreadAgo(b.unread_at)}`,
         meta: jobNumber || undefined,
         metaKind: jobNumber ? "job" : undefined,
         urgency: "action",
         href: `/art-studio?brief=${b.id}`,
+        read: computeRead(cardId, b.unread_at),
       });
       continue;
     }
 
     const map = stateToSection[b.state];
     if (!map) continue;
+    const cardId = `brief-${b.id}`;
     const card: BucketCard = {
-      id: `brief-${b.id}`,
+      id: cardId,
       title,
       subtitle: map.subtitlePrefix,
       meta: jobNumber || undefined,
       metaKind: jobNumber ? "job" : undefined,
       urgency: map.urgency,
       href: `/art-studio?brief=${b.id}`,
+      read: computeRead(cardId, b.updated_at),
     };
     // client_review briefs land under Clients (it's a client-side conversation),
     // others under Designers.
@@ -560,6 +655,28 @@ export default async function DashboardPage() {
       parts.push(`${n} ${name.toLowerCase()}`);
     }
     return parts.join(" · ") || "All clear";
+  }
+
+  // Prune stale unread overrides — anything in the team's
+  // dashboard_unread_overrides list that doesn't match a card we just
+  // rendered (ID format changed, card resolved, etc.) gets dropped.
+  // Keeps the badge count honest: badge = currently-displaying unread
+  // cards, never inflated by orphan entries.
+  if (companyId) {
+    const renderedIds: string[] = [];
+    for (const bucket of Object.values(grouped)) {
+      for (const cards of Object.values(bucket)) {
+        for (const c of cards) renderedIds.push(c.id);
+      }
+    }
+    if (unreadOverrides.length > 0) {
+      try {
+        await (supabase as any).rpc("prune_dashboard_unread_overrides", {
+          p_company_id: companyId,
+          p_valid_card_ids: renderedIds,
+        });
+      } catch {}
+    }
   }
 
   return <CommandCenterBuckets buckets={buckets} />;
