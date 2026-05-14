@@ -120,6 +120,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [saveError, setSaveError] = useState(false);
   const [saveOk, setSaveOk] = useState(false);
   const [portalCopied, setPortalCopied] = useState(false);
+  const [portalOpen, setPortalOpen] = useState(false);
   const saveErrorTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
   const saveOkTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
   const handleSaveStatus = useCallback((s: string) => {
@@ -596,12 +597,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               );
             })()}
             {(job as any).portal_token && (
-              <button onClick={()=>{
-                navigator.clipboard.writeText(`${appBaseUrlSync()}/portal/${(job as any).portal_token}`);
-                setPortalCopied(true);
-                setTimeout(()=>setPortalCopied(false),2000);
-              }} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:10,fontWeight:600,color:portalCopied?T.green:T.muted}}>
-                {portalCopied?"Copied!":"Portal Link"}
+              <button onClick={()=>setPortalOpen(true)}
+                style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:10,fontWeight:600,color:T.muted}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+                Client Portal
               </button>
             )}
           </div>
@@ -1251,6 +1251,47 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           <div style={{ marginTop: 18 }}>
             <EmailThread jobId={job.id} title="Emails sent from OpsHub" outboundOnly />
           </div>
+
+          {/* Client portal preview modal — iframes the client's
+              read-only view of this job so you can see exactly what
+              they see + copy/open the live URL without leaving. */}
+          {portalOpen && (job as any).portal_token && (
+            <div onClick={()=>setPortalOpen(false)}
+              style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+              <div onClick={e=>e.stopPropagation()}
+                style={{background:T.card,borderRadius:12,width:"100%",maxWidth:1280,height:"90vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 16px 48px rgba(0,0,0,0.5)"}}>
+                <div style={{padding:"10px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexShrink:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:T.text}}>Client Portal</div>
+                    <div style={{fontSize:11,color:T.faint,fontFamily:mono,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {`${appBaseUrlSync()}/portal/${(job as any).portal_token}`}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                    <button onClick={()=>{
+                      navigator.clipboard.writeText(`${appBaseUrlSync()}/portal/${(job as any).portal_token}`);
+                      setPortalCopied(true);
+                      setTimeout(()=>setPortalCopied(false),2000);
+                    }}
+                      style={{padding:"4px 10px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:portalCopied?T.green:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}>
+                      {portalCopied?"Copied":"Copy link"}
+                    </button>
+                    <a href={`${appBaseUrlSync()}/portal/${(job as any).portal_token}`} target="_blank" rel="noopener noreferrer"
+                      style={{padding:"4px 10px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer",textDecoration:"none"}}>
+                      Open in tab
+                    </a>
+                    <button onClick={()=>setPortalOpen(false)}
+                      style={{padding:"4px 10px",background:"transparent",border:"none",color:T.muted,fontSize:18,cursor:"pointer",lineHeight:1}}>×</button>
+                  </div>
+                </div>
+                <iframe
+                  src={`${appBaseUrlSync()}/portal/${(job as any).portal_token}`}
+                  style={{flex:1,width:"100%",border:"none"}}
+                />
+              </div>
+            </div>
+          )}
+
         </div>
       )}
 
