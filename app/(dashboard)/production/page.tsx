@@ -151,6 +151,33 @@ export default function ProductionPage() {
     }
   }, [modalProject?.jobId]);
 
+  // Deep-link auto-open: callers (currently the Overview tab strip
+  // on /jobs/[id]) navigate here with `?openProject=<jobId>` and an
+  // optional `&decorator=<decKey>` to land directly in the per-project
+  // modal focused on a specific vendor. We fire once after projects
+  // load, then strip the query params via history.replaceState so a
+  // refresh doesn't re-trigger and Back behavior stays clean.
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenedRef.current || projects.length === 0) return;
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const target = url.searchParams.get("openProject");
+    if (!target) return;
+    const project = projects.find(p => p.jobId === target);
+    if (!project) return;
+    autoOpenedRef.current = true;
+    const decKey = url.searchParams.get("decorator");
+    if (decKey) {
+      setModalDecoratorKey(decKey);
+      setExpandedDecorators(new Set([decKey]));
+    }
+    setModalProject(project);
+    url.searchParams.delete("openProject");
+    url.searchParams.delete("decorator");
+    window.history.replaceState(null, "", url.pathname + (url.search ? url.search : "") + url.hash);
+  }, [projects]);
+
   function toggleItemSelected(itemId: string) {
     setSelectedItemIds(prev => {
       const next = new Set(prev);

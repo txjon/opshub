@@ -733,6 +733,129 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   {tab==="overview"&&(
         <div style={{fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
 
+          {/* Production strip — mirrors the per-project row on /production.
+              Same visual + decorator chip behavior; clicking a chip
+              deep-links to /production with the modal pre-opened on this
+              project + vendor. Only renders when the job is actually in
+              production / receiving / fulfillment phases. */}
+          {(() => {
+            if (!job || !["production","receiving","fulfillment"].includes(job.phase)) return null;
+            // Group items by decorator (matches shapeProjectGroup in /production).
+            type DG = { decoratorId: string|null; decoratorName: string; shortCode: string; items: any[]; inProduction: number; shipped: number; totalUnits: number; };
+            const groups: DG[] = [];
+            for (const it of items) {
+              if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped") continue;
+              const assignment = (it as any).decorator_assignments?.[0];
+              const decName = assignment?.decorators?.name || it.decorator || "Unassigned";
+              const decId = assignment?.decorator_id || assignment?.decorators?.id || null;
+              const shortCode = assignment?.decorators?.short_code || "";
+              const decKey = decId || decName;
+              let g = groups.find(x => (x.decoratorId || x.decoratorName) === decKey);
+              if (!g) { g = { decoratorId: decId, decoratorName: decName, shortCode, items: [], inProduction: 0, shipped: 0, totalUnits: 0 }; groups.push(g); }
+              const totalUnits = Object.values(it.qtys || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+              g.items.push(it);
+              g.totalUnits += totalUnits;
+              if (it.pipeline_stage === "shipped") g.shipped++; else g.inProduction++;
+            }
+            if (groups.length === 0) return null;
+
+            const tm = (job as any).type_meta || {};
+            const invoiceNumber = tm.qb_invoice_number || tm.stripe_invoice_number || null;
+            const poShipDates = (tm.po_ship_dates || {}) as Record<string,string>;
+            const costProds = ((job as any).costing_data?.costProds || []) as any[];
+            const cpById: Record<string,any> = {};
+            for (const cp of costProds) cpById[cp.id] = cp;
+            const ciKey = (k: string|null|undefined) => (k || "").toLowerCase().trim();
+            const ciDates: Record<string,string> = {};
+            for (const [k, v] of Object.entries(poShipDates)) {
+              if (typeof v === "string" && v) ciDates[ciKey(k)] = v;
+            }
+            // Earliest ship date among vendors with unshipped items —
+            // matches the production page's project.shipDate logic.
+            const activeDates: string[] = [];
+            for (const g of groups) {
+              if (g.items.every(it => it.pipeline_stage === "shipped")) continue;
+              let printVendor: string|undefined;
+              for (const it of g.items) {
+                const cp = cpById[it.id];
+                if (cp?.printVendor) { printVendor = cp.printVendor; break; }
+              }
+              const d = (printVendor && poShipDates[printVendor]) || poShipDates[g.decoratorName] || ciDates[ciKey(printVendor)] || ciDates[ciKey(g.decoratorName)] || null;
+              if (d) activeDates.push(d);
+            }
+            const shipDate = activeDates.length > 0 ? activeDates.sort()[0] : null;
+            const totalUnits = groups.reduce((a, g) => a + g.totalUnits, 0);
+            const allShipped = groups.every(g => g.items.every((it: any) => it.pipeline_stage === "shipped"));
+            const priority = (job as any).priority as string|null;
+            const pri = priority === "hot" ? { label: "HOT", color: T.red }
+              : priority === "rush" ? { label: "RUSH", color: T.amber }
+              : null;
+            // Ship date pill formatting — same logic as /production
+            const shipPill = (() => {
+              if (!shipDate) return null;
+              const d = new Date(shipDate);
+              const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
+              const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+              const label = days < 0 ? `${Math.abs(days)}d over` : days === 0 ? "Today" : `${days}d`;
+              const color = days < 0 ? T.red : days <= 1 ? T.amber : T.text;
+              return { label, color, dateStr };
+            })();
+
+            return (
+              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden", marginBottom: 10 }}>
+                <div style={{ padding: "14px 18px", display: "flex", gap: 16, alignItems: "flex-start" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, width: 220, flexShrink: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: invoiceNumber ? T.text : "transparent", fontFamily: mono, whiteSpace: "nowrap", alignSelf: "center" }}>
+                      {invoiceNumber || ""}
+                    </span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span>Production</span>
+                        {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>All Shipped</span>}
+                      </div>
+                      <div style={{ fontSize: 12, color: T.faint, marginTop: 2 }}>
+                        {groups.length} decorator{groups.length !== 1 ? "s" : ""} · {groups.reduce((a,g)=>a+g.items.length,0)} item{groups.reduce((a,g)=>a+g.items.length,0) !== 1 ? "s" : ""}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+                    {groups.map(g => {
+                      const decKey = g.decoratorId || g.decoratorName;
+                      return (
+                        <button key={decKey}
+                          onClick={() => router.push(`/production?openProject=${job.id}&decorator=${encodeURIComponent(decKey)}`)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 6,
+                            padding: "4px 10px", borderRadius: 6, background: T.surface,
+                            fontSize: 11, border: `1px solid ${T.border}`, cursor: "pointer",
+                            fontFamily: font, transition: "all 0.12s",
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.background = T.accentDim; e.currentTarget.style.borderColor = T.accent; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
+                          <span style={{ fontWeight: 600, color: T.text }}>{g.shortCode || g.decoratorName}</span>
+                          <span style={{ color: T.muted }}>{g.items.length} item{g.items.length !== 1 ? "s" : ""}</span>
+                          <span style={{ color: T.faint }}>·</span>
+                          {g.inProduction > 0 && <span style={{ color: T.accent }}>{g.inProduction} active</span>}
+                          {g.shipped > 0 && <span style={{ color: T.green }}>{g.shipped} shipped</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ flexShrink: 0, marginLeft: 12, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 70 }}>
+                    {pri && <span style={{ fontSize: 10, fontWeight: 800, color: pri.color, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{pri.label}</span>}
+                    {shipPill && (
+                      <>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: shipPill.color, fontFamily: mono, whiteSpace: "nowrap" }}>{shipPill.label}</div>
+                        <div style={{ fontSize: 10, color: T.faint, whiteSpace: "nowrap" }}>{shipPill.dateStr}</div>
+                      </>
+                    )}
+                    <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{totalUnits.toLocaleString()} units</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"start"}}>
             {/* Left column: Project info + Shipping details */}
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
