@@ -7,7 +7,7 @@ const LOCATION_PRESETS = ["Front","Back","Left Sleeve","Right Sleeve","Left Ches
 const SHARE_GROUPS = ["A","B","C","D","E","F","G","H","I","J"];
 const TAG_SHARE_GROUPS = ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10"];
 
-export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice, costingLocked = false }) {
+export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = [], onAddDecorator, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice, costingLocked = false }) {
   const pr = PRINTERS[p.printVendor] || {};
   const [forceExpanded, setForceExpanded] = useState(false);
   const activeLocsRaw = Object.values(p.printLocations||{}).filter(l=>l?.location&&l?.screens>0).length;
@@ -203,6 +203,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <select value={p.printVendor||""} onChange={e=>{
           const v=e.target.value;
+          if (v === "__add__") { if (onAddDecorator) onAddDecorator(); return; }
           const updated={};
           [1,2,3,4,5,6].forEach(loc=>{
             const ld=p.printLocations?.[loc]||{};
@@ -217,7 +218,11 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, updateProd, setCost
         }}
           style={{background:T.surface,border:"1px solid "+(p.printVendor?T.accent+"66":T.border),borderRadius:6,color:p.printVendor?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",minWidth:140}}>
           <option value="">Vendor</option>
-          {Object.keys(PRINTERS).map(pr=><option key={pr} value={pr}>{pr}</option>)}
+          {decoratorRecords.map(d=>{
+            const key=d.short_code||d.name;
+            return <option key={d.id} value={key}>{d.name}</option>;
+          })}
+          {onAddDecorator && <option value="__add__">+ Add decorator</option>}
         </select>
         <button onClick={()=>setCostProds(prev=>prev.map((cp,ci)=>ci>i?{...cp,printVendor:p.printVendor,printLocations:Object.fromEntries(Object.entries(cp.printLocations||{}).map(([k,v])=>([k,{...v,printer:p.printVendor}])))}:cp))}
           title="Set this vendor on every item below"

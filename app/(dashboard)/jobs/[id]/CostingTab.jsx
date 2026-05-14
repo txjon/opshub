@@ -146,7 +146,97 @@ const CToggle=({label,value,onChange})=>(
   </div>
 );
 
-const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onUpdateProject})=>{
+// Quick-create modal opened from any vendor dropdown via the "+ Add
+// decorator" sentinel option. Minimal fields — name (required) and
+// optional short code. Pricing / contacts / addresses are filled in
+// later on /decorators; the goal here is to not break the costing
+// flow when a new vendor enters the mix.
+function AddDecoratorModal({ open, onClose, onSaved }) {
+  const [name, setName] = useState("");
+  const [shortCode, setShortCode] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (open) { setName(""); setShortCode(""); setError(""); setSaving(false); }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  async function save() {
+    const trimmedName = name.trim();
+    if (!trimmedName) { setError("Name is required"); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const payload = { name: trimmedName, short_code: shortCode.trim() || null };
+      const { data, error: err } = await supabase.from("decorators").insert(payload).select("id, name, short_code").single();
+      if (err) { setError(err.message || "Save failed"); setSaving(false); return; }
+      await onSaved(data);
+    } catch (e) {
+      setError(e?.message || "Save failed");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div onClick={() => !saving && onClose()}
+      style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:font}}>
+      <div onClick={e=>e.stopPropagation()}
+        style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"20px 22px",width:420,maxWidth:"calc(100vw - 32px)",boxShadow:"0 12px 36px rgba(0,0,0,0.5)"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <div style={{fontSize:15,fontWeight:800,color:T.text}}>Add decorator</div>
+          <button onClick={()=>!saving && onClose()}
+            style={{background:"none",border:"none",color:T.faint,fontSize:20,cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Name *</label>
+            <input value={name} autoFocus disabled={saving}
+              onChange={e=>setName(e.target.value)}
+              onKeyDown={e=>{ if (e.key === "Enter") save(); }}
+              placeholder="e.g. Forward Observations Group"
+              style={{width:"100%",padding:"8px 10px",fontSize:13,background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,outline:"none",fontFamily:font,boxSizing:"border-box"}}/>
+          </div>
+          <div>
+            <label style={{display:"block",fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Short code</label>
+            <input value={shortCode} disabled={saving}
+              onChange={e=>setShortCode(e.target.value)}
+              onKeyDown={e=>{ if (e.key === "Enter") save(); }}
+              placeholder="Optional · e.g. FOG"
+              style={{width:"100%",padding:"8px 10px",fontSize:13,background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,outline:"none",fontFamily:font,boxSizing:"border-box"}}/>
+            <div style={{fontSize:10,color:T.faint,marginTop:4}}>Used on PO/RFQ shorthand. Leave blank to default to the full name.</div>
+          </div>
+
+          {error && <div style={{fontSize:11,color:T.red,padding:"6px 8px",background:T.redDim||"rgba(255,80,80,0.12)",borderRadius:4}}>{error}</div>}
+
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:6}}>
+            <button onClick={()=>!saving && onClose()} disabled={saving}
+              style={{padding:"7px 14px",fontSize:12,fontWeight:600,color:T.muted,background:"none",border:`1px solid ${T.border}`,borderRadius:6,cursor:saving?"default":"pointer",fontFamily:font}}>
+              Cancel
+            </button>
+            <button onClick={save} disabled={saving || !name.trim()}
+              style={{padding:"7px 14px",fontSize:12,fontWeight:700,color:"#fff",background:(!saving && name.trim())?T.accent:T.faint,border:"none",borderRadius:6,cursor:(saving || !name.trim())?"default":"pointer",fontFamily:font,opacity:(saving || !name.trim())?0.7:1}}>
+              {saving ? "Saving…" : "Add decorator"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onUpdateProject})=>{
   const branding=useClientBranding();
   const [costTab,setCostTab]=useState(initialTab||"calc");
   const [showSendEmail,setShowSendEmail]=useState(false);
@@ -163,6 +253,26 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
   const [rfqShowPreview,setRfqShowPreview]=useState(false);
   const rfqHistory = project?.type_meta?.rfq_history || [];
   const getDecRecord = (vendorKey) => decoratorRecords.find(d => d.short_code === vendorKey || d.name === vendorKey);
+
+  // "+ Add decorator" modal — opened from any vendor dropdown when the
+  // user picks the sentinel option. Records which cost product index
+  // triggered it so we can auto-select the new vendor after save.
+  const [addDecoratorTargetIdx, setAddDecoratorTargetIdx] = useState(null);
+  const handleDecoratorCreated = async (newRow) => {
+    if (onRefreshDecorators) await onRefreshDecorators();
+    const newKey = newRow.short_code || newRow.name;
+    if (addDecoratorTargetIdx != null && costProds[addDecoratorTargetIdx]) {
+      const cur = costProds[addDecoratorTargetIdx];
+      const updated = {};
+      [1,2,3,4,5,6].forEach(loc => {
+        const ld = cur.printLocations?.[loc] || {};
+        if (ld.location || ld.screens) updated[loc] = { ...ld, printer: newKey };
+        else updated[loc] = { ...ld };
+      });
+      updateProd(addDecoratorTargetIdx, { ...cur, printVendor: newKey, printLocations: updated });
+    }
+    setAddDecoratorTargetIdx(null);
+  };
   // Latest RFQ entry referencing this item (or empty array if none).
   const latestRfqForItem = (itemId) => {
     let latest = null;
@@ -453,10 +563,17 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       {/* Vendor / Decorator selector */}
                       <div style={{marginBottom:12}}>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Vendor</div>
-                        <select value={p.printVendor||""} onChange={e=>{updateProd(i,{...p,printVendor:e.target.value});}}
+                        <select value={p.printVendor||""} onChange={e=>{
+                          if (e.target.value === "__add__") { setAddDecoratorTargetIdx(i); return; }
+                          updateProd(i,{...p,printVendor:e.target.value});
+                        }}
                           style={{background:T.surface,border:`1px solid ${p.printVendor?T.accent+"66":T.border}`,borderRadius:6,color:p.printVendor?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",minWidth:180}}>
                           <option value="">— select vendor —</option>
-                          {Object.keys(PRINTERS).map(pr=><option key={pr} value={pr}>{pr}</option>)}
+                          {decoratorRecords.map(d=>{
+                            const key=d.short_code||d.name;
+                            return <option key={d.id} value={key}>{d.name}</option>;
+                          })}
+                          <option value="__add__">+ Add decorator</option>
                         </select>
                       </div>
 
@@ -797,7 +914,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       )}
                     </div>{/* end blanks panel */}
                     {/* DECORATION PANEL */}
-                    <DecorationPanel p={p} i={i} costProds={costProds} PRINTERS={PRINTERS} updateProd={updateProd} setCostProds={setCostProds} lookupPrintPrice={lookupPrintPrice} lookupTagPrice={lookupTagPrice} costingLocked={!!project?.type_meta?.costing_locked} />
+                    <DecorationPanel p={p} i={i} costProds={costProds} PRINTERS={PRINTERS} decoratorRecords={decoratorRecords} onAddDecorator={()=>setAddDecoratorTargetIdx(i)} updateProd={updateProd} setCostProds={setCostProds} lookupPrintPrice={lookupPrintPrice} lookupTagPrice={lookupTagPrice} costingLocked={!!project?.type_meta?.costing_locked} />
                   </div>
                 </div>
               );
@@ -1246,6 +1363,12 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
         );
       })()}
 
+      <AddDecoratorModal
+        open={addDecoratorTargetIdx != null}
+        onClose={()=>setAddDecoratorTargetIdx(null)}
+        onSaved={handleDecoratorCreated}
+      />
+
     </div>
   );
 };
@@ -1262,24 +1385,25 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   // Load decorator pricing + IDs from DB on mount.
   // Also keep the full records around (with contacts_list) so the
   // RFQ modal can populate vendor + contact dropdowns without re-fetching.
-  useEffect(() => {
-    async function loadPricing() {
-      try {
-        const { createClient } = await import("@/lib/supabase/client");
-        const supabase = createClient();
-        const { data } = await supabase.from("decorators").select("id, name, short_code, pricing_data, contacts_list, contact_email").order("name");
-        if (data) {
-          loadPricingFromDecorators(data);
-          const idMap = {};
-          data.forEach(d => { idMap[d.short_code || d.name] = d.id; });
-          vendorIdMapRef.current = idMap;
-          setDecoratorRecords(data);
-        }
-      } catch(e) { console.error("Failed to load decorator pricing", e); }
-      setPricingReady(true);
-    }
-    loadPricing();
+  // Exposed via onRefreshDecorators so the inline "Add Decorator" modal
+  // can re-pull after creating a new row.
+  const refreshDecorators = React.useCallback(async () => {
+    try {
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const { data } = await supabase.from("decorators").select("id, name, short_code, pricing_data, contacts_list, contact_email").order("name");
+      if (data) {
+        loadPricingFromDecorators(data);
+        const idMap = {};
+        data.forEach(d => { idMap[d.short_code || d.name] = d.id; });
+        vendorIdMapRef.current = idMap;
+        setDecoratorRecords(data);
+      }
+    } catch(e) { console.error("Failed to load decorator pricing", e); }
   }, []);
+  useEffect(() => {
+    refreshDecorators().finally(() => setPricingReady(true));
+  }, [refreshDecorators]);
 
   const savedData = project?.costing_data || null;
 
@@ -1662,6 +1786,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       inclCC={inclCC} setInclCC={setInclCC}
       orderInfo={orderInfo} setOrderInfo={setOrderInfo}
       decoratorRecords={decoratorRecords}
+      onRefreshDecorators={refreshDecorators}
       costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs} selectedItemId={selectedItemId} onUpdateProject={onUpdateProject}
     />
   );
