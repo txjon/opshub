@@ -1259,7 +1259,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             <div onClick={()=>setPortalOpen(false)}
               style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
               <div onClick={e=>e.stopPropagation()}
-                style={{background:T.card,borderRadius:12,width:"100%",maxWidth:900,height:"90vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 16px 48px rgba(0,0,0,0.5)"}}>
+                style={{background:T.card,borderRadius:12,width:"100%",maxWidth:760,height:"90vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 16px 48px rgba(0,0,0,0.5)"}}>
                 <div style={{padding:"10px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexShrink:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
                     <div style={{fontSize:13,fontWeight:700,color:T.text}}>Client Portal</div>
