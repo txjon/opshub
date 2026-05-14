@@ -241,6 +241,7 @@ export default async function DashboardPage() {
       if (p.due_date && new Date(p.due_date) < now && p.status !== "paid" && p.status !== "void") {
         const days = Math.ceil((now.getTime() - new Date(p.due_date).getTime()) / 86400000);
         alerts.push({ ...base, priority: 1, type: "overdue_payment", color: T.red,
+          paymentId: p.id,
           action: `Payment ${days}d overdue${p.amount ? ` · $${Number(p.amount).toLocaleString()}` : ""}`,
           href: `/jobs/${j.id}?tab=proofs`, column: "billing" });
       }
@@ -474,6 +475,23 @@ export default async function DashboardPage() {
     grouped[bucket][section].push(card);
   }
 
+  // Stable card ID generator. The previous version sliced 30 chars of
+  // a.action into the id, which broke override persistence — actions
+  // include day counters ("4d ago"), running dollar totals, vendor
+  // lists, etc. that shift between renders. Switch to a logical key:
+  // type + jobId/clientName, plus a disambiguator for the few types
+  // that legitimately have multiples per job (revision per item,
+  // vendor flag per assignment, overdue per payment row).
+  const cardIdFor = (a: any): string => {
+    if (a.type === "revision" && a.itemId) return `alert-revision-${a.itemId}`;
+    if (a.type === "vendor_discrepancy" && a.resolveItemId && a.resolveDecoratorId) {
+      return `alert-vendor_discrepancy-${a.resolveItemId}-${a.resolveDecoratorId}`;
+    }
+    if (a.type === "overdue_payment" && a.paymentId) return `alert-overdue_payment-${a.paymentId}`;
+    if (a.type === "new_client") return `alert-new_client-${a.clientName}`;
+    return `alert-${a.type}-${a.jobId || a.clientName}`;
+  };
+
   // Convert job-level alerts into cards. Invoice number takes priority
   // over the OpsHub job number when present — it's the reference the
   // client recognizes, and the team chases payments by it.
@@ -482,7 +500,7 @@ export default async function DashboardPage() {
     if (!map) continue; // billing + anything we don't surface drops here
     const titleParts = [a.clientName, a.jobTitle].filter(Boolean);
     const metaKind: "invoice" | "job" | undefined = a.invoiceNumber ? "invoice" : a.jobNumber ? "job" : undefined;
-    const cardId = `alert-${a.type}-${a.jobId || a.clientName}-${a.action.slice(0, 30)}`;
+    const cardId = cardIdFor(a);
     pushCard(map.bucket, map.section, {
       id: cardId,
       title: titleParts.join(" — ") || a.action,
