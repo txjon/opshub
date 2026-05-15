@@ -4,6 +4,8 @@ import { T, font, mono } from "@/lib/theme";
 import { buildMockupClient, preloadTemplate, extractPrintInfoFromPsd } from "@/lib/mockup-client";
 import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
 import { useClientBranding } from "@/lib/branding-client";
+import CountSheetTool from "@/components/CountSheetTool";
+import DropValuationTool from "@/components/DropValuationTool";
 
 export default function ToolKitPage() {
   const branding = useClientBranding();
@@ -15,6 +17,8 @@ export default function ToolKitPage() {
       <p style={{ fontSize: 12, color: T.faint, marginBottom: 20 }}>Standalone tools for quick tasks</p>
 
       <MockupTool />
+      <CountSheetTool />
+      <DropValuationTool />
     </div>
   );
 }
