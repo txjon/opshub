@@ -153,7 +153,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
   // Light reload — just items, doesn't reset tab or loading state
   async function reloadItems() {
-    const { data } = await supabase.from("items").select("*, decorator_assignments(pipeline_stage, decoration_type, decorators(name)), buy_sheet_lines(size, qty_ordered, qty_shipped_from_vendor, qty_received_at_hpd)").eq("job_id", params.id).order("sort_order");
+    const { data } = await supabase.from("items").select("*, decorator_assignments(pipeline_stage, decoration_type, decorator_id, decorators(id, name, short_code)), buy_sheet_lines(size, qty_ordered, qty_shipped_from_vendor, qty_received_at_hpd)").eq("job_id", params.id).order("sort_order");
     if (data) {
       const mapped = data.map((it: any) => {
         const lines = it.buy_sheet_lines || [];
@@ -179,7 +179,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     setLoading(true);
     const [jobRes, itemsRes, paymentsRes, contactsRes] = await Promise.all([
       supabase.from("jobs").select("*, clients(name, shipping_address)").eq("id", params.id).single(),
-      supabase.from("items").select("*, decorator_assignments(pipeline_stage, decoration_type, decorators(name)), buy_sheet_lines(size, qty_ordered, qty_shipped_from_vendor, qty_received_at_hpd)").eq("job_id", params.id).order("sort_order"),
+      supabase.from("items").select("*, decorator_assignments(pipeline_stage, decoration_type, decorator_id, decorators(id, name, short_code)), buy_sheet_lines(size, qty_ordered, qty_shipped_from_vendor, qty_received_at_hpd)").eq("job_id", params.id).order("sort_order"),
       supabase.from("payment_records").select("*").eq("job_id", params.id).order("created_at"),
       supabase.from("job_contacts").select("*, contacts(*)").eq("job_id", params.id),
     ]);
