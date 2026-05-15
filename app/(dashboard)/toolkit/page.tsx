@@ -6,6 +6,7 @@ import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
 import { useClientBranding } from "@/lib/branding-client";
 import CountSheetTool from "@/components/CountSheetTool";
 import DropValuationTool from "@/components/DropValuationTool";
+import DropValuationMultiTool from "@/components/DropValuationMultiTool";
 
 export default function ToolKitPage() {
   const branding = useClientBranding();
@@ -19,6 +20,7 @@ export default function ToolKitPage() {
       <MockupTool />
       <CountSheetTool />
       <DropValuationTool />
+      <DropValuationMultiTool />
     </div>
   );
 }

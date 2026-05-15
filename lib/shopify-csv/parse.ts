@@ -20,6 +20,11 @@ export interface ParseOptions {
   /** "draft" | "active" | "all" | other Shopify status. Anything not
    *  "all" is matched case-insensitively against the row's Status. */
   statusFilter?: string;
+  /** When true (default), drops rows where Variant Inventory Qty is
+   *  blank/non-numeric. Multi-location Shopify exports omit that column
+   *  entirely — pass `false` to keep rows when qty lives in a separate
+   *  Inventory CSV. */
+  requireQty?: boolean;
 }
 
 function buildVariantLabel(row: ShopifyRow): string {
@@ -35,6 +40,7 @@ export function parseShopifyProductCsv(
   opts: ParseOptions = {}
 ): ParsedProduct[] {
   const statusFilter = (opts.statusFilter || "all").toLowerCase();
+  const requireQty = opts.requireQty !== false;
 
   const parsed = Papa.parse<ShopifyRow>(csvText, {
     header: true,
@@ -62,13 +68,20 @@ export function parseShopifyProductCsv(
     else r["Status"] = lastStatus;
   }
 
-  // Must have a valid Variant Inventory Qty (0 counts; blank/non-numeric drops)
-  const qtyRows = rows.filter((r) => {
-    const raw = (r["Variant Inventory Qty"] || "").trim();
-    if (!raw) return false;
-    const n = Number(raw);
-    return Number.isFinite(n);
-  });
+  // Must have a valid Variant Inventory Qty (0 counts; blank/non-numeric drops).
+  // Skipped when requireQty=false (multi-location exports get qty from a
+  // separate inventory CSV). We still require a Handle or Variant SKU so
+  // we don't keep junk rows.
+  const qtyRows = requireQty
+    ? rows.filter((r) => {
+        const raw = (r["Variant Inventory Qty"] || "").trim();
+        if (!raw) return false;
+        const n = Number(raw);
+        return Number.isFinite(n);
+      })
+    : rows.filter(
+        (r) => (r["Handle"] || "").trim() || (r["Variant SKU"] || "").trim()
+      );
 
   const statusFiltered = qtyRows.filter((r) => {
     if (statusFilter === "all") return true;
