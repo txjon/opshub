@@ -1,6 +1,5 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import Link from "next/link";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
@@ -29,21 +28,11 @@ function exportCsv(filename: string, headers: string[], rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
-type ShipstationReport = {
-  id: string;
-  client_id: string;
-  period_label: string;
-  created_at: string;
-  totals: { qty: number; sales: number; profit: number } | null;
-  clients: { name: string } | null;
-};
-
 export default function ReportsPage() {
   const supabase = createClient();
   const isMobile = useIsMobile();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
-  const [shipReports, setShipReports] = useState<ShipstationReport[]>([]);
 
   useEffect(() => {
     supabase.from("jobs")
@@ -53,11 +42,6 @@ export default function ReportsPage() {
         setJobs((data || []) as Job[]);
         setLoading(false);
       });
-    supabase.from("shipstation_reports")
-      .select("id, client_id, report_type, period_label, created_at, totals, postage_totals, per_package_fee, clients(name)")
-      .order("created_at", { ascending: false })
-      .limit(25)
-      .then(({ data }) => setShipReports((data || []) as any));
   }, []);
 
   // ── Revenue by month ──
@@ -171,7 +155,6 @@ export default function ReportsPage() {
           <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>{jobs.length} total projects</div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <Link href="/reports/shipstation/new" style={{ background: T.accent, border: "none", borderRadius: 6, color: "#0a0e1a", fontSize: 11, fontFamily: font, fontWeight: 700, padding: "6px 14px", cursor: "pointer", textDecoration: "none", display: "inline-block" }}>+ Create ShipStation Report</Link>
           <button onClick={exportProjects} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 12px", cursor: "pointer" }}>Export Projects CSV</button>
           <button onClick={exportClients} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 12px", cursor: "pointer" }}>Export Clients CSV</button>
           <button onClick={exportPayments} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, fontFamily: font, fontWeight: 600, padding: "6px 12px", cursor: "pointer" }}>Export Payments CSV</button>
@@ -293,71 +276,6 @@ export default function ReportsPage() {
         </table>
         </div>
       </div>
-
-      {/* ShipStation reports */}
-      {shipReports.length > 0 && (
-        <div style={card}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>ShipStation Reports</div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: isMobile ? 680 : "auto" }}>
-              <thead>
-                <tr>
-                  {["Type", "Client", "Period", "Generated", "Volume", "Revenue", "Result", ""].map(h => (
-                    <th key={h} style={{ ...thStyle, textAlign: ["Type", "Client", "Period"].includes(h) ? "left" : "right" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {shipReports.map((r: any) => {
-                  const isPostage = r.report_type === "postage";
-                  const isCombined = r.report_type === "combined";
-                  const totals = r.totals || {};
-                  const post = r.postage_totals || {};
-                  // Combined → show "Full Svc" + sales+postage volume aggregate.
-                  // Volume: sales-only = qty, postage-only = shipments,
-                  // combined = qty units + shipments combined into a
-                  // shorthand so the row stays compact.
-                  const volume = isCombined
-                    ? `${(totals.qty || 0).toLocaleString()} + ${(post.shipments || 0).toLocaleString()} ship`
-                    : isPostage
-                      ? `${(totals.shipments || 0).toLocaleString()} ship`
-                      : (totals.qty || 0).toLocaleString();
-                  const revenue = isCombined
-                    ? (Number(totals.sales) || 0) + (Number(post.paid) || 0)
-                    : isPostage
-                      ? (totals.paid || 0)
-                      : (totals.sales || 0);
-                  // Result column: combined shows total invoice (what
-                  // we billed). Sales-only = net profit, postage = client
-                  // profit (which can go negative).
-                  const result = isCombined
-                    ? (Number(totals.fee) || 0) + (Number(post.billed) || 0) + (Number(post.fulfillment) || 0)
-                    : isPostage
-                      ? (totals.margin || 0)
-                      : (totals.profit || 0);
-                  const resultColor = !isCombined && isPostage && result < 0 ? T.red : T.green;
-                  const typeLabel = isCombined ? "Full Svc" : isPostage ? "Postage" : "Sales";
-                  const typeColor = isCombined ? T.purple : isPostage ? T.amber : T.accent;
-                  return (
-                    <tr key={r.id}>
-                      <td style={{ ...tdStyle, textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 10, color: typeColor, fontWeight: 700 }}>{typeLabel}</td>
-                      <td style={{ ...tdStyle, fontWeight: 600 }}>{r.clients?.name || "—"}</td>
-                      <td style={tdStyle}>{r.period_label}</td>
-                      <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
-                      <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono }}>{volume}</td>
-                      <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono, color: T.accent }}>{fmtD(revenue)}</td>
-                      <td style={{ ...tdStyle, textAlign: "right", fontFamily: mono, color: resultColor }}>{fmtD(result)}</td>
-                      <td style={{ ...tdStyle, textAlign: "right" }}>
-                        <Link href={`/reports/shipstation/${r.id}`} style={{ color: T.accent, fontSize: 11, textDecoration: "none" }}>Open →</Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {/* Margins by project */}
       <div style={card}>
