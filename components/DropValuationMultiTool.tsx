@@ -11,9 +11,9 @@ type LocationsPreview = {
   physicalLocations: string[];
 };
 
-const TITLE = "Drop Valuation — Multi-Location";
+const TITLE = "Inventory Valuation — Multi-Location";
 const SUBTITLE =
-  "Calculate total retail value of a drop from Shopify exports. Multi-location stores require both Products and Inventory exports; single-location stores need only the Products export.";
+  "Calculate total retail value of inventory on hand from Shopify exports. Multi-location stores require both Products and Inventory exports; single-location stores need only the Products export.";
 
 export default function DropValuationMultiTool() {
   const [step, setStep] = useState<Step>("upload");

@@ -24,7 +24,7 @@ function formatReportRef(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
-  return `DROP-${y}${m}${day}`;
+  return `INV-${y}${m}${day}`;
 }
 
 const titleCase = (s: string) =>
@@ -291,7 +291,7 @@ export async function POST(req: NextRequest) {
       .map((w) => w[0])
       .join("")
       .toUpperCase();
-    const filename = `${tenantPrefix}-Drop-Valuation-${reportRef}.pdf`;
+    const filename = `${tenantPrefix}-Inventory-Valuation-${reportRef}.pdf`;
 
     return new NextResponse(pdf as any, {
       status: 200,

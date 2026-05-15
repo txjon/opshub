@@ -119,7 +119,7 @@ export function renderDropValuationHTML(data: DropValuationData): string {
     ? `
     <div class="note-flag">
       <strong>Oversold Inventory — ${intFmt.format(data.oversoldCount)} variants:</strong>
-      Total of ${intFmt.format(data.oversoldUnitsAbs)} units oversold across locations, representing ${currencyFmt.format(data.oversoldValueAbs)} in negative inventory not reflected in the drop total above. See detail table below.
+      Total of ${intFmt.format(data.oversoldUnitsAbs)} units oversold across locations, representing ${currencyFmt.format(data.oversoldValueAbs)} in negative inventory not reflected in the inventory total above. See detail table below.
     </div>`
     : "";
 
@@ -212,7 +212,7 @@ export function renderDropValuationHTML(data: DropValuationData): string {
       <div class="tagline">${escapeHtml(headerTagline)}</div>
     </div>
     <div class="meta">
-      <div class="doc-title">Drop Valuation</div>
+      <div class="doc-title">Inventory Valuation</div>
       <table>
         <tr><td>Report Date</td><td>${escapeHtml(data.reportDate)}</td></tr>
         <tr><td>Reference</td><td>${reportRef}</td></tr>
@@ -286,7 +286,7 @@ ${locationSectionHtml}
         <td class="summary-value">${currencyFmt.format(data.totalValue)}</td>
       </tr>
       <tr class="total-row">
-        <td class="summary-label">DROP TOTAL</td>
+        <td class="summary-label">INVENTORY TOTAL</td>
         <td class="summary-value">${currencyFmt.format(data.totalValue)}</td>
       </tr>
     </table>

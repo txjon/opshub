@@ -97,7 +97,7 @@ export function renderDropValuationHTML(data: DropValuationData): string {
       <div class="tagline">Internal Report</div>
     </div>
     <div class="meta">
-      <div class="doc-title">Drop Valuation</div>
+      <div class="doc-title">Inventory Valuation</div>
       <table>
         <tr><td>Report Date</td><td>${escapeHtml(data.reportDate)}</td></tr>
         <tr><td>Reference</td><td>${reportRef}</td></tr>
@@ -134,7 +134,7 @@ export function renderDropValuationHTML(data: DropValuationData): string {
           <th>Product</th>
           <th class="col-variants">Variants</th>
           <th class="col-qty">Units</th>
-          <th class="col-pct">% of Drop</th>
+          <th class="col-pct">% of Total</th>
           <th class="col-total">Retail Value</th>
         </tr>
       </thead>
@@ -150,7 +150,7 @@ export function renderDropValuationHTML(data: DropValuationData): string {
         <td class="summary-value">${currencyFmt.format(data.totalValue)}</td>
       </tr>
       <tr class="total-row">
-        <td class="summary-label">DROP TOTAL</td>
+        <td class="summary-label">INVENTORY TOTAL</td>
         <td class="summary-value">${currencyFmt.format(data.totalValue)}</td>
       </tr>
     </table>
