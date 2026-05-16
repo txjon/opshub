@@ -37,6 +37,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [confirmRemove, setConfirmRemove] = useState<Contact|null>(null);
   const [confirmDeleteFile, setConfirmDeleteFile] = useState<ClientFile|null>(null);
   const [previewFile, setPreviewFile] = useState<ClientFile|null>(null);
+  const [itemThumbs, setItemThumbs] = useState<Record<string, string>>({});
   const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
   const [itemViewMode, setItemViewMode] = useState<"list"|"tiles">("list");
   const [infoExpanded, setInfoExpanded] = useState(false);
@@ -157,6 +158,35 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     if (jRes.data) setJobs(jRes.data as Job[]);
     setLoading(false);
     loadFiles();
+    // Item thumbnails for the Working Sheet — mirrors the portal items
+    // API's resolution order (mockup > proof > print_ready, newest of
+    // each, non-superseded). Ranked so the most-client-presentable
+    // image wins per item.
+    if (jRes.data) {
+      const itemIds = (jRes.data as Job[]).flatMap(j => (j.items || []).map((it: any) => it.id));
+      if (itemIds.length > 0) {
+        supabase.from("item_files")
+          .select("item_id, stage, drive_file_id, created_at")
+          .in("item_id", itemIds)
+          .in("stage", ["mockup", "proof", "print_ready"])
+          .is("superseded_at", null)
+          .not("drive_file_id", "is", null)
+          .order("created_at", { ascending: false })
+          .then(({ data }) => {
+            const rank: Record<string, number> = { mockup: 3, proof: 2, print_ready: 1 };
+            const bestRank: Record<string, number> = {};
+            const best: Record<string, string> = {};
+            for (const f of (data || []) as any[]) {
+              const r = rank[f.stage] || 0;
+              if (r > (bestRank[f.item_id] || 0)) {
+                bestRank[f.item_id] = r;
+                best[f.item_id] = f.drive_file_id;
+              }
+            }
+            setItemThumbs(best);
+          });
+      }
+    }
   }
 
   async function loadFiles() {
@@ -1054,11 +1084,28 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                             background:"transparent",border:"none",cursor:"pointer",textAlign:"left",fontFamily:font,color:T.text,
                           }}
                         >
-                          <div style={{minWidth:0}}>
-                            <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>
-                            <div style={{fontSize:10,color:T.muted,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                              <span style={{fontFamily:mono}}>{it.jobNumber}</span>
-                              {it.jobTitle && <> · {it.jobTitle}</>}
+                          <div style={{minWidth:0,display:"flex",alignItems:"center",gap:10}}>
+                            <div style={{
+                              width:36,height:36,flexShrink:0,
+                              background:"#fff",borderRadius:6,overflow:"hidden",
+                              display:"flex",alignItems:"center",justifyContent:"center",
+                              border:`1px solid ${T.border}`,
+                            }}>
+                              {itemThumbs[it.id] ? (
+                                <img src={`/api/files/thumbnail?id=${itemThumbs[it.id]}&thumb=1`}
+                                  alt="" referrerPolicy="no-referrer" loading="lazy"
+                                  style={{width:"100%",height:"100%",objectFit:"contain"}}
+                                  onError={(e: any) => { e.target.style.display = "none"; }}/>
+                              ) : (
+                                <span style={{color:T.faint,fontSize:8}}>—</span>
+                              )}
+                            </div>
+                            <div style={{minWidth:0,flex:1}}>
+                              <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>
+                              <div style={{fontSize:10,color:T.muted,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                <span style={{fontFamily:mono}}>{it.jobNumber}</span>
+                                {it.jobTitle && <> · {it.jobTitle}</>}
+                              </div>
                             </div>
                           </div>
                           <div style={{fontSize:12,fontFamily:mono,color:T.text,textAlign:"right"}}>{it.totalQty.toLocaleString()}</div>
