@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useClientPortal } from "../_shared/context";
-import { C, fmtDate, fmtDateYear } from "../_shared/theme";
+import { C, fmtDate, fmtDateYear, daysUntil } from "../_shared/theme";
 
 type ClientItemStatus = "draft" | "preparing" | "in_production" | "shipping" | "delivered" | "paused" | "cancelled";
 
@@ -14,6 +14,8 @@ type Item = {
   status: ClientItemStatus;
   thumb_id: string | null;
   created_at: string;
+  client_eta: string | null;
+  client_eta_note: string | null;
   job: {
     id: string;
     job_number: string | null;
@@ -24,6 +26,14 @@ type Item = {
   brief: { id: string; title: string | null; state: string } | null;
   design_id: string | null;
 };
+
+// ETA resolver — manual override wins over job target ship date.
+// Returns null if neither is set so callers can omit the line entirely.
+function resolveItemEta(it: Item): { date: string; isOverride: boolean } | null {
+  if (it.client_eta) return { date: it.client_eta, isOverride: true };
+  if (it.job.target_ship_date) return { date: it.job.target_ship_date, isOverride: false };
+  return null;
+}
 
 const STATUS_META: Record<ClientItemStatus, { label: string; color: string; bg: string }> = {
   draft: { label: "Draft", color: C.muted, bg: C.surface },
@@ -226,9 +236,33 @@ function ItemRow({ item, onOpen }: { item: Item; onOpen: () => void }) {
       }}>
         {status.label}
       </span>
-      <span style={{ fontSize: 11, fontFamily: C.mono, color: C.muted, flexShrink: 0, minWidth: 80, textAlign: "right" }}>
-        {item.job.target_ship_date ? fmtDateYear(item.job.target_ship_date) : fmtDate(item.created_at)}
-      </span>
+      {(() => {
+        // ETA shown right of the status chip. Override (item.client_eta)
+        // displays in normal text; fallback (job.target_ship_date) is
+        // dimmed since it's a guess. Countdown uses the shared helper
+        // which already returns text + semantic color.
+        const eta = resolveItemEta(item);
+        if (!eta) {
+          return (
+            <span style={{ fontSize: 11, fontFamily: C.mono, color: C.faint, flexShrink: 0, minWidth: 80, textAlign: "right" }}>
+              {fmtDate(item.created_at)}
+            </span>
+          );
+        }
+        const cd = daysUntil(eta.date);
+        return (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, minWidth: 88, gap: 1 }}>
+            <span style={{ fontSize: 11, fontFamily: C.mono, color: eta.isOverride ? C.text : C.muted, fontWeight: eta.isOverride ? 600 : 500 }}>
+              {fmtDateYear(eta.date)}
+            </span>
+            {cd && (
+              <span style={{ fontSize: 9, color: cd.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                {cd.text}
+              </span>
+            )}
+          </div>
+        );
+      })()}
     </button>
   );
 }
@@ -282,6 +316,26 @@ function ItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
             </span>
           )}
         </div>
+        {(() => {
+          // ETA line on the tile — same precedence as the row view.
+          // Hidden when no estimate is available.
+          const eta = resolveItemEta(item);
+          if (!eta) return null;
+          const cd = daysUntil(eta.date);
+          return (
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 0, fontSize: 10 }}>
+              <span style={{ color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>ETA</span>
+              <span style={{ color: eta.isOverride ? C.text : C.muted, fontFamily: C.mono, fontWeight: eta.isOverride ? 600 : 500 }}>
+                {fmtDate(eta.date)}
+              </span>
+              {cd && (
+                <span style={{ color: cd.color, fontWeight: 700 }}>
+                  · {cd.text}
+                </span>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </button>
   );
@@ -376,8 +430,36 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
                 </span>
               </div>
               <Meta label="Quantity" value={item.qty ? `${item.qty} pcs` : "—"} />
+              {(() => {
+                // Estimated delivery — manual override wins. Countdown is
+                // computed from today; the note is shown if the team set
+                // one (e.g. "freight delay, rebooked").
+                const eta = resolveItemEta(item);
+                if (!eta) return null;
+                const cd = daysUntil(eta.date);
+                return (
+                  <div>
+                    <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>
+                      Estimated delivery
+                    </div>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 14, color: C.text, fontWeight: 700 }}>{fmtDateYear(eta.date)}</div>
+                      {cd && (
+                        <div style={{ fontSize: 11, color: cd.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                          {cd.text}
+                        </div>
+                      )}
+                    </div>
+                    {item.client_eta_note && (
+                      <div style={{ fontSize: 11, color: C.muted, marginTop: 4, fontStyle: "italic" }}>
+                        {item.client_eta_note}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <Meta label="Project" value={item.job.title || "—"}
-                sub={item.job.job_number ? `${item.job.job_number}${item.job.target_ship_date ? ` · ships ${fmtDate(item.job.target_ship_date)}` : ""}` : undefined}
+                sub={item.job.job_number ? `${item.job.job_number}${item.job.target_ship_date && !item.client_eta ? ` · ships ${fmtDate(item.job.target_ship_date)}` : ""}` : undefined}
               />
               {item.brief && (
                 <Meta label="Design" value={item.brief.title || "—"} sub={item.brief.state?.replace(/_/g, " ")} />

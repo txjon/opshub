@@ -95,7 +95,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // 3. Fetch every item on those jobs.
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order")
+      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order, client_eta, client_eta_note")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -172,6 +172,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         ),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,
+        client_eta: it.client_eta || null,
+        client_eta_note: it.client_eta_note || null,
         job: {
           id: it.job_id,
           job_number: job.job_number || null,

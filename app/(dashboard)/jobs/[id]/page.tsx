@@ -64,6 +64,7 @@ type Item = {
   costing_summary: {grossRev:number,totalCost:number,netProfit:number,margin:number,avgPerUnit:number,totalQty:number}|null;
   decorator?: string; decoration_type?: string; pipeline_stage?: string;
   sizes?: string[]; qtys?: Record<string,number>;
+  client_eta?: string|null; client_eta_set_at?: string|null; client_eta_note?: string|null;
 };
 type Payment = { id:string; type:string; amount:number; status:string; due_date:string|null; invoice_number:string|null; };
 type Contact = { id:string; name:string; email:string|null; role_label:string|null; role_on_job:string; };

@@ -21,6 +21,7 @@ type ProdItem = {
   garment_type: string | null;
   sizes: string[]; qtys: Record<string, number>;
   ship_qtys: Record<string, number>; ship_notes: string;
+  client_eta: string | null; client_eta_note: string | null;
 };
 
 type ShipmentNotificationRecord = {
@@ -292,6 +293,7 @@ export default function ProductionPage() {
         total_units: totalUnits, sizes, qtys,
         garment_type: it.garment_type ?? null,
         ship_qtys: it.ship_qtys || {}, ship_notes: it.ship_notes || "",
+        client_eta: it.client_eta || null, client_eta_note: it.client_eta_note || null,
       };
 
       if (!projectMap[it.job_id]) {
@@ -567,7 +569,11 @@ export default function ProductionPage() {
     })));
     if (saveTimers.current[`${field}_${itemId}`]) clearTimeout(saveTimers.current[`${field}_${itemId}`]);
     saveTimers.current[`${field}_${itemId}`] = setTimeout(() => {
-      supabase.from("items").update({ [field]: value || null }).eq("id", itemId);
+      const payload: Record<string, any> = { [field]: value || null };
+      if (field === "client_eta") {
+        payload.client_eta_set_at = value ? new Date().toISOString() : null;
+      }
+      supabase.from("items").update(payload).eq("id", itemId);
     }, 800);
   }
 
@@ -1189,6 +1195,25 @@ export default function ProductionPage() {
                                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.name}</div>
                                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                                   {item.blank_vendor || "—"} · {item.total_units} units
+                                </div>
+                                {/* Client ETA — same field as the Production
+                                    tab. Edit here when you want to set/update
+                                    delivery estimates without bouncing into
+                                    the project. Blank = falls back to the
+                                    job target ship date on the portal. */}
+                                <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center", flexWrap: "wrap" }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>ETA</span>
+                                  <input type="date"
+                                    value={item.client_eta || ""}
+                                    onClick={e => e.stopPropagation()}
+                                    onChange={e => { e.stopPropagation(); updateField(item.id, "client_eta", e.target.value); }}
+                                    style={{ ...ic, width: 140, padding: "3px 6px", fontSize: 11, fontFamily: mono }} />
+                                  <input type="text"
+                                    value={item.client_eta_note || ""}
+                                    placeholder="note (shown to client)"
+                                    onClick={e => e.stopPropagation()}
+                                    onChange={e => { e.stopPropagation(); updateField(item.id, "client_eta_note", e.target.value); }}
+                                    style={{ ...ic, flex: 1, minWidth: 120, padding: "3px 6px", fontSize: 11 }} />
                                 </div>
                               </div>
                               {/* Per-size ship qty grid — inline with title */}
