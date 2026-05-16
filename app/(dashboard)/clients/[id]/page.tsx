@@ -37,6 +37,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [confirmDeleteFile, setConfirmDeleteFile] = useState<ClientFile|null>(null);
   const [previewFile, setPreviewFile] = useState<ClientFile|null>(null);
   const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
+  const [itemViewMode, setItemViewMode] = useState<"list"|"tiles">("list");
   const [portalCopied, setPortalCopied] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
 
@@ -143,7 +144,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const [cRes, ctRes, jRes] = await Promise.all([
       supabase.from("clients").select("*").eq("id", params.id).single(),
       supabase.from("contacts").select("*").eq("client_id", params.id).order("name"),
-      supabase.from("jobs").select("*, costing_summary, type_meta, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
+      supabase.from("jobs").select("*, costing_summary, type_meta, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
     ]);
     if (cRes.data) setClient(cRes.data);
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
@@ -256,17 +257,59 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const overdue = allPayments.filter((p: any) => p.due_date && new Date(p.due_date) < now && !["paid","void"].includes(p.status));
   const totalOverdue = overdue.reduce((a: number, p: any) => a + (p.amount || 0), 0);
 
-  // Item history — flatten all items across all jobs
+  // Item history — flatten all items across all jobs. We carry the job's
+  // phase + the item's pipeline_stage so each row can show its own
+  // status chip (a delivered repeat and an in-production repeat of the
+  // same item don't get conflated under a single stage).
   const allItems = jobs.flatMap(j => (j.items || []).map((it: any) => ({
     ...it,
     jobId: j.id,
     jobTitle: j.title,
     jobNumber: (j as any).type_meta?.qb_invoice_number || j.job_number,
     jobDate: j.target_ship_date || j.created_at,
+    jobPhase: j.phase,
+    pipelineStage: it.pipeline_stage || null,
     totalQty: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0),
     sizes: (it.buy_sheet_lines || []).map((l: any) => l.size),
     qtys: Object.fromEntries((it.buy_sheet_lines || []).map((l: any) => [l.size, l.qty_ordered])),
   })));
+
+  // Stage chip resolver — what to show next to each item instance.
+  // Job phase drives it; pipeline_stage refines within production
+  // (in_production vs shipped). Mirrors the colors used in the
+  // Projects list above for consistency.
+  function instanceStage(inst: any): { label: string; color: { bg: string; text: string } } {
+    const phase = inst.jobPhase as string;
+    const ps = inst.pipelineStage as string | null;
+    if (phase === "complete") return { label: "Delivered", color: PHASE_COLORS.complete };
+    if (phase === "cancelled") return { label: "Cancelled", color: PHASE_COLORS.cancelled };
+    if (phase === "on_hold") return { label: "On Hold", color: PHASE_COLORS.on_hold };
+    if (phase === "fulfillment") return { label: "Fulfillment", color: PHASE_COLORS.fulfillment };
+    if (phase === "receiving") return { label: "Receiving", color: PHASE_COLORS.receiving };
+    if (phase === "production") {
+      if (ps === "shipped") return { label: "Shipped", color: PHASE_COLORS.receiving };
+      return { label: "Production", color: PHASE_COLORS.production };
+    }
+    if (phase === "ready") return { label: "Ready", color: PHASE_COLORS.ready };
+    if (phase === "pending") return { label: "Pending", color: PHASE_COLORS.pending };
+    return { label: "Setup", color: PHASE_COLORS.intake };
+  }
+
+  // Sort order for the flat list view — active stages first so what's
+  // happening now floats to the top; terminal stages drop to the
+  // bottom. Within each bucket, most-recent ship/created date first.
+  const PHASE_PRIORITY: Record<string, number> = {
+    production: 1, receiving: 2, fulfillment: 3, ready: 4, pending: 5, intake: 6,
+    on_hold: 8, complete: 10, cancelled: 11,
+  };
+  const allItemsForList = [...allItems].sort((a, b) => {
+    const pa = PHASE_PRIORITY[a.jobPhase] ?? 9;
+    const pb = PHASE_PRIORITY[b.jobPhase] ?? 9;
+    if (pa !== pb) return pa - pb;
+    const da = new Date(a.jobDate || 0).getTime();
+    const db = new Date(b.jobDate || 0).getTime();
+    return db - da;
+  });
 
   // Group by item identity (name + blank_vendor + blank_sku)
   const itemGroups: Record<string, any[]> = {};
@@ -634,15 +677,28 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
         {/* History */}
         <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-            <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
-              {(["projects","items"] as const).map(v=>(
-                <button key={v} onClick={()=>setHistoryView(v)}
-                  style={{padding:"3px 10px",borderRadius:4,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
-                    background:historyView===v?T.accent:"transparent",color:historyView===v?"#fff":T.muted}}>
-                  {v==="projects"?"Projects":"Items"}
-                </button>
-              ))}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8,flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
+                {(["projects","items"] as const).map(v=>(
+                  <button key={v} onClick={()=>setHistoryView(v)}
+                    style={{padding:"3px 10px",borderRadius:4,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
+                      background:historyView===v?T.accent:"transparent",color:historyView===v?"#fff":T.muted}}>
+                    {v==="projects"?"Projects":"Items"}
+                  </button>
+                ))}
+              </div>
+              {historyView==="items"&&(
+                <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
+                  {(["list","tiles"] as const).map(v=>(
+                    <button key={v} onClick={()=>setItemViewMode(v)}
+                      style={{padding:"3px 10px",borderRadius:4,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
+                        background:itemViewMode===v?T.text:"transparent",color:itemViewMode===v?"#fff":T.muted}}>
+                      {v==="list"?"List":"Tiles"}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <span style={{fontSize:10,color:T.faint}}>{historyView==="projects"?`${jobs.length} projects`:`${allItems.length} items`}</span>
           </div>
@@ -672,7 +728,36 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             </>
           )}
 
-          {historyView==="items"&&(
+          {historyView==="items"&&itemViewMode==="list"&&(
+            <>
+              {allItemsForList.length===0&&<p style={{fontSize:12,color:T.muted}}>No items yet.</p>}
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {allItemsForList.map((inst: any, i: number)=>{
+                  const stg = instanceStage(inst);
+                  return(
+                    <Link key={inst.id+":"+i} href={`/jobs/${inst.jobId}`}
+                      style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:T.surface,borderRadius:6,textDecoration:"none",color:T.text,transition:"background 0.1s"}}
+                      onMouseEnter={(e:any)=>e.currentTarget.style.background=T.accentDim}
+                      onMouseLeave={(e:any)=>e.currentTarget.style.background=T.surface}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{inst.name}</div>
+                        <div style={{fontSize:10,color:T.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                          <span style={{fontFamily:mono}}>{inst.jobNumber}</span>
+                          {inst.jobTitle&&<> · {inst.jobTitle}</>}
+                          {[inst.blank_vendor,inst.blank_sku].filter(Boolean).length>0&&<> · {[inst.blank_vendor,inst.blank_sku].filter(Boolean).join(" ")}</>}
+                        </div>
+                      </div>
+                      <span style={{fontSize:11,fontFamily:mono,color:T.muted,flexShrink:0}}>{inst.totalQty.toLocaleString()} units</span>
+                      <span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:stg.color.bg,color:stg.color.text,whiteSpace:"nowrap",flexShrink:0}}>{stg.label}</span>
+                      <span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0,minWidth:62,textAlign:"right"}}>{inst.jobDate?new Date(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}):""}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {historyView==="items"&&itemViewMode==="tiles"&&(
             <>
               {sortedItemGroups.length===0&&<p style={{fontSize:12,color:T.muted}}>No items yet.</p>}
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -683,9 +768,26 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                     <div key={key} style={{background:T.surface,borderRadius:8,padding:"8px 10px",border:isRepeat?`1px solid ${T.accent}33`:`1px solid transparent`}}>
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:isRepeat?6:0}}>
                         <div style={{flex:1}}>
-                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                             <span style={{fontSize:12,fontWeight:600}}>{first.name}</span>
                             {isRepeat&&<span style={{fontSize:9,fontWeight:600,padding:"1px 6px",borderRadius:99,background:T.accentDim,color:T.accent}}>{instances.length}x</span>}
+                            {/* Distinct stage chips at the header level — so a
+                                grouped repeat with mixed stages (e.g. one
+                                delivered + one in production) reads as two
+                                chips, and an all-delivered 5x reads as a
+                                single chip. The per-instance chips appear
+                                in the expandable rows below. */}
+                            {(() => {
+                              const seen = new Set<string>();
+                              const chips: { label: string; color: { bg: string; text: string } }[] = [];
+                              for (const inst of instances) {
+                                const stg = instanceStage(inst);
+                                if (!seen.has(stg.label)) { seen.add(stg.label); chips.push(stg); }
+                              }
+                              return chips.map((stg, i) => (
+                                <span key={`chip-${stg.label}-${i}`} style={{padding:"1px 7px",borderRadius:99,fontSize:9,fontWeight:600,background:stg.color.bg,color:stg.color.text,whiteSpace:"nowrap"}}>{stg.label}</span>
+                              ));
+                            })()}
                           </div>
                           <div style={{fontSize:10,color:T.muted,marginTop:1}}>{[first.blank_vendor,first.blank_sku].filter(Boolean).join(" · ")}</div>
                         </div>
@@ -696,16 +798,20 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                       </div>
                       {isRepeat&&(
                         <div style={{display:"flex",flexDirection:"column",gap:2,marginTop:4}}>
-                          {instances.map((inst: any,i: number)=>(
-                            <Link key={inst.id+i} href={`/jobs/${inst.jobId}`} style={{display:"flex",alignItems:"center",gap:8,fontSize:10,color:T.muted,textDecoration:"none",padding:"2px 0"}}
-                              onMouseEnter={(e:any)=>e.currentTarget.style.color=T.accent}
-                              onMouseLeave={(e:any)=>e.currentTarget.style.color=T.muted}>
-                              <span style={{fontFamily:mono}}>{inst.jobNumber}</span>
-                              <span>{inst.jobTitle}</span>
-                              <span style={{fontFamily:mono}}>{inst.totalQty} units</span>
-                              <span style={{marginLeft:"auto"}}>{new Date(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
-                            </Link>
-                          ))}
+                          {instances.map((inst: any,i: number)=>{
+                            const stg = instanceStage(inst);
+                            return(
+                              <Link key={inst.id+i} href={`/jobs/${inst.jobId}`} style={{display:"flex",alignItems:"center",gap:8,fontSize:10,color:T.muted,textDecoration:"none",padding:"2px 0"}}
+                                onMouseEnter={(e:any)=>e.currentTarget.style.color=T.accent}
+                                onMouseLeave={(e:any)=>e.currentTarget.style.color=T.muted}>
+                                <span style={{fontFamily:mono}}>{inst.jobNumber}</span>
+                                <span>{inst.jobTitle}</span>
+                                <span style={{fontFamily:mono}}>{inst.totalQty} units</span>
+                                <span style={{padding:"1px 6px",borderRadius:99,fontSize:9,fontWeight:600,background:stg.color.bg,color:stg.color.text,whiteSpace:"nowrap"}}>{stg.label}</span>
+                                <span style={{marginLeft:"auto"}}>{new Date(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
+                              </Link>
+                            );
+                          })}
                         </div>
                       )}
                       {!isRepeat&&(
