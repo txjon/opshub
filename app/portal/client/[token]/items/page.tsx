@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useClientPortal } from "../_shared/context";
-import { C, fmtDate } from "../_shared/theme";
+import { C, fmtDate, fmtDateYear } from "../_shared/theme";
 
 type ClientItemStatus = "draft" | "preparing" | "in_production" | "shipping" | "delivered" | "paused" | "cancelled";
 
@@ -52,6 +52,7 @@ export default function ItemsPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("active");
   const [detail, setDetail] = useState<Item | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "tiles">("list");
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -96,7 +97,7 @@ export default function ItemsPage() {
             fontFamily: C.font, boxSizing: "border-box",
           }}
         />
-        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${C.border}`, paddingBottom: 6 }}>
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${C.border}`, paddingBottom: 6, alignItems: "center" }}>
           {FILTERS.map(f => {
             const isActive = filter === f.key;
             const n = counts[f.key] || 0;
@@ -116,6 +117,24 @@ export default function ItemsPage() {
               </button>
             );
           })}
+          {/* View-mode toggle — right-aligned so it sits at the end of
+              the filter row. List is denser and surfaces ship date +
+              status in a single scannable row; tiles keep the visual
+              thumbnail-first browse. */}
+          <div style={{ marginLeft: "auto", display: "flex", gap: 2, background: C.surface, borderRadius: 6, padding: 2 }}>
+            {(["list", "tiles"] as const).map(v => (
+              <button key={v} onClick={() => setViewMode(v)}
+                style={{
+                  padding: "4px 12px", borderRadius: 4,
+                  fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer",
+                  background: viewMode === v ? C.text : "transparent",
+                  color: viewMode === v ? "#fff" : C.muted,
+                  fontFamily: C.font,
+                }}>
+                {v === "list" ? "List" : "Tiles"}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -130,7 +149,7 @@ export default function ItemsPage() {
             ? "No items yet. Once a design turns into an order, it'll land here."
             : q ? "No items match that search." : "Nothing in this filter."}
         </div>
-      ) : (
+      ) : viewMode === "tiles" ? (
         <div style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))",
@@ -140,10 +159,77 @@ export default function ItemsPage() {
             <ItemCard key={it.id} item={it} onOpen={() => setDetail(it)} />
           ))}
         </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {filtered.map(it => (
+            <ItemRow key={it.id} item={it} onOpen={() => setDetail(it)} />
+          ))}
+        </div>
       )}
 
       {detail && <ItemDetail item={detail} token={token} onClose={() => setDetail(null)} />}
     </div>
+  );
+}
+
+function ItemRow({ item, onOpen }: { item: Item; onOpen: () => void }) {
+  const status = STATUS_META[item.status];
+  return (
+    <button onClick={onOpen}
+      style={{
+        background: C.card, border: `1px solid ${C.border}`,
+        borderRadius: 10, padding: "10px 14px",
+        display: "flex", alignItems: "center", gap: 12,
+        cursor: "pointer", textAlign: "left",
+        fontFamily: C.font,
+        transition: "border-color 0.15s, box-shadow 0.15s",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = C.text; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}
+    >
+      <div style={{
+        width: 44, height: 44, flexShrink: 0,
+        background: "#fff", borderRadius: 6, overflow: "hidden",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        border: `1px solid ${C.border}`,
+      }}>
+        {item.thumb_id ? (
+          <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
+            alt="" referrerPolicy="no-referrer" loading="lazy"
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            onError={(e: any) => { e.target.style.display = "none"; }}
+          />
+        ) : (
+          <span style={{ color: C.faint, fontSize: 9 }}>—</span>
+        )}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {item.name}
+        </div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2, display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {item.job.job_number && <span style={{ fontFamily: C.mono }}>{item.job.job_number}</span>}
+          {item.job.title && <><span style={{ color: C.faint }}>·</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.job.title}</span></>}
+          {item.garment_type && <><span style={{ color: C.faint }}>·</span><span>{item.garment_type}</span></>}
+        </div>
+      </div>
+      {item.qty > 0 && (
+        <span style={{ fontSize: 12, fontFamily: C.mono, color: C.muted, flexShrink: 0 }}>
+          {item.qty} pcs
+        </span>
+      )}
+      <span style={{
+        padding: "3px 10px", borderRadius: 99,
+        background: status.bg, color: status.color,
+        fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
+        whiteSpace: "nowrap", flexShrink: 0,
+      }}>
+        {status.label}
+      </span>
+      <span style={{ fontSize: 11, fontFamily: C.mono, color: C.muted, flexShrink: 0, minWidth: 80, textAlign: "right" }}>
+        {item.job.target_ship_date ? fmtDateYear(item.job.target_ship_date) : fmtDate(item.created_at)}
+      </span>
+    </button>
   );
 }
 
