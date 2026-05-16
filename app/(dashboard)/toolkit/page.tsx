@@ -4,10 +4,6 @@ import { T, font, mono } from "@/lib/theme";
 import { buildMockupClient, preloadTemplate, extractPrintInfoFromPsd } from "@/lib/mockup-client";
 import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
 import { useClientBranding } from "@/lib/branding-client";
-import CountSheetTool from "@/components/CountSheetTool";
-import DropValuationTool from "@/components/DropValuationTool";
-import DropValuationMultiTool from "@/components/DropValuationMultiTool";
-
 export default function ToolKitPage() {
   const branding = useClientBranding();
   useEffect(() => { preloadLogo(branding.slug); preloadTemplate(); }, [branding.slug]);
@@ -15,12 +11,9 @@ export default function ToolKitPage() {
   return (
     <div style={{ fontFamily: font, color: T.text, maxWidth: 800, margin: "0 auto" }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4, letterSpacing: "-0.02em" }}>Tool Kit</h1>
-      <p style={{ fontSize: 12, color: T.faint, marginBottom: 20 }}>Standalone tools for quick tasks</p>
+      <p style={{ fontSize: 12, color: T.faint, marginBottom: 20 }}>Standalone tools for quick tasks. Shopify CSV tools moved to <a href="/integrations/shopify" style={{ color: T.accent, textDecoration: "none" }}>Integrations → Shopify</a>.</p>
 
       <MockupTool />
-      <CountSheetTool />
-      <DropValuationTool />
-      <DropValuationMultiTool />
     </div>
   );
 }

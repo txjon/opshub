@@ -169,8 +169,21 @@ export default function ProductionPage() {
     autoOpenedRef.current = true;
     const decKey = url.searchParams.get("decorator");
     if (decKey) {
-      setModalDecoratorKey(decKey);
-      setExpandedDecorators(new Set([decKey]));
+      // Caller (Overview tab chip on /jobs/[id]) may pass either the
+      // decorator UUID or the decorator name — its DB query doesn't
+      // always select decorator_id. Resolve to whatever the group
+      // considers canonical (decoratorId || decoratorName) so the
+      // filter + expansion checks downstream actually match. Without
+      // this the modal opens with a blank body when the chip's job
+      // record has an assignment without decorator_id loaded.
+      const matchingGroup = project.decoratorGroups.find(
+        (dg: any) => dg.decoratorId === decKey || dg.decoratorName === decKey
+      );
+      const canonical = matchingGroup
+        ? (matchingGroup.decoratorId || matchingGroup.decoratorName)
+        : decKey;
+      setModalDecoratorKey(canonical);
+      setExpandedDecorators(new Set([canonical]));
     }
     setModalProject(project);
     url.searchParams.delete("openProject");

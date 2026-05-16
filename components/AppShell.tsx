@@ -12,6 +12,7 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   owner: [
     { href: "/insights", label: "Insights" },
     { href: "/reports", label: "Reports" },
+    { href: "/integrations", label: "Integrations" },
   ],
   labs: [
     { href: "/dashboard", label: "Dashboard" },
@@ -60,7 +61,7 @@ const DEPT_CROSSLINKS: Partial<Record<Department, { href: string; label: string;
 };
 
 function detectDept(pathname: string): Department {
-  if (["/insights", "/reports", "/god-mode"].some(p => pathname.startsWith(p))) return "owner";
+  if (["/insights", "/reports", "/god-mode", "/integrations"].some(p => pathname.startsWith(p))) return "owner";
   if (["/ecomm"].some(p => pathname.startsWith(p))) return "ecomm";
   if (["/distro", "/receiving", "/shipping", "/fulfillment"].some(p => pathname.startsWith(p))) return "distro";
   if (["/clients", "/decorators"].some(p => pathname.startsWith(p))) return "contacts";
@@ -121,11 +122,12 @@ export function AppShell({
   }, [pathname]);
 
   const baseNavItems = DEPT_NAV[activeDept] || [];
-  // God Mode + Planner are email-gated (owner personal tools) — shown only
-  // to Jon even among other owner-role users. Planner is a local-only symlink
-  // to ~/claude-planner; gitignored so it never deploys to Vercel.
+  // "Overview" (route stays /god-mode for backwards-compat) is email-gated
+  // to Jon — it's the owner's high-altitude decision view, not for other
+  // owner-role users. Prepended so it's the landing tab when Jon clicks
+  // the Owner department icon.
   const navItems = activeDept === "owner" && email === "jon@housepartydistro.com"
-    ? [...baseNavItems, { href: "/god-mode", label: "God Mode" }, { href: "/planner/index.html", label: "Planner", external: true }]
+    ? [{ href: "/god-mode", label: "Overview" }, ...baseNavItems]
     : baseNavItems;
   // Tenant override for the "Labs" department label. IHM doesn't think
   // of itself as a "Labs" production shop — it's just the IHM brand —
@@ -180,10 +182,17 @@ export function AppShell({
           {(Object.entries(deptIcons) as [Department, { Icon: any; label: string }][]).map(([dept, { Icon, label }]) => {
             if (!hasDept(dept)) return null;
             const isActive = activeDept === dept;
+            // For Jon, clicking the Owner icon lands on Overview (/god-mode)
+            // since it's the prepended first tab. Everyone else lands on
+            // the static DEPT_NAV first entry (/insights for owner).
+            const landingHref =
+              dept === "owner" && email === "jon@housepartydistro.com"
+                ? "/god-mode"
+                : DEPT_NAV[dept][0].href;
             return (
               <Link
                 key={dept}
-                href={DEPT_NAV[dept][0].href}
+                href={landingHref}
                 onClick={() => setActiveDept(dept)}
                 title={label}
                 style={{
