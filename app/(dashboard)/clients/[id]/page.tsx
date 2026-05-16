@@ -719,7 +719,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                         <div style={{fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{j.title}</div>
                         <div style={{fontSize:10,color:T.muted,marginTop:1}}>{(j as any).type_meta?.qb_invoice_number || j.job_number} {units>0&&`· ${units.toLocaleString()} units`} {rev>0&&`· $${Math.round(rev).toLocaleString()}`}</div>
                       </div>
-                      <span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:phase.bg,color:phase.text,whiteSpace:"nowrap",flexShrink:0}}>{j.phase.replace(/_/g," ")}</span>
+                      <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:phase.text,whiteSpace:"nowrap",flexShrink:0}}>{j.phase.replace(/_/g," ")}</span>
                       {j.target_ship_date&&<span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0}}>{new Date(j.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>}
                     </Link>
                   );
@@ -748,7 +748,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                         </div>
                       </div>
                       <span style={{fontSize:11,fontFamily:mono,color:T.muted,flexShrink:0}}>{inst.totalQty.toLocaleString()} units</span>
-                      <span style={{padding:"2px 8px",borderRadius:99,fontSize:10,fontWeight:600,background:stg.color.bg,color:stg.color.text,whiteSpace:"nowrap",flexShrink:0}}>{stg.label}</span>
+                      <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:stg.color.text,whiteSpace:"nowrap",flexShrink:0}}>{stg.label}</span>
                       <span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0,minWidth:62,textAlign:"right"}}>{inst.jobDate?new Date(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}):""}</span>
                     </Link>
                   );
@@ -770,7 +770,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                         <div style={{flex:1}}>
                           <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                             <span style={{fontSize:12,fontWeight:600}}>{first.name}</span>
-                            {isRepeat&&<span style={{fontSize:9,fontWeight:600,padding:"1px 6px",borderRadius:99,background:T.accentDim,color:T.accent}}>{instances.length}x</span>}
+                            {isRepeat&&<span style={{fontSize:10,fontFamily:mono,fontWeight:600,color:T.muted}}>×{instances.length}</span>}
                             {/* Distinct stage chips at the header level — so a
                                 grouped repeat with mixed stages (e.g. one
                                 delivered + one in production) reads as two
@@ -785,7 +785,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                 if (!seen.has(stg.label)) { seen.add(stg.label); chips.push(stg); }
                               }
                               return chips.map((stg, i) => (
-                                <span key={`chip-${stg.label}-${i}`} style={{padding:"1px 7px",borderRadius:99,fontSize:9,fontWeight:600,background:stg.color.bg,color:stg.color.text,whiteSpace:"nowrap"}}>{stg.label}</span>
+                                <span key={`chip-${stg.label}-${i}`} style={{fontSize:9,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:stg.color.text,whiteSpace:"nowrap"}}>{stg.label}</span>
                               ));
                             })()}
                           </div>
@@ -807,7 +807,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                 <span style={{fontFamily:mono}}>{inst.jobNumber}</span>
                                 <span>{inst.jobTitle}</span>
                                 <span style={{fontFamily:mono}}>{inst.totalQty} units</span>
-                                <span style={{padding:"1px 6px",borderRadius:99,fontSize:9,fontWeight:600,background:stg.color.bg,color:stg.color.text,whiteSpace:"nowrap"}}>{stg.label}</span>
+                                <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:stg.color.text,whiteSpace:"nowrap"}}>{stg.label}</span>
                                 <span style={{marginLeft:"auto"}}>{new Date(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
                               </Link>
                             );

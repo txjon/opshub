@@ -229,8 +229,7 @@ function ItemRow({ item, onOpen }: { item: Item; onOpen: () => void }) {
         </span>
       )}
       <span style={{
-        padding: "3px 10px", borderRadius: 99,
-        background: status.bg, color: status.color,
+        color: status.color,
         fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
         whiteSpace: "nowrap", flexShrink: 0,
       }}>
