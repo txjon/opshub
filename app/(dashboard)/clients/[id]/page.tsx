@@ -40,6 +40,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
   const [itemViewMode, setItemViewMode] = useState<"list"|"tiles">("list");
   const [infoExpanded, setInfoExpanded] = useState(false);
+  const [workingExpanded, setWorkingExpanded] = useState(true);
+  const [workingTab, setWorkingTab] = useState<"pending"|"in_production"|"landed">("pending");
+  const [workingRowExpanded, setWorkingRowExpanded] = useState<string|null>(null);
+  const itemSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [portalCopied, setPortalCopied] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
 
@@ -146,7 +150,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const [cRes, ctRes, jRes] = await Promise.all([
       supabase.from("clients").select("*").eq("id", params.id).single(),
       supabase.from("contacts").select("*").eq("client_id", params.id).order("name"),
-      supabase.from("jobs").select("*, costing_summary, type_meta, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
+      supabase.from("jobs").select("*, costing_summary, type_meta, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
     ]);
     if (cRes.data) setClient(cRes.data);
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
@@ -321,6 +325,24 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     itemGroups[key].push(it);
   }
   const sortedItemGroups = Object.entries(itemGroups).sort((a, b) => b[1].length - a[1].length);
+
+  // Working Sheet — debounced auto-save for inline edits. Updates the
+  // jobs state optimistically so the UI reflects the change immediately
+  // (and the KPI rollup recomputes), then writes to the items table
+  // after 600ms of idle. Empty string → null so we don't write "" to
+  // numeric columns.
+  function saveItemField(itemId: string, field: string, value: any) {
+    setJobs(prev => prev.map(j => ({
+      ...j,
+      items: (j.items || []).map((it: any) => it.id === itemId ? { ...it, [field]: value } : it),
+    } as Job)));
+    const key = `${itemId}_${field}`;
+    if (itemSaveTimers.current[key]) clearTimeout(itemSaveTimers.current[key]);
+    itemSaveTimers.current[key] = setTimeout(() => {
+      const dbValue = value === "" ? null : value;
+      supabase.from("items").update({ [field]: dbValue }).eq("id", itemId);
+    }, 600);
+  }
 
   async function reorderItem(item: any) {
     // Create a new job with this item pre-filled
@@ -865,6 +887,262 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             </>
           )}
         </div>
+
+        {/* Working Sheet — back-office financial worksheet, separate
+            from the operational production flow. Carries over the value
+            of the old /staging tool: per-item cost/retail tracking,
+            manual status buckets, ETAs, and notes — all in one place
+            across every job for this client. Inline edits to sell_per_unit
+            propagate to OpsHub's quote/invoice/portal surfaces (pricing
+            source of truth); client_retail_per_unit is private to this
+            view. */}
+        {(() => {
+          const fmtMoney = (n: number) => "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          const fmtMoneyShort = (n: number) => "$" + Math.round(n || 0).toLocaleString();
+
+          const resolveWS = (it: any): "pending" | "in_production" | "landed" =>
+            (it.working_status as any) ||
+            (it.jobPhase === "complete" || it.jobPhase === "fulfillment" ? "landed" :
+             it.jobPhase === "production" || it.jobPhase === "receiving" ? "in_production" :
+             "pending");
+
+          const wsItems = allItems.map((it: any) => ({ ...it, _ws: resolveWS(it) }));
+          const paidJobIds = new Set(
+            jobs.filter(j => ((j as any).payment_records || []).some((p: any) => p.status === "paid")).map(j => j.id)
+          );
+          const rollup = (list: any[]) => {
+            let count = 0, qty = 0, cost = 0, gross = 0;
+            for (const it of list) {
+              const c = Number(it.sell_per_unit) || 0;
+              const r = Number(it.client_retail_per_unit) || 0;
+              count++; qty += it.totalQty;
+              cost += c * it.totalQty;
+              gross += r * it.totalQty;
+            }
+            return { count, qty, cost, gross, profit: gross - cost };
+          };
+          const byStatus: Record<"pending"|"in_production"|"landed", any[]> = {
+            pending: wsItems.filter((it: any) => it._ws === "pending"),
+            in_production: wsItems.filter((it: any) => it._ws === "in_production"),
+            landed: wsItems.filter((it: any) => it._ws === "landed"),
+          };
+          const rollups = {
+            pending: rollup(byStatus.pending),
+            in_production: rollup(byStatus.in_production),
+            landed: rollup(byStatus.landed),
+            total: rollup(wsItems),
+          };
+          const currentItems = byStatus[workingTab];
+
+          const STATUS_OPTS: { value: "pending"|"in_production"|"landed"; label: string; color: string }[] = [
+            { value: "pending", label: "Pending", color: T.amber },
+            { value: "in_production", label: "In Production", color: T.accent },
+            { value: "landed", label: "Landed", color: T.green },
+          ];
+
+          return (
+        <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
+          <button
+            type="button"
+            onClick={() => setWorkingExpanded(v => !v)}
+            style={{
+              width:"100%", display:"flex", alignItems:"center", gap:10,
+              background:"transparent", border:"none", padding:0,
+              cursor:"pointer", textAlign:"left", fontFamily:font, color:T.text,
+            }}
+          >
+            {workingExpanded ? <ChevronDown size={16} color={T.muted} /> : <ChevronRight size={16} color={T.muted} />}
+            <span style={{fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>
+              Working Sheet
+            </span>
+            {!workingExpanded && wsItems.length > 0 && (
+              <span style={{fontSize:11,color:T.faint,marginLeft:"auto",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {wsItems.length} items · {fmtMoneyShort(rollups.total.gross)} gross · {fmtMoneyShort(rollups.total.profit)} profit
+              </span>
+            )}
+          </button>
+
+          {workingExpanded && (
+            <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:12}}>
+              {/* KPI rollup — 4 rows × 6 cols. Total row uses a darker
+                  background to anchor the eye. */}
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:580}}>
+                  <thead>
+                    <tr style={{borderBottom:`1px solid ${T.border}`}}>
+                      {["Phase","Items","Qty","Cost","Gross","Profit"].map((h,i) => (
+                        <th key={h} style={{padding:"6px 10px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em",textAlign:i===0?"left":"right"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(["pending","in_production","landed"] as const).map(k => {
+                      const r = rollups[k];
+                      const opt = STATUS_OPTS.find(o => o.value === k)!;
+                      return (
+                        <tr key={k}>
+                          <td style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:opt.color,textTransform:"uppercase",letterSpacing:"0.07em"}}>{opt.label}</td>
+                          <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,color:T.muted,textAlign:"right"}}>{r.count}</td>
+                          <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,color:T.text,textAlign:"right"}}>{r.qty.toLocaleString()}</td>
+                          <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,color:T.text,textAlign:"right"}}>{fmtMoneyShort(r.cost)}</td>
+                          <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,color:T.text,textAlign:"right"}}>{fmtMoneyShort(r.gross)}</td>
+                          <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,fontWeight:600,color:T.green,textAlign:"right"}}>{fmtMoneyShort(r.profit)}</td>
+                        </tr>
+                      );
+                    })}
+                    <tr style={{borderTop:`1px solid ${T.border}`,background:T.surface}}>
+                      <td style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:T.text,textTransform:"uppercase",letterSpacing:"0.07em"}}>Total</td>
+                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{rollups.total.count}</td>
+                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{rollups.total.qty.toLocaleString()}</td>
+                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{fmtMoneyShort(rollups.total.cost)}</td>
+                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{fmtMoneyShort(rollups.total.gross)}</td>
+                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:800,color:T.green,textAlign:"right"}}>{fmtMoneyShort(rollups.total.profit)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Tabs — Pending · In Production · Landed */}
+              <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2,width:"fit-content"}}>
+                {STATUS_OPTS.map(opt => {
+                  const isActive = workingTab === opt.value;
+                  const count = byStatus[opt.value].length;
+                  return (
+                    <button key={opt.value} onClick={() => setWorkingTab(opt.value)}
+                      style={{padding:"4px 12px",borderRadius:4,fontSize:11,fontWeight:700,border:"none",cursor:"pointer",
+                        background:isActive?T.accent:"transparent",color:isActive?"#fff":T.muted,fontFamily:font}}>
+                      {opt.label} <span style={{opacity:0.7,marginLeft:4}}>{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Item list */}
+              {currentItems.length === 0 ? (
+                <div style={{fontSize:12,color:T.faint,padding:"20px",textAlign:"center",background:T.surface,borderRadius:8}}>
+                  No items in this bucket.
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {/* Column header */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 70px 90px 90px 90px 140px 100px 50px",gap:10,padding:"4px 10px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em"}}>
+                    <div>Item</div>
+                    <div style={{textAlign:"right"}}>Qty</div>
+                    <div style={{textAlign:"right"}}>Cost</div>
+                    <div style={{textAlign:"right"}}>Retail</div>
+                    <div style={{textAlign:"right"}}>Profit</div>
+                    <div>Status</div>
+                    <div>ETA</div>
+                    <div style={{textAlign:"center"}}>Paid</div>
+                  </div>
+                  {currentItems.map((it: any) => {
+                    const isOpen = workingRowExpanded === it.id;
+                    const cost = Number(it.sell_per_unit) || 0;
+                    const retail = Number(it.client_retail_per_unit) || 0;
+                    const profit = (retail - cost) * it.totalQty;
+                    const isPaid = paidJobIds.has(it.jobId);
+                    const statusOpt = STATUS_OPTS.find(o => o.value === it._ws)!;
+                    return (
+                      <div key={it.id} style={{background:T.surface,borderRadius:8,overflow:"hidden"}}>
+                        <button
+                          type="button"
+                          onClick={() => setWorkingRowExpanded(isOpen ? null : it.id)}
+                          style={{
+                            width:"100%",display:"grid",
+                            gridTemplateColumns:"1fr 70px 90px 90px 90px 140px 100px 50px",
+                            gap:10,padding:"10px",alignItems:"center",
+                            background:"transparent",border:"none",cursor:"pointer",textAlign:"left",fontFamily:font,color:T.text,
+                          }}
+                        >
+                          <div style={{minWidth:0}}>
+                            <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>
+                            <div style={{fontSize:10,color:T.muted,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                              <span style={{fontFamily:mono}}>{it.jobNumber}</span>
+                              {it.jobTitle && <> · {it.jobTitle}</>}
+                            </div>
+                          </div>
+                          <div style={{fontSize:12,fontFamily:mono,color:T.text,textAlign:"right"}}>{it.totalQty.toLocaleString()}</div>
+                          <div style={{fontSize:12,fontFamily:mono,color:T.text,textAlign:"right"}}>{cost > 0 ? fmtMoney(cost) : "—"}</div>
+                          <div style={{fontSize:12,fontFamily:mono,color:retail > 0 ? T.text : T.faint,textAlign:"right"}}>{retail > 0 ? fmtMoney(retail) : "—"}</div>
+                          <div style={{fontSize:12,fontFamily:mono,fontWeight:600,color:profit > 0 ? T.green : T.faint,textAlign:"right"}}>{profit !== 0 ? fmtMoneyShort(profit) : "—"}</div>
+                          <div style={{fontSize:10,fontWeight:700,color:statusOpt.color,textTransform:"uppercase",letterSpacing:"0.06em"}}>{statusOpt.label}</div>
+                          <div style={{fontSize:11,fontFamily:mono,color:T.muted}}>
+                            {it.client_eta ? new Date(it.client_eta).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) : "—"}
+                          </div>
+                          <div style={{textAlign:"center",fontSize:14,color:isPaid ? T.green : T.faint}}>
+                            {isPaid ? "✓" : "—"}
+                          </div>
+                        </button>
+
+                        {/* Expanded editor */}
+                        {isOpen && (
+                          <div style={{padding:"0 14px 14px",borderTop:`1px solid ${T.border}`,marginTop:0}}>
+                            <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:10,marginTop:12}}>
+                              <div>
+                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty (read-only)</label>
+                                <input value={it.totalQty} disabled style={{...ic,background:T.surface,color:T.faint,fontFamily:mono}}/>
+                              </div>
+                              <div>
+                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Unit Cost <span style={{color:T.amber}}>·</span> sell_per_unit</label>
+                                <input
+                                  type="number" step="0.01" min="0"
+                                  value={it.sell_per_unit ?? ""}
+                                  onChange={e => saveItemField(it.id, "sell_per_unit", e.target.value === "" ? null : Number(e.target.value))}
+                                  style={{...ic,fontFamily:mono}}/>
+                              </div>
+                              <div>
+                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Retail (manual)</label>
+                                <input
+                                  type="number" step="0.01" min="0"
+                                  value={it.client_retail_per_unit ?? ""}
+                                  onChange={e => saveItemField(it.id, "client_retail_per_unit", e.target.value === "" ? null : Number(e.target.value))}
+                                  style={{...ic,fontFamily:mono}}/>
+                              </div>
+                              <div>
+                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status</label>
+                                <select
+                                  value={it._ws}
+                                  onChange={e => saveItemField(it.id, "working_status", e.target.value)}
+                                  style={ic}>
+                                  {STATUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>ETA</label>
+                                <input
+                                  type="date"
+                                  value={it.client_eta || ""}
+                                  onChange={e => saveItemField(it.id, "client_eta", e.target.value || null)}
+                                  style={{...ic,fontFamily:mono}}/>
+                              </div>
+                              <div style={{gridColumn:"span 3"}}>
+                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Notes</label>
+                                <input
+                                  value={it.notes || ""}
+                                  onChange={e => saveItemField(it.id, "notes", e.target.value)}
+                                  style={ic}/>
+                              </div>
+                            </div>
+                            <div style={{display:"flex",gap:10,marginTop:10,alignItems:"center",justifyContent:"space-between"}}>
+                              <Link href={`/jobs/${it.jobId}`} style={{fontSize:11,color:T.accent,textDecoration:"none"}}>
+                                Open project →
+                              </Link>
+                              <span style={{fontSize:10,color:T.faint}}>
+                                Cost reads from sell_per_unit (changes propagate to quote/invoice/portal). Retail is private to this view.
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+          );
+        })()}
       </div>
 
       <ConfirmDialog
