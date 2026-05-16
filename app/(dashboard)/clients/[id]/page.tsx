@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SkeletonRows } from "@/components/Skeleton";
 import { QBCustomerChooser, type QBCurrent } from "@/components/QBCustomerChooser";
 import Link from "next/link";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { effectiveRevenue } from "@/lib/revenue";
 
 type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; client_hub_enabled?:boolean; portal_token?:string|null; company_id?:string|null; };
@@ -38,6 +39,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [previewFile, setPreviewFile] = useState<ClientFile|null>(null);
   const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
   const [itemViewMode, setItemViewMode] = useState<"list"|"tiles">("list");
+  const [infoExpanded, setInfoExpanded] = useState(false);
   const [portalCopied, setPortalCopied] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
 
@@ -463,10 +465,42 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       </div>
 
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        {/* Client info */}
-        {/* Client info + Contacts — single card, 2 columns */}
+        {/* Client info + Contacts — single card, 2 columns. Collapsible
+            because the form fields take a lot of vertical space and most
+            of the time we're just opening a client to look at projects /
+            items, not edit their billing address. Default collapsed; the
+            summary line keeps the most-scanned facts in view. */}
+        {(() => {
+          const primary = contacts.find(c => c.is_primary);
+          const summaryParts: string[] = [];
+          if (client.client_type) summaryParts.push(client.client_type.charAt(0).toUpperCase() + client.client_type.slice(1));
+          if (client.default_terms) summaryParts.push(client.default_terms.replace(/_/g, " "));
+          summaryParts.push(`${contacts.length} contact${contacts.length===1?"":"s"}`);
+          if (primary) summaryParts.push(`primary: ${primary.name}`);
+          const summary = summaryParts.join(" · ");
+          return (
         <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start"}}>
+          <button
+            type="button"
+            onClick={() => setInfoExpanded(v => !v)}
+            style={{
+              width:"100%", display:"flex", alignItems:"center", gap:10,
+              background:"transparent", border:"none", padding:0,
+              cursor:"pointer", textAlign:"left", fontFamily:font, color:T.text,
+            }}
+          >
+            {infoExpanded ? <ChevronDown size={16} color={T.muted} /> : <ChevronRight size={16} color={T.muted} />}
+            <span style={{fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>
+              Client Info
+            </span>
+            {!infoExpanded && summary && (
+              <span style={{fontSize:11,color:T.faint,marginLeft:"auto",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {summary}
+              </span>
+            )}
+          </button>
+          {infoExpanded && (
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start",marginTop:12}}>
             {/* Left — Client info */}
             <div>
               <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Client Info</div>
@@ -673,7 +707,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               </div>
             </div>
           </div>
+          )}
         </div>
+          );
+        })()}
 
         {/* History */}
         <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
