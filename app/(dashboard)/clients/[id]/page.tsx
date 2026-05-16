@@ -151,7 +151,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const [cRes, ctRes, jRes] = await Promise.all([
       supabase.from("clients").select("*").eq("id", params.id).single(),
       supabase.from("contacts").select("*").eq("client_id", params.id).order("name"),
-      supabase.from("jobs").select("*, costing_summary, type_meta, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
+      supabase.from("jobs").select("*, costing_summary, type_meta, shipping_route, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, received_at_hpd, blanks_order_cost, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
     ]);
     if (cRes.data) setClient(cRes.data);
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
@@ -296,7 +296,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   // Item history — flatten all items across all jobs. We carry the job's
   // phase + the item's pipeline_stage so each row can show its own
   // status chip (a delivered repeat and an in-production repeat of the
-  // same item don't get conflated under a single stage).
+  // same item don't get conflated under a single stage). Also carry
+  // shipping_route + received_at_hpd + blanks_order_cost so the Working
+  // Sheet status default can match what's true per-item in OpsHub
+  // (drop_ship + shipped = landed; ship_through + shipped + !received
+  // = still in production; etc.).
   const allItems = jobs.flatMap(j => (j.items || []).map((it: any) => ({
     ...it,
     jobId: j.id,
@@ -304,7 +308,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     jobNumber: (j as any).type_meta?.qb_invoice_number || j.job_number,
     jobDate: j.target_ship_date || j.created_at,
     jobPhase: j.phase,
+    shippingRoute: (j as any).shipping_route || null,
     pipelineStage: it.pipeline_stage || null,
+    receivedAtHpd: !!it.received_at_hpd,
+    blanksOrderCost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : 0,
     totalQty: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0),
     sizes: (it.buy_sheet_lines || []).map((l: any) => l.size),
     qtys: Object.fromEntries((it.buy_sheet_lines || []).map((l: any) => [l.size, l.qty_ordered])),
@@ -930,11 +937,49 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           const fmtMoney = (n: number) => "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           const fmtMoneyShort = (n: number) => "$" + Math.round(n || 0).toLocaleString();
 
-          const resolveWS = (it: any): "pending" | "in_production" | "landed" =>
-            (it.working_status as any) ||
-            (it.jobPhase === "complete" || it.jobPhase === "fulfillment" ? "landed" :
-             it.jobPhase === "production" || it.jobPhase === "receiving" ? "in_production" :
-             "pending");
+          // Default status derivation — mirrors the portal items API's
+          // mapStatus() so the worksheet reflects what's actually true
+          // per-item in OpsHub. Manual override (items.working_status)
+          // still wins when explicitly set.
+          //
+          //   Pending      — pre-production: not priced, no blanks
+          //                  ordered, no pipeline_stage yet.
+          //   In Production — at decorator, en route, at HPD, or
+          //                  preparing (priced/blanks ordered) but not
+          //                  yet landed at the client.
+          //   Landed       — job complete, OR drop_ship + shipped
+          //                  (decorator shipped direct to client).
+          const resolveWS = (it: any): "pending" | "in_production" | "landed" => {
+            if (it.working_status) return it.working_status;
+            const phase = it.jobPhase;
+            const ps = it.pipelineStage;
+            const route = it.shippingRoute;
+            const sell = Number(it.sell_per_unit) || 0;
+            const blanks = Number(it.blanksOrderCost) || 0;
+
+            // Whole-job locks
+            if (phase === "complete") return "landed";
+            if (phase === "cancelled" || phase === "on_hold") return "pending";
+
+            // Per-item production states
+            if (ps === "in_production" || ps === "strike_off") return "in_production";
+
+            if (ps === "shipped") {
+              // drop_ship: decorator ships direct to client = landed
+              // ship_through / stage: still in flight to client = in_production
+              return route === "drop_ship" ? "landed" : "in_production";
+            }
+
+            // Preparing — priced, blanks ordered, or legacy
+            // pipeline_stage='blanks_ordered'.
+            if (sell > 0 || blanks > 0 || ps === "blanks_ordered") return "in_production";
+
+            // Job-wide fallbacks for items that haven't been individually
+            // staged yet but the job has moved past production.
+            if (phase === "shipping" || phase === "receiving" || phase === "fulfillment" || phase === "production") return "in_production";
+
+            return "pending";
+          };
 
           const wsItems = allItems.map((it: any) => ({ ...it, _ws: resolveWS(it) }));
           const paidJobIds = new Set(
