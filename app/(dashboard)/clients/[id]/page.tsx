@@ -154,7 +154,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const [cRes, ctRes, jRes] = await Promise.all([
       supabase.from("clients").select("*").eq("id", params.id).single(),
       supabase.from("contacts").select("*").eq("client_id", params.id).order("name"),
-      supabase.from("jobs").select("*, costing_summary, type_meta, shipping_route, phase_timestamps, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, received_at_hpd, blanks_order_cost, archived_at, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
+      supabase.from("jobs").select("*, costing_summary, type_meta, shipping_route, phase_timestamps, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, received_at_hpd, blanks_order_cost, archived_at, completed_at, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
     ]);
     if (cRes.data) setClient(cRes.data);
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
@@ -331,6 +331,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         jobCompletedAt: ((j as any).phase_timestamps || {}).complete || null,
         pipelineStage: it.pipeline_stage || null,
         archivedAt: it.archived_at || null,
+        completedAt: it.completed_at || null,
         receivedAtHpd: !!it.received_at_hpd,
         blanksOrderCost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : 0,
         decoratorName,
@@ -988,6 +989,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             ...it,
             _ws: resolveItemStatus({
               archived_at: it.archivedAt,
+              completed_at: it.completedAt,
               pipeline_stage: it.pipelineStage,
               received_at_hpd: it.receivedAtHpd,
               sell_per_unit: it.sell_per_unit,
@@ -1288,28 +1290,68 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                               </div>
                               <div>
                                 <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status</label>
-                                <div style={{padding:"8px 10px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                                <div style={{padding:"8px 10px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
                                   <span style={{fontSize:11,fontWeight:700,color:stateColor,textTransform:"uppercase",letterSpacing:"0.06em"}}>
                                     {stateLabel}
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const next = isArchived ? null : new Date().toISOString();
-                                      saveItemField(it.id, "archived_at", next);
-                                      logWorksheet(it.jobId, isArchived ? `Unarchived — ${it.name}` : `Archived — ${it.name}`);
-                                    }}
-                                    style={{
-                                      fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:4,
-                                      background:"transparent",border:`1px solid ${T.border}`,color:T.muted,
-                                      cursor:"pointer",fontFamily:font,
-                                    }}
-                                    title="Archived items are hidden from active views">
-                                    {isArchived ? "Unarchive" : "Archive"}
-                                  </button>
+                                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                                    {/* Manual In Stock → Complete release. Stays manual
+                                        until fulfillment products are wired up. The
+                                        canonical resolver treats completed_at as an
+                                        override that wins over pipeline_stage. */}
+                                    {it._ws === "in_stock" && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          saveItemField(it.id, "completed_at", new Date().toISOString());
+                                          logWorksheet(it.jobId, `Marked Complete — ${it.name}`);
+                                        }}
+                                        style={{
+                                          fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:4,
+                                          background:T.green,border:"none",color:"#fff",
+                                          cursor:"pointer",fontFamily:font,
+                                        }}
+                                        title="Manually move from In Stock to Complete (e.g., released to retail)">
+                                        ✓ Mark Complete
+                                      </button>
+                                    )}
+                                    {it.completedAt && it._ws === "complete" && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          saveItemField(it.id, "completed_at", null);
+                                          logWorksheet(it.jobId, `Reopened (Complete → In Stock) — ${it.name}`);
+                                        }}
+                                        style={{
+                                          fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:4,
+                                          background:"transparent",border:`1px solid ${T.border}`,color:T.muted,
+                                          cursor:"pointer",fontFamily:font,
+                                        }}
+                                        title="Clear the manual completion — item reverts to whatever the underlying data says">
+                                        ↻ Reopen
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const next = isArchived ? null : new Date().toISOString();
+                                        saveItemField(it.id, "archived_at", next);
+                                        logWorksheet(it.jobId, isArchived ? `Unarchived — ${it.name}` : `Archived — ${it.name}`);
+                                      }}
+                                      style={{
+                                        fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:4,
+                                        background:"transparent",border:`1px solid ${T.border}`,color:T.muted,
+                                        cursor:"pointer",fontFamily:font,
+                                      }}
+                                      title="Archived items are hidden from active views">
+                                      {isArchived ? "Unarchive" : "Archive"}
+                                    </button>
+                                  </div>
                                 </div>
                                 <div style={{fontSize:9,color:T.faint,marginTop:4,lineHeight:1.4}}>
-                                  Derived from OpsHub. To change it, advance the project (send PO, enter tracking, mark complete).
+                                  {it.completedAt
+                                    ? "Manually completed. Reopen to fall back to underlying data."
+                                    : "Derived from OpsHub. Mark Complete on In Stock items to release them manually."}
                                 </div>
                               </div>
                               <div>

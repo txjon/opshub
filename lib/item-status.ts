@@ -45,6 +45,7 @@ export const ARCHIVE_GRACE_DAYS = 30;
 export interface ItemStatusInput {
   // From the item row
   archived_at?: string | null;
+  completed_at?: string | null;
   pipeline_stage?: string | null;
   received_at_hpd?: boolean | null;
   sell_per_unit?: number | null;
@@ -70,6 +71,12 @@ export function computeItemStatus(input: ItemStatusInput): ItemState {
 
   // On-hold overlay — preserves underlying progress but shown as on_hold
   if (phase === "on_hold") return "on_hold";
+
+  // Manual per-item completion — wins over pipeline_stage so a single
+  // In Stock item can be released to Complete without flipping the
+  // whole job's phase. Used until the fulfillment-product workflow
+  // is built out.
+  if (input.completed_at) return "complete";
 
   // Job phase complete — item is at minimum Complete. Check for auto-archive.
   if (phase === "complete") {
@@ -120,10 +127,14 @@ export function isPastArchiveGrace(jobCompletedAt: string | null | undefined): b
 
 // Full status resolver that includes the grace-period auto-archive
 // check. Most callers should use this.
+//
+// Grace timer source: per-item completed_at wins (manual release),
+// otherwise the job's completed timestamp.
 export function resolveItemStatus(input: ItemStatusInput & { job_completed_at?: string | null }): ItemState {
   const base = computeItemStatus(input);
-  if (base === "complete" && isPastArchiveGrace(input.job_completed_at)) {
-    return "archived";
+  if (base === "complete") {
+    const completedAt = input.completed_at || input.job_completed_at;
+    if (isPastArchiveGrace(completedAt)) return "archived";
   }
   return base;
 }

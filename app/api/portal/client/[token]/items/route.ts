@@ -52,7 +52,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    this item's decorator? Used by the canonical status compute).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, decorator_assignments(decorators(name, short_code))")
+      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, decorator_assignments(decorators(name, short_code))")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -138,6 +138,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           );
           return resolveItemStatus({
             archived_at: it.archived_at,
+            completed_at: it.completed_at,
             pipeline_stage: it.pipeline_stage,
             received_at_hpd: !!it.received_at_hpd,
             sell_per_unit: it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
