@@ -178,48 +178,12 @@ export default function ItemsPage() {
         })}
       </div>
 
-      {/* Search + filters */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 18 }}>
-        <input
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder={view === "history" ? "Search past orders…" : "Search your items by name, garment, or project…"}
-          style={{
-            width: "100%", padding: "12px 14px", fontSize: 14,
-            background: C.card, border: `1px solid ${C.border}`,
-            borderRadius: 8, outline: "none",
-            fontFamily: C.font, boxSizing: "border-box",
-          }}
-        />
-        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${C.border}`, paddingBottom: 6, alignItems: "center" }}>
-          {FILTERS.map(f => {
-            const isActive = filter === f.key;
-            const n = counts[f.key] || 0;
-            return (
-              <button key={f.key}
-                onClick={() => setFilter(f.key)}
-                style={{
-                  padding: "8px 0", minHeight: 40,
-                  background: "transparent",
-                  color: isActive ? C.text : C.muted,
-                  border: "none",
-                  borderBottom: isActive ? `2px solid ${C.text}` : "2px solid transparent",
-                  fontSize: 13, fontWeight: isActive ? 800 : 600, cursor: "pointer",
-                  fontFamily: C.font, marginBottom: -7,
-                }}>
-                {f.label} {n > 0 && <span style={{ opacity: 0.7 }}>· {n}</span>}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* KPI rollup — mirrors the internal Working Sheet so the client
           sees the same financial roll-up Jon does (their cost, retail
           if set, and profit per stage). Counts include only items in
           the active top-tab view (Current or History). */}
       {!loading && inView.length > 0 && (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 18, overflowX: "auto" }}>
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 14, overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 580 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${C.border}` }}>
@@ -254,6 +218,44 @@ export default function ItemsPage() {
           </table>
         </div>
       )}
+
+      {/* Filters + search on one row — filters on the left (wrap on
+          narrow screens), search input on the right with flex:1 so it
+          fills remaining width. */}
+      <div style={{ display: "flex", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${C.border}`, paddingBottom: 6, alignItems: "center", marginBottom: 14 }}>
+        {FILTERS.map(f => {
+          const isActive = filter === f.key;
+          const n = counts[f.key] || 0;
+          return (
+            <button key={f.key}
+              onClick={() => setFilter(f.key)}
+              style={{
+                padding: "8px 0", minHeight: 40,
+                background: "transparent",
+                color: isActive ? C.text : C.muted,
+                border: "none",
+                borderBottom: isActive ? `2px solid ${C.text}` : "2px solid transparent",
+                fontSize: 13, fontWeight: isActive ? 800 : 600, cursor: "pointer",
+                fontFamily: C.font, marginBottom: -7,
+              }}>
+              {f.label} {n > 0 && <span style={{ opacity: 0.7 }}>· {n}</span>}
+            </button>
+          );
+        })}
+        <input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder={view === "history" ? "Search past orders…" : "Search items, garment, or project…"}
+          style={{
+            marginLeft: "auto", flex: "1 1 220px", maxWidth: 360,
+            padding: "8px 12px", fontSize: 13,
+            background: C.card, border: `1px solid ${C.border}`,
+            borderRadius: 6, outline: "none",
+            fontFamily: C.font, boxSizing: "border-box",
+            marginBottom: 6,
+          }}
+        />
+      </div>
 
       {/* Grid */}
       {loading ? (
