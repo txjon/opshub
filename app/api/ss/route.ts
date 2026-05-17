@@ -36,7 +36,12 @@ export async function GET(request: NextRequest) {
         url = `${SS_BASE}/styles`;
       }
     } else if (endpoint === "products") {
-      url = `${SS_BASE}/products?styleId=${styleId}`;
+      // S&S started rejecting camelCase `styleId` on this endpoint
+      // (returns 500 "unhandled exception"). Lowercase `styleid` works.
+      // Discovered 2026-05-17 when colors stopped loading in the
+      // Product Builder. Their other endpoints still accept the old
+      // casing — only /products got tightened.
+      url = `${SS_BASE}/products?styleid=${styleId}`;
     } else if (endpoint === "brands") {
       url = `${SS_BASE}/brands`;
     } else if (endpoint === "orders") {

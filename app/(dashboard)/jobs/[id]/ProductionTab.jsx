@@ -25,7 +25,13 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
       let changed = false;
       items.forEach(it => {
         if (!next[it.id]) {
-          next[it.id] = { ship_tracking: it.ship_tracking || "", ship_notes: it.ship_notes || "", ship_qtys: it.ship_qtys || {} };
+          next[it.id] = {
+            ship_tracking: it.ship_tracking || "",
+            ship_notes: it.ship_notes || "",
+            ship_qtys: it.ship_qtys || {},
+            client_eta: it.client_eta || "",
+            client_eta_note: it.client_eta_note || "",
+          };
           changed = true;
         }
       });
@@ -46,8 +52,14 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
     const doSave = async () => {
       delete pendingSaves.current[key];
-      await supabase.from("items").update({ [field]: value || null }).eq("id", itemId);
-      if (onUpdateItem) onUpdateItem(itemId, { [field]: value || null });
+      const payload = { [field]: value || null };
+      // Stamp the override-set timestamp whenever client_eta changes so we
+      // can show "updated Nd ago" later. Setting eta to null clears it too.
+      if (field === "client_eta") {
+        payload.client_eta_set_at = value ? new Date().toISOString() : null;
+      }
+      await supabase.from("items").update(payload).eq("id", itemId);
+      if (onUpdateItem) onUpdateItem(itemId, payload);
     };
     pendingSaves.current[key] = doSave;
     saveTimers.current[key] = setTimeout(doSave, 800);
@@ -185,6 +197,32 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
             {/* Progress bar */}
             <div style={{ height: 3, background: T.surface }}>
               <div style={{ height: "100%", width: pct + "%", background: pct === 100 ? T.green : T.accent, transition: "width 0.3s" }} />
+            </div>
+
+            {/* Client ETA — manual override of the date shown to the client.
+                Independent from vendor ship dates and tracking. Left blank
+                falls back to job.target_ship_date on the client portal. */}
+            <div style={{ padding: "10px 14px 0" }}>
+              <div style={{ background: T.surface, borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Client ETA</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ flexShrink: 0 }}>
+                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Estimated delivery</label>
+                    <input type="date"
+                      value={f.client_eta || ""}
+                      onChange={e => updateField(item.id, "client_eta", e.target.value)}
+                      style={{ ...ic, width: 160, fontFamily: mono }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Note <span style={{ color: T.faint }}>(shown to client)</span></label>
+                    <input type="text"
+                      value={f.client_eta_note || ""}
+                      placeholder="e.g. freight delay, rebooked"
+                      onChange={e => updateField(item.id, "client_eta_note", e.target.value)}
+                      style={ic} />
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Tracking + qtys — always visible, entering tracking auto-advances to shipped */}

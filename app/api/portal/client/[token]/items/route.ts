@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { resolveItemStatus } from "@/lib/item-status";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,55 +17,9 @@ function admin() {
 //   2. The Staging release planner — the left-side item pool that gets
 //      dragged into release buckets
 //
-// Sanitized like the Orders endpoint: client-facing status only, no
-// decorator names, no internal phase labels. Thumbs pulled from
-// item_files (mockup > proof > print_ready).
-
-type ClientItemStatus = "draft" | "preparing" | "in_production" | "shipping" | "delivered" | "paused" | "cancelled";
-
-function mapStatus(
-  pipelineStage: string | null,
-  phase: string,
-  shippingRoute: string | null,
-  receivedAtHpd: boolean,
-  blanksOrderCost: number | null,
-  sellPerUnit: number | null,
-): ClientItemStatus {
-  // Whole-job locks first — they trump every per-item state.
-  if (phase === "cancelled") return "cancelled";
-  if (phase === "on_hold") return "paused";
-  if (phase === "complete") return "delivered";
-
-  // Per-item production states (same for every route).
-  if (pipelineStage === "in_production" || pipelineStage === "strike_off") return "in_production";
-
-  // "Shipped" interpretation depends on route. Fulfillment / outbound
-  // to client is intentionally NOT considered yet — that flow is still
-  // half-built; for the client portal, "Delivered" = production is
-  // complete from our side:
-  //   drop_ship → decorator ships direct to client = Delivered
-  //   stage / ship_through → received at HPD = Delivered (it's at our
-  //     warehouse, production complete). In transit to HPD = Shipping.
-  if (pipelineStage === "shipped") {
-    if (shippingRoute === "drop_ship") return "delivered";
-    return receivedAtHpd ? "delivered" : "shipping";
-  }
-
-  // "Preparing" = HPD has taken concrete action on the item. The
-  // earliest signal is costing — once sell_per_unit is set, the
-  // item has been priced + a decorator/route picked, which from
-  // the client's view means we're prepping their order. Blanks
-  // ordering and the legacy pipeline_stage='blanks_ordered' label
-  // both also qualify.
-  if ((sellPerUnit ?? 0) > 0 || (blanksOrderCost ?? 0) > 0 || pipelineStage === "blanks_ordered") {
-    return "preparing";
-  }
-
-  // Job-wide fallbacks for items where pipeline_stage isn't set yet.
-  if (phase === "shipping" || phase === "receiving" || phase === "fulfillment") return "shipping";
-
-  return "draft";
-}
+// Status comes from the canonical lib/item-status resolver so the
+// portal matches the internal Worksheet, Project Overview, Production
+// page, etc. — one source of truth, one vocabulary on every surface.
 
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   try {
@@ -82,7 +37,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    UI can filter. A "paid to archive" toggle can hide them client-side.)
     const { data: jobs } = await db
       .from("jobs")
-      .select("id, job_number, title, phase, target_ship_date, created_at, shipping_route")
+      .select("id, job_number, title, phase, target_ship_date, created_at, shipping_route, phase_timestamps, type_meta")
       .eq("client_id", client.id)
       .order("created_at", { ascending: false });
     const jobById: Record<string, any> = {};
@@ -92,13 +47,23 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       return NextResponse.json({ client: { name: client.name }, items: [] });
     }
 
-    // 3. Fetch every item on those jobs.
+    // 3. Fetch every item on those jobs — including the decorator
+    //    assignment so we can resolve po_sent per item (PO sent for
+    //    this item's decorator? Used by the canonical status compute).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order")
+      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, decorator_assignments(decorators(name, short_code))")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
+
+    // Pre-compute the lower-cased po_sent_vendors set per job so the
+    // per-item check stays cheap inside the map() below.
+    const poSentByJob: Record<string, Set<string>> = {};
+    for (const j of (jobs || [])) {
+      const arr = ((j as any).type_meta?.po_sent_vendors || []) as string[];
+      poSentByJob[(j as any).id] = new Set(arr.map(s => (s || "").toLowerCase().trim()).filter(Boolean));
+    }
 
     // 4. Buy sheet lines for qty roll-up per item.
     const { data: bsLines } = await db
@@ -109,6 +74,32 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     for (const l of (bsLines || [])) {
       qtyByItem[l.item_id] = (qtyByItem[l.item_id] || 0) + (Number(l.qty_ordered) || 0);
     }
+
+    // 4b. Payment summary per job. The item detail modal shows the
+    //     job's invoice # + nuanced payment status (paid / partial /
+    //     unpaid). All items on the same job share the same payment
+    //     state — the worksheet roll-up doesn't break down per item.
+    const { data: paymentRows } = await db
+      .from("payment_records")
+      .select("job_id, status, amount")
+      .in("job_id", jobIds);
+    const paymentByJob: Record<string, { status: "paid" | "partial" | "unpaid" | "none"; paid: boolean }> = {};
+    for (const jid of jobIds) {
+      const rows = (paymentRows || []).filter((p: any) => p.job_id === jid);
+      const hasIssued = rows.some((p: any) => p.status && !["draft", "void"].includes(p.status));
+      const paidAmt = rows.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      const totalAmt = rows.filter((p: any) => p.status && !["draft", "void"].includes(p.status))
+        .reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      let status: "paid" | "partial" | "unpaid" | "none" = "none";
+      if (!hasIssued) status = "none";
+      else if (paidAmt > 0 && paidAmt >= totalAmt - 0.01) status = "paid";
+      else if (paidAmt > 0) status = "partial";
+      else status = "unpaid";
+      paymentByJob[jid] = { status, paid: status === "paid" };
+    }
+    const paidJobs = new Set(
+      Object.entries(paymentByJob).filter(([, v]) => v.paid).map(([k]) => k)
+    );
 
     // 5. Thumbnails — prefer mockup > proof > print_ready (matches Orders tab).
     const thumbByItem: Record<string, string | null> = {};
@@ -162,22 +153,55 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         garment_type: it.garment_type || null,
         mockup_color: it.mockup_color || null,
         qty: qtyByItem[it.id] || 0,
-        status: mapStatus(
-          it.pipeline_stage,
-          job.phase || "",
-          job.shipping_route || null,
-          !!it.received_at_hpd,
-          it.blanks_order_cost != null ? Number(it.blanks_order_cost) : null,
-          it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
-        ),
+        status: (() => {
+          const assignment = it.decorator_assignments?.[0];
+          const decName = assignment?.decorators?.name || null;
+          const decShort = assignment?.decorators?.short_code || null;
+          const sentSet = poSentByJob[it.job_id] || new Set();
+          const poSent = !!(
+            (decName && sentSet.has(decName.toLowerCase())) ||
+            (decShort && sentSet.has(decShort.toLowerCase()))
+          );
+          return resolveItemStatus({
+            archived_at: it.archived_at,
+            completed_at: it.completed_at,
+            pipeline_stage: it.pipeline_stage,
+            received_at_hpd: !!it.received_at_hpd,
+            sell_per_unit: it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
+            blanks_order_cost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : null,
+            po_sent: poSent,
+            job_phase: job.phase || null,
+            job_shipping_route: job.shipping_route || null,
+            item_shipping_route: it.shipping_route || null,
+            job_completed_at: (job.phase_timestamps as any)?.complete || null,
+          });
+        })(),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,
+        client_eta: it.client_eta || null,
+        client_eta_note: it.client_eta_note || null,
+        archived_at: it.archived_at || null,
+        // Financial fields — same as the internal worksheet. Cost is
+        // what the client paid us per unit (sell_per_unit on items);
+        // retail is what the client charges their end customer.
+        // Profit derived on the client side for consistency.
+        cost: it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
+        retail: it.client_retail_per_unit != null ? Number(it.client_retail_per_unit) : null,
+        notes: it.notes || null,
+        paid: paidJobs.has(it.job_id),
+        payment_status: paymentByJob[it.job_id]?.status || "none",
+        // Invoice number — prefer QB invoice # (HPD), fall back to
+        // Stripe invoice # (IHM). Either lives in jobs.type_meta.
+        invoice_number: (job.type_meta as any)?.qb_invoice_number
+          || (job.type_meta as any)?.stripe_invoice_number
+          || null,
         job: {
           id: it.job_id,
           job_number: job.job_number || null,
           title: job.title || null,
           phase: job.phase || null,
           target_ship_date: job.target_ship_date || null,
+          completed_at: (job as any).phase_timestamps?.complete || null,
         },
         brief: brief ? { id: brief.id, title: brief.title, state: brief.state } : null,
         design_id: it.design_id || null,
