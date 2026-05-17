@@ -44,7 +44,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [itemViewMode, setItemViewMode] = useState<"list"|"tiles">("list");
   const [infoExpanded, setInfoExpanded] = useState(false);
   const [workingExpanded, setWorkingExpanded] = useState(true);
-  const [workingTab, setWorkingTab] = useState<"setup"|"in_production"|"shipped"|"complete"|"archived">("in_production");
+  const [workingTab, setWorkingTab] = useState<"setup"|"in_production"|"shipped"|"in_stock"|"complete"|"archived">("in_production");
   const [workingRowExpanded, setWorkingRowExpanded] = useState<string|null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const itemSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -970,6 +970,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             _ws: resolveItemStatus({
               archived_at: it.archivedAt,
               pipeline_stage: it.pipelineStage,
+              received_at_hpd: it.receivedAtHpd,
               sell_per_unit: it.sell_per_unit,
               blanks_order_cost: it.blanksOrderCost,
               job_phase: it.jobPhase,
@@ -991,11 +992,12 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             }
             return { count, qty, cost, gross, profit: gross - cost };
           };
-          type TabKey = "setup" | "in_production" | "shipped" | "complete" | "archived";
+          type TabKey = "setup" | "in_production" | "shipped" | "in_stock" | "complete" | "archived";
           const byStatus: Record<TabKey, any[]> = {
             setup: wsItems.filter((it: any) => it._ws === "setup"),
             in_production: wsItems.filter((it: any) => it._ws === "in_production"),
             shipped: wsItems.filter((it: any) => it._ws === "shipped"),
+            in_stock: wsItems.filter((it: any) => it._ws === "in_stock"),
             complete: wsItems.filter((it: any) => it._ws === "complete"),
             archived: wsItems.filter((it: any) => it._ws === "archived" || it._ws === "cancelled"),
           };
@@ -1004,17 +1006,21 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             setup: rollup(byStatus.setup),
             in_production: rollup(byStatus.in_production),
             shipped: rollup(byStatus.shipped),
+            in_stock: rollup(byStatus.in_stock),
             complete: rollup(byStatus.complete),
             archived: rollup(byStatus.archived),
             active_total: rollup(activeWsItems),
           };
           const currentItems = byStatus[workingTab];
 
-          // Tabs across the worksheet — 4 active + an Archived toggle.
+          // Tabs across the worksheet — 5 active + an Archived toggle.
+          // Teal "In Stock" sits between purple "Shipped" and green
+          // "Complete" — distinct from both visually.
           const STATUS_OPTS: { value: TabKey; label: string; color: string }[] = [
             { value: "setup", label: STATE_LABELS.setup, color: T.muted },
             { value: "in_production", label: STATE_LABELS.in_production, color: T.accent },
             { value: "shipped", label: STATE_LABELS.shipped, color: T.purple },
+            { value: "in_stock", label: STATE_LABELS.in_stock, color: "#14b8a6" },
             { value: "complete", label: STATE_LABELS.complete, color: T.green },
           ];
 
@@ -1146,6 +1152,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                       setup: T.muted,
                       in_production: T.accent,
                       shipped: T.purple,
+                      in_stock: "#14b8a6",
                       complete: T.green,
                       archived: T.faint,
                       on_hold: T.amber,

@@ -5,12 +5,16 @@
 // vocabulary, same answer everywhere. No more "the same item shows
 // Delivered on the portal and In Production on the project page."
 //
-// 4 active states + Archived + 2 modifiers:
+// 5 active states + Archived + 2 modifiers:
 //
 //   setup          — default. Pre-PO. Costing, art, payment, blanks.
 //   in_production  — PO sent, decorator hasn't shipped yet.
-//   shipped        — Left decorator, HPD still has outbound to do.
-//                    (Drop-ship items skip this — go straight to complete.)
+//   shipped        — Left decorator, in transit to HPD. (Drop-ship
+//                    items skip this — they go straight to complete
+//                    because the decorator ships direct to client.)
+//   in_stock       — Received at HPD warehouse. Sitting, waiting on
+//                    next action (retail release for stage route, or
+//                    outbound forwarding for ship-through).
 //   complete       — HPD's last shipping action taken.
 //   archived       — Complete + grace period elapsed, or manually
 //                    archived, or job cancelled. Hidden from active views.
@@ -26,12 +30,13 @@ export type ItemState =
   | "setup"
   | "in_production"
   | "shipped"
+  | "in_stock"
   | "complete"
   | "archived"
   | "on_hold"
   | "cancelled";
 
-export const ACTIVE_STATES: ItemState[] = ["setup", "in_production", "shipped", "complete"];
+export const ACTIVE_STATES: ItemState[] = ["setup", "in_production", "shipped", "in_stock", "complete"];
 export const HISTORICAL_STATES: ItemState[] = ["archived", "cancelled"];
 
 // Days an item stays in Complete before auto-archiving.
@@ -41,6 +46,7 @@ export interface ItemStatusInput {
   // From the item row
   archived_at?: string | null;
   pipeline_stage?: string | null;
+  received_at_hpd?: boolean | null;
   sell_per_unit?: number | null;
   blanks_order_cost?: number | null;
   // From the parent job
@@ -75,8 +81,11 @@ export function computeItemStatus(input: ItemStatusInput): ItemState {
     // Drop-ship: decorator's tracking IS the customer delivery. Item
     // is Complete from HPD's side as soon as the decorator ships.
     if (route === "drop_ship") return "complete";
-    // Ship-through / stage: decorator → HPD leg, then HPD outbound.
-    // Still in the Shipped bucket until HPD's outbound action.
+    // Ship-through / stage: once HPD has received the item it's
+    // physically in our warehouse waiting on next action (retail
+    // release for stage, outbound forwarding for ship_through).
+    // Distinguishes "in transit to HPD" from "at HPD, waiting."
+    if (input.received_at_hpd) return "in_stock";
     return "shipped";
   }
   if (ps === "in_production" || ps === "strike_off") return "in_production";
@@ -125,6 +134,7 @@ export const STATE_LABELS: Record<ItemState, string> = {
   setup: "Setup",
   in_production: "In Production",
   shipped: "Shipped",
+  in_stock: "In Stock",
   complete: "Complete",
   archived: "Archived",
   on_hold: "On Hold",
@@ -133,12 +143,13 @@ export const STATE_LABELS: Record<ItemState, string> = {
 
 // Semantic color band per state. Callers map this onto their own
 // palette (T.* for internal, C.* for portal).
-export type ColorBand = "muted" | "blue" | "purple" | "green" | "faint" | "amber" | "red";
+export type ColorBand = "muted" | "blue" | "purple" | "teal" | "green" | "faint" | "amber" | "red";
 
 export const STATE_COLOR_BANDS: Record<ItemState, ColorBand> = {
   setup: "muted",
   in_production: "blue",
   shipped: "purple",
+  in_stock: "teal",
   complete: "green",
   archived: "faint",
   on_hold: "amber",

@@ -120,6 +120,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         status: resolveItemStatus({
           archived_at: it.archived_at,
           pipeline_stage: it.pipeline_stage,
+          received_at_hpd: !!it.received_at_hpd,
           sell_per_unit: it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
           blanks_order_cost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : null,
           job_phase: job.phase || null,
