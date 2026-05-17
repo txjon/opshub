@@ -55,9 +55,10 @@ const STATUS_META: Record<ItemState, { label: string; color: string; bg: string 
   cancelled:     { label: STATE_LABELS.cancelled,     color: C.red,    bg: C.redBg },
 };
 
+// Filters mirror the internal Working Sheet — same 4 stage buckets,
+// same default (In Production), no Active/All collapses. The client
+// sees their items the same way Jon sees them in the worksheet.
 const FILTERS: Array<{ key: string; label: string; matches: (s: ItemState) => boolean }> = [
-  { key: "active", label: "Active", matches: s => s === "setup" || s === "in_production" || s === "shipped" },
-  { key: "all", label: "All", matches: () => true },
   { key: "setup", label: "Setup", matches: s => s === "setup" },
   { key: "in_production", label: "In Production", matches: s => s === "in_production" },
   { key: "shipped", label: "Shipped", matches: s => s === "shipped" },
@@ -69,7 +70,7 @@ export default function ItemsPage() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("active");
+  const [filter, setFilter] = useState("in_production");
   const [detail, setDetail] = useState<Item | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "tiles">("list");
   // Current orders (default) vs History. Past orders (delivered 30+ days
@@ -123,7 +124,7 @@ export default function ItemsPage() {
           const label = v === "current" ? "Current Orders" : "History";
           return (
             <button key={v}
-              onClick={() => { setView(v); setFilter("active"); }}
+              onClick={() => { setView(v); setFilter("in_production"); }}
               style={{
                 background: "transparent", border: "none",
                 padding: "10px 16px", marginBottom: -1,
