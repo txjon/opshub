@@ -2,8 +2,7 @@
 import { useEffect, useState } from "react";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate, fmtDateYear, daysUntil } from "../_shared/theme";
-
-type ClientItemStatus = "draft" | "preparing" | "in_production" | "shipping" | "delivered" | "paused" | "cancelled";
+import { ItemState, STATE_LABELS } from "@/lib/item-status";
 
 type Item = {
   id: string;
@@ -11,7 +10,7 @@ type Item = {
   garment_type: string | null;
   mockup_color: string | null;
   qty: number;
-  status: ClientItemStatus;
+  status: ItemState;
   thumb_id: string | null;
   created_at: string;
   client_eta: string | null;
@@ -29,19 +28,11 @@ type Item = {
   design_id: string | null;
 };
 
-// Days since job completion before an item moves to History tab.
-// Matches the worksheet's ARCHIVE_GRACE_DAYS so the same item drops
-// out of active views at the same time internally and externally.
-const HISTORY_GRACE_DAYS = 30;
-
+// History bucket = archived or cancelled. Since the canonical lib
+// already collapses Complete + 30d-grace into "archived" server-side,
+// we just check the resolved state here.
 function isItemArchived(it: Item): boolean {
-  if (it.archived_at) return true;
-  if (it.status === "cancelled") return true;
-  if (it.status === "delivered" && it.job.completed_at) {
-    const days = (Date.now() - new Date(it.job.completed_at).getTime()) / 86400000;
-    if (days >= HISTORY_GRACE_DAYS) return true;
-  }
-  return false;
+  return it.status === "archived" || it.status === "cancelled";
 }
 
 // ETA resolver — manual override wins over job target ship date.
@@ -52,24 +43,25 @@ function resolveItemEta(it: Item): { date: string; isOverride: boolean } | null 
   return null;
 }
 
-const STATUS_META: Record<ClientItemStatus, { label: string; color: string; bg: string }> = {
-  draft: { label: "Draft", color: C.muted, bg: C.surface },
-  preparing: { label: "Preparing", color: C.muted, bg: C.surface },
-  in_production: { label: "In Production", color: C.blue, bg: C.blueBg },
-  shipping: { label: "Shipping", color: C.amber, bg: C.amberBg },
-  delivered: { label: "Delivered", color: C.green, bg: C.greenBg },
-  paused: { label: "Paused", color: C.muted, bg: C.surface },
-  cancelled: { label: "Cancelled", color: C.red, bg: C.redBg },
+// Status display — same labels (STATE_LABELS) the internal worksheet
+// uses; colors mapped onto the portal's C palette.
+const STATUS_META: Record<ItemState, { label: string; color: string; bg: string }> = {
+  setup:         { label: STATE_LABELS.setup,         color: C.muted,  bg: C.surface },
+  in_production: { label: STATE_LABELS.in_production, color: C.blue,   bg: C.blueBg },
+  shipped:       { label: STATE_LABELS.shipped,       color: C.purple, bg: C.purpleBg },
+  complete:      { label: STATE_LABELS.complete,      color: C.green,  bg: C.greenBg },
+  archived:      { label: STATE_LABELS.archived,      color: C.faint,  bg: C.surface },
+  on_hold:       { label: STATE_LABELS.on_hold,       color: C.amber,  bg: C.amberBg },
+  cancelled:     { label: STATE_LABELS.cancelled,     color: C.red,    bg: C.redBg },
 };
 
-const FILTERS: Array<{ key: string; label: string; matches: (s: ClientItemStatus) => boolean }> = [
-  { key: "active", label: "Active", matches: s => s !== "delivered" && s !== "cancelled" && s !== "paused" },
+const FILTERS: Array<{ key: string; label: string; matches: (s: ItemState) => boolean }> = [
+  { key: "active", label: "Active", matches: s => s === "setup" || s === "in_production" || s === "shipped" },
   { key: "all", label: "All", matches: () => true },
-  { key: "preparing", label: "Preparing", matches: s => s === "preparing" },
+  { key: "setup", label: "Setup", matches: s => s === "setup" },
   { key: "in_production", label: "In Production", matches: s => s === "in_production" },
-  { key: "shipping", label: "Shipping", matches: s => s === "shipping" },
-  { key: "delivered", label: "Delivered", matches: s => s === "delivered" },
-  { key: "draft", label: "Draft", matches: s => s === "draft" },
+  { key: "shipped", label: "Shipped", matches: s => s === "shipped" },
+  { key: "complete", label: "Complete", matches: s => s === "complete" },
 ];
 
 export default function ItemsPage() {

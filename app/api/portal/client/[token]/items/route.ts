@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { resolveItemStatus } from "@/lib/item-status";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,55 +17,9 @@ function admin() {
 //   2. The Staging release planner — the left-side item pool that gets
 //      dragged into release buckets
 //
-// Sanitized like the Orders endpoint: client-facing status only, no
-// decorator names, no internal phase labels. Thumbs pulled from
-// item_files (mockup > proof > print_ready).
-
-type ClientItemStatus = "draft" | "preparing" | "in_production" | "shipping" | "delivered" | "paused" | "cancelled";
-
-function mapStatus(
-  pipelineStage: string | null,
-  phase: string,
-  shippingRoute: string | null,
-  receivedAtHpd: boolean,
-  blanksOrderCost: number | null,
-  sellPerUnit: number | null,
-): ClientItemStatus {
-  // Whole-job locks first — they trump every per-item state.
-  if (phase === "cancelled") return "cancelled";
-  if (phase === "on_hold") return "paused";
-  if (phase === "complete") return "delivered";
-
-  // Per-item production states (same for every route).
-  if (pipelineStage === "in_production" || pipelineStage === "strike_off") return "in_production";
-
-  // "Shipped" interpretation depends on route. Fulfillment / outbound
-  // to client is intentionally NOT considered yet — that flow is still
-  // half-built; for the client portal, "Delivered" = production is
-  // complete from our side:
-  //   drop_ship → decorator ships direct to client = Delivered
-  //   stage / ship_through → received at HPD = Delivered (it's at our
-  //     warehouse, production complete). In transit to HPD = Shipping.
-  if (pipelineStage === "shipped") {
-    if (shippingRoute === "drop_ship") return "delivered";
-    return receivedAtHpd ? "delivered" : "shipping";
-  }
-
-  // "Preparing" = HPD has taken concrete action on the item. The
-  // earliest signal is costing — once sell_per_unit is set, the
-  // item has been priced + a decorator/route picked, which from
-  // the client's view means we're prepping their order. Blanks
-  // ordering and the legacy pipeline_stage='blanks_ordered' label
-  // both also qualify.
-  if ((sellPerUnit ?? 0) > 0 || (blanksOrderCost ?? 0) > 0 || pipelineStage === "blanks_ordered") {
-    return "preparing";
-  }
-
-  // Job-wide fallbacks for items where pipeline_stage isn't set yet.
-  if (phase === "shipping" || phase === "receiving" || phase === "fulfillment") return "shipping";
-
-  return "draft";
-}
+// Status comes from the canonical lib/item-status resolver so the
+// portal matches the internal Worksheet, Project Overview, Production
+// page, etc. — one source of truth, one vocabulary on every surface.
 
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   try {
@@ -162,14 +117,15 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         garment_type: it.garment_type || null,
         mockup_color: it.mockup_color || null,
         qty: qtyByItem[it.id] || 0,
-        status: mapStatus(
-          it.pipeline_stage,
-          job.phase || "",
-          job.shipping_route || null,
-          !!it.received_at_hpd,
-          it.blanks_order_cost != null ? Number(it.blanks_order_cost) : null,
-          it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
-        ),
+        status: resolveItemStatus({
+          archived_at: it.archived_at,
+          pipeline_stage: it.pipeline_stage,
+          sell_per_unit: it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
+          blanks_order_cost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : null,
+          job_phase: job.phase || null,
+          job_shipping_route: job.shipping_route || null,
+          job_completed_at: (job.phase_timestamps as any)?.complete || null,
+        }),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,
         client_eta: it.client_eta || null,
