@@ -37,7 +37,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    UI can filter. A "paid to archive" toggle can hide them client-side.)
     const { data: jobs } = await db
       .from("jobs")
-      .select("id, job_number, title, phase, target_ship_date, created_at, shipping_route, phase_timestamps")
+      .select("id, job_number, title, phase, target_ship_date, created_at, shipping_route, phase_timestamps, type_meta")
       .eq("client_id", client.id)
       .order("created_at", { ascending: false });
     const jobById: Record<string, any> = {};
@@ -47,13 +47,23 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       return NextResponse.json({ client: { name: client.name }, items: [] });
     }
 
-    // 3. Fetch every item on those jobs.
+    // 3. Fetch every item on those jobs — including the decorator
+    //    assignment so we can resolve po_sent per item (PO sent for
+    //    this item's decorator? Used by the canonical status compute).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at")
+      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, decorator_assignments(decorators(name, short_code))")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
+
+    // Pre-compute the lower-cased po_sent_vendors set per job so the
+    // per-item check stays cheap inside the map() below.
+    const poSentByJob: Record<string, Set<string>> = {};
+    for (const j of (jobs || [])) {
+      const arr = ((j as any).type_meta?.po_sent_vendors || []) as string[];
+      poSentByJob[(j as any).id] = new Set(arr.map(s => (s || "").toLowerCase().trim()).filter(Boolean));
+    }
 
     // 4. Buy sheet lines for qty roll-up per item.
     const { data: bsLines } = await db
@@ -117,16 +127,27 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         garment_type: it.garment_type || null,
         mockup_color: it.mockup_color || null,
         qty: qtyByItem[it.id] || 0,
-        status: resolveItemStatus({
-          archived_at: it.archived_at,
-          pipeline_stage: it.pipeline_stage,
-          received_at_hpd: !!it.received_at_hpd,
-          sell_per_unit: it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
-          blanks_order_cost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : null,
-          job_phase: job.phase || null,
-          job_shipping_route: job.shipping_route || null,
-          job_completed_at: (job.phase_timestamps as any)?.complete || null,
-        }),
+        status: (() => {
+          const assignment = it.decorator_assignments?.[0];
+          const decName = assignment?.decorators?.name || null;
+          const decShort = assignment?.decorators?.short_code || null;
+          const sentSet = poSentByJob[it.job_id] || new Set();
+          const poSent = !!(
+            (decName && sentSet.has(decName.toLowerCase())) ||
+            (decShort && sentSet.has(decShort.toLowerCase()))
+          );
+          return resolveItemStatus({
+            archived_at: it.archived_at,
+            pipeline_stage: it.pipeline_stage,
+            received_at_hpd: !!it.received_at_hpd,
+            sell_per_unit: it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
+            blanks_order_cost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : null,
+            po_sent: poSent,
+            job_phase: job.phase || null,
+            job_shipping_route: job.shipping_route || null,
+            job_completed_at: (job.phase_timestamps as any)?.complete || null,
+          });
+        })(),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,
         client_eta: it.client_eta || null,

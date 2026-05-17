@@ -154,7 +154,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const [cRes, ctRes, jRes] = await Promise.all([
       supabase.from("clients").select("*").eq("id", params.id).single(),
       supabase.from("contacts").select("*").eq("client_id", params.id).order("name"),
-      supabase.from("jobs").select("*, costing_summary, type_meta, shipping_route, phase_timestamps, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, received_at_hpd, blanks_order_cost, archived_at, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
+      supabase.from("jobs").select("*, costing_summary, type_meta, shipping_route, phase_timestamps, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, received_at_hpd, blanks_order_cost, archived_at, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
     ]);
     if (cRes.data) setClient(cRes.data);
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
@@ -296,32 +296,51 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const overdue = allPayments.filter((p: any) => p.due_date && new Date(p.due_date) < now && !["paid","void"].includes(p.status));
   const totalOverdue = overdue.reduce((a: number, p: any) => a + (p.amount || 0), 0);
 
-  // Item history — flatten all items across all jobs. We carry the job's
-  // phase + the item's pipeline_stage so each row can show its own
-  // status chip (a delivered repeat and an in-production repeat of the
-  // same item don't get conflated under a single stage). Also carry
-  // shipping_route + received_at_hpd + blanks_order_cost so the Working
-  // Sheet status default can match what's true per-item in OpsHub
-  // (drop_ship + shipped = landed; ship_through + shipped + !received
-  // = still in production; etc.).
-  const allItems = jobs.flatMap(j => (j.items || []).map((it: any) => ({
-    ...it,
-    jobId: j.id,
-    jobTitle: j.title,
-    jobNumber: (j as any).type_meta?.qb_invoice_number || j.job_number,
-    jobDate: j.target_ship_date || j.created_at,
-    jobPhase: j.phase,
-    shippingRoute: (j as any).shipping_route || null,
-    quoteApprovedAt: (j as any).quote_approved_at || null,
-    jobCompletedAt: ((j as any).phase_timestamps || {}).complete || null,
-    pipelineStage: it.pipeline_stage || null,
-    archivedAt: it.archived_at || null,
-    receivedAtHpd: !!it.received_at_hpd,
-    blanksOrderCost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : 0,
-    totalQty: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0),
-    sizes: (it.buy_sheet_lines || []).map((l: any) => l.size),
-    qtys: Object.fromEntries((it.buy_sheet_lines || []).map((l: any) => [l.size, l.qty_ordered])),
-  })));
+  // Item history — flatten all items across all jobs. We carry every
+  // input the canonical status resolver needs (lib/item-status):
+  //   - pipeline_stage, received_at_hpd, archived_at: per-item state signals
+  //   - jobPhase, shippingRoute, jobCompletedAt: job-level context (route
+  //     branching, complete + grace → archived)
+  //   - poSent: did a PO go out to this item's decorator? Computed by
+  //     intersecting jobs.type_meta.po_sent_vendors (case-insensitive)
+  //     with the item's decorator name. Without this, items priced but
+  //     still pre-PO would wrongly land In Production once any other
+  //     item on the same job had a PO sent (the job moves to phase
+  //     "production" once ANY item is POd).
+  const allItems = jobs.flatMap(j => {
+    const tm = (j as any).type_meta || {};
+    const sentRaw: string[] = Array.isArray(tm.po_sent_vendors) ? tm.po_sent_vendors : [];
+    const sentLower = new Set(sentRaw.map((s: string) => (s || "").toLowerCase().trim()).filter(Boolean));
+    return (j.items || []).map((it: any) => {
+      const assignment = it.decorator_assignments?.[0];
+      const decoratorName: string | null = assignment?.decorators?.name || null;
+      const decoratorShort: string | null = assignment?.decorators?.short_code || null;
+      const poSent = !!(
+        (decoratorName && sentLower.has(decoratorName.toLowerCase())) ||
+        (decoratorShort && sentLower.has(decoratorShort.toLowerCase()))
+      );
+      return {
+        ...it,
+        jobId: j.id,
+        jobTitle: j.title,
+        jobNumber: tm.qb_invoice_number || j.job_number,
+        jobDate: j.target_ship_date || j.created_at,
+        jobPhase: j.phase,
+        shippingRoute: (j as any).shipping_route || null,
+        quoteApprovedAt: (j as any).quote_approved_at || null,
+        jobCompletedAt: ((j as any).phase_timestamps || {}).complete || null,
+        pipelineStage: it.pipeline_stage || null,
+        archivedAt: it.archived_at || null,
+        receivedAtHpd: !!it.received_at_hpd,
+        blanksOrderCost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : 0,
+        decoratorName,
+        poSent,
+        totalQty: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0),
+        sizes: (it.buy_sheet_lines || []).map((l: any) => l.size),
+        qtys: Object.fromEntries((it.buy_sheet_lines || []).map((l: any) => [l.size, l.qty_ordered])),
+      };
+    });
+  });
 
   // Stage chip resolver — what to show next to each item instance.
   // Job phase drives it; pipeline_stage refines within production
@@ -973,6 +992,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               received_at_hpd: it.receivedAtHpd,
               sell_per_unit: it.sell_per_unit,
               blanks_order_cost: it.blanksOrderCost,
+              po_sent: it.poSent,
               job_phase: it.jobPhase,
               job_shipping_route: it.shippingRoute,
               job_completed_at: it.jobCompletedAt,

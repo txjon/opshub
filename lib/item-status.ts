@@ -76,7 +76,12 @@ export function computeItemStatus(input: ItemStatusInput): ItemState {
     return "complete";
   }
 
-  // Per-item production states (most specific signal)
+  // Per-item production states — only per-item signals decide which
+  // bucket an item lives in. The job phase is not used as a fallback
+  // because a job moves to "production" the moment ANY of its items
+  // has a PO sent; using job-phase to infer state would wrongly drag
+  // other items (still costing, still waiting on art, etc.) into
+  // In Production with them.
   if (ps === "shipped") {
     // Drop-ship: decorator's tracking IS the customer delivery. Item
     // is Complete from HPD's side as soon as the decorator ships.
@@ -90,19 +95,15 @@ export function computeItemStatus(input: ItemStatusInput): ItemState {
   }
   if (ps === "in_production" || ps === "strike_off") return "in_production";
 
-  // PO sent but no pipeline_stage set yet → still In Production
+  // PO sent but no pipeline_stage set yet → In Production. Caller
+  // resolves po_sent by checking jobs.type_meta.po_sent_vendors
+  // against this item's decorator name (we don't have the data here).
   if (input.po_sent) return "in_production";
-
-  // Job-wide signal: job is in production/receiving/fulfillment but
-  // this item has no per-item pipeline_stage. Fall back to In
-  // Production so it shows in active production views.
-  if (phase === "production" || phase === "receiving" || phase === "fulfillment") {
-    return "in_production";
-  }
 
   // Default — everything pre-PO is Setup, regardless of how much
   // setup work has been done (costing, art, blanks ordering). Those
-  // are gates, not states.
+  // are gates, not states. The single trigger out of Setup is a PO
+  // going to the decorator.
   return "setup";
 }
 
