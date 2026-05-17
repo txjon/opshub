@@ -105,8 +105,11 @@ export default function JobsPage() {
   // Items-list hover popover: hoveredJobId is set on the row that
   // currently has the mouse, after a small delay. Clearing is
   // immediate on leave to avoid stuck popovers when the cursor
-  // moves between rows.
+  // moves between rows. hoverDir flips to "up" when the row's
+  // bottom is too close to the viewport bottom so the popover
+  // doesn't fall off-screen at the end of a long list.
   const [hoveredJobId, setHoveredJobId] = useState<string|null>(null);
+  const [hoverDir, setHoverDir] = useState<"down"|"up">("down");
   const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout>|null>(null);
   const now = new Date();
 
@@ -488,6 +491,14 @@ export default function JobsPage() {
               }}
               onMouseEnter={e => {
                 (e.currentTarget as HTMLDivElement).style.background = T.surface;
+                // Decide popover direction up-front based on viewport
+                // space so the panel flips above the row when it would
+                // fall off the bottom of a long list. Threshold ~ panel
+                // height (≈ 240px for a typical 5-item job).
+                const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                const spaceBelow = window.innerHeight - rect.bottom;
+                const spaceAbove = rect.top;
+                setHoverDir(spaceBelow < 260 && spaceAbove > spaceBelow ? "up" : "down");
                 // 250ms delay so brushing past rows doesn't pop the panel.
                 if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
                 hoverTimerRef.current = setTimeout(() => setHoveredJobId(job.id), 250);
@@ -584,7 +595,9 @@ export default function JobsPage() {
                 <div
                   style={{
                     position: "absolute",
-                    top: "calc(100% + 4px)",
+                    ...(hoverDir === "up"
+                      ? { bottom: "calc(100% + 4px)", top: "auto" }
+                      : { top: "calc(100% + 4px)", bottom: "auto" }),
                     left: 18,
                     background: T.card,
                     border: `1px solid ${T.border}`,

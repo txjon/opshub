@@ -22,7 +22,7 @@ const PHASE_COLORS: Record<string,{bg:string,text:string}> = {
   ready:{bg:T.amberDim,text:"#a07008"}, production:{bg:T.blueDim,text:"#3a8a9e"},
   receiving:{bg:T.blueDim,text:"#3a8a9e"}, fulfillment:{bg:T.purpleDim,text:"#c4207a"},
   complete:{bg:T.greenDim,text:T.green}, on_hold:{bg:T.redDim,text:T.red},
-  cancelled:{bg:T.faint,text:T.muted},
+  cancelled:{bg:T.faint,text:T.muted}, archived:{bg:T.surface,text:T.faint},
 };
 const ic = {width:"100%",padding:"6px 10px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:"13px",fontFamily:font,boxSizing:"border-box" as const,outline:"none"};
 
@@ -44,9 +44,14 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [itemViewMode, setItemViewMode] = useState<"list"|"tiles">("list");
   const [infoExpanded, setInfoExpanded] = useState(false);
   const [worksheetOpen, setWorksheetOpen] = useState(false);
-  const [workingTab, setWorkingTab] = useState<"setup"|"in_production"|"shipped"|"in_stock"|"complete"|"archived">("in_production");
+  const [workingTab, setWorkingTab] = useState<"setup"|"in_production"|"shipped"|"in_stock"|"archived">("in_production");
   const [workingRowExpanded, setWorkingRowExpanded] = useState<string|null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
+  // Direction the project-row hover popover should open. Flipped to
+  // "up" when the row sits near the bottom of the viewport so the
+  // panel doesn't slide under the page footer / get clipped.
+  const [projectHoverDir, setProjectHoverDir] = useState<"down" | "up">("down");
   const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
   const itemSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [portalCopied, setPortalCopied] = useState(false);
@@ -82,6 +87,16 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       document.body.style.overflow = prevOverflow;
     };
   }, [worksheetOpen]);
+
+  // Per-item editor modal — Esc closes. Body scroll lock isn't needed
+  // because the parent Worksheet modal already locks scroll while open
+  // (this only opens from inside it).
+  useEffect(() => {
+    if (!workingRowExpanded) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setWorkingRowExpanded(null); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [workingRowExpanded]);
 
   useEffect(() => {
     (async () => {
@@ -168,7 +183,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const [cRes, ctRes, jRes] = await Promise.all([
       supabase.from("clients").select("*").eq("id", params.id).single(),
       supabase.from("contacts").select("*").eq("client_id", params.id).order("name"),
-      supabase.from("jobs").select("*, costing_summary, type_meta, shipping_route, phase_timestamps, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, received_at_hpd, blanks_order_cost, archived_at, completed_at, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
+      supabase.from("jobs").select("*, costing_summary, type_meta, shipping_route, phase_timestamps, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, received_at_hpd, blanks_order_cost, archived_at, completed_at, shipping_route, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
     ]);
     if (cRes.data) setClient(cRes.data);
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
@@ -341,6 +356,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         jobDate: j.target_ship_date || j.created_at,
         jobPhase: j.phase,
         shippingRoute: (j as any).shipping_route || null,
+        itemShippingRoute: it.shipping_route || null,
         quoteApprovedAt: (j as any).quote_approved_at || null,
         jobCompletedAt: ((j as any).phase_timestamps || {}).complete || null,
         pipelineStage: it.pipeline_stage || null,
@@ -357,13 +373,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     });
   });
 
-  // Stage chip resolver — what to show next to each item instance.
-  // Job phase drives it; pipeline_stage refines within production
-  // (in_production vs shipped). Mirrors the colors used in the
-  // Projects list above for consistency.
+  // Stage chip resolver — what to show next to each item instance in
+  // History. Manually-archived items win first (archived_at flag) so a
+  // single item released from an in-flight job still reads as
+  // "Archived" rather than its job's current phase. After that, job
+  // phase drives the label; pipeline_stage refines within production.
   function instanceStage(inst: any): { label: string; color: { bg: string; text: string } } {
     const phase = inst.jobPhase as string;
     const ps = inst.pipelineStage as string | null;
+    if (inst.archivedAt) return { label: "Archived", color: PHASE_COLORS.archived };
     if (phase === "complete") return { label: "Delivered", color: PHASE_COLORS.complete };
     if (phase === "cancelled") return { label: "Cancelled", color: PHASE_COLORS.cancelled };
     if (phase === "on_hold") return { label: "On Hold", color: PHASE_COLORS.on_hold };
@@ -378,30 +396,71 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     return { label: "Setup", color: PHASE_COLORS.intake };
   }
 
-  // Sort order for the flat list view — active stages first so what's
-  // happening now floats to the top; terminal stages drop to the
-  // bottom. Within each bucket, most-recent ship/created date first.
-  const PHASE_PRIORITY: Record<string, number> = {
-    production: 1, receiving: 2, fulfillment: 3, ready: 4, pending: 5, intake: 6,
-    on_hold: 8, complete: 10, cancelled: 11,
-  };
-  const allItemsForList = [...allItems].sort((a, b) => {
-    const pa = PHASE_PRIORITY[a.jobPhase] ?? 9;
-    const pb = PHASE_PRIORITY[b.jobPhase] ?? 9;
-    if (pa !== pb) return pa - pb;
+  // History bucket — what counts as "done" from the client's POV.
+  // Item is archived if any of:
+  //   - archived_at set (manual archive)
+  //   - completed_at set (manual per-item complete)
+  //   - job phase is complete or cancelled (whole order finished)
+  // Active items (Setup/In Production/Shipped/In Stock) live in the
+  // Worksheet modal instead — keeping them out of History prevents
+  // double-counting and makes the History card a true past-orders view.
+  function isHistoricalItem(it: any): boolean {
+    return !!it.archivedAt || !!it.completedAt || it.jobPhase === "complete" || it.jobPhase === "cancelled";
+  }
+  const historicalItems = allItems.filter(isHistoricalItem);
+
+  // Sort order for the History list — most recent first by job date.
+  // Manual archives can predate or follow the job's natural completion
+  // so we just sort chronologically and let the user scan.
+  const allItemsForList = [...historicalItems].sort((a, b) => {
     const da = new Date(a.jobDate || 0).getTime();
     const db = new Date(b.jobDate || 0).getTime();
     return db - da;
   });
 
-  // Group by item identity (name + blank_vendor + blank_sku)
+  // Group by item identity (name + blank_vendor + blank_sku) — also
+  // scoped to historical items so the Tiles view matches the List view.
   const itemGroups: Record<string, any[]> = {};
-  for (const it of allItems) {
+  for (const it of historicalItems) {
     const key = `${it.name}||${it.blank_vendor || ""}||${it.blank_sku || ""}`;
     if (!itemGroups[key]) itemGroups[key] = [];
     itemGroups[key].push(it);
   }
   const sortedItemGroups = Object.entries(itemGroups).sort((a, b) => b[1].length - a[1].length);
+
+  // Per-item canonical status — hoisted above the Worksheet so the
+  // Orders row hover can show the same state vocabulary the worksheet
+  // does, without recomputing. Map keyed by item id for O(1) lookup.
+  const wsItemsAll = allItems.map((it: any) => ({
+    ...it,
+    _ws: resolveItemStatus({
+      archived_at: it.archivedAt,
+      completed_at: it.completedAt,
+      pipeline_stage: it.pipelineStage,
+      received_at_hpd: it.receivedAtHpd,
+      sell_per_unit: it.sell_per_unit,
+      blanks_order_cost: it.blanksOrderCost,
+      po_sent: it.poSent,
+      job_phase: it.jobPhase,
+      job_shipping_route: it.shippingRoute,
+      item_shipping_route: it.itemShippingRoute,
+      job_completed_at: it.jobCompletedAt,
+    }) as ItemState,
+  }));
+  const itemStateById = new Map<string, ItemState>();
+  for (const it of wsItemsAll) itemStateById.set(it.id, it._ws);
+
+  // Same state colors used in the Worksheet and on item rows below.
+  const ITEM_STATE_COLORS: Record<ItemState, string> = {
+    setup: T.muted,
+    in_production: T.accent,
+    shipped: T.purple,
+    in_stock: "#14b8a6",
+    complete: T.green,
+    archived: T.faint,
+    on_hold: T.amber,
+    cancelled: T.red,
+  };
 
   // Working Sheet — debounced auto-save for inline edits. Updates the
   // jobs state optimistically so the UI reflects the change immediately
@@ -877,7 +936,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 </div>
               )}
             </div>
-            <span style={{fontSize:10,color:T.faint}}>{historyView==="projects"?`${jobs.length} projects`:`${allItems.length} items`}</span>
+            <span style={{fontSize:10,color:T.faint}}>{historyView==="projects"?`${jobs.length} projects`:`${historicalItems.length} archived`}</span>
           </div>
 
           {historyView==="projects"&&(
@@ -885,38 +944,82 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               {jobs.length===0&&<p style={{fontSize:12,color:T.muted}}>No projects yet.</p>}
               <div style={{display:"flex",flexDirection:"column",gap:4}}>
                 {(() => {
-                  // Same color map the Worksheet uses for item rows. The
-                  // project list summarises a whole job, so we collapse
-                  // the raw jobs.phase into the canonical item state via
-                  // jobPhaseToItemState — keeps the vocabulary in sync
-                  // across the entire client hub.
-                  const STATE_COLORS: Record<ItemState, string> = {
-                    setup: T.muted,
-                    in_production: T.accent,
-                    shipped: T.purple,
-                    in_stock: "#14b8a6",
-                    complete: T.green,
-                    archived: T.faint,
-                    on_hold: T.amber,
-                    cancelled: T.red,
-                  };
+                  // Roll up project phase into the canonical item state
+                  // so the chip vocabulary matches the worksheet across
+                  // every surface in the hub.
                   return jobs.map(j=>{
                     const state = jobPhaseToItemState(j.phase);
                     const stateLabel = STATE_LABELS[state];
-                    const stateColor = STATE_COLORS[state];
+                    const stateColor = ITEM_STATE_COLORS[state];
                     const rev = effectiveRevenue(j);
                     const units = (j.items||[]).reduce((a: number,it: any) => a + (it.buy_sheet_lines||[]).reduce((b: number,l: any) => b + (l.qty_ordered||0), 0), 0);
+                    // Per-item rows for the hover popover. Each item
+                    // resolves to its own canonical state (worksheet
+                    // vocabulary), so a project with mixed items reads
+                    // accurately — e.g. one in_production + one in_stock
+                    // shows both rather than collapsing to the project's
+                    // dominant phase.
+                    const projectItems = (j.items || []).map((it: any) => ({
+                      id: it.id,
+                      name: it.name || "Untitled",
+                      qty: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0),
+                      state: itemStateById.get(it.id) || ("setup" as ItemState),
+                    }));
+                    const isHovered = hoveredProjectId === j.id;
                     return(
-                      <Link key={j.id} href={`/jobs/${j.id}`} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:T.surface,borderRadius:6,textDecoration:"none",color:T.text,transition:"background 0.1s"}}
-                        onMouseEnter={(e:any)=>e.currentTarget.style.background=T.accentDim}
-                        onMouseLeave={(e:any)=>e.currentTarget.style.background=T.surface}>
+                      <div key={j.id} style={{position:"relative"}}
+                        onMouseEnter={(e:any) => {
+                          // Flip popover up when the row is too close to
+                          // the viewport bottom. Estimated panel height
+                          // = header (~30px) + per-item rows (~18px each)
+                          // — 260px threshold accommodates most jobs.
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const spaceBelow = window.innerHeight - rect.bottom;
+                          const spaceAbove = rect.top;
+                          setProjectHoverDir(spaceBelow < 260 && spaceAbove > spaceBelow ? "up" : "down");
+                          setHoveredProjectId(j.id);
+                        }}
+                        onMouseLeave={() => setHoveredProjectId(prev => prev === j.id ? null : prev)}>
+                      <Link href={`/jobs/${j.id}`} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:isHovered?T.accentDim:T.surface,borderRadius:6,textDecoration:"none",color:T.text,transition:"background 0.1s"}}>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{j.title}</div>
-                          <div style={{fontSize:10,color:T.muted,marginTop:1}}>{(j as any).type_meta?.qb_invoice_number || j.job_number} {units>0&&`· ${units.toLocaleString()} units`} {rev>0&&`· $${Math.round(rev).toLocaleString()}`}</div>
+                          <div style={{fontSize:10,color:T.muted,marginTop:1}}>{(j as any).type_meta?.qb_invoice_number || j.job_number} {units>0&&`· ${units.toLocaleString()} units`} {projectItems.length>0&&<>· {projectItems.length} item{projectItems.length!==1?"s":""}</>} {rev>0&&`· $${Math.round(rev).toLocaleString()}`}</div>
                         </div>
                         <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:stateColor,whiteSpace:"nowrap",flexShrink:0}}>{stateLabel}</span>
                         {j.target_ship_date&&<span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0}}>{new Date(j.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>}
                       </Link>
+                      {/* Hover popover — shows each item on the order
+                          with its canonical status, so a glance at a
+                          mixed-state job reveals what's where without
+                          clicking through. Drops below the row so it
+                          stays within the page width regardless of
+                          where the row sits on screen. */}
+                      {isHovered && projectItems.length > 0 && (
+                        <div
+                          style={{
+                            position:"absolute", left:0, right:0,
+                            ...(projectHoverDir === "up"
+                              ? { bottom:"100%", top:"auto", marginBottom:4 }
+                              : { top:"100%", bottom:"auto", marginTop:4 }),
+                            zIndex:50,
+                            background:T.card, border:`1px solid ${T.border}`, borderRadius:8,
+                            padding:"10px 12px",
+                            boxShadow:"0 6px 18px rgba(0,0,0,0.30)",
+                            pointerEvents:"none",
+                          }}>
+                          <div style={{fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Items on this order</div>
+                          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                            {projectItems.map(pi => (
+                              <div key={pi.id} style={{display:"flex",alignItems:"center",gap:8,fontSize:11}}>
+                                <span style={{flex:1,minWidth:0,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{pi.name}</span>
+                                {pi.qty > 0 && <span style={{fontFamily:mono,color:T.muted,fontSize:10,flexShrink:0}}>{pi.qty.toLocaleString()}</span>}
+                                <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:ITEM_STATE_COLORS[pi.state],whiteSpace:"nowrap",flexShrink:0}}>{STATE_LABELS[pi.state]}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      </div>
                     );
                   });
                 })()}
@@ -926,7 +1029,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
           {historyView==="items"&&itemViewMode==="list"&&(
             <>
-              {allItemsForList.length===0&&<p style={{fontSize:12,color:T.muted}}>No items yet.</p>}
+              {allItemsForList.length===0&&<p style={{fontSize:12,color:T.muted}}>No archived items yet — past orders will collect here.</p>}
               <div style={{display:"flex",flexDirection:"column",gap:4}}>
                 {allItemsForList.map((inst: any, i: number)=>{
                   const stg = instanceStage(inst);
@@ -955,7 +1058,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
           {historyView==="items"&&itemViewMode==="tiles"&&(
             <>
-              {sortedItemGroups.length===0&&<p style={{fontSize:12,color:T.muted}}>No items yet.</p>}
+              {sortedItemGroups.length===0&&<p style={{fontSize:12,color:T.muted}}>No archived items yet — past orders will collect here.</p>}
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 {sortedItemGroups.map(([key, instances])=>{
                   const first = instances[0];
@@ -1037,33 +1140,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           const fmtMoney = (n: number) => "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           const fmtMoneyShort = (n: number) => "$" + Math.round(n || 0).toLocaleString();
 
-          // Canonical status via the shared lib — every surface in OpsHub
-          // uses the same compute function, so the worksheet matches what
-          // the client portal, production page, and project overview all
-          // show for the same item. The 5 active/historical states are:
-          //
-          //   setup           pre-PO (costing, art, blanks, payments)
-          //   in_production   PO sent, decorator hasn't shipped
-          //   shipped         left decorator, HPD outbound pending
-          //                   (drop-ship skips this state)
-          //   complete        HPD's last shipping action taken
-          //   archived        Complete + grace period elapsed,
-          //                   manually archived, or job cancelled
-          const wsItems = allItems.map((it: any) => ({
-            ...it,
-            _ws: resolveItemStatus({
-              archived_at: it.archivedAt,
-              completed_at: it.completedAt,
-              pipeline_stage: it.pipelineStage,
-              received_at_hpd: it.receivedAtHpd,
-              sell_per_unit: it.sell_per_unit,
-              blanks_order_cost: it.blanksOrderCost,
-              po_sent: it.poSent,
-              job_phase: it.jobPhase,
-              job_shipping_route: it.shippingRoute,
-              job_completed_at: it.jobCompletedAt,
-            }) as ItemState,
-          }));
+          // Reuse the hoisted wsItemsAll so the Orders row hover and
+          // worksheet stay in lockstep — same items, same canonical
+          // state for every item. See lib/item-status.
+          const wsItems = wsItemsAll;
           const paidJobIds = new Set(
             jobs.filter(j => ((j as any).payment_records || []).some((p: any) => p.status === "paid")).map(j => j.id)
           );
@@ -1078,36 +1158,39 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             }
             return { count, qty, cost, gross, profit: gross - cost };
           };
-          type TabKey = "setup" | "in_production" | "shipped" | "in_stock" | "complete" | "archived";
+          // "Complete" is folded into Archived — once an item is done it
+          // belongs in history. Active buckets are the 4 work states
+          // (Setup, In Production, Shipped, In Stock). No separate
+          // Complete tab; the canonical resolver still emits "complete"
+          // internally but for display it groups with archived.
+          type TabKey = "setup" | "in_production" | "shipped" | "in_stock" | "archived";
           const byStatus: Record<TabKey, any[]> = {
             setup: wsItems.filter((it: any) => it._ws === "setup"),
             in_production: wsItems.filter((it: any) => it._ws === "in_production"),
             shipped: wsItems.filter((it: any) => it._ws === "shipped"),
             in_stock: wsItems.filter((it: any) => it._ws === "in_stock"),
-            complete: wsItems.filter((it: any) => it._ws === "complete"),
-            archived: wsItems.filter((it: any) => it._ws === "archived" || it._ws === "cancelled"),
+            archived: wsItems.filter((it: any) => it._ws === "complete" || it._ws === "archived" || it._ws === "cancelled"),
           };
-          const activeWsItems = wsItems.filter((it: any) => it._ws !== "archived" && it._ws !== "cancelled");
+          const activeWsItems = wsItems.filter((it: any) => it._ws !== "complete" && it._ws !== "archived" && it._ws !== "cancelled");
           const rollups = {
             setup: rollup(byStatus.setup),
             in_production: rollup(byStatus.in_production),
             shipped: rollup(byStatus.shipped),
             in_stock: rollup(byStatus.in_stock),
-            complete: rollup(byStatus.complete),
             archived: rollup(byStatus.archived),
             active_total: rollup(activeWsItems),
           };
           const currentItems = byStatus[workingTab];
 
-          // Tabs across the worksheet — 5 active + an Archived toggle.
-          // Teal "In Stock" sits between purple "Shipped" and green
-          // "Complete" — distinct from both visually.
-          const STATUS_OPTS: { value: TabKey; label: string; color: string }[] = [
+          // Tabs across the worksheet — 4 active buckets + an Archived
+          // toggle for everything past completion. No "Complete" tab —
+          // delivered items go straight to Archived (Jon's call: the
+          // two were redundant since complete items aren't actionable).
+          const STATUS_OPTS: { value: Exclude<TabKey, "archived">; label: string; color: string }[] = [
             { value: "setup", label: STATE_LABELS.setup, color: T.muted },
             { value: "in_production", label: STATE_LABELS.in_production, color: T.accent },
             { value: "shipped", label: STATE_LABELS.shipped, color: T.purple },
             { value: "in_stock", label: STATE_LABELS.in_stock, color: "#14b8a6" },
-            { value: "complete", label: STATE_LABELS.complete, color: T.green },
           ];
 
           return (
@@ -1296,19 +1379,17 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                       cancelled: T.red,
                     };
                     return currentItems.map((it: any) => {
-                    const isOpen = workingRowExpanded === it.id;
                     const cost = Number(it.sell_per_unit) || 0;
                     const retail = Number(it.client_retail_per_unit) || 0;
                     const profit = (retail - cost) * it.totalQty;
                     const isPaid = paidJobIds.has(it.jobId);
                     const stateLabel = STATE_LABELS[it._ws as ItemState] || "—";
                     const stateColor = STATE_COLORS[it._ws as ItemState] || T.muted;
-                    const isArchived = it.archivedAt != null || it._ws === "archived" || it._ws === "cancelled";
                     return (
                       <div key={it.id} style={{background:T.surface,borderRadius:8,overflow:"hidden"}}>
                         <button
                           type="button"
-                          onClick={() => setWorkingRowExpanded(isOpen ? null : it.id)}
+                          onClick={() => setWorkingRowExpanded(it.id)}
                           style={{
                             width:"100%",display:"grid",
                             gridTemplateColumns:"minmax(0, 1fr) 60px 76px 76px 80px 110px 78px 44px",
@@ -1361,158 +1442,237 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                             {isPaid ? "✓" : "—"}
                           </div>
                         </button>
-
-                        {/* Expanded editor */}
-                        {isOpen && (
-                          <div style={{padding:"0 14px 14px",borderTop:`1px solid ${T.border}`,marginTop:0}}>
-                            <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:10,marginTop:12}}>
-                              <div>
-                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty (read-only)</label>
-                                <input value={it.totalQty} disabled style={{...ic,background:T.surface,color:T.faint,fontFamily:mono}}/>
-                              </div>
-                              <div>
-                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Unit Cost <span style={{color:T.amber}}>·</span> sell_per_unit</label>
-                                <input
-                                  type="number" step="0.01" min="0"
-                                  value={it.sell_per_unit ?? ""}
-                                  onChange={e => saveItemField(it.id, "sell_per_unit", e.target.value === "" ? null : Number(e.target.value))}
-                                  onBlur={e => {
-                                    const v = e.target.value === "" ? null : Number(e.target.value);
-                                    flushItemField(it.id, "sell_per_unit", v);
-                                    if (v !== (Number(it.sell_per_unit) || null)) {
-                                      logWorksheet(it.jobId, `Unit cost set to ${v == null ? "—" : "$" + Number(v).toFixed(2)} — ${it.name}`);
-                                    }
-                                  }}
-                                  style={{...ic,fontFamily:mono}}/>
-                                {saveErrors[`${it.id}_sell_per_unit`] && (
-                                  <div style={{fontSize:9,color:T.red,marginTop:4,lineHeight:1.4,fontWeight:600}}>
-                                    Save failed: {saveErrors[`${it.id}_sell_per_unit`]}
-                                  </div>
-                                )}
-                                {it.quoteApprovedAt && (
-                                  <div style={{fontSize:9,color:T.amber,marginTop:4,lineHeight:1.4}}>
-                                    Quote approved {new Date(it.quoteApprovedAt).toLocaleDateString("en-US",{month:"short",day:"numeric"})}. Changes apply to future invoices only.
-                                  </div>
-                                )}
-                              </div>
-                              <div>
-                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Retail (manual)</label>
-                                <input
-                                  type="number" step="0.01" min="0"
-                                  value={it.client_retail_per_unit ?? ""}
-                                  onChange={e => saveItemField(it.id, "client_retail_per_unit", e.target.value === "" ? null : Number(e.target.value))}
-                                  onBlur={e => {
-                                    const v = e.target.value === "" ? null : Number(e.target.value);
-                                    flushItemField(it.id, "client_retail_per_unit", v);
-                                    if (v !== (Number(it.client_retail_per_unit) || null)) {
-                                      logWorksheet(it.jobId, `Retail set to ${v == null ? "—" : "$" + Number(v).toFixed(2)} — ${it.name}`);
-                                    }
-                                  }}
-                                  style={{...ic,fontFamily:mono}}/>
-                                {saveErrors[`${it.id}_client_retail_per_unit`] && (
-                                  <div style={{fontSize:9,color:T.red,marginTop:4,lineHeight:1.4,fontWeight:600}}>
-                                    Save failed: {saveErrors[`${it.id}_client_retail_per_unit`]}
-                                  </div>
-                                )}
-                              </div>
-                              <div>
-                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status</label>
-                                <div style={{padding:"8px 10px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
-                                  <span style={{fontSize:11,fontWeight:700,color:stateColor,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-                                    {stateLabel}
-                                  </span>
-                                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                                    {/* Manual In Stock → Complete release. Stays manual
-                                        until fulfillment products are wired up. The
-                                        canonical resolver treats completed_at as an
-                                        override that wins over pipeline_stage. */}
-                                    {it._ws === "in_stock" && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          saveItemField(it.id, "completed_at", new Date().toISOString());
-                                          logWorksheet(it.jobId, `Marked Complete — ${it.name}`);
-                                        }}
-                                        style={{
-                                          fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:4,
-                                          background:T.green,border:"none",color:"#fff",
-                                          cursor:"pointer",fontFamily:font,
-                                        }}
-                                        title="Manually move from In Stock to Complete (e.g., released to retail)">
-                                        ✓ Mark Complete
-                                      </button>
-                                    )}
-                                    {it.completedAt && it._ws === "complete" && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          saveItemField(it.id, "completed_at", null);
-                                          logWorksheet(it.jobId, `Reopened (Complete → In Stock) — ${it.name}`);
-                                        }}
-                                        style={{
-                                          fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:4,
-                                          background:"transparent",border:`1px solid ${T.border}`,color:T.muted,
-                                          cursor:"pointer",fontFamily:font,
-                                        }}
-                                        title="Clear the manual completion — item reverts to whatever the underlying data says">
-                                        ↻ Reopen
-                                      </button>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const next = isArchived ? null : new Date().toISOString();
-                                        saveItemField(it.id, "archived_at", next);
-                                        logWorksheet(it.jobId, isArchived ? `Unarchived — ${it.name}` : `Archived — ${it.name}`);
-                                      }}
-                                      style={{
-                                        fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:4,
-                                        background:"transparent",border:`1px solid ${T.border}`,color:T.muted,
-                                        cursor:"pointer",fontFamily:font,
-                                      }}
-                                      title="Archived items are hidden from active views">
-                                      {isArchived ? "Unarchive" : "Archive"}
-                                    </button>
-                                  </div>
-                                </div>
-                                <div style={{fontSize:9,color:T.faint,marginTop:4,lineHeight:1.4}}>
-                                  {it.completedAt
-                                    ? "Manually completed. Reopen to fall back to underlying data."
-                                    : "Derived from OpsHub. Mark Complete on In Stock items to release them manually."}
-                                </div>
-                              </div>
-                              <div>
-                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>ETA</label>
-                                <input
-                                  type="date"
-                                  value={it.client_eta || ""}
-                                  onChange={e => saveItemField(it.id, "client_eta", e.target.value || null)}
-                                  style={{...ic,fontFamily:mono}}/>
-                              </div>
-                              <div style={{gridColumn:"span 3"}}>
-                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Notes</label>
-                                <input
-                                  value={it.notes || ""}
-                                  onChange={e => saveItemField(it.id, "notes", e.target.value)}
-                                  style={ic}/>
-                              </div>
-                            </div>
-                            <div style={{display:"flex",gap:10,marginTop:10,alignItems:"center",justifyContent:"space-between"}}>
-                              <Link href={`/jobs/${it.jobId}`} style={{fontSize:11,color:T.accent,textDecoration:"none"}}>
-                                Open project →
-                              </Link>
-                              <span style={{fontSize:10,color:T.faint}}>
-                                Cost reads from sell_per_unit (changes propagate to quote/invoice/portal). Retail is private to this view.
-                              </span>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     );
                   });
                   })()}
                 </div>
               )}
+
+              {/* Item editor modal — opens on row click. Mirrors the
+                  portal /items modal pattern (centered card, header +
+                  body + footer) and keeps every internal-only control
+                  the inline expand had: editable cost / retail / ETA /
+                  notes, status action buttons (Mark Complete / Reopen /
+                  Archive), Save-failed banners, and the Open project
+                  deep link. */}
+              {workingRowExpanded && (() => {
+                const it = currentItems.find((x: any) => x.id === workingRowExpanded)
+                  || wsItems.find((x: any) => x.id === workingRowExpanded);
+                if (!it) return null;
+                const cost = Number(it.sell_per_unit) || 0;
+                const retail = Number(it.client_retail_per_unit) || 0;
+                const profit = (retail - cost) * it.totalQty;
+                const stateLabel = STATE_LABELS[it._ws as ItemState] || "—";
+                const stateColor = ITEM_STATE_COLORS[it._ws as ItemState] || T.muted;
+                const isArchived = it.archivedAt != null || it._ws === "archived" || it._ws === "cancelled";
+                const isPaid = paidJobIds.has(it.jobId);
+                const close = () => setWorkingRowExpanded(null);
+                return (
+                  <div onClick={close}
+                    style={{
+                      position:"fixed", inset:0, background:"rgba(0,0,0,0.55)",
+                      zIndex:1100, display:"flex", alignItems:"center", justifyContent:"center",
+                      padding:"clamp(12px, 3vw, 32px)", fontFamily:font,
+                    }}>
+                    <div onClick={e => e.stopPropagation()}
+                      style={{
+                        background:T.card, borderRadius:14,
+                        width:"min(820px, 100%)", maxHeight:"94vh", overflow:"hidden",
+                        display:"flex", flexDirection:"column",
+                        border:`1px solid ${T.border}`,
+                      }}>
+                      {/* Header */}
+                      <div style={{padding:"14px 20px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", gap:12}}>
+                        <div style={{
+                          width:44, height:44, flexShrink:0,
+                          background:"#fff", borderRadius:8, overflow:"hidden",
+                          display:"flex", alignItems:"center", justifyContent:"center",
+                          border:`1px solid ${T.border}`,
+                        }}>
+                          {itemThumbs[it.id] ? (
+                            <img src={`/api/files/thumbnail?id=${itemThumbs[it.id]}&thumb=1`}
+                              alt="" referrerPolicy="no-referrer"
+                              style={{width:"100%", height:"100%", objectFit:"contain"}}
+                              onError={(e: any) => { e.target.style.display = "none"; }}/>
+                          ) : (
+                            <span style={{color:T.faint, fontSize:10}}>—</span>
+                          )}
+                        </div>
+                        <div style={{flex:1, minWidth:0}}>
+                          <div style={{fontSize:15, fontWeight:700, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{it.name}</div>
+                          <div style={{fontSize:11, color:T.muted, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                            <span style={{fontFamily:mono}}>{it.jobNumber}</span>
+                            {it.jobTitle && <> · {it.jobTitle}</>}
+                          </div>
+                        </div>
+                        <span style={{fontSize:10, fontWeight:700, color:stateColor, textTransform:"uppercase", letterSpacing:"0.06em", whiteSpace:"nowrap"}}>
+                          {stateLabel}
+                        </span>
+                        <button onClick={close}
+                          style={{background:"none", border:"none", color:T.muted, fontSize:22, cursor:"pointer", padding:"0 6px", lineHeight:1}}>×</button>
+                      </div>
+
+                      {/* Body */}
+                      <div style={{flex:1, overflowY:"auto", padding:"18px 20px"}}>
+                        <div style={{display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:10}}>
+                          <div>
+                            <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty (read-only)</label>
+                            <input value={it.totalQty} disabled style={{...ic,background:T.surface,color:T.faint,fontFamily:mono}}/>
+                          </div>
+                          <div>
+                            <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Unit Cost <span style={{color:T.amber}}>·</span> sell_per_unit</label>
+                            <input
+                              type="number" step="0.01" min="0"
+                              value={it.sell_per_unit ?? ""}
+                              onChange={e => saveItemField(it.id, "sell_per_unit", e.target.value === "" ? null : Number(e.target.value))}
+                              onBlur={e => {
+                                const v = e.target.value === "" ? null : Number(e.target.value);
+                                flushItemField(it.id, "sell_per_unit", v);
+                                if (v !== (Number(it.sell_per_unit) || null)) {
+                                  logWorksheet(it.jobId, `Unit cost set to ${v == null ? "—" : "$" + Number(v).toFixed(2)} — ${it.name}`);
+                                }
+                              }}
+                              style={{...ic,fontFamily:mono}}/>
+                            {saveErrors[`${it.id}_sell_per_unit`] && (
+                              <div style={{fontSize:9,color:T.red,marginTop:4,lineHeight:1.4,fontWeight:600}}>
+                                Save failed: {saveErrors[`${it.id}_sell_per_unit`]}
+                              </div>
+                            )}
+                            {it.quoteApprovedAt && (
+                              <div style={{fontSize:9,color:T.amber,marginTop:4,lineHeight:1.4}}>
+                                Quote approved {new Date(it.quoteApprovedAt).toLocaleDateString("en-US",{month:"short",day:"numeric"})}. Changes apply to future invoices only.
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Retail (manual)</label>
+                            <input
+                              type="number" step="0.01" min="0"
+                              value={it.client_retail_per_unit ?? ""}
+                              onChange={e => saveItemField(it.id, "client_retail_per_unit", e.target.value === "" ? null : Number(e.target.value))}
+                              onBlur={e => {
+                                const v = e.target.value === "" ? null : Number(e.target.value);
+                                flushItemField(it.id, "client_retail_per_unit", v);
+                                if (v !== (Number(it.client_retail_per_unit) || null)) {
+                                  logWorksheet(it.jobId, `Retail set to ${v == null ? "—" : "$" + Number(v).toFixed(2)} — ${it.name}`);
+                                }
+                              }}
+                              style={{...ic,fontFamily:mono}}/>
+                            {saveErrors[`${it.id}_client_retail_per_unit`] && (
+                              <div style={{fontSize:9,color:T.red,marginTop:4,lineHeight:1.4,fontWeight:600}}>
+                                Save failed: {saveErrors[`${it.id}_client_retail_per_unit`]}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Profit (derived)</label>
+                            <div style={{...ic, color: profit > 0 ? T.green : T.faint, fontFamily:mono, display:"flex", alignItems:"center", fontWeight:600}}>
+                              {profit !== 0 ? fmtMoneyShort(profit) : "—"}
+                            </div>
+                          </div>
+                          <div style={{gridColumn:"span 2"}}>
+                            <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status</label>
+                            <div style={{padding:"8px 10px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                              <span style={{fontSize:11,fontWeight:700,color:stateColor,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                                {stateLabel}
+                              </span>
+                              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                                {it._ws === "in_stock" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      saveItemField(it.id, "completed_at", new Date().toISOString());
+                                      logWorksheet(it.jobId, `Marked Complete — ${it.name}`);
+                                    }}
+                                    style={{
+                                      fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:4,
+                                      background:T.green,border:"none",color:"#fff",
+                                      cursor:"pointer",fontFamily:font,
+                                    }}
+                                    title="Manually move from In Stock to Complete (e.g., released to retail)">
+                                    ✓ Mark Complete
+                                  </button>
+                                )}
+                                {it.completedAt && it._ws === "complete" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      saveItemField(it.id, "completed_at", null);
+                                      logWorksheet(it.jobId, `Reopened (Complete → In Stock) — ${it.name}`);
+                                    }}
+                                    style={{
+                                      fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:4,
+                                      background:"transparent",border:`1px solid ${T.border}`,color:T.muted,
+                                      cursor:"pointer",fontFamily:font,
+                                    }}
+                                    title="Clear the manual completion — item reverts to whatever the underlying data says">
+                                    ↻ Reopen
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = isArchived ? null : new Date().toISOString();
+                                    saveItemField(it.id, "archived_at", next);
+                                    logWorksheet(it.jobId, isArchived ? `Unarchived — ${it.name}` : `Archived — ${it.name}`);
+                                  }}
+                                  style={{
+                                    fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:4,
+                                    background:"transparent",border:`1px solid ${T.border}`,color:T.muted,
+                                    cursor:"pointer",fontFamily:font,
+                                  }}
+                                  title="Archived items are hidden from active views">
+                                  {isArchived ? "Unarchive" : "Archive"}
+                                </button>
+                              </div>
+                            </div>
+                            <div style={{fontSize:9,color:T.faint,marginTop:4,lineHeight:1.4}}>
+                              {it.completedAt
+                                ? "Manually completed. Reopen to fall back to underlying data."
+                                : "Derived from OpsHub. Mark Complete on In Stock items to release them manually."}
+                            </div>
+                          </div>
+                          <div style={{gridColumn:"span 2"}}>
+                            <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>ETA</label>
+                            <input
+                              type="date"
+                              value={it.client_eta || ""}
+                              onChange={e => saveItemField(it.id, "client_eta", e.target.value || null)}
+                              style={{...ic,fontFamily:mono}}/>
+                            <div style={{fontSize:9,color:T.faint,marginTop:4,lineHeight:1.4}}>
+                              Shown to the client. Falls back to the job's target ship date when empty.
+                            </div>
+                          </div>
+                          <div style={{gridColumn:"span 4"}}>
+                            <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Notes</label>
+                            <input
+                              value={it.notes || ""}
+                              onChange={e => saveItemField(it.id, "notes", e.target.value)}
+                              style={ic}/>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Footer */}
+                      <div style={{padding:"12px 20px", borderTop:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap"}}>
+                        <span style={{fontSize:10,color:T.faint, flex:1, minWidth:0}}>
+                          Cost reads from sell_per_unit (propagates to quote / invoice / portal). Retail is private to this view. {isPaid && <span style={{color:T.green, fontWeight:700}}> · Paid</span>}
+                        </span>
+                        <div style={{display:"flex", gap:8}}>
+                          <Link href={`/jobs/${it.jobId}`} style={{fontSize:12, color:T.accent, textDecoration:"none", padding:"8px 14px", border:`1px solid ${T.border}`, borderRadius:8, fontWeight:600}}>
+                            Open project →
+                          </Link>
+                          <button onClick={close}
+                            style={{padding:"8px 16px", background:T.surface, color:T.text, border:`1px solid ${T.border}`, borderRadius:8, fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:font}}>
+                            Close
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
               </div>
             </div>

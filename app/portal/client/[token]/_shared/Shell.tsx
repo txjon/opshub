@@ -11,12 +11,14 @@ import { useClientPortal } from "./context";
 // Mobile: header stacks, tab nav horizontally scrolls, padding shrinks. No
 // separate mobile layout — just responsive CSS.
 
+// Staging tab shelved 2026-05-17 — release planner is on hold while we
+// rework the fulfillment flow. The /staging route still exists so any
+// bookmarked URLs don't 404, but it's no longer linked from the shell.
 const TABS: { label: string; path: string; unreadKey?: "designs" }[] = [
   { label: "Overview", path: "" },
   { label: "Designs", path: "/designs", unreadKey: "designs" },
   { label: "Items", path: "/items" },
   { label: "Orders", path: "/orders" },
-  { label: "Staging", path: "/staging" },
 ];
 
 export default function Shell({ children }: { children: ReactNode }) {

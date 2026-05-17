@@ -20,6 +20,8 @@ type Item = {
   retail: number | null;
   notes: string | null;
   paid: boolean;
+  payment_status: "paid" | "partial" | "unpaid" | "none";
+  invoice_number: string | null;
   job: {
     id: string;
     job_number: string | null;
@@ -35,11 +37,43 @@ type Item = {
 const fmtMoney = (n: number | null) => n == null ? "—" : "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtMoneyShort = (n: number) => "$" + Math.round(n || 0).toLocaleString();
 
-// History bucket = archived or cancelled. Since the canonical lib
-// already collapses Complete + 30d-grace into "archived" server-side,
-// we just check the resolved state here.
+// Friendly color name for the header — items.mockup_color is often
+// stored as a hex (e.g. "#ffffff") rather than a label. The Orders tab
+// already does this lookup with the same table; kept here so the
+// modal subtitle reads "White" rather than "#ffffff". Anything not in
+// the map falls back to the raw value so unusual blanks still show.
+const HEX_COLOR_NAMES: Record<string, string> = {
+  "#ffffff": "White",
+  "#000000": "Black",
+  "#d9d9d9": "Ash",
+  "#b5b5b5": "Sport Grey",
+  "#808080": "Charcoal",
+  "#1a1a1a": "Pitch Black",
+  "#eeeeee": "Natural",
+  "#f5f5dc": "Cream",
+  "#8b0000": "Cardinal",
+  "#b22222": "Red",
+  "#000080": "Navy",
+  "#228b22": "Forest",
+  "#4682b4": "Royal",
+  "#d2b48c": "Sand",
+};
+function friendlyColor(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const isHex = /^#?[0-9a-f]{3,8}$/i.test(trimmed);
+  if (!isHex) return trimmed;
+  const norm = (trimmed.startsWith("#") ? trimmed : `#${trimmed}`).toLowerCase();
+  return HEX_COLOR_NAMES[norm] || null;
+}
+
+// History bucket = anything past completion. The internal model
+// distinguishes "complete" (recently delivered) from "archived"
+// (delivered 30+ days ago or manually archived), but on the portal
+// that distinction adds noise — every done item belongs in History.
 function isItemArchived(it: Item): boolean {
-  return it.status === "archived" || it.status === "cancelled";
+  return it.status === "archived" || it.status === "cancelled" || it.status === "complete";
 }
 
 // ETA resolver — manual override wins over job target ship date.
@@ -63,15 +97,15 @@ const STATUS_META: Record<ItemState, { label: string; color: string; bg: string 
   cancelled:     { label: STATE_LABELS.cancelled,     color: C.red,     bg: C.redBg },
 };
 
-// Filters mirror the internal Working Sheet — same 5 stage buckets,
-// same default (In Production), no Active/All collapses. The client
-// sees their items the same way Jon sees them in the worksheet.
+// Filters mirror the internal Working Sheet — 4 active stage buckets,
+// default In Production. "Complete" lives in the History view, not
+// here — once an item is done, it stops being actionable in the
+// current-orders surface.
 const FILTERS: Array<{ key: string; label: string; matches: (s: ItemState) => boolean }> = [
   { key: "setup", label: "Setup", matches: s => s === "setup" },
   { key: "in_production", label: "In Production", matches: s => s === "in_production" },
   { key: "shipped", label: "Shipped", matches: s => s === "shipped" },
   { key: "in_stock", label: "In Stock", matches: s => s === "in_stock" },
-  { key: "complete", label: "Complete", matches: s => s === "complete" },
 ];
 
 export default function ItemsPage() {
@@ -108,8 +142,11 @@ export default function ItemsPage() {
 
   const active = FILTERS.find(f => f.key === filter) || FILTERS[0];
   const q = query.trim().toLowerCase();
+  // Status filters only apply in Current Orders — every History item
+  // is archived/complete/cancelled by definition, so the per-stage
+  // filter rows would always return zero. In History we just search.
   const filtered = inView.filter(it => {
-    if (!active.matches(it.status)) return false;
+    if (view === "current" && !active.matches(it.status)) return false;
     if (!q) return true;
     return (
       it.name.toLowerCase().includes(q) ||
@@ -141,15 +178,13 @@ export default function ItemsPage() {
     in_production: rollup(inView.filter(it => it.status === "in_production")),
     shipped: rollup(inView.filter(it => it.status === "shipped")),
     in_stock: rollup(inView.filter(it => it.status === "in_stock")),
-    complete: rollup(inView.filter(it => it.status === "complete")),
     total: rollup(inView),
   };
-  const ROLLUP_ROWS: { key: "setup"|"in_production"|"shipped"|"in_stock"|"complete"; color: string }[] = [
+  const ROLLUP_ROWS: { key: "setup"|"in_production"|"shipped"|"in_stock"; color: string }[] = [
     { key: "setup", color: C.muted },
     { key: "in_production", color: C.blue },
     { key: "shipped", color: C.purple },
     { key: "in_stock", color: "#14b8a6" },
-    { key: "complete", color: C.green },
   ];
 
   return (
@@ -180,9 +215,10 @@ export default function ItemsPage() {
 
       {/* KPI rollup — mirrors the internal Working Sheet so the client
           sees the same financial roll-up Jon does (their cost, retail
-          if set, and profit per stage). Counts include only items in
-          the active top-tab view (Current or History). */}
-      {!loading && inView.length > 0 && (
+          if set, and profit per stage). Per-stage rows only make sense
+          in Current Orders (every History item is past those stages by
+          definition); skipped in History to avoid an all-zero table. */}
+      {!loading && inView.length > 0 && view === "current" && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 14, overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 580 }}>
             <thead>
@@ -219,11 +255,12 @@ export default function ItemsPage() {
         </div>
       )}
 
-      {/* Filters + search on one row — filters on the left (wrap on
-          narrow screens), search input on the right with flex:1 so it
-          fills remaining width. */}
+      {/* Filters + search on one row — stage filters only render in
+          Current Orders. History is by definition everything past
+          completion; there's no useful sub-stage to filter on, so the
+          row collapses to just the search input. */}
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${C.border}`, paddingBottom: 6, alignItems: "center", marginBottom: 14 }}>
-        {FILTERS.map(f => {
+        {view === "current" && FILTERS.map(f => {
           const isActive = filter === f.key;
           const n = counts[f.key] || 0;
           return (
@@ -270,21 +307,22 @@ export default function ItemsPage() {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {/* Column header — mirrors the worksheet's grid columns
-              (thumb in the name cell, then qty / cost / retail /
-              profit / status / eta / paid). */}
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px", gap: 8, padding: "4px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+          {/* Column header — Current Orders mirrors the worksheet grid
+              (qty / cost / retail / profit / status / eta / paid).
+              History drops Profit / Status / ETA — every row is past
+              completion so those columns are redundant or empty. */}
+          <div style={{ display: "grid", gridTemplateColumns: view === "history" ? "minmax(0, 1fr) 60px 80px 80px 44px" : "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px", gap: 8, padding: "4px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
             <div>Item</div>
             <div style={{ textAlign: "right" }}>Qty</div>
             <div style={{ textAlign: "right" }}>Cost</div>
             <div style={{ textAlign: "right" }}>Retail</div>
-            <div style={{ textAlign: "right" }}>Profit</div>
-            <div>Status</div>
-            <div>ETA</div>
+            {view === "current" && <div style={{ textAlign: "right" }}>Profit</div>}
+            {view === "current" && <div>Status</div>}
+            {view === "current" && <div>ETA</div>}
             <div style={{ textAlign: "center" }}>Paid</div>
           </div>
           {filtered.map(it => (
-            <ItemRow key={it.id} item={it} onOpen={() => setDetail(it)} />
+            <ItemRow key={it.id} item={it} compact={view === "history"} onOpen={() => setDetail(it)} />
           ))}
         </div>
       )}
@@ -294,12 +332,16 @@ export default function ItemsPage() {
   );
 }
 
-// Row layout matches the internal Working Sheet exactly — same grid
-// columns (Item / Qty / Cost / Retail / Profit / Status / ETA / Paid),
-// same uppercase color-text status, same thumb in the name cell.
-// Read-only on the client side; clicking opens the existing ItemDetail
-// modal for fuller info + Reorder.
-function ItemRow({ item, onOpen }: { item: Item; onOpen: () => void }) {
+// Row layout matches the internal Working Sheet — same grid columns
+// (Item / Qty / Cost / Retail / Profit / Status / ETA / Paid), same
+// uppercase color-text status, same thumb in the name cell. Read-only
+// on the client side; clicking opens the ItemDetail modal for fuller
+// info + Reorder.
+//
+// `compact` mode (used in History) drops Profit / Status / ETA — every
+// historical row sits past those columns by definition, so showing
+// them is noise.
+function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => void; compact?: boolean }) {
   const status = STATUS_META[item.status];
   const cost = item.cost ?? null;
   const retail = item.retail ?? null;
@@ -312,7 +354,7 @@ function ItemRow({ item, onOpen }: { item: Item; onOpen: () => void }) {
         background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
         padding: "10px 12px",
         display: "grid",
-        gridTemplateColumns: "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px",
+        gridTemplateColumns: compact ? "minmax(0, 1fr) 60px 80px 80px 44px" : "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px",
         gap: 8, alignItems: "center",
         cursor: "pointer", textAlign: "left", fontFamily: C.font,
         transition: "border-color 0.15s, box-shadow 0.15s",
@@ -365,31 +407,35 @@ function ItemRow({ item, onOpen }: { item: Item; onOpen: () => void }) {
         {fmtMoney(retail)}
       </div>
 
-      {/* Profit (derived) */}
-      <div style={{ fontSize: 12, fontFamily: C.mono, fontWeight: 600, color: profit != null && profit > 0 ? C.green : C.faint, textAlign: "right" }}>
-        {profit != null && profit !== 0 ? fmtMoneyShort(profit) : "—"}
-      </div>
-
-      {/* Status — uppercase color text, no pill */}
-      <div style={{ fontSize: 10, fontWeight: 700, color: status.color, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>
-        {status.label}
-      </div>
-
-      {/* ETA */}
-      <div style={{ fontSize: 11, fontFamily: C.mono, color: C.muted, textAlign: "left" }}>
-        {eta ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
-            <span style={{ color: eta.isOverride ? C.text : C.muted, fontWeight: eta.isOverride ? 600 : 500 }}>
-              {fmtDate(eta.date)}
-            </span>
-            {cd && (
-              <span style={{ fontSize: 9, color: cd.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                {cd.text}
-              </span>
-            )}
+      {!compact && (
+        <>
+          {/* Profit (derived) */}
+          <div style={{ fontSize: 12, fontFamily: C.mono, fontWeight: 600, color: profit != null && profit > 0 ? C.green : C.faint, textAlign: "right" }}>
+            {profit != null && profit !== 0 ? fmtMoneyShort(profit) : "—"}
           </div>
-        ) : "—"}
-      </div>
+
+          {/* Status — uppercase color text, no pill */}
+          <div style={{ fontSize: 10, fontWeight: 700, color: status.color, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>
+            {status.label}
+          </div>
+
+          {/* ETA */}
+          <div style={{ fontSize: 11, fontFamily: C.mono, color: C.muted, textAlign: "left" }}>
+            {eta ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
+                <span style={{ color: eta.isOverride ? C.text : C.muted, fontWeight: eta.isOverride ? 600 : 500 }}>
+                  {fmtDate(eta.date)}
+                </span>
+                {cd && (
+                  <span style={{ fontSize: 9, color: cd.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    {cd.text}
+                  </span>
+                )}
+              </div>
+            ) : "—"}
+          </div>
+        </>
+      )}
 
       {/* Paid */}
       <div style={{ textAlign: "center", fontSize: 14, color: item.paid ? C.green : C.faint }}>
@@ -447,7 +493,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
               {item.name}
             </div>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-              {[item.garment_type, item.mockup_color].filter(Boolean).join(" · ")}
+              {[item.garment_type, friendlyColor(item.mockup_color)].filter(Boolean).join(" · ")}
             </div>
           </div>
           <button onClick={onClose}
@@ -519,6 +565,32 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
               <Meta label="Project" value={item.job.title || "—"}
                 sub={item.job.job_number ? `${item.job.job_number}${item.job.target_ship_date && !item.client_eta ? ` · ships ${fmtDate(item.job.target_ship_date)}` : ""}` : undefined}
               />
+              {/* Invoice + payment status — paired together since the
+                  payment label only makes sense once an invoice exists.
+                  Hidden entirely on un-invoiced orders so the modal
+                  doesn't show "Pending" for items that aren't billed
+                  yet. */}
+              {item.invoice_number && (
+                <div>
+                  <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>
+                    Invoice
+                  </div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 14, color: C.text, fontWeight: 700, fontFamily: C.mono }}>#{item.invoice_number}</div>
+                    {(() => {
+                      const ps = item.payment_status;
+                      if (ps === "none") return null;
+                      const label = ps === "paid" ? "Paid" : ps === "partial" ? "Partial Paid" : "Unpaid";
+                      const color = ps === "paid" ? C.green : ps === "partial" ? C.amber : C.red;
+                      return (
+                        <span style={{ fontSize: 11, color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                          {label}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
               {item.brief && (
                 <Meta label="Design" value={item.brief.title || "—"} sub={item.brief.state?.replace(/_/g, " ")} />
               )}

@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
 import { OrderDetailView } from "./[jobId]/page";
+import { STATE_LABELS, type ItemState } from "@/lib/item-status";
 
 
 type OrderItem = {
@@ -14,6 +15,20 @@ type OrderItem = {
   qty: number;
   drive_link: string | null;
   thumb_id: string | null;
+  status: ItemState;
+};
+
+// Status colors for the hover chip — mirrors the worksheet vocabulary
+// using the portal C palette so a mixed-state order reads accurately.
+const ITEM_STATE_COLORS: Record<ItemState, string> = {
+  setup: C.muted,
+  in_production: C.blue,
+  shipped: C.purple,
+  in_stock: "#14b8a6",
+  complete: C.green,
+  archived: C.faint,
+  on_hold: C.amber,
+  cancelled: C.red,
 };
 
 type Order = {
@@ -206,12 +221,33 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
     ? () => onOpenModal(order.id)
     : onToggle;
 
+  // Hover preview — shown only on project orders. Fulfillment invoices
+  // have no per-item breakdown to preview. `dir` flips the popover above
+  // the row when the row sits near the bottom of the viewport, so the
+  // last orders in a long list aren't clipped by the page edge.
+  const [hovered, setHovered] = useState(false);
+  const [dir, setDir] = useState<"down" | "up">("down");
+  const showPreview = hovered && order.kind !== "fulfillment" && order.items.length > 0;
+
   return (
-    <div style={{
+    <div
+      onMouseEnter={(e) => {
+        const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        // Panel grows with item count — 280px covers ~10 rows, which
+        // matches typical project orders. Heavier orders may still
+        // clip slightly but the worst case is bounded.
+        setDir(spaceBelow < 280 && spaceAbove > spaceBelow ? "up" : "down");
+        setHovered(true);
+      }}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+      position: "relative",
       background: C.card,
       border: `1px solid ${C.border}`,
       borderRadius: 12, marginBottom: 10,
-      overflow: "hidden",
+      overflow: "visible",
     }}>
       {/* Row header — clickable to expand. On desktop: 3-col. On mobile:
           title row (with chevron), then pills + total wrap below. */}
@@ -325,6 +361,61 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
       {/* Expanded detail */}
       {expanded && (
         <OrderDetail order={order} token={token} />
+      )}
+
+      {/* Hover preview — drops below the row showing each item with
+          its canonical status (Setup / In Production / Shipped /
+          In Stock / etc.). Only renders for project orders; positioned
+          absolutely so it overlays the row below rather than pushing
+          content. Suppressed when the row is already expanded to
+          avoid stacking the same info twice. */}
+      {showPreview && !expanded && (
+        <div
+          style={{
+            position: "absolute", left: 0, right: 0,
+            ...(dir === "up"
+              ? { bottom: "100%", top: "auto", marginBottom: 4 }
+              : { top: "100%", bottom: "auto", marginTop: 4 }),
+            zIndex: 30,
+            background: C.card, border: `1px solid ${C.border}`,
+            borderRadius: 8, padding: "10px 14px",
+            boxShadow: "0 6px 18px rgba(0,0,0,0.18)",
+            pointerEvents: "none",
+          }}>
+          <div style={{
+            fontSize: 9, fontWeight: 700, color: C.faint,
+            textTransform: "uppercase", letterSpacing: "0.07em",
+            marginBottom: 8,
+          }}>
+            Items on this order
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {order.items.map(it => (
+              <div key={it.id} style={{
+                display: "flex", alignItems: "center", gap: 10, fontSize: 12,
+              }}>
+                <span style={{
+                  flex: 1, minWidth: 0, color: C.text,
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                }}>{it.name || "Item"}</span>
+                {it.qty > 0 && (
+                  <span style={{ fontFamily: C.mono, color: C.muted, fontSize: 11, flexShrink: 0 }}>
+                    {it.qty.toLocaleString()} pc{it.qty === 1 ? "" : "s"}
+                  </span>
+                )}
+                <span style={{
+                  fontSize: 9, fontWeight: 700,
+                  letterSpacing: "0.06em", textTransform: "uppercase",
+                  color: ITEM_STATE_COLORS[it.status] || C.muted,
+                  whiteSpace: "nowrap", flexShrink: 0,
+                  minWidth: 92, textAlign: "right",
+                }}>
+                  {STATE_LABELS[it.status]}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

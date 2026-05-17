@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { resolveItemStatus } from "@/lib/item-status";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -43,7 +44,8 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       .select(`
         id, job_number, title, phase, target_ship_date,
         created_at, updated_at, payment_terms, type_meta,
-        portal_token, costing_summary
+        portal_token, costing_summary,
+        shipping_route, phase_timestamps
       `)
       .eq("client_id", client.id)
       .not("phase", "in", "(cancelled)")
@@ -60,13 +62,25 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     // Don't early-return when there are no jobs — we still want to surface
     // fulfillment invoices (below) for clients who are fulfillment-only.
 
-    // Items — just the fields we need for the row preview. Detail view does
-    // a second fetch for sizes/tracking if needed.
+    // Items — include the fields the canonical status resolver needs
+    // so each item on a row can show its own state in the hover preview
+    // (pipeline_stage, received_at_hpd, archived_at, completed_at,
+    // shipping_route override, decorator assignment for po_sent lookup).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, sell_per_unit, ship_qtys, received_qtys, drive_link, sort_order")
+      .select("id, job_id, name, garment_type, mockup_color, sell_per_unit, ship_qtys, received_qtys, drive_link, sort_order, pipeline_stage, received_at_hpd, blanks_order_cost, archived_at, completed_at, shipping_route, decorator_assignments(decorators(name, short_code))")
       .in("job_id", jobIds)
       .order("sort_order", { nullsFirst: false });
+
+    // Pre-build the per-job po_sent_vendors set (lowercased) so the
+    // resolver's po_sent input can be resolved cheaply per item.
+    const jobById: Record<string, any> = {};
+    for (const j of jobs) jobById[j.id] = j;
+    const poSentByJob: Record<string, Set<string>> = {};
+    for (const j of jobs) {
+      const arr = ((j as any).type_meta?.po_sent_vendors || []) as string[];
+      poSentByJob[j.id] = new Set(arr.map(s => (s || "").toLowerCase().trim()).filter(Boolean));
+    }
 
     const itemsByJob: Record<string, any[]> = {};
     for (const it of (items || [])) {
@@ -264,17 +278,44 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         target_ship_date: j.target_ship_date,
         created_at: j.created_at,
         updated_at: j.updated_at,
-        items: jobItems.map((it: any) => ({
-          id: it.id,
-          name: it.name,
-          garment_type: it.garment_type,
-          mockup_color: it.mockup_color,
-          qty: qtyByItem[it.id] || 0,
-          // Drive folder link — for "open in Drive" side-nav, not thumbnail.
-          drive_link: it.drive_link,
-          // Thumb-able file id (mockup > proof > print_ready). Null if none.
-          thumb_id: thumbByItem[it.id] || null,
-        })),
+        items: jobItems.map((it: any) => {
+          const assignment = it.decorator_assignments?.[0];
+          const decName = assignment?.decorators?.name || null;
+          const decShort = assignment?.decorators?.short_code || null;
+          const sentSet = poSentByJob[j.id] || new Set();
+          const poSent = !!(
+            (decName && sentSet.has(decName.toLowerCase())) ||
+            (decShort && sentSet.has(decShort.toLowerCase()))
+          );
+          const status = resolveItemStatus({
+            archived_at: it.archived_at,
+            completed_at: it.completed_at,
+            pipeline_stage: it.pipeline_stage,
+            received_at_hpd: !!it.received_at_hpd,
+            sell_per_unit: it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
+            blanks_order_cost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : null,
+            po_sent: poSent,
+            job_phase: j.phase || null,
+            job_shipping_route: (j as any).shipping_route || null,
+            item_shipping_route: it.shipping_route || null,
+            job_completed_at: ((j as any).phase_timestamps || {}).complete || null,
+          });
+          return {
+            id: it.id,
+            name: it.name,
+            garment_type: it.garment_type,
+            mockup_color: it.mockup_color,
+            qty: qtyByItem[it.id] || 0,
+            // Drive folder link — for "open in Drive" side-nav, not thumbnail.
+            drive_link: it.drive_link,
+            // Thumb-able file id (mockup > proof > print_ready). Null if none.
+            thumb_id: thumbByItem[it.id] || null,
+            // Canonical per-item state (lib/item-status). Drives the hover
+            // preview chip + lets the client see at-a-glance what's where
+            // on a mixed-state job.
+            status,
+          };
+        }),
         total_qty: totalQty,
         // total / paid_amount / balance gated on isPricingVisible —
         // before quote/invoice has been sent, client sees the order

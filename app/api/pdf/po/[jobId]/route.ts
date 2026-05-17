@@ -264,9 +264,14 @@ function renderPOHTML(data: any): string {
 
     const thumbHtml = item.mockupThumb ? `<img src="${item.mockupThumb}" style="height:120px;width:auto;object-fit:contain;border-radius:4px;background:#f7f7f7;flex-shrink:0" crossorigin="anonymous" />` : "";
 
+    const routeLabel = item.shipping_route === "drop_ship" ? "Drop ship" : item.shipping_route === "ship_through" ? "Ship through HPD" : item.shipping_route === "stage" ? "Stage at HPD" : "";
+    const routeBadge = item.shipping_route
+      ? `<span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#9a6400;background:#fff4d6;padding:2px 7px;border-radius:3px;margin-left:8px">→ ${routeLabel}</span>`
+      : "";
+
     return `<div style="border-left:3px solid #1a1a1a;padding-left:16px;margin-bottom:16px;page-break-inside:avoid">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}</div>
+        <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}${routeBadge}</div>
         <div style="font-size:10px;color:#888">${item.totalQty.toLocaleString()} units</div>
       </div>
       <div style="display:flex;gap:12px;margin-bottom:4px;font-size:9px;color:#555">
@@ -445,6 +450,11 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         qtys,
         totalQty,
         decoLines,
+        // Per-item shipping route override. When set, surfaced as a
+        // small badge on the PO so the decorator sees this item takes
+        // a different path than the rest of the PO (e.g. drop_ship
+        // straight to client, or a non-standard handoff).
+        shipping_route: it.shipping_route || null,
         letter: String.fromCharCode(65 + sortedIdx), // letter based on full sorted list
       };
     });

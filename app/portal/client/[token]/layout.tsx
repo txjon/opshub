@@ -3,7 +3,7 @@ import { ClientPortalProvider } from "./_shared/context";
 import Shell from "./_shared/Shell";
 
 // Layout wraps all client portal tabs with a shared shell:
-// header (client name), tab nav (Overview / Designs / Orders / Staging),
+// header (client name), tab nav (Overview / Designs / Items / Orders),
 // toast stack for cross-tab activity, and the data provider.
 //
 // Each page renders under <Shell> and consumes data via useClientPortal().

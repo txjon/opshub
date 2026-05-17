@@ -161,6 +161,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const shippingRoute = project?.shipping_route || "ship_through";
   const defaultShipTo = shippingRoute === "drop_ship" ? clientAddress : HPD_WAREHOUSE;
   const [itemFields,setItemFields] = useState({});
+  const [itemRoutes,setItemRoutes] = useState({}); // local mirror of items.shipping_route for instant UI on select change
   const [saving,setSaving] = useState({});
   const [showPreview,setShowPreview] = useState(false); // unused legacy, kept to minimize diff
   const [previewingPO, setPreviewingPO] = useState(false); // opens PdfPreviewModal for the active vendor's PO
@@ -189,6 +190,13 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
         }
       });
       return fields;
+    });
+    // Seed the route mirror with whatever's on the DB so the select
+    // reflects the saved value on initial render.
+    setItemRoutes(prev => {
+      const next = {...prev};
+      items.forEach(it => { if (!(it.id in next)) next[it.id] = it.shipping_route || ""; });
+      return next;
     });
 
     // Persist the default packing note to DB for items that don't have
@@ -320,21 +328,38 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             </select>
             </div>
           </div>
-          {/* Ship To */}
+          {/* Ship To — empty = use the job-route default. The textarea
+              shows that default as placeholder so it's obvious the
+              field is editable for one-off addresses (e.g. an item
+              going from decorator A to decorator B). The PO PDF
+              renderer applies the same fallback. */}
           <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship to</span>
-              <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:shippingRoute==="drop_ship"?T.green:T.accent}}>
-                {shippingRoute==="drop_ship"?"Client address":"HPD warehouse"}
+              <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:(poShipTo[active]||"").trim()?T.amber:(shippingRoute==="drop_ship"?T.green:T.accent)}}>
+                {(poShipTo[active]||"").trim()?"Custom":(shippingRoute==="drop_ship"?"Client address":"HPD warehouse")}
               </span>
+              {(poShipTo[active]||"").trim()&&(
+                <button onClick={()=>{
+                  const updated={...poShipTo};
+                  delete updated[active];
+                  setPoShipTo(updated);
+                  saveTypeMeta({ po_ship_to: updated });
+                }}
+                  style={{fontSize:9,color:T.faint,fontFamily:font,background:"none",border:"none",cursor:"pointer",padding:0,textDecoration:"underline"}}
+                  title="Clear override — fall back to the job-route default">
+                  reset
+                </button>
+              )}
             </div>
-            <textarea value={poShipTo[active]||defaultShipTo} onChange={e=>{
-              const val=e.target.value;
-              const updated={...poShipTo,[active]:val};
-              setPoShipTo(updated);
-              saveTypeMeta({ po_ship_to: updated });
-            }}
-              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"8px 10px",outline:"none",resize:"vertical",minHeight:110,lineHeight:1.4}}/>
+            <textarea value={poShipTo[active]||""} placeholder={defaultShipTo + "\n\n(default — type to override)"}
+              onChange={e=>{
+                const val=e.target.value;
+                const updated={...poShipTo,[active]:val};
+                setPoShipTo(updated);
+                saveTypeMeta({ po_ship_to: updated });
+              }}
+              style={{background:T.surface,border:"1px solid "+((poShipTo[active]||"").trim()?T.amber+"66":T.border),borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"8px 10px",outline:"none",resize:"vertical",minHeight:110,lineHeight:1.4}}/>
           </div>
           {/* Items ready + buttons */}
           <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8,flexShrink:0}}>
@@ -510,6 +535,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 )}
               </div>
             );
+            const itemRoute = itemRoutes[item.id] ?? (item.shipping_route || "");
+            const routeLabel = (r) => r === "drop_ship" ? "Drop ship" : r === "ship_through" ? "Ship through HPD" : r === "stage" ? "Stage at HPD" : "";
             return (
               <div key={item.id} style={{borderBottom:i<vItems.length-1?"1px solid "+T.border:"none",padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
@@ -520,6 +547,27 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                     <div style={{fontSize:13,fontWeight:600,color:T.text}}>{item.name}</div>
                     <div style={{fontSize:10,color:T.muted,marginTop:1}}>{[item.blank_vendor,item.style,item.color].filter(Boolean).join(" · ")} · {totalQty(item.buy_sheet_lines||[])} units</div>
                   </div>
+                  {/* Per-item route override — rare. Default = use the
+                      job's shipping route. Set this when one item takes
+                      a different path than the rest of the job (e.g.
+                      decorator A → decorator B handoff). Drives the
+                      canonical status resolver: drop_ship auto-completes
+                      on shipped; ship_through/stage expects HPD receive. */}
+                  <select value={itemRoute}
+                    onChange={async e=>{
+                      const v = e.target.value || null;
+                      setItemRoutes(prev => ({ ...prev, [item.id]: v || "" }));
+                      const { error } = await supabase.from("items").update({ shipping_route: v }).eq("id", item.id);
+                      if (error) console.error("Save shipping_route error:", error);
+                      if (onRecalcPhase) onRecalcPhase();
+                    }}
+                    title={itemRoute ? `Override: ${routeLabel(itemRoute)}` : `Default: ${routeLabel(shippingRoute) || "—"}`}
+                    style={{background:itemRoute?T.amber+"22":T.surface,border:`1px solid ${itemRoute?T.amber+"66":T.border}`,borderRadius:5,color:itemRoute?T.amber:T.muted,fontFamily:font,fontSize:10,padding:"3px 6px",outline:"none",cursor:"pointer"}}>
+                    <option value="">Route: job default</option>
+                    <option value="drop_ship">Drop ship</option>
+                    <option value="ship_through">Ship through HPD</option>
+                    <option value="stage">Stage at HPD</option>
+                  </select>
                   <div style={{fontSize:11,color:T.muted,fontFamily:mono}}>{getCostProd(item.id)?.printVendor||"—"}</div>
                   {isSaving&&<div style={{fontSize:9,color:T.amber}}>saving…</div>}
                 </div>

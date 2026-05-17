@@ -54,6 +54,12 @@ export interface ItemStatusInput {
   job_phase?: string | null;
   job_shipping_route?: string | null;
   job_quote_approved?: boolean | null;
+  // Per-item shipping route override. When set, wins over
+  // job_shipping_route. Used for the rare case where a single item
+  // takes a different path than the rest of the job (e.g. one item
+  // ships from decorator A directly to decorator B for a second
+  // decoration step, while the rest of the job goes stage to HPD).
+  item_shipping_route?: string | null;
   // Optional: was a PO sent to this item's decorator? When unknown,
   // we infer from pipeline_stage (in_production / shipped both imply
   // a PO was sent).
@@ -63,7 +69,11 @@ export interface ItemStatusInput {
 export function computeItemStatus(input: ItemStatusInput): ItemState {
   const phase = input.job_phase || "";
   const ps = input.pipeline_stage || null;
-  const route = input.job_shipping_route || null;
+  // Per-item override wins over the job default. Null fields fall
+  // through to the job route; this lets the rare one-off (decorator
+  // hand-off, internal sample, partial drop-ship) take a different
+  // path without changing the whole job's routing.
+  const route = input.item_shipping_route || input.job_shipping_route || null;
 
   // Manual archive or cancelled jobs → archived (terminal historical)
   if (input.archived_at) return "archived";

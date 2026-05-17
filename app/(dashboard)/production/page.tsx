@@ -561,20 +561,37 @@ export default function ProductionPage() {
     });
   }
 
+  // Persist a single field write to items + log any error. Centralised
+  // so updateField (debounced) and flushField (blur, immediate) share
+  // one error-checked save path. Fire-and-forget without an error check
+  // is how we silently lost retail values in the worksheet before —
+  // every write goes through here so it gets logged.
+  async function persistField(itemId: string, field: string, value: string) {
+    const payload: Record<string, any> = { [field]: value || null };
+    if (field === "client_eta") {
+      payload.client_eta_set_at = value ? new Date().toISOString() : null;
+    }
+    const { error } = await supabase.from("items").update(payload).eq("id", itemId);
+    if (error) console.error("[production save error]", { itemId, field, value, error });
+  }
+
   function updateField(itemId: string, field: string, value: string) {
     setProjects(prev => prev.map(p => ({
       ...p, decoratorGroups: p.decoratorGroups.map(dg => ({
         ...dg, items: dg.items.map(it => it.id === itemId ? { ...it, [field]: value } : it)
       }))
     })));
-    if (saveTimers.current[`${field}_${itemId}`]) clearTimeout(saveTimers.current[`${field}_${itemId}`]);
-    saveTimers.current[`${field}_${itemId}`] = setTimeout(() => {
-      const payload: Record<string, any> = { [field]: value || null };
-      if (field === "client_eta") {
-        payload.client_eta_set_at = value ? new Date().toISOString() : null;
-      }
-      supabase.from("items").update(payload).eq("id", itemId);
-    }, 800);
+    const key = `${field}_${itemId}`;
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(() => { persistField(itemId, field, value); }, 800);
+  }
+
+  // Immediate save (no debounce) — called from input onBlur so closing
+  // the modal / navigating away never strands an unsaved edit.
+  function flushField(itemId: string, field: string, value: string) {
+    const key = `${field}_${itemId}`;
+    if (saveTimers.current[key]) { clearTimeout(saveTimers.current[key]); delete saveTimers.current[key]; }
+    persistField(itemId, field, value);
   }
 
   async function handlePackingSlipUpload(input: File | File[] | FileList, project: ProjectGroup, dgItems: ProdItem[]) {
@@ -1207,14 +1224,34 @@ export default function ProductionPage() {
                                     value={item.client_eta || ""}
                                     onClick={e => e.stopPropagation()}
                                     onChange={e => { e.stopPropagation(); updateField(item.id, "client_eta", e.target.value); }}
+                                    onBlur={e => flushField(item.id, "client_eta", e.target.value)}
                                     style={{ ...ic, width: 140, padding: "3px 6px", fontSize: 11, fontFamily: mono }} />
                                   <input type="text"
                                     value={item.client_eta_note || ""}
                                     placeholder="note (shown to client)"
                                     onClick={e => e.stopPropagation()}
                                     onChange={e => { e.stopPropagation(); updateField(item.id, "client_eta_note", e.target.value); }}
+                                    onBlur={e => flushField(item.id, "client_eta_note", e.target.value)}
                                     style={{ ...ic, flex: 1, minWidth: 120, padding: "3px 6px", fontSize: 11 }} />
                                 </div>
+                                {/* Tracking — inline so you can paste without
+                                    opening the Ship modal. Saving alone does
+                                    NOT mark the item shipped (qty + packing
+                                    slip live in the modal); click Ship → Mark
+                                    Shipped to confirm. Hidden once shipped —
+                                    the row's status badge already shows it. */}
+                                {!isShipped && (
+                                  <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>
+                                    <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>TRK</span>
+                                    <input type="text"
+                                      value={item.ship_tracking || ""}
+                                      placeholder="paste tracking #"
+                                      onClick={e => e.stopPropagation()}
+                                      onChange={e => { e.stopPropagation(); updateField(item.id, "ship_tracking", e.target.value); }}
+                                      onBlur={e => flushField(item.id, "ship_tracking", e.target.value)}
+                                      style={{ ...ic, flex: 1, minWidth: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono }} />
+                                  </div>
+                                )}
                               </div>
                               {/* Per-size ship qty grid — inline with title */}
                               {!isShipped && item.sizes.length > 0 && (

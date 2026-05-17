@@ -52,7 +52,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    this item's decorator? Used by the canonical status compute).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, decorator_assignments(decorators(name, short_code))")
+      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, decorator_assignments(decorators(name, short_code))")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -75,15 +75,30 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       qtyByItem[l.item_id] = (qtyByItem[l.item_id] || 0) + (Number(l.qty_ordered) || 0);
     }
 
-    // 4b. Payment status per job (any paid payment_record = job is paid).
-    //     Used for the per-item "Paid" indicator in the worksheet-style
-    //     view; all items on a paid job show as paid.
+    // 4b. Payment summary per job. The item detail modal shows the
+    //     job's invoice # + nuanced payment status (paid / partial /
+    //     unpaid). All items on the same job share the same payment
+    //     state — the worksheet roll-up doesn't break down per item.
     const { data: paymentRows } = await db
       .from("payment_records")
-      .select("job_id, status")
+      .select("job_id, status, amount")
       .in("job_id", jobIds);
+    const paymentByJob: Record<string, { status: "paid" | "partial" | "unpaid" | "none"; paid: boolean }> = {};
+    for (const jid of jobIds) {
+      const rows = (paymentRows || []).filter((p: any) => p.job_id === jid);
+      const hasIssued = rows.some((p: any) => p.status && !["draft", "void"].includes(p.status));
+      const paidAmt = rows.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      const totalAmt = rows.filter((p: any) => p.status && !["draft", "void"].includes(p.status))
+        .reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      let status: "paid" | "partial" | "unpaid" | "none" = "none";
+      if (!hasIssued) status = "none";
+      else if (paidAmt > 0 && paidAmt >= totalAmt - 0.01) status = "paid";
+      else if (paidAmt > 0) status = "partial";
+      else status = "unpaid";
+      paymentByJob[jid] = { status, paid: status === "paid" };
+    }
     const paidJobs = new Set(
-      (paymentRows || []).filter((p: any) => p.status === "paid").map((p: any) => p.job_id)
+      Object.entries(paymentByJob).filter(([, v]) => v.paid).map(([k]) => k)
     );
 
     // 5. Thumbnails — prefer mockup > proof > print_ready (matches Orders tab).
@@ -157,6 +172,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             po_sent: poSent,
             job_phase: job.phase || null,
             job_shipping_route: job.shipping_route || null,
+            item_shipping_route: it.shipping_route || null,
             job_completed_at: (job.phase_timestamps as any)?.complete || null,
           });
         })(),
@@ -173,6 +189,12 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         retail: it.client_retail_per_unit != null ? Number(it.client_retail_per_unit) : null,
         notes: it.notes || null,
         paid: paidJobs.has(it.job_id),
+        payment_status: paymentByJob[it.job_id]?.status || "none",
+        // Invoice number — prefer QB invoice # (HPD), fall back to
+        // Stripe invoice # (IHM). Either lives in jobs.type_meta.
+        invoice_number: (job.type_meta as any)?.qb_invoice_number
+          || (job.type_meta as any)?.stripe_invoice_number
+          || null,
         job: {
           id: it.job_id,
           job_number: job.job_number || null,
