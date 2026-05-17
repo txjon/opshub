@@ -52,7 +52,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    this item's decorator? Used by the canonical status compute).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, decorator_assignments(decorators(name, short_code))")
+      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, decorator_assignments(decorators(name, short_code))")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -74,6 +74,17 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     for (const l of (bsLines || [])) {
       qtyByItem[l.item_id] = (qtyByItem[l.item_id] || 0) + (Number(l.qty_ordered) || 0);
     }
+
+    // 4b. Payment status per job (any paid payment_record = job is paid).
+    //     Used for the per-item "Paid" indicator in the worksheet-style
+    //     view; all items on a paid job show as paid.
+    const { data: paymentRows } = await db
+      .from("payment_records")
+      .select("job_id, status")
+      .in("job_id", jobIds);
+    const paidJobs = new Set(
+      (paymentRows || []).filter((p: any) => p.status === "paid").map((p: any) => p.job_id)
+    );
 
     // 5. Thumbnails — prefer mockup > proof > print_ready (matches Orders tab).
     const thumbByItem: Record<string, string | null> = {};
@@ -154,6 +165,14 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         client_eta: it.client_eta || null,
         client_eta_note: it.client_eta_note || null,
         archived_at: it.archived_at || null,
+        // Financial fields — same as the internal worksheet. Cost is
+        // what the client paid us per unit (sell_per_unit on items);
+        // retail is what the client charges their end customer.
+        // Profit derived on the client side for consistency.
+        cost: it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
+        retail: it.client_retail_per_unit != null ? Number(it.client_retail_per_unit) : null,
+        notes: it.notes || null,
+        paid: paidJobs.has(it.job_id),
         job: {
           id: it.job_id,
           job_number: job.job_number || null,

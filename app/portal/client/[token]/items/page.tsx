@@ -16,6 +16,10 @@ type Item = {
   client_eta: string | null;
   client_eta_note: string | null;
   archived_at: string | null;
+  cost: number | null;
+  retail: number | null;
+  notes: string | null;
+  paid: boolean;
   job: {
     id: string;
     job_number: string | null;
@@ -27,6 +31,9 @@ type Item = {
   brief: { id: string; title: string | null; state: string } | null;
   design_id: string | null;
 };
+
+const fmtMoney = (n: number | null) => n == null ? "—" : "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtMoneyShort = (n: number) => "$" + Math.round(n || 0).toLocaleString();
 
 // History bucket = archived or cancelled. Since the canonical lib
 // already collapses Complete + 30d-grace into "archived" server-side,
@@ -74,7 +81,6 @@ export default function ItemsPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("in_production");
   const [detail, setDetail] = useState<Item | null>(null);
-  const [viewMode, setViewMode] = useState<"list" | "tiles">("list");
   // Current orders (default) vs History. Past orders (delivered 30+ days
   // ago, or items the team manually archived) live in History so they
   // don't crowd live orders. Fixes the "wait, are my new belts already
@@ -115,6 +121,36 @@ export default function ItemsPage() {
 
   const counts: Record<string, number> = { all: inView.length };
   for (const f of FILTERS) counts[f.key] = inView.filter(it => f.matches(it.status)).length;
+
+  // KPI rollup — mirrors the worksheet's Phase/Items/Qty/Cost/Gross/Profit
+  // table. Computed against the items in the active top-level view
+  // (Current Orders or History).
+  const rollup = (list: Item[]) => {
+    let count = 0, qty = 0, cost = 0, gross = 0;
+    for (const it of list) {
+      const c = Number(it.cost) || 0;
+      const r = Number(it.retail) || 0;
+      count++; qty += it.qty;
+      cost += c * it.qty;
+      gross += r * it.qty;
+    }
+    return { count, qty, cost, gross, profit: gross - cost };
+  };
+  const rollups = {
+    setup: rollup(inView.filter(it => it.status === "setup")),
+    in_production: rollup(inView.filter(it => it.status === "in_production")),
+    shipped: rollup(inView.filter(it => it.status === "shipped")),
+    in_stock: rollup(inView.filter(it => it.status === "in_stock")),
+    complete: rollup(inView.filter(it => it.status === "complete")),
+    total: rollup(inView),
+  };
+  const ROLLUP_ROWS: { key: "setup"|"in_production"|"shipped"|"in_stock"|"complete"; color: string }[] = [
+    { key: "setup", color: C.muted },
+    { key: "in_production", color: C.blue },
+    { key: "shipped", color: C.purple },
+    { key: "in_stock", color: "#14b8a6" },
+    { key: "complete", color: C.green },
+  ];
 
   return (
     <div>
@@ -175,26 +211,49 @@ export default function ItemsPage() {
               </button>
             );
           })}
-          {/* View-mode toggle — right-aligned so it sits at the end of
-              the filter row. List is denser and surfaces ship date +
-              status in a single scannable row; tiles keep the visual
-              thumbnail-first browse. */}
-          <div style={{ marginLeft: "auto", display: "flex", gap: 2, background: C.surface, borderRadius: 6, padding: 2 }}>
-            {(["list", "tiles"] as const).map(v => (
-              <button key={v} onClick={() => setViewMode(v)}
-                style={{
-                  padding: "4px 12px", borderRadius: 4,
-                  fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer",
-                  background: viewMode === v ? C.text : "transparent",
-                  color: viewMode === v ? "#fff" : C.muted,
-                  fontFamily: C.font,
-                }}>
-                {v === "list" ? "List" : "Tiles"}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
+
+      {/* KPI rollup — mirrors the internal Working Sheet so the client
+          sees the same financial roll-up Jon does (their cost, retail
+          if set, and profit per stage). Counts include only items in
+          the active top-tab view (Current or History). */}
+      {!loading && inView.length > 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 18, overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 580 }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                {["Phase", "Items", "Qty", "Cost", "Gross", "Profit"].map((h, i) => (
+                  <th key={h} style={{ padding: "6px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {ROLLUP_ROWS.map(({ key, color }) => {
+                const r = rollups[key];
+                return (
+                  <tr key={key}>
+                    <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.07em" }}>{STATE_LABELS[key]}</td>
+                    <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.muted, textAlign: "right" }}>{r.count}</td>
+                    <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{r.qty.toLocaleString()}</td>
+                    <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{fmtMoneyShort(r.cost)}</td>
+                    <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{fmtMoneyShort(r.gross)}</td>
+                    <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, fontWeight: 600, color: C.green, textAlign: "right" }}>{fmtMoneyShort(r.profit)}</td>
+                  </tr>
+                );
+              })}
+              <tr style={{ borderTop: `1px solid ${C.border}`, background: C.surface }}>
+                <td style={{ padding: "8px 10px", fontSize: 11, fontWeight: 700, color: C.text, textTransform: "uppercase", letterSpacing: "0.07em" }}>Total</td>
+                <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{rollups.total.count}</td>
+                <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{rollups.total.qty.toLocaleString()}</td>
+                <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{fmtMoneyShort(rollups.total.cost)}</td>
+                <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{fmtMoneyShort(rollups.total.gross)}</td>
+                <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 800, color: C.green, textAlign: "right" }}>{fmtMoneyShort(rollups.total.profit)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Grid */}
       {loading ? (
@@ -207,18 +266,21 @@ export default function ItemsPage() {
             ? "No items yet. Once a design turns into an order, it'll land here."
             : q ? "No items match that search." : "Nothing in this filter."}
         </div>
-      ) : viewMode === "tiles" ? (
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))",
-          gap: 14,
-        }}>
-          {filtered.map(it => (
-            <ItemCard key={it.id} item={it} onOpen={() => setDetail(it)} />
-          ))}
-        </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {/* Column header — mirrors the worksheet's grid columns
+              (thumb in the name cell, then qty / cost / retail /
+              profit / status / eta / paid). */}
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px", gap: 8, padding: "4px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+            <div>Item</div>
+            <div style={{ textAlign: "right" }}>Qty</div>
+            <div style={{ textAlign: "right" }}>Cost</div>
+            <div style={{ textAlign: "right" }}>Retail</div>
+            <div style={{ textAlign: "right" }}>Profit</div>
+            <div>Status</div>
+            <div>ETA</div>
+            <div style={{ textAlign: "center" }}>Paid</div>
+          </div>
           {filtered.map(it => (
             <ItemRow key={it.id} item={it} onOpen={() => setDetail(it)} />
           ))}
@@ -230,77 +292,93 @@ export default function ItemsPage() {
   );
 }
 
+// Row layout matches the internal Working Sheet exactly — same grid
+// columns (Item / Qty / Cost / Retail / Profit / Status / ETA / Paid),
+// same uppercase color-text status, same thumb in the name cell.
+// Read-only on the client side; clicking opens the existing ItemDetail
+// modal for fuller info + Reorder.
 function ItemRow({ item, onOpen }: { item: Item; onOpen: () => void }) {
   const status = STATUS_META[item.status];
+  const cost = item.cost ?? null;
+  const retail = item.retail ?? null;
+  const profit = cost != null && retail != null ? (retail - cost) * item.qty : null;
+  const eta = resolveItemEta(item);
+  const cd = eta ? daysUntil(eta.date) : null;
   return (
     <button onClick={onOpen}
       style={{
-        background: C.card, border: `1px solid ${C.border}`,
-        borderRadius: 10, padding: "10px 14px",
-        display: "flex", alignItems: "center", gap: 12,
-        cursor: "pointer", textAlign: "left",
-        fontFamily: C.font,
+        background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
+        padding: "10px 12px",
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px",
+        gap: 8, alignItems: "center",
+        cursor: "pointer", textAlign: "left", fontFamily: C.font,
         transition: "border-color 0.15s, box-shadow 0.15s",
       }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = C.text; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}
     >
-      <div style={{
-        width: 44, height: 44, flexShrink: 0,
-        background: "#fff", borderRadius: 6, overflow: "hidden",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        border: `1px solid ${C.border}`,
-      }}>
-        {item.thumb_id ? (
-          <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
-            alt="" referrerPolicy="no-referrer" loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
-            onError={(e: any) => { e.target.style.display = "none"; }}
-          />
-        ) : (
-          <span style={{ color: C.faint, fontSize: 9 }}>—</span>
-        )}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {item.name}
+      {/* Item cell — thumb + name + job#/title meta */}
+      <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{
+          width: 36, height: 36, flexShrink: 0,
+          background: "#fff", borderRadius: 6, overflow: "hidden",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          border: `1px solid ${C.border}`,
+        }}>
+          {item.thumb_id ? (
+            <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
+              alt="" referrerPolicy="no-referrer" loading="lazy"
+              style={{ width: "100%", height: "100%", objectFit: "contain" }}
+              onError={(e: any) => { e.target.style.display = "none"; }} />
+          ) : (
+            <span style={{ color: C.faint, fontSize: 8 }}>—</span>
+          )}
         </div>
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 2, display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {item.job.job_number && <span style={{ fontFamily: C.mono }}>{item.job.job_number}</span>}
-          {item.job.title && <><span style={{ color: C.faint }}>·</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.job.title}</span></>}
-          {item.garment_type && <><span style={{ color: C.faint }}>·</span><span>{item.garment_type}</span></>}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{
+            fontSize: 12, fontWeight: 600, color: C.text, lineHeight: 1.3,
+            display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2,
+            overflow: "hidden", wordBreak: "break-word",
+          }}>{item.name}</div>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {item.job.job_number && <span style={{ fontFamily: C.mono }}>{item.job.job_number}</span>}
+            {item.job.title && <> · {item.job.title}</>}
+          </div>
         </div>
       </div>
-      {item.qty > 0 && (
-        <span style={{ fontSize: 12, fontFamily: C.mono, color: C.muted, flexShrink: 0 }}>
-          {item.qty} pcs
-        </span>
-      )}
-      <span style={{
-        color: status.color,
-        fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-        whiteSpace: "nowrap", flexShrink: 0,
-      }}>
+
+      {/* Qty */}
+      <div style={{ fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>
+        {item.qty > 0 ? item.qty.toLocaleString() : "—"}
+      </div>
+
+      {/* Cost */}
+      <div style={{ fontSize: 12, fontFamily: C.mono, color: cost != null ? C.text : C.faint, textAlign: "right" }}>
+        {fmtMoney(cost)}
+      </div>
+
+      {/* Retail */}
+      <div style={{ fontSize: 12, fontFamily: C.mono, color: retail != null ? C.text : C.faint, textAlign: "right" }}>
+        {fmtMoney(retail)}
+      </div>
+
+      {/* Profit (derived) */}
+      <div style={{ fontSize: 12, fontFamily: C.mono, fontWeight: 600, color: profit != null && profit > 0 ? C.green : C.faint, textAlign: "right" }}>
+        {profit != null && profit !== 0 ? fmtMoneyShort(profit) : "—"}
+      </div>
+
+      {/* Status — uppercase color text, no pill */}
+      <div style={{ fontSize: 10, fontWeight: 700, color: status.color, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>
         {status.label}
-      </span>
-      {(() => {
-        // ETA shown right of the status chip. Override (item.client_eta)
-        // displays in normal text; fallback (job.target_ship_date) is
-        // dimmed since it's a guess. Countdown uses the shared helper
-        // which already returns text + semantic color.
-        const eta = resolveItemEta(item);
-        if (!eta) {
-          return (
-            <span style={{ fontSize: 11, fontFamily: C.mono, color: C.faint, flexShrink: 0, minWidth: 80, textAlign: "right" }}>
-              {fmtDate(item.created_at)}
-            </span>
-          );
-        }
-        const cd = daysUntil(eta.date);
-        return (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", flexShrink: 0, minWidth: 88, gap: 1 }}>
-            <span style={{ fontSize: 11, fontFamily: C.mono, color: eta.isOverride ? C.text : C.muted, fontWeight: eta.isOverride ? 600 : 500 }}>
-              {fmtDateYear(eta.date)}
+      </div>
+
+      {/* ETA */}
+      <div style={{ fontSize: 11, fontFamily: C.mono, color: C.muted, textAlign: "left" }}>
+        {eta ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
+            <span style={{ color: eta.isOverride ? C.text : C.muted, fontWeight: eta.isOverride ? 600 : 500 }}>
+              {fmtDate(eta.date)}
             </span>
             {cd && (
               <span style={{ fontSize: 9, color: cd.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
@@ -308,81 +386,12 @@ function ItemRow({ item, onOpen }: { item: Item; onOpen: () => void }) {
               </span>
             )}
           </div>
-        );
-      })()}
-    </button>
-  );
-}
-
-function ItemCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
-  const status = STATUS_META[item.status];
-  return (
-    <button onClick={onOpen}
-      style={{
-        background: C.card, border: `1px solid ${C.border}`,
-        borderRadius: 12, overflow: "hidden",
-        display: "flex", flexDirection: "column",
-        cursor: "pointer", textAlign: "left",
-        fontFamily: C.font, padding: 0,
-        transition: "border-color 0.15s, box-shadow 0.15s",
-      }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = C.text; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}
-    >
-      <div style={{ aspectRatio: "1", background: "#fff", overflow: "hidden", position: "relative" }}>
-        {item.thumb_id ? (
-          <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
-            alt="" referrerPolicy="no-referrer" loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
-            onError={(e: any) => { e.target.style.display = "none"; }}
-          />
-        ) : (
-          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 11 }}>
-            No preview
-          </div>
-        )}
+        ) : "—"}
       </div>
-      <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {item.name}
-        </div>
-        <div style={{ fontSize: 11, color: C.muted, display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {item.garment_type && <span>{item.garment_type}</span>}
-          {item.qty > 0 && <><span style={{ color: C.faint }}>·</span><span>{item.qty} pcs</span></>}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-          <span style={{
-            color: status.color,
-            fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-          }}>
-            {status.label}
-          </span>
-          {item.job.job_number && (
-            <span style={{ fontSize: 10, color: C.faint, fontFamily: C.mono }}>
-              {item.job.job_number}
-            </span>
-          )}
-        </div>
-        {(() => {
-          // ETA line on the tile — same precedence as the row view.
-          // Hidden when no estimate is available.
-          const eta = resolveItemEta(item);
-          if (!eta) return null;
-          const cd = daysUntil(eta.date);
-          return (
-            <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 0, fontSize: 10 }}>
-              <span style={{ color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>ETA</span>
-              <span style={{ color: eta.isOverride ? C.text : C.muted, fontFamily: C.mono, fontWeight: eta.isOverride ? 600 : 500 }}>
-                {fmtDate(eta.date)}
-              </span>
-              {cd && (
-                <span style={{ color: cd.color, fontWeight: 700 }}>
-                  · {cd.text}
-                </span>
-              )}
-            </div>
-          );
-        })()}
+
+      {/* Paid */}
+      <div style={{ textAlign: "center", fontSize: 14, color: item.paid ? C.green : C.faint }}>
+        {item.paid ? "✓" : "—"}
       </div>
     </button>
   );
