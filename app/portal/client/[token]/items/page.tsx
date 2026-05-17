@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate, fmtDateYear, daysUntil } from "../_shared/theme";
 import { ItemState, STATE_LABELS } from "@/lib/item-status";
+import { StatusPill } from "../_shared/StatusPill";
+import { MobileSheet } from "../_shared/MobileSheet";
 
 type Item = {
   id: string;
@@ -306,12 +308,10 @@ export default function ItemsPage() {
             : q ? "No items match that search." : "Nothing in this filter."}
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {/* Column header — Current Orders mirrors the worksheet grid
-              (qty / cost / retail / profit / status / eta / paid).
-              History drops Profit / Status / ETA — every row is past
-              completion so those columns are redundant or empty. */}
-          <div style={{ display: "grid", gridTemplateColumns: view === "history" ? "minmax(0, 1fr) 60px 80px 80px 44px" : "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px", gap: 8, padding: "4px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+        <div className="portal-items-list" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {/* Column header — desktop-only. On mobile each row stands
+              alone as a card with its own visual hierarchy. */}
+          <div className="portal-items-header" style={{ display: "grid", gridTemplateColumns: view === "history" ? "minmax(0, 1fr) 60px 80px 80px 44px" : "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px", gap: 8, padding: "4px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
             <div>Item</div>
             <div style={{ textAlign: "right" }}>Qty</div>
             <div style={{ textAlign: "right" }}>Cost</div>
@@ -321,6 +321,44 @@ export default function ItemsPage() {
             {view === "current" && <div>ETA</div>}
             <div style={{ textAlign: "center" }}>Paid</div>
           </div>
+          {/* Responsive: at ≤640px the row grid collapses to a card
+              layout — thumb left, content stack right, secondary
+              columns fold into a single mobile summary row. */}
+          <style>{`
+            @media (max-width: 640px) {
+              .portal-items-header { display: none !important; }
+              .portal-item-row {
+                grid-template-columns: 84px 1fr !important;
+                grid-template-areas: "thumb content" !important;
+                padding: 12px !important;
+                gap: 14px !important;
+                align-items: flex-start !important;
+              }
+              .portal-item-row__cell--thumb { grid-area: thumb; }
+              .portal-item-row__cell--name {
+                grid-area: content;
+                min-width: 0;
+              }
+              .portal-item-row__thumb-box {
+                width: 84px !important; height: 84px !important;
+                border-radius: 10px !important;
+              }
+              .portal-item-row__cell--qty,
+              .portal-item-row__cell--cost,
+              .portal-item-row__cell--retail,
+              .portal-item-row__cell--profit,
+              .portal-item-row__cell--status,
+              .portal-item-row__cell--eta,
+              .portal-item-row__cell--paid { display: none !important; }
+              .portal-item-row__mobile-summary { display: flex !important; }
+              .portal-item-row__name-text {
+                font-size: 15px !important;
+                -webkit-line-clamp: 2 !important;
+              }
+              .portal-item-row__job-line { font-size: 12px !important; }
+            }
+            .portal-item-row__mobile-summary { display: none; }
+          `}</style>
           {filtered.map(it => (
             <ItemRow key={it.id} item={it} compact={view === "history"} onOpen={() => setDetail(it)} />
           ))}
@@ -350,6 +388,7 @@ function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => 
   const cd = eta ? daysUntil(eta.date) : null;
   return (
     <button onClick={onOpen}
+      className="portal-item-row"
       style={{
         background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
         padding: "10px 12px",
@@ -362,65 +401,96 @@ function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => 
       onMouseEnter={e => { e.currentTarget.style.borderColor = C.text; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}
     >
-      {/* Item cell — thumb + name + job#/title meta */}
-      <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{
+      {/* Item cell — thumb (split into its own grid cell on mobile so
+          it sits left of a vertical content stack) + name + job meta. */}
+      <div className="portal-item-row__cell--thumb portal-item-row__thumb-box"
+        style={{
           width: 36, height: 36, flexShrink: 0,
           background: "#fff", borderRadius: 6, overflow: "hidden",
           display: "flex", alignItems: "center", justifyContent: "center",
           border: `1px solid ${C.border}`,
         }}>
-          {item.thumb_id ? (
-            <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
-              alt="" referrerPolicy="no-referrer" loading="lazy"
-              style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              onError={(e: any) => { e.target.style.display = "none"; }} />
-          ) : (
-            <span style={{ color: C.faint, fontSize: 8 }}>—</span>
-          )}
-        </div>
+        {item.thumb_id ? (
+          <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
+            alt="" referrerPolicy="no-referrer" loading="lazy"
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            onError={(e: any) => { e.target.style.display = "none"; }} />
+        ) : (
+          <span style={{ color: C.faint, fontSize: 8 }}>—</span>
+        )}
+      </div>
+      <div className="portal-item-row__cell--name"
+        style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{
+          <div className="portal-item-row__name-text" style={{
             fontSize: 12, fontWeight: 600, color: C.text, lineHeight: 1.3,
             display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2,
             overflow: "hidden", wordBreak: "break-word",
           }}>{item.name}</div>
-          <div style={{ fontSize: 10, color: C.muted, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div className="portal-item-row__job-line" style={{ fontSize: 10, color: C.muted, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {item.job.job_number && <span style={{ fontFamily: C.mono }}>{item.job.job_number}</span>}
             {item.job.title && <> · {item.job.title}</>}
+          </div>
+          {/* Mobile-only summary — status pill + qty + (cost) + ETA
+              chip. Tucked under the name so the row reads top-down on
+              a phone instead of left-right. Hidden on desktop by the
+              parent style block. */}
+          <div className="portal-item-row__mobile-summary"
+            style={{
+              marginTop: 8, gap: 8, alignItems: "center", flexWrap: "wrap",
+            }}>
+            <StatusPill status={item.status} size="sm" />
+            {item.qty > 0 && (
+              <span style={{ fontSize: 11, color: C.muted, fontFamily: C.mono }}>
+                {item.qty.toLocaleString()} pc{item.qty === 1 ? "" : "s"}
+              </span>
+            )}
+            {!compact && cost != null && (
+              <span style={{ fontSize: 11, color: C.muted, fontFamily: C.mono }}>
+                · {fmtMoney(cost)}
+              </span>
+            )}
+            {!compact && eta && (
+              <span style={{ fontSize: 11, color: cd?.color || C.muted, fontWeight: 600 }}>
+                · {fmtDate(eta.date)}{cd ? ` (${cd.text})` : ""}
+              </span>
+            )}
+            {item.paid && (
+              <span style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>· Paid</span>
+            )}
           </div>
         </div>
       </div>
 
       {/* Qty */}
-      <div style={{ fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>
+      <div className="portal-item-row__cell--qty" style={{ fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>
         {item.qty > 0 ? item.qty.toLocaleString() : "—"}
       </div>
 
       {/* Cost */}
-      <div style={{ fontSize: 12, fontFamily: C.mono, color: cost != null ? C.text : C.faint, textAlign: "right" }}>
+      <div className="portal-item-row__cell--cost" style={{ fontSize: 12, fontFamily: C.mono, color: cost != null ? C.text : C.faint, textAlign: "right" }}>
         {fmtMoney(cost)}
       </div>
 
       {/* Retail */}
-      <div style={{ fontSize: 12, fontFamily: C.mono, color: retail != null ? C.text : C.faint, textAlign: "right" }}>
+      <div className="portal-item-row__cell--retail" style={{ fontSize: 12, fontFamily: C.mono, color: retail != null ? C.text : C.faint, textAlign: "right" }}>
         {fmtMoney(retail)}
       </div>
 
       {!compact && (
         <>
           {/* Profit (derived) */}
-          <div style={{ fontSize: 12, fontFamily: C.mono, fontWeight: 600, color: profit != null && profit > 0 ? C.green : C.faint, textAlign: "right" }}>
+          <div className="portal-item-row__cell--profit" style={{ fontSize: 12, fontFamily: C.mono, fontWeight: 600, color: profit != null && profit > 0 ? C.green : C.faint, textAlign: "right" }}>
             {profit != null && profit !== 0 ? fmtMoneyShort(profit) : "—"}
           </div>
 
           {/* Status — uppercase color text, no pill */}
-          <div style={{ fontSize: 10, fontWeight: 700, color: status.color, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>
+          <div className="portal-item-row__cell--status" style={{ fontSize: 10, fontWeight: 700, color: status.color, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>
             {status.label}
           </div>
 
           {/* ETA */}
-          <div style={{ fontSize: 11, fontFamily: C.mono, color: C.muted, textAlign: "left" }}>
+          <div className="portal-item-row__cell--eta" style={{ fontSize: 11, fontFamily: C.mono, color: C.muted, textAlign: "left" }}>
             {eta ? (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
                 <span style={{ color: eta.isOverride ? C.text : C.muted, fontWeight: eta.isOverride ? 600 : 500 }}>
@@ -438,7 +508,7 @@ function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => 
       )}
 
       {/* Paid */}
-      <div style={{ textAlign: "center", fontSize: 14, color: item.paid ? C.green : C.faint }}>
+      <div className="portal-item-row__cell--paid" style={{ textAlign: "center", fontSize: 14, color: item.paid ? C.green : C.faint }}>
         {item.paid ? "✓" : "—"}
       </div>
     </button>
@@ -448,12 +518,6 @@ function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => 
 function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClose: () => void }) {
   const [reordering, setReordering] = useState(false);
   const [reorderResult, setReorderResult] = useState<string | null>(null);
-
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
 
   async function reorder() {
     setReordering(true);
@@ -472,148 +536,21 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
     setReordering(false);
   }
 
-  const status = STATUS_META[item.status];
-
+  // Renders inside MobileSheet — slides up from the bottom on phone
+  // widths, presents as a centered modal on desktop. Header / body /
+  // footer slots are owned by the wrapper so this component just lays
+  // out content. Reorder button gets primary-action weight.
   return (
-    <div onClick={onClose}
-      style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-        zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
-        padding: "clamp(12px, 3vw, 32px)", fontFamily: C.font,
-      }}>
-      <div onClick={e => e.stopPropagation()}
-        style={{
-          background: C.card, borderRadius: 14,
-          width: "min(720px, 100%)", maxHeight: "94vh", overflow: "hidden",
-          display: "flex", flexDirection: "column",
-        }}>
-        <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {item.name}
-            </div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-              {[item.garment_type, friendlyColor(item.mockup_color)].filter(Boolean).join(" · ")}
-            </div>
-          </div>
+    <MobileSheet
+      open
+      onClose={onClose}
+      title={item.name}
+      subtitle={[item.garment_type, friendlyColor(item.mockup_color)].filter(Boolean).join(" · ") || undefined}
+      rightAccessory={<StatusPill status={item.status} size="sm" />}
+      footer={
+        <>
           <button onClick={onClose}
-            style={{ background: "none", border: "none", color: C.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
-        </div>
-
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
-          <style>{`
-            @media (min-width: 640px) {
-              .item-detail-body { grid-template-columns: 240px 1fr !important; }
-            }
-          `}</style>
-          <div className="item-detail-body" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
-            {/* Thumb */}
-            <div style={{
-              aspectRatio: "1", background: "#fff", borderRadius: 10,
-              overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              {item.thumb_id ? (
-                <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
-                  alt="" referrerPolicy="no-referrer"
-                  style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                  onError={(e: any) => { e.target.style.display = "none"; }} />
-              ) : (
-                <span style={{ color: C.faint, fontSize: 12 }}>No preview</span>
-              )}
-            </div>
-
-            {/* Meta */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Status</div>
-                <span style={{
-                  color: status.color,
-                  fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-                }}>
-                  {status.label}
-                </span>
-              </div>
-              <Meta label="Quantity" value={item.qty ? `${item.qty} pcs` : "—"} />
-              {(() => {
-                // Estimated delivery — manual override wins. Countdown is
-                // computed from today; the note is shown if the team set
-                // one (e.g. "freight delay, rebooked").
-                const eta = resolveItemEta(item);
-                if (!eta) return null;
-                const cd = daysUntil(eta.date);
-                return (
-                  <div>
-                    <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>
-                      Estimated delivery
-                    </div>
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 14, color: C.text, fontWeight: 700 }}>{fmtDateYear(eta.date)}</div>
-                      {cd && (
-                        <div style={{ fontSize: 11, color: cd.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                          {cd.text}
-                        </div>
-                      )}
-                    </div>
-                    {item.client_eta_note && (
-                      <div style={{ fontSize: 11, color: C.muted, marginTop: 4, fontStyle: "italic" }}>
-                        {item.client_eta_note}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-              <Meta label="Project" value={item.job.title || "—"}
-                sub={item.job.job_number ? `${item.job.job_number}${item.job.target_ship_date && !item.client_eta ? ` · ships ${fmtDate(item.job.target_ship_date)}` : ""}` : undefined}
-              />
-              {/* Invoice + payment status — paired together since the
-                  payment label only makes sense once an invoice exists.
-                  Hidden entirely on un-invoiced orders so the modal
-                  doesn't show "Pending" for items that aren't billed
-                  yet. */}
-              {item.invoice_number && (
-                <div>
-                  <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>
-                    Invoice
-                  </div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                    <div style={{ fontSize: 14, color: C.text, fontWeight: 700, fontFamily: C.mono }}>#{item.invoice_number}</div>
-                    {(() => {
-                      const ps = item.payment_status;
-                      if (ps === "none") return null;
-                      const label = ps === "paid" ? "Paid" : ps === "partial" ? "Partial Paid" : "Unpaid";
-                      const color = ps === "paid" ? C.green : ps === "partial" ? C.amber : C.red;
-                      return (
-                        <span style={{ fontSize: 11, color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                          {label}
-                        </span>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
-              {item.brief && (
-                <Meta label="Design" value={item.brief.title || "—"} sub={item.brief.state?.replace(/_/g, " ")} />
-              )}
-            </div>
-          </div>
-
-          {reorderResult && (
-            <div style={{
-              padding: "10px 14px",
-              background: reorderResult.startsWith("Re-order request") ? C.greenBg : C.redBg,
-              border: `1px solid ${reorderResult.startsWith("Re-order request") ? C.greenBorder : C.redBorder}`,
-              borderRadius: 8,
-              color: reorderResult.startsWith("Re-order request") ? C.green : C.red,
-              fontSize: 12, fontWeight: 600,
-            }}>
-              {reorderResult}
-            </div>
-          )}
-        </div>
-
-        <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button onClick={onClose}
-            style={{ padding: "10px 16px", background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font }}>
+            style={{ padding: "10px 16px", background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font, minHeight: 44 }}>
             Close
           </button>
           <button onClick={reorder} disabled={reordering}
@@ -623,12 +560,114 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
               color: "#fff", border: "none", borderRadius: 8,
               fontSize: 13, fontWeight: 700,
               cursor: reordering ? "wait" : "pointer", fontFamily: C.font,
+              minHeight: 44,
             }}>
             {reordering ? "Requesting…" : "Re-order this item"}
           </button>
+        </>
+      }
+    >
+      <style>{`
+        @media (min-width: 640px) {
+          .item-detail-body { grid-template-columns: 240px 1fr !important; }
+        }
+      `}</style>
+      <div className="item-detail-body" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
+        {/* Thumb */}
+        <div style={{
+          aspectRatio: "1", background: "#fff", borderRadius: 10,
+          overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
+          border: `1px solid ${C.border}`,
+        }}>
+          {item.thumb_id ? (
+            <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
+              alt="" referrerPolicy="no-referrer"
+              style={{ width: "100%", height: "100%", objectFit: "contain" }}
+              onError={(e: any) => { e.target.style.display = "none"; }} />
+          ) : (
+            <span style={{ color: C.faint, fontSize: 12 }}>No preview</span>
+          )}
+        </div>
+
+        {/* Meta */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Meta label="Quantity" value={item.qty ? `${item.qty} pcs` : "—"} />
+          {(() => {
+            // Estimated delivery — manual override wins. Countdown
+            // is from today; note appears when the team set one
+            // (e.g. "freight delay, rebooked").
+            const eta = resolveItemEta(item);
+            if (!eta) return null;
+            const cd = daysUntil(eta.date);
+            return (
+              <div>
+                <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>
+                  Estimated delivery
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ fontSize: 14, color: C.text, fontWeight: 700 }}>{fmtDateYear(eta.date)}</div>
+                  {cd && (
+                    <div style={{ fontSize: 11, color: cd.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      {cd.text}
+                    </div>
+                  )}
+                </div>
+                {item.client_eta_note && (
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 4, fontStyle: "italic" }}>
+                    {item.client_eta_note}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          <Meta label="Project" value={item.job.title || "—"}
+            sub={item.job.job_number ? `${item.job.job_number}${item.job.target_ship_date && !item.client_eta ? ` · ships ${fmtDate(item.job.target_ship_date)}` : ""}` : undefined}
+          />
+          {/* Invoice + payment paired — the label only makes sense
+              once an invoice exists. Hidden entirely on un-invoiced
+              orders so we don't show "Pending" against an item that
+              hasn't been billed yet. */}
+          {item.invoice_number && (
+            <div>
+              <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>
+                Invoice
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 14, color: C.text, fontWeight: 700, fontFamily: C.mono }}>#{item.invoice_number}</div>
+                {(() => {
+                  const ps = item.payment_status;
+                  if (ps === "none") return null;
+                  const label = ps === "paid" ? "Paid" : ps === "partial" ? "Partial Paid" : "Unpaid";
+                  const color = ps === "paid" ? C.green : ps === "partial" ? C.amber : C.red;
+                  return (
+                    <span style={{ fontSize: 11, color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      {label}
+                    </span>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+          {item.brief && (
+            <Meta label="Design" value={item.brief.title || "—"} sub={item.brief.state?.replace(/_/g, " ")} />
+          )}
         </div>
       </div>
-    </div>
+
+      {reorderResult && (
+        <div style={{
+          marginTop: 16,
+          padding: "10px 14px",
+          background: reorderResult.startsWith("Re-order request") ? C.greenBg : C.redBg,
+          border: `1px solid ${reorderResult.startsWith("Re-order request") ? C.greenBorder : C.redBorder}`,
+          borderRadius: 8,
+          color: reorderResult.startsWith("Re-order request") ? C.green : C.red,
+          fontSize: 12, fontWeight: 600,
+        }}>
+          {reorderResult}
+        </div>
+      )}
+    </MobileSheet>
   );
 }
 
