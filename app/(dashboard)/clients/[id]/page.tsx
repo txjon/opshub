@@ -10,7 +10,7 @@ import Link from "next/link";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { effectiveRevenue } from "@/lib/revenue";
 import { logJobActivity } from "@/components/JobActivityPanel";
-import { resolveItemStatus, STATE_LABELS, type ItemState } from "@/lib/item-status";
+import { resolveItemStatus, STATE_LABELS, jobPhaseToItemState, type ItemState } from "@/lib/item-status";
 
 type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; client_hub_enabled?:boolean; portal_token?:string|null; company_id?:string|null; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
@@ -871,23 +871,42 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             <>
               {jobs.length===0&&<p style={{fontSize:12,color:T.muted}}>No projects yet.</p>}
               <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                {jobs.map(j=>{
-                  const phase = PHASE_COLORS[j.phase]||PHASE_COLORS.intake;
-                  const rev = effectiveRevenue(j);
-                  const units = (j.items||[]).reduce((a: number,it: any) => a + (it.buy_sheet_lines||[]).reduce((b: number,l: any) => b + (l.qty_ordered||0), 0), 0);
-                  return(
-                    <Link key={j.id} href={`/jobs/${j.id}`} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:T.surface,borderRadius:6,textDecoration:"none",color:T.text,transition:"background 0.1s"}}
-                      onMouseEnter={(e:any)=>e.currentTarget.style.background=T.accentDim}
-                      onMouseLeave={(e:any)=>e.currentTarget.style.background=T.surface}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{j.title}</div>
-                        <div style={{fontSize:10,color:T.muted,marginTop:1}}>{(j as any).type_meta?.qb_invoice_number || j.job_number} {units>0&&`· ${units.toLocaleString()} units`} {rev>0&&`· $${Math.round(rev).toLocaleString()}`}</div>
-                      </div>
-                      <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:phase.text,whiteSpace:"nowrap",flexShrink:0}}>{j.phase.replace(/_/g," ")}</span>
-                      {j.target_ship_date&&<span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0}}>{new Date(j.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>}
-                    </Link>
-                  );
-                })}
+                {(() => {
+                  // Same color map the Worksheet uses for item rows. The
+                  // project list summarises a whole job, so we collapse
+                  // the raw jobs.phase into the canonical item state via
+                  // jobPhaseToItemState — keeps the vocabulary in sync
+                  // across the entire client hub.
+                  const STATE_COLORS: Record<ItemState, string> = {
+                    setup: T.muted,
+                    in_production: T.accent,
+                    shipped: T.purple,
+                    in_stock: "#14b8a6",
+                    complete: T.green,
+                    archived: T.faint,
+                    on_hold: T.amber,
+                    cancelled: T.red,
+                  };
+                  return jobs.map(j=>{
+                    const state = jobPhaseToItemState(j.phase);
+                    const stateLabel = STATE_LABELS[state];
+                    const stateColor = STATE_COLORS[state];
+                    const rev = effectiveRevenue(j);
+                    const units = (j.items||[]).reduce((a: number,it: any) => a + (it.buy_sheet_lines||[]).reduce((b: number,l: any) => b + (l.qty_ordered||0), 0), 0);
+                    return(
+                      <Link key={j.id} href={`/jobs/${j.id}`} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:T.surface,borderRadius:6,textDecoration:"none",color:T.text,transition:"background 0.1s"}}
+                        onMouseEnter={(e:any)=>e.currentTarget.style.background=T.accentDim}
+                        onMouseLeave={(e:any)=>e.currentTarget.style.background=T.surface}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{j.title}</div>
+                          <div style={{fontSize:10,color:T.muted,marginTop:1}}>{(j as any).type_meta?.qb_invoice_number || j.job_number} {units>0&&`· ${units.toLocaleString()} units`} {rev>0&&`· $${Math.round(rev).toLocaleString()}`}</div>
+                        </div>
+                        <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:stateColor,whiteSpace:"nowrap",flexShrink:0}}>{stateLabel}</span>
+                        {j.target_ship_date&&<span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0}}>{new Date(j.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>}
+                      </Link>
+                    );
+                  });
+                })()}
               </div>
             </>
           )}

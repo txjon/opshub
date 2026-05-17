@@ -175,3 +175,28 @@ export function isActive(state: ItemState): boolean {
 export function isHistorical(state: ItemState): boolean {
   return HISTORICAL_STATES.includes(state);
 }
+
+// Roll-up: collapse a job's phase into the canonical per-item
+// vocabulary so a project list can show "Setup / In Production /
+// Shipped / In Stock / Complete" instead of the raw jobs.phase
+// values (intake / pending / ready / production / receiving /
+// fulfillment / shipping / complete / on_hold / cancelled).
+//
+// This is a SUMMARY label — a job can have items in different
+// states simultaneously. The job's phase reflects the dominant
+// position of the order overall, so we map it to whichever
+// canonical state best describes where the bulk of the work
+// currently sits.
+export function jobPhaseToItemState(phase: string | null | undefined): ItemState {
+  if (!phase) return "setup";
+  if (phase === "complete") return "complete";
+  if (phase === "cancelled") return "cancelled";
+  if (phase === "on_hold") return "on_hold";
+  // fulfillment / shipping = items at HPD, awaiting outbound
+  if (phase === "fulfillment" || phase === "shipping") return "in_stock";
+  // receiving = items en route from decorator to HPD
+  if (phase === "receiving") return "shipped";
+  if (phase === "production") return "in_production";
+  // intake / pending / ready → all pre-PO setup work
+  return "setup";
+}
