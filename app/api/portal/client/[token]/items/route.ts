@@ -82,7 +82,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    UI can filter. A "paid to archive" toggle can hide them client-side.)
     const { data: jobs } = await db
       .from("jobs")
-      .select("id, job_number, title, phase, target_ship_date, created_at, shipping_route")
+      .select("id, job_number, title, phase, target_ship_date, created_at, shipping_route, phase_timestamps")
       .eq("client_id", client.id)
       .order("created_at", { ascending: false });
     const jobById: Record<string, any> = {};
@@ -95,7 +95,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // 3. Fetch every item on those jobs.
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order, client_eta, client_eta_note")
+      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -174,12 +174,14 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         created_at: it.created_at,
         client_eta: it.client_eta || null,
         client_eta_note: it.client_eta_note || null,
+        archived_at: it.archived_at || null,
         job: {
           id: it.job_id,
           job_number: job.job_number || null,
           title: job.title || null,
           phase: job.phase || null,
           target_ship_date: job.target_ship_date || null,
+          completed_at: (job as any).phase_timestamps?.complete || null,
         },
         brief: brief ? { id: brief.id, title: brief.title, state: brief.state } : null,
         design_id: it.design_id || null,

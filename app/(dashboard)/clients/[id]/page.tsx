@@ -10,6 +10,7 @@ import Link from "next/link";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { effectiveRevenue } from "@/lib/revenue";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { resolveItemStatus, STATE_LABELS, type ItemState } from "@/lib/item-status";
 
 type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; client_hub_enabled?:boolean; portal_token?:string|null; company_id?:string|null; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
@@ -43,8 +44,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [itemViewMode, setItemViewMode] = useState<"list"|"tiles">("list");
   const [infoExpanded, setInfoExpanded] = useState(false);
   const [workingExpanded, setWorkingExpanded] = useState(true);
-  const [workingTab, setWorkingTab] = useState<"pending"|"in_production"|"landed">("pending");
+  const [workingTab, setWorkingTab] = useState<"setup"|"in_production"|"shipped"|"complete"|"archived">("in_production");
   const [workingRowExpanded, setWorkingRowExpanded] = useState<string|null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const itemSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [portalCopied, setPortalCopied] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -152,7 +154,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const [cRes, ctRes, jRes] = await Promise.all([
       supabase.from("clients").select("*").eq("id", params.id).single(),
       supabase.from("contacts").select("*").eq("client_id", params.id).order("name"),
-      supabase.from("jobs").select("*, costing_summary, type_meta, shipping_route, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, received_at_hpd, blanks_order_cost, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
+      supabase.from("jobs").select("*, costing_summary, type_meta, shipping_route, phase_timestamps, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, received_at_hpd, blanks_order_cost, archived_at, buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
     ]);
     if (cRes.data) setClient(cRes.data);
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
@@ -311,7 +313,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     jobPhase: j.phase,
     shippingRoute: (j as any).shipping_route || null,
     quoteApprovedAt: (j as any).quote_approved_at || null,
+    jobCompletedAt: ((j as any).phase_timestamps || {}).complete || null,
     pipelineStage: it.pipeline_stage || null,
+    archivedAt: it.archived_at || null,
     receivedAtHpd: !!it.received_at_hpd,
     blanksOrderCost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : 0,
     totalQty: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0),
@@ -949,51 +953,30 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           const fmtMoney = (n: number) => "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           const fmtMoneyShort = (n: number) => "$" + Math.round(n || 0).toLocaleString();
 
-          // Default status derivation — mirrors the portal items API's
-          // mapStatus() so the worksheet reflects what's actually true
-          // per-item in OpsHub. Manual override (items.working_status)
-          // still wins when explicitly set.
+          // Canonical status via the shared lib — every surface in OpsHub
+          // uses the same compute function, so the worksheet matches what
+          // the client portal, production page, and project overview all
+          // show for the same item. The 5 active/historical states are:
           //
-          //   Pending      — pre-production: not priced, no blanks
-          //                  ordered, no pipeline_stage yet.
-          //   In Production — at decorator, en route, at HPD, or
-          //                  preparing (priced/blanks ordered) but not
-          //                  yet landed at the client.
-          //   Landed       — job complete, OR drop_ship + shipped
-          //                  (decorator shipped direct to client).
-          const resolveWS = (it: any): "pending" | "in_production" | "landed" => {
-            if (it.working_status) return it.working_status;
-            const phase = it.jobPhase;
-            const ps = it.pipelineStage;
-            const route = it.shippingRoute;
-            const sell = Number(it.sell_per_unit) || 0;
-            const blanks = Number(it.blanksOrderCost) || 0;
-
-            // Whole-job locks
-            if (phase === "complete") return "landed";
-            if (phase === "cancelled" || phase === "on_hold") return "pending";
-
-            // Per-item production states
-            if (ps === "in_production" || ps === "strike_off") return "in_production";
-
-            if (ps === "shipped") {
-              // drop_ship: decorator ships direct to client = landed
-              // ship_through / stage: still in flight to client = in_production
-              return route === "drop_ship" ? "landed" : "in_production";
-            }
-
-            // Preparing — priced, blanks ordered, or legacy
-            // pipeline_stage='blanks_ordered'.
-            if (sell > 0 || blanks > 0 || ps === "blanks_ordered") return "in_production";
-
-            // Job-wide fallbacks for items that haven't been individually
-            // staged yet but the job has moved past production.
-            if (phase === "shipping" || phase === "receiving" || phase === "fulfillment" || phase === "production") return "in_production";
-
-            return "pending";
-          };
-
-          const wsItems = allItems.map((it: any) => ({ ...it, _ws: resolveWS(it) }));
+          //   setup           pre-PO (costing, art, blanks, payments)
+          //   in_production   PO sent, decorator hasn't shipped
+          //   shipped         left decorator, HPD outbound pending
+          //                   (drop-ship skips this state)
+          //   complete        HPD's last shipping action taken
+          //   archived        Complete + grace period elapsed,
+          //                   manually archived, or job cancelled
+          const wsItems = allItems.map((it: any) => ({
+            ...it,
+            _ws: resolveItemStatus({
+              archived_at: it.archivedAt,
+              pipeline_stage: it.pipelineStage,
+              sell_per_unit: it.sell_per_unit,
+              blanks_order_cost: it.blanksOrderCost,
+              job_phase: it.jobPhase,
+              job_shipping_route: it.shippingRoute,
+              job_completed_at: it.jobCompletedAt,
+            }) as ItemState,
+          }));
           const paidJobIds = new Set(
             jobs.filter(j => ((j as any).payment_records || []).some((p: any) => p.status === "paid")).map(j => j.id)
           );
@@ -1008,23 +991,31 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             }
             return { count, qty, cost, gross, profit: gross - cost };
           };
-          const byStatus: Record<"pending"|"in_production"|"landed", any[]> = {
-            pending: wsItems.filter((it: any) => it._ws === "pending"),
+          type TabKey = "setup" | "in_production" | "shipped" | "complete" | "archived";
+          const byStatus: Record<TabKey, any[]> = {
+            setup: wsItems.filter((it: any) => it._ws === "setup"),
             in_production: wsItems.filter((it: any) => it._ws === "in_production"),
-            landed: wsItems.filter((it: any) => it._ws === "landed"),
+            shipped: wsItems.filter((it: any) => it._ws === "shipped"),
+            complete: wsItems.filter((it: any) => it._ws === "complete"),
+            archived: wsItems.filter((it: any) => it._ws === "archived" || it._ws === "cancelled"),
           };
+          const activeWsItems = wsItems.filter((it: any) => it._ws !== "archived" && it._ws !== "cancelled");
           const rollups = {
-            pending: rollup(byStatus.pending),
+            setup: rollup(byStatus.setup),
             in_production: rollup(byStatus.in_production),
-            landed: rollup(byStatus.landed),
-            total: rollup(wsItems),
+            shipped: rollup(byStatus.shipped),
+            complete: rollup(byStatus.complete),
+            archived: rollup(byStatus.archived),
+            active_total: rollup(activeWsItems),
           };
           const currentItems = byStatus[workingTab];
 
-          const STATUS_OPTS: { value: "pending"|"in_production"|"landed"; label: string; color: string }[] = [
-            { value: "pending", label: "Pending", color: T.amber },
-            { value: "in_production", label: "In Production", color: T.accent },
-            { value: "landed", label: "Landed", color: T.green },
+          // Tabs across the worksheet — 4 active + an Archived toggle.
+          const STATUS_OPTS: { value: TabKey; label: string; color: string }[] = [
+            { value: "setup", label: STATE_LABELS.setup, color: T.muted },
+            { value: "in_production", label: STATE_LABELS.in_production, color: T.accent },
+            { value: "shipped", label: STATE_LABELS.shipped, color: T.purple },
+            { value: "complete", label: STATE_LABELS.complete, color: T.green },
           ];
 
           return (
@@ -1044,7 +1035,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             </span>
             {!workingExpanded && wsItems.length > 0 && (
               <span style={{fontSize:11,color:T.faint,marginLeft:"auto",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                {wsItems.length} items · {fmtMoneyShort(rollups.total.gross)} gross · {fmtMoneyShort(rollups.total.profit)} profit
+                {activeWsItems.length} active · {fmtMoneyShort(rollups.active_total.gross)} gross · {fmtMoneyShort(rollups.active_total.profit)} profit
               </span>
             )}
           </button>
@@ -1063,11 +1054,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                     </tr>
                   </thead>
                   <tbody>
-                    {(["pending","in_production","landed"] as const).map(k => {
-                      const r = rollups[k];
-                      const opt = STATUS_OPTS.find(o => o.value === k)!;
+                    {STATUS_OPTS.map(opt => {
+                      const r = rollups[opt.value as Exclude<TabKey, "archived">];
                       return (
-                        <tr key={k}>
+                        <tr key={opt.value}>
                           <td style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:opt.color,textTransform:"uppercase",letterSpacing:"0.07em"}}>{opt.label}</td>
                           <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,color:T.muted,textAlign:"right"}}>{r.count}</td>
                           <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,color:T.text,textAlign:"right"}}>{r.qty.toLocaleString()}</td>
@@ -1078,30 +1068,59 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                       );
                     })}
                     <tr style={{borderTop:`1px solid ${T.border}`,background:T.surface}}>
-                      <td style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:T.text,textTransform:"uppercase",letterSpacing:"0.07em"}}>Total</td>
-                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{rollups.total.count}</td>
-                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{rollups.total.qty.toLocaleString()}</td>
-                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{fmtMoneyShort(rollups.total.cost)}</td>
-                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{fmtMoneyShort(rollups.total.gross)}</td>
-                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:800,color:T.green,textAlign:"right"}}>{fmtMoneyShort(rollups.total.profit)}</td>
+                      <td style={{padding:"8px 10px",fontSize:11,fontWeight:700,color:T.text,textTransform:"uppercase",letterSpacing:"0.07em"}}>Total (active)</td>
+                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{rollups.active_total.count}</td>
+                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{rollups.active_total.qty.toLocaleString()}</td>
+                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{fmtMoneyShort(rollups.active_total.cost)}</td>
+                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:700,color:T.text,textAlign:"right"}}>{fmtMoneyShort(rollups.active_total.gross)}</td>
+                      <td style={{padding:"8px 10px",fontSize:13,fontFamily:mono,fontWeight:800,color:T.green,textAlign:"right"}}>{fmtMoneyShort(rollups.active_total.profit)}</td>
                     </tr>
+                    {showArchived && byStatus.archived.length > 0 && (
+                      <tr style={{background:T.surface,opacity:0.7}}>
+                        <td style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em"}}>Archived</td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,color:T.muted,textAlign:"right"}}>{rollups.archived.count}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,color:T.muted,textAlign:"right"}}>{rollups.archived.qty.toLocaleString()}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,color:T.muted,textAlign:"right"}}>{fmtMoneyShort(rollups.archived.cost)}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,color:T.muted,textAlign:"right"}}>{fmtMoneyShort(rollups.archived.gross)}</td>
+                        <td style={{padding:"6px 10px",fontSize:12,fontFamily:mono,color:T.muted,textAlign:"right"}}>{fmtMoneyShort(rollups.archived.profit)}</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
 
-              {/* Tabs — Pending · In Production · Landed */}
-              <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2,width:"fit-content"}}>
-                {STATUS_OPTS.map(opt => {
-                  const isActive = workingTab === opt.value;
-                  const count = byStatus[opt.value].length;
-                  return (
-                    <button key={opt.value} onClick={() => setWorkingTab(opt.value)}
-                      style={{padding:"4px 12px",borderRadius:4,fontSize:11,fontWeight:700,border:"none",cursor:"pointer",
-                        background:isActive?T.accent:"transparent",color:isActive?"#fff":T.muted,fontFamily:font}}>
-                      {opt.label} <span style={{opacity:0.7,marginLeft:4}}>{count}</span>
-                    </button>
-                  );
-                })}
+              {/* Tabs — Setup · In Production · Shipped · Complete (+ Archived toggle) */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+                <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2,width:"fit-content"}}>
+                  {STATUS_OPTS.map(opt => {
+                    const isActive = workingTab === opt.value;
+                    const count = byStatus[opt.value].length;
+                    return (
+                      <button key={opt.value} onClick={() => setWorkingTab(opt.value)}
+                        style={{padding:"4px 12px",borderRadius:4,fontSize:11,fontWeight:700,border:"none",cursor:"pointer",
+                          background:isActive?T.accent:"transparent",color:isActive?"#fff":T.muted,fontFamily:font}}>
+                        {opt.label} <span style={{opacity:0.7,marginLeft:4}}>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !showArchived;
+                    setShowArchived(next);
+                    if (next && byStatus.archived.length > 0) setWorkingTab("archived");
+                    else if (!next && workingTab === "archived") setWorkingTab("in_production");
+                  }}
+                  style={{
+                    fontSize:11,fontWeight:600,color:showArchived?T.text:T.muted,
+                    background:showArchived?T.surface:"transparent",
+                    border:`1px solid ${T.border}`,borderRadius:6,
+                    padding:"4px 12px",cursor:"pointer",fontFamily:font,
+                  }}
+                  title="Archived items (Complete > 30 days, manually archived, or cancelled)">
+                  {showArchived ? "Hide" : "Show"} archived ({byStatus.archived.length})
+                </button>
               </div>
 
               {/* Item list */}
@@ -1122,13 +1141,25 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                     <div>ETA</div>
                     <div style={{textAlign:"center"}}>Paid</div>
                   </div>
-                  {currentItems.map((it: any) => {
+                  {(() => {
+                    const STATE_COLORS: Record<ItemState, string> = {
+                      setup: T.muted,
+                      in_production: T.accent,
+                      shipped: T.purple,
+                      complete: T.green,
+                      archived: T.faint,
+                      on_hold: T.amber,
+                      cancelled: T.red,
+                    };
+                    return currentItems.map((it: any) => {
                     const isOpen = workingRowExpanded === it.id;
                     const cost = Number(it.sell_per_unit) || 0;
                     const retail = Number(it.client_retail_per_unit) || 0;
                     const profit = (retail - cost) * it.totalQty;
                     const isPaid = paidJobIds.has(it.jobId);
-                    const statusOpt = STATUS_OPTS.find(o => o.value === it._ws)!;
+                    const stateLabel = STATE_LABELS[it._ws as ItemState] || "—";
+                    const stateColor = STATE_COLORS[it._ws as ItemState] || T.muted;
+                    const isArchived = it.archivedAt != null || it._ws === "archived" || it._ws === "cancelled";
                     return (
                       <div key={it.id} style={{background:T.surface,borderRadius:8,overflow:"hidden"}}>
                         <button
@@ -1169,9 +1200,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                           <div style={{fontSize:12,fontFamily:mono,color:T.text,textAlign:"right"}}>{cost > 0 ? fmtMoney(cost) : "—"}</div>
                           <div style={{fontSize:12,fontFamily:mono,color:retail > 0 ? T.text : T.faint,textAlign:"right"}}>{retail > 0 ? fmtMoney(retail) : "—"}</div>
                           <div style={{fontSize:12,fontFamily:mono,fontWeight:600,color:profit > 0 ? T.green : T.faint,textAlign:"right"}}>{profit !== 0 ? fmtMoneyShort(profit) : "—"}</div>
-                          <div style={{fontSize:10,fontWeight:700,color:statusOpt.color,textTransform:"uppercase",letterSpacing:"0.06em",display:"flex",alignItems:"center",gap:4}}>
-                            <span>{statusOpt.label}</span>
-                            {it.working_status && <span style={{fontSize:9,fontWeight:600,color:T.faint,textTransform:"none",letterSpacing:0}} title="Manually overridden — OpsHub's derived status may differ">·manual</span>}
+                          <div style={{fontSize:10,fontWeight:700,color:stateColor,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                            {stateLabel}
                           </div>
                           <div style={{fontSize:11,fontFamily:mono,color:T.muted}}>
                             {it.client_eta ? new Date(it.client_eta).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) : "—"}
@@ -1223,37 +1253,30 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                   style={{...ic,fontFamily:mono}}/>
                               </div>
                               <div>
-                                <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:3}}>
-                                  <label style={{fontSize:10,color:T.faint,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>
-                                    Status {it.working_status && <span style={{color:T.muted,fontWeight:500,textTransform:"none",letterSpacing:0}}>(manual)</span>}
-                                  </label>
-                                  {it.working_status && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        saveItemField(it.id, "working_status", null);
-                                        logWorksheet(it.jobId, `Worksheet status reset to derived — ${it.name}`);
-                                      }}
-                                      style={{fontSize:9,color:T.muted,background:"transparent",border:"none",cursor:"pointer",padding:0,fontFamily:font}}
-                                      title="Clear the manual override — falls back to what OpsHub says">
-                                      ↻ reset
-                                    </button>
-                                  )}
+                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status</label>
+                                <div style={{padding:"8px 10px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                                  <span style={{fontSize:11,fontWeight:700,color:stateColor,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                                    {stateLabel}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = isArchived ? null : new Date().toISOString();
+                                      saveItemField(it.id, "archived_at", next);
+                                      logWorksheet(it.jobId, isArchived ? `Unarchived — ${it.name}` : `Archived — ${it.name}`);
+                                    }}
+                                    style={{
+                                      fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:4,
+                                      background:"transparent",border:`1px solid ${T.border}`,color:T.muted,
+                                      cursor:"pointer",fontFamily:font,
+                                    }}
+                                    title="Archived items are hidden from active views">
+                                    {isArchived ? "Unarchive" : "Archive"}
+                                  </button>
                                 </div>
-                                <select
-                                  value={it._ws}
-                                  onChange={e => {
-                                    const next = e.target.value;
-                                    const prev = it._ws;
-                                    saveItemField(it.id, "working_status", next);
-                                    if (next !== prev) {
-                                      const label = (s: string) => STATUS_OPTS.find(o => o.value === s)?.label || s;
-                                      logWorksheet(it.jobId, `Worksheet status: ${label(prev)} → ${label(next)} — ${it.name}`);
-                                    }
-                                  }}
-                                  style={ic}>
-                                  {STATUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                                </select>
+                                <div style={{fontSize:9,color:T.faint,marginTop:4,lineHeight:1.4}}>
+                                  Derived from OpsHub. To change it, advance the project (send PO, enter tracking, mark complete).
+                                </div>
                               </div>
                               <div>
                                 <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>ETA</label>
@@ -1283,7 +1306,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                         )}
                       </div>
                     );
-                  })}
+                  });
+                  })()}
                 </div>
               )}
             </div>

@@ -16,16 +16,33 @@ type Item = {
   created_at: string;
   client_eta: string | null;
   client_eta_note: string | null;
+  archived_at: string | null;
   job: {
     id: string;
     job_number: string | null;
     title: string | null;
     phase: string | null;
     target_ship_date: string | null;
+    completed_at: string | null;
   };
   brief: { id: string; title: string | null; state: string } | null;
   design_id: string | null;
 };
+
+// Days since job completion before an item moves to History tab.
+// Matches the worksheet's ARCHIVE_GRACE_DAYS so the same item drops
+// out of active views at the same time internally and externally.
+const HISTORY_GRACE_DAYS = 30;
+
+function isItemArchived(it: Item): boolean {
+  if (it.archived_at) return true;
+  if (it.status === "cancelled") return true;
+  if (it.status === "delivered" && it.job.completed_at) {
+    const days = (Date.now() - new Date(it.job.completed_at).getTime()) / 86400000;
+    if (days >= HISTORY_GRACE_DAYS) return true;
+  }
+  return false;
+}
 
 // ETA resolver — manual override wins over job target ship date.
 // Returns null if neither is set so callers can omit the line entirely.
@@ -63,6 +80,11 @@ export default function ItemsPage() {
   const [filter, setFilter] = useState("active");
   const [detail, setDetail] = useState<Item | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "tiles">("list");
+  // Current orders (default) vs History. Past orders (delivered 30+ days
+  // ago, or items the team manually archived) live in History so they
+  // don't crowd live orders. Fixes the "wait, are my new belts already
+  // delivered?" confusion when the same item ships more than once.
+  const [view, setView] = useState<"current" | "history">("current");
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -76,9 +98,16 @@ export default function ItemsPage() {
     setLoading(false);
   }
 
+  // Partition first by current vs history. The detailed status filters
+  // apply within whichever bucket is showing.
+  const all = items || [];
+  const historyItems = all.filter(isItemArchived);
+  const currentItems = all.filter(it => !isItemArchived(it));
+  const inView = view === "history" ? historyItems : currentItems;
+
   const active = FILTERS.find(f => f.key === filter) || FILTERS[0];
   const q = query.trim().toLowerCase();
-  const filtered = (items || []).filter(it => {
+  const filtered = inView.filter(it => {
     if (!active.matches(it.status)) return false;
     if (!q) return true;
     return (
@@ -89,17 +118,41 @@ export default function ItemsPage() {
     );
   });
 
-  const counts: Record<string, number> = { all: items?.length || 0 };
-  for (const f of FILTERS) counts[f.key] = (items || []).filter(it => f.matches(it.status)).length;
+  const counts: Record<string, number> = { all: inView.length };
+  for (const f of FILTERS) counts[f.key] = inView.filter(it => f.matches(it.status)).length;
 
   return (
     <div>
+      {/* Top tabs: Current Orders vs History */}
+      <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: 16 }}>
+        {(["current", "history"] as const).map(v => {
+          const isActive = view === v;
+          const count = v === "history" ? historyItems.length : currentItems.length;
+          const label = v === "current" ? "Current Orders" : "History";
+          return (
+            <button key={v}
+              onClick={() => { setView(v); setFilter("active"); }}
+              style={{
+                background: "transparent", border: "none",
+                padding: "10px 16px", marginBottom: -1,
+                borderBottom: isActive ? `2px solid ${C.text}` : "2px solid transparent",
+                color: isActive ? C.text : C.muted,
+                fontSize: 14, fontWeight: isActive ? 800 : 600,
+                cursor: "pointer", fontFamily: C.font,
+              }}>
+              {label}
+              <span style={{ marginLeft: 6, fontSize: 11, color: isActive ? C.muted : C.faint, fontWeight: 600 }}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Search + filters */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 18 }}>
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="Search your items by name, garment, or project…"
+          placeholder={view === "history" ? "Search past orders…" : "Search your items by name, garment, or project…"}
           style={{
             width: "100%", padding: "12px 14px", fontSize: 14,
             background: C.card, border: `1px solid ${C.border}`,
