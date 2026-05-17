@@ -371,6 +371,7 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
           avoid stacking the same info twice. */}
       {showPreview && !expanded && (
         <div
+          className="portal-order-preview"
           style={{
             position: "absolute", left: 0, right: 0,
             ...(dir === "up"
@@ -382,6 +383,16 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
             boxShadow: "0 6px 18px rgba(0,0,0,0.18)",
             pointerEvents: "none",
           }}>
+          {/* Hover popovers are a desktop affordance — touch devices
+              don't have hover and the row's tap already opens the
+              full order modal with the same info. Hide via media
+              query rather than runtime device detection so SSR + first
+              paint match. */}
+          <style>{`
+            @media (max-width: 640px) {
+              .portal-order-preview { display: none !important; }
+            }
+          `}</style>
           <div style={{
             fontSize: 9, fontWeight: 700, color: C.faint,
             textTransform: "uppercase", letterSpacing: "0.07em",
