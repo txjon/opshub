@@ -9,6 +9,7 @@ import { QBCustomerChooser, type QBCurrent } from "@/components/QBCustomerChoose
 import Link from "next/link";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { effectiveRevenue } from "@/lib/revenue";
+import { logJobActivity } from "@/components/JobActivityPanel";
 
 type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; client_hub_enabled?:boolean; portal_token?:string|null; company_id?:string|null; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
@@ -309,6 +310,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     jobDate: j.target_ship_date || j.created_at,
     jobPhase: j.phase,
     shippingRoute: (j as any).shipping_route || null,
+    quoteApprovedAt: (j as any).quote_approved_at || null,
     pipelineStage: it.pipeline_stage || null,
     receivedAtHpd: !!it.received_at_hpd,
     blanksOrderCost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : 0,
@@ -379,6 +381,16 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       const dbValue = value === "" ? null : value;
       supabase.from("items").update({ [field]: dbValue }).eq("id", itemId);
     }, 600);
+  }
+
+  // Worksheet-originated activity logging. Keeps an audit trail when
+  // Jon adjusts price / retail / status from the worksheet so future
+  // "wait, why is this $X?" questions have an answer. Wraps
+  // logJobActivity with the "(worksheet)" suffix so the source is
+  // distinguishable from edits made on the project pages.
+  function logWorksheet(jobId: string, message: string) {
+    if (!jobId) return;
+    logJobActivity(jobId, `${message} (worksheet)`);
   }
 
   async function reorderItem(item: any) {
@@ -1157,7 +1169,10 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                           <div style={{fontSize:12,fontFamily:mono,color:T.text,textAlign:"right"}}>{cost > 0 ? fmtMoney(cost) : "—"}</div>
                           <div style={{fontSize:12,fontFamily:mono,color:retail > 0 ? T.text : T.faint,textAlign:"right"}}>{retail > 0 ? fmtMoney(retail) : "—"}</div>
                           <div style={{fontSize:12,fontFamily:mono,fontWeight:600,color:profit > 0 ? T.green : T.faint,textAlign:"right"}}>{profit !== 0 ? fmtMoneyShort(profit) : "—"}</div>
-                          <div style={{fontSize:10,fontWeight:700,color:statusOpt.color,textTransform:"uppercase",letterSpacing:"0.06em"}}>{statusOpt.label}</div>
+                          <div style={{fontSize:10,fontWeight:700,color:statusOpt.color,textTransform:"uppercase",letterSpacing:"0.06em",display:"flex",alignItems:"center",gap:4}}>
+                            <span>{statusOpt.label}</span>
+                            {it.working_status && <span style={{fontSize:9,fontWeight:600,color:T.faint,textTransform:"none",letterSpacing:0}} title="Manually overridden — OpsHub's derived status may differ">·manual</span>}
+                          </div>
                           <div style={{fontSize:11,fontFamily:mono,color:T.muted}}>
                             {it.client_eta ? new Date(it.client_eta).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) : "—"}
                           </div>
@@ -1180,7 +1195,18 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                   type="number" step="0.01" min="0"
                                   value={it.sell_per_unit ?? ""}
                                   onChange={e => saveItemField(it.id, "sell_per_unit", e.target.value === "" ? null : Number(e.target.value))}
+                                  onBlur={e => {
+                                    const v = e.target.value === "" ? null : Number(e.target.value);
+                                    if (v !== (Number(it.sell_per_unit) || null)) {
+                                      logWorksheet(it.jobId, `Unit cost set to ${v == null ? "—" : "$" + Number(v).toFixed(2)} — ${it.name}`);
+                                    }
+                                  }}
                                   style={{...ic,fontFamily:mono}}/>
+                                {it.quoteApprovedAt && (
+                                  <div style={{fontSize:9,color:T.amber,marginTop:4,lineHeight:1.4}}>
+                                    Quote approved {new Date(it.quoteApprovedAt).toLocaleDateString("en-US",{month:"short",day:"numeric"})}. Changes apply to future invoices only.
+                                  </div>
+                                )}
                               </div>
                               <div>
                                 <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Retail (manual)</label>
@@ -1188,13 +1214,43 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                   type="number" step="0.01" min="0"
                                   value={it.client_retail_per_unit ?? ""}
                                   onChange={e => saveItemField(it.id, "client_retail_per_unit", e.target.value === "" ? null : Number(e.target.value))}
+                                  onBlur={e => {
+                                    const v = e.target.value === "" ? null : Number(e.target.value);
+                                    if (v !== (Number(it.client_retail_per_unit) || null)) {
+                                      logWorksheet(it.jobId, `Retail set to ${v == null ? "—" : "$" + Number(v).toFixed(2)} — ${it.name}`);
+                                    }
+                                  }}
                                   style={{...ic,fontFamily:mono}}/>
                               </div>
                               <div>
-                                <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status</label>
+                                <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:3}}>
+                                  <label style={{fontSize:10,color:T.faint,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                                    Status {it.working_status && <span style={{color:T.muted,fontWeight:500,textTransform:"none",letterSpacing:0}}>(manual)</span>}
+                                  </label>
+                                  {it.working_status && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        saveItemField(it.id, "working_status", null);
+                                        logWorksheet(it.jobId, `Worksheet status reset to derived — ${it.name}`);
+                                      }}
+                                      style={{fontSize:9,color:T.muted,background:"transparent",border:"none",cursor:"pointer",padding:0,fontFamily:font}}
+                                      title="Clear the manual override — falls back to what OpsHub says">
+                                      ↻ reset
+                                    </button>
+                                  )}
+                                </div>
                                 <select
                                   value={it._ws}
-                                  onChange={e => saveItemField(it.id, "working_status", e.target.value)}
+                                  onChange={e => {
+                                    const next = e.target.value;
+                                    const prev = it._ws;
+                                    saveItemField(it.id, "working_status", next);
+                                    if (next !== prev) {
+                                      const label = (s: string) => STATUS_OPTS.find(o => o.value === s)?.label || s;
+                                      logWorksheet(it.jobId, `Worksheet status: ${label(prev)} → ${label(next)} — ${it.name}`);
+                                    }
+                                  }}
                                   style={ic}>
                                   {STATUS_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                                 </select>

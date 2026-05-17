@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { CostingTabWrapper } from "./CostingTab";
 import { POTab } from "./POTab.jsx";
 import { BlanksTab } from "./BlanksTab";
@@ -561,7 +562,17 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 {saving&&<span style={{fontSize:10,color:T.muted}}>Saving...</span>}
               </div>
               <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:2,flexWrap:"wrap"}}>
-                <span style={{fontSize:isMobile?16:18,fontWeight:800,color:T.text,letterSpacing:"-0.02em"}}>{(job.clients as any)?.name||"No client"}</span>
+                {job.client_id ? (
+                  <Link href={`/clients/${job.client_id}`}
+                    style={{fontSize:isMobile?16:18,fontWeight:800,color:T.text,letterSpacing:"-0.02em",textDecoration:"none"}}
+                    onMouseEnter={(e:any)=>e.currentTarget.style.color=T.accent}
+                    onMouseLeave={(e:any)=>e.currentTarget.style.color=T.text}
+                    title="View in client hub">
+                    {(job.clients as any)?.name||"No client"} <span style={{fontSize:13,fontWeight:500,color:T.muted}}>↗</span>
+                  </Link>
+                ) : (
+                  <span style={{fontSize:isMobile?16:18,fontWeight:800,color:T.text,letterSpacing:"-0.02em"}}>No client</span>
+                )}
                 <span style={{fontSize:13,color:T.muted}}>{job.title}</span>
                 <span style={{fontSize:11,color:T.faint}}>{totalUnits.toLocaleString()} units</span>
               </div>
