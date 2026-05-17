@@ -1150,50 +1150,41 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           </span>
         </button>
 
-        {/* Full-screen modal — same content the collapsible section
-            used to render. position:fixed inset overlays the rest of
-            the client page; click backdrop or press Esc to close. */}
+        {/* Full-page modal — overlays the entire viewport with an
+            opaque T.bg background. No dim backdrop, no centered
+            frame: this should read like its own page. Mirrors the
+            /production page's modal pattern (which mirrors art-studio).
+            Close: × button or Esc. */}
         {worksheetOpen && (
-          <div
-            onClick={() => setWorksheetOpen(false)}
-            style={{
-              position:"fixed", inset:0, zIndex:1000,
-              background:"rgba(0,0,0,0.45)",
-              display:"flex", alignItems:"stretch", justifyContent:"stretch",
-              padding:"24px",
-            }}
-          >
-            <div
-              onClick={e => e.stopPropagation()}
-              style={{
-                width:"100%", maxWidth:1280, margin:"0 auto",
-                background:T.card, borderRadius:12,
-                display:"flex", flexDirection:"column",
-                maxHeight:"100%", overflow:"hidden",
-                boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
-              }}
-            >
-              {/* Modal header */}
-              <div style={{
-                display:"flex", alignItems:"center", justifyContent:"space-between",
-                padding:"14px 22px", borderBottom:`1px solid ${T.border}`,
-              }}>
-                <div>
-                  <div style={{fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>
-                    Working Sheet
-                  </div>
-                  <div style={{fontSize:18,fontWeight:700,color:T.text,marginTop:2,letterSpacing:"-0.01em"}}>
-                    {client?.name}
-                  </div>
+          <div style={{
+            position:"fixed", inset:0, zIndex:1000,
+            background:T.bg,
+            display:"flex", flexDirection:"column",
+            fontFamily:font, color:T.text,
+          }}>
+            {/* Header bar */}
+            <div style={{
+              display:"flex", alignItems:"center", justifyContent:"space-between",
+              padding:"14px 28px", borderBottom:`1px solid ${T.border}`,
+              background:T.card,
+              flexShrink:0,
+            }}>
+              <div>
+                <div style={{fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>
+                  Working Sheet
                 </div>
-                <button onClick={() => setWorksheetOpen(false)}
-                  style={{background:"none",border:"none",color:T.muted,fontSize:22,cursor:"pointer",padding:"0 6px",lineHeight:1}}
-                  title="Close (Esc)">×</button>
+                <div style={{fontSize:20,fontWeight:800,color:T.text,marginTop:2,letterSpacing:"-0.015em"}}>
+                  {client?.name}
+                </div>
               </div>
+              <button onClick={() => setWorksheetOpen(false)}
+                style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:12,fontWeight:600,padding:"6px 14px",cursor:"pointer",fontFamily:font}}
+                title="Close (Esc)">Close ×</button>
+            </div>
 
-              {/* Modal body — original Worksheet content scrolls inside */}
-              <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"18px 22px"}}>
-            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {/* Scrollable body — fills remaining viewport */}
+            <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"22px 28px"}}>
+              <div style={{maxWidth:1280,margin:"0 auto",display:"flex",flexDirection:"column",gap:12}}>
               {/* KPI rollup — 4 rows × 6 cols. Total row uses a darker
                   background to anchor the eye. */}
               <div style={{overflowX:"auto"}}>
@@ -1525,7 +1516,6 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             </div>
               </div>
             </div>
-          </div>
         )}
         </>
           );
