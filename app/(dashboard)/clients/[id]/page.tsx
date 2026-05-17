@@ -43,7 +43,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
   const [itemViewMode, setItemViewMode] = useState<"list"|"tiles">("list");
   const [infoExpanded, setInfoExpanded] = useState(false);
-  const [workingExpanded, setWorkingExpanded] = useState(true);
+  const [worksheetOpen, setWorksheetOpen] = useState(false);
   const [workingTab, setWorkingTab] = useState<"setup"|"in_production"|"shipped"|"in_stock"|"complete"|"archived">("in_production");
   const [workingRowExpanded, setWorkingRowExpanded] = useState<string|null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -69,6 +69,19 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [paymentProvider, setPaymentProvider] = useState<"quickbooks" | "stripe" | null>(null);
 
   useEffect(() => { load(); }, [params.id]);
+
+  // Worksheet modal — Esc closes, body scroll locks while open.
+  useEffect(() => {
+    if (!worksheetOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setWorksheetOpen(false); };
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [worksheetOpen]);
 
   useEffect(() => {
     (async () => {
@@ -1098,29 +1111,89 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           ];
 
           return (
-        <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
-          <button
-            type="button"
-            onClick={() => setWorkingExpanded(v => !v)}
+        <>
+        {/* Summary card — clickable. Click anywhere to open the
+            full-screen Worksheet modal. Headline numbers stay visible
+            so Jon can scan profit at a glance without opening. */}
+        <button
+          type="button"
+          onClick={() => setWorksheetOpen(true)}
+          style={{
+            width:"100%",
+            background:T.card, border:`1px solid ${T.border}`, borderRadius:10,
+            padding:"14px 18px",
+            display:"flex", alignItems:"center", gap:14, flexWrap:"wrap",
+            cursor:"pointer", textAlign:"left", fontFamily:font, color:T.text,
+            transition:"border-color 0.15s, box-shadow 0.15s",
+          }}
+          onMouseEnter={(e:any) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
+          onMouseLeave={(e:any) => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.boxShadow = "none"; }}
+        >
+          <div style={{minWidth:0, flex:1}}>
+            <div style={{fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}}>
+              Working Sheet
+            </div>
+            {wsItems.length > 0 ? (
+              <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:13}}>
+                <span><span style={{color:T.muted}}>Active:</span> <strong style={{color:T.text}}>{activeWsItems.length}</strong></span>
+                <span style={{color:T.faint}}>·</span>
+                <span><span style={{color:T.muted}}>Gross:</span> <strong style={{color:T.text,fontFamily:mono}}>{fmtMoneyShort(rollups.active_total.gross)}</strong></span>
+                <span style={{color:T.faint}}>·</span>
+                <span><span style={{color:T.muted}}>Profit:</span> <strong style={{color:T.green,fontFamily:mono}}>{fmtMoneyShort(rollups.active_total.profit)}</strong></span>
+              </div>
+            ) : (
+              <div style={{fontSize:12,color:T.faint}}>No items yet.</div>
+            )}
+          </div>
+          <span style={{fontSize:11,fontWeight:700,color:T.accent,textTransform:"uppercase",letterSpacing:"0.07em",flexShrink:0}}>
+            Open →
+          </span>
+        </button>
+
+        {/* Full-screen modal — same content the collapsible section
+            used to render. position:fixed inset overlays the rest of
+            the client page; click backdrop or press Esc to close. */}
+        {worksheetOpen && (
+          <div
+            onClick={() => setWorksheetOpen(false)}
             style={{
-              width:"100%", display:"flex", alignItems:"center", gap:10,
-              background:"transparent", border:"none", padding:0,
-              cursor:"pointer", textAlign:"left", fontFamily:font, color:T.text,
+              position:"fixed", inset:0, zIndex:1000,
+              background:"rgba(0,0,0,0.45)",
+              display:"flex", alignItems:"stretch", justifyContent:"stretch",
+              padding:"24px",
             }}
           >
-            {workingExpanded ? <ChevronDown size={16} color={T.muted} /> : <ChevronRight size={16} color={T.muted} />}
-            <span style={{fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>
-              Working Sheet
-            </span>
-            {!workingExpanded && wsItems.length > 0 && (
-              <span style={{fontSize:11,color:T.faint,marginLeft:"auto",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                {activeWsItems.length} active · {fmtMoneyShort(rollups.active_total.gross)} gross · {fmtMoneyShort(rollups.active_total.profit)} profit
-              </span>
-            )}
-          </button>
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                width:"100%", maxWidth:1280, margin:"0 auto",
+                background:T.card, borderRadius:12,
+                display:"flex", flexDirection:"column",
+                maxHeight:"100%", overflow:"hidden",
+                boxShadow:"0 20px 60px rgba(0,0,0,0.3)",
+              }}
+            >
+              {/* Modal header */}
+              <div style={{
+                display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:"14px 22px", borderBottom:`1px solid ${T.border}`,
+              }}>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>
+                    Working Sheet
+                  </div>
+                  <div style={{fontSize:18,fontWeight:700,color:T.text,marginTop:2,letterSpacing:"-0.01em"}}>
+                    {client?.name}
+                  </div>
+                </div>
+                <button onClick={() => setWorksheetOpen(false)}
+                  style={{background:"none",border:"none",color:T.muted,fontSize:22,cursor:"pointer",padding:"0 6px",lineHeight:1}}
+                  title="Close (Esc)">×</button>
+              </div>
 
-          {workingExpanded && (
-            <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:12}}>
+              {/* Modal body — original Worksheet content scrolls inside */}
+              <div style={{flex:1,minHeight:0,overflowY:"auto",padding:"18px 22px"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
               {/* KPI rollup — 4 rows × 6 cols. Total row uses a darker
                   background to anchor the eye. */}
               <div style={{overflowX:"auto"}}>
@@ -1450,8 +1523,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 </div>
               )}
             </div>
-          )}
-        </div>
+              </div>
+            </div>
+          </div>
+        )}
+        </>
           );
         })()}
       </div>
