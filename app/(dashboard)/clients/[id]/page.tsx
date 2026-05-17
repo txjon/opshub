@@ -1130,8 +1130,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 </div>
               ) : (
                 <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                  {/* Column header */}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 70px 90px 90px 90px 140px 100px 50px",gap:10,padding:"4px 10px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em"}}>
+                  {/* Column header — gridTemplateColumns also used on each row below */}
+                  <div style={{display:"grid",gridTemplateColumns:"minmax(0, 1fr) 60px 76px 76px 80px 110px 78px 44px",gap:8,padding:"4px 10px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em"}}>
                     <div>Item</div>
                     <div style={{textAlign:"right"}}>Qty</div>
                     <div style={{textAlign:"right"}}>Cost</div>
@@ -1167,8 +1167,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                           onClick={() => setWorkingRowExpanded(isOpen ? null : it.id)}
                           style={{
                             width:"100%",display:"grid",
-                            gridTemplateColumns:"1fr 70px 90px 90px 90px 140px 100px 50px",
-                            gap:10,padding:"10px",alignItems:"center",
+                            gridTemplateColumns:"minmax(0, 1fr) 60px 76px 76px 80px 110px 78px 44px",
+                            gap:8,padding:"10px",alignItems:"center",
                             background:"transparent",border:"none",cursor:"pointer",textAlign:"left",fontFamily:font,color:T.text,
                           }}
                         >
@@ -1189,7 +1189,14 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                               )}
                             </div>
                             <div style={{minWidth:0,flex:1}}>
-                              <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</div>
+                              <div style={{
+                                fontSize:12,fontWeight:600,lineHeight:1.3,
+                                display:"-webkit-box",
+                                WebkitBoxOrient:"vertical",
+                                WebkitLineClamp:2,
+                                overflow:"hidden",
+                                wordBreak:"break-word",
+                              }}>{it.name}</div>
                               <div style={{fontSize:10,color:T.muted,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                                 <span style={{fontFamily:mono}}>{it.jobNumber}</span>
                                 {it.jobTitle && <> · {it.jobTitle}</>}
