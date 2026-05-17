@@ -47,6 +47,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [workingTab, setWorkingTab] = useState<"setup"|"in_production"|"shipped"|"in_stock"|"complete"|"archived">("in_production");
   const [workingRowExpanded, setWorkingRowExpanded] = useState<string|null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
   const itemSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [portalCopied, setPortalCopied] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -394,6 +395,29 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   // (and the KPI rollup recomputes), then writes to the items table
   // after 600ms of idle. Empty string → null so we don't write "" to
   // numeric columns.
+  //
+  // Reliability: awaits the supabase response + checks for an error.
+  // If the write fails we (a) console.error so the cause is debuggable
+  // and (b) push the error message into saveErrors so the row can
+  // surface a red banner. Silent failures here lost a bunch of retail
+  // values once; never again.
+  async function persistItemField(itemId: string, field: string, value: any) {
+    const dbValue = value === "" ? null : value;
+    const { error } = await supabase.from("items").update({ [field]: dbValue }).eq("id", itemId);
+    const key = `${itemId}_${field}`;
+    if (error) {
+      console.error(`[worksheet] failed to save ${field} on item ${itemId}:`, error);
+      setSaveErrors(prev => ({ ...prev, [key]: error.message }));
+    } else {
+      setSaveErrors(prev => {
+        if (!prev[key]) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
   function saveItemField(itemId: string, field: string, value: any) {
     setJobs(prev => prev.map(j => ({
       ...j,
@@ -401,10 +425,18 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     } as Job)));
     const key = `${itemId}_${field}`;
     if (itemSaveTimers.current[key]) clearTimeout(itemSaveTimers.current[key]);
-    itemSaveTimers.current[key] = setTimeout(() => {
-      const dbValue = value === "" ? null : value;
-      supabase.from("items").update({ [field]: dbValue }).eq("id", itemId);
-    }, 600);
+    itemSaveTimers.current[key] = setTimeout(() => persistItemField(itemId, field, value), 600);
+  }
+
+  // Flush — fires the save immediately, used on blur so nothing
+  // hangs in a debounce timer when focus moves away.
+  function flushItemField(itemId: string, field: string, value: any) {
+    const key = `${itemId}_${field}`;
+    if (itemSaveTimers.current[key]) {
+      clearTimeout(itemSaveTimers.current[key]);
+      delete itemSaveTimers.current[key];
+    }
+    return persistItemField(itemId, field, value);
   }
 
   // Worksheet-originated activity logging. Keeps an audit trail when
@@ -1263,11 +1295,17 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                   onChange={e => saveItemField(it.id, "sell_per_unit", e.target.value === "" ? null : Number(e.target.value))}
                                   onBlur={e => {
                                     const v = e.target.value === "" ? null : Number(e.target.value);
+                                    flushItemField(it.id, "sell_per_unit", v);
                                     if (v !== (Number(it.sell_per_unit) || null)) {
                                       logWorksheet(it.jobId, `Unit cost set to ${v == null ? "—" : "$" + Number(v).toFixed(2)} — ${it.name}`);
                                     }
                                   }}
                                   style={{...ic,fontFamily:mono}}/>
+                                {saveErrors[`${it.id}_sell_per_unit`] && (
+                                  <div style={{fontSize:9,color:T.red,marginTop:4,lineHeight:1.4,fontWeight:600}}>
+                                    Save failed: {saveErrors[`${it.id}_sell_per_unit`]}
+                                  </div>
+                                )}
                                 {it.quoteApprovedAt && (
                                   <div style={{fontSize:9,color:T.amber,marginTop:4,lineHeight:1.4}}>
                                     Quote approved {new Date(it.quoteApprovedAt).toLocaleDateString("en-US",{month:"short",day:"numeric"})}. Changes apply to future invoices only.
@@ -1282,11 +1320,17 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                   onChange={e => saveItemField(it.id, "client_retail_per_unit", e.target.value === "" ? null : Number(e.target.value))}
                                   onBlur={e => {
                                     const v = e.target.value === "" ? null : Number(e.target.value);
+                                    flushItemField(it.id, "client_retail_per_unit", v);
                                     if (v !== (Number(it.client_retail_per_unit) || null)) {
                                       logWorksheet(it.jobId, `Retail set to ${v == null ? "—" : "$" + Number(v).toFixed(2)} — ${it.name}`);
                                     }
                                   }}
                                   style={{...ic,fontFamily:mono}}/>
+                                {saveErrors[`${it.id}_client_retail_per_unit`] && (
+                                  <div style={{fontSize:9,color:T.red,marginTop:4,lineHeight:1.4,fontWeight:600}}>
+                                    Save failed: {saveErrors[`${it.id}_client_retail_per_unit`]}
+                                  </div>
+                                )}
                               </div>
                               <div>
                                 <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>Status</label>
