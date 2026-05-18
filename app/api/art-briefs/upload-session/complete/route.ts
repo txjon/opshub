@@ -20,15 +20,27 @@ export async function POST(req: NextRequest) {
     if (!brief_id || !drive_file_id || !file_name) {
       return NextResponse.json({ error: "brief_id, drive_file_id, file_name required" }, { status: 400 });
     }
-    const k = (kind || "reference").toLowerCase();
+    const requested = (kind || "reference").toLowerCase();
+
+    // Auto-promote 2nd-and-later first_draft uploads to "revision" so
+    // the labels read 1st Draft → 2nd Draft → 3rd Draft. Mirrors the
+    // designer-portal flow — HPD doesn't have to manually pick Revision
+    // when iterating; the system tracks the sequence.
+    let k = requested;
+    if (k === "first_draft") {
+      const { count: firstDraftCount } = await supabase.from("art_brief_files")
+        .select("id", { count: "exact", head: true })
+        .eq("brief_id", brief_id).eq("kind", "first_draft");
+      if ((firstDraftCount || 0) > 0) k = "revision";
+    }
 
     // Grant anonymous read so the thumbnail/preview URLs work
     try { await setFilePublicReadable(drive_file_id); } catch {}
     const webViewLink = await getDriveWebLink(drive_file_id);
 
-    // Version only applies to uploaded creative work, not references
+    // Version only applies to uploaded creative work, not references.
     let version = 1;
-    if (["wip", "final", "print_ready"].includes(k)) {
+    if (["first_draft", "revision", "wip", "final", "print_ready"].includes(k)) {
       const { count } = await supabase.from("art_brief_files")
         .select("id", { count: "exact", head: true })
         .eq("brief_id", brief_id)
@@ -67,9 +79,26 @@ export async function POST(req: NextRequest) {
       }).catch(() => {});
     }
 
-    // State transitions (match upload-reference legacy behavior)
+    // State transitions — HPD uploads mirror what a designer upload
+    // would do, so an HPD-driven brief moves through the same states
+    // (client_review → pending_prep → delivered).
+    //   first_draft / revision → client_review (client now reviews)
+    //   final → pending_prep (HPD preps production file)
+    //   wip is legacy — no state change (WIP retired 2026-05-17)
     const now = new Date().toISOString();
-    if (k === "wip" || k === "final") {
+    if (k === "first_draft" || k === "revision") {
+      await supabase.from("art_briefs").update({
+        state: "client_review",
+        version_count: version,
+        updated_at: now,
+      }).eq("id", brief_id);
+    } else if (k === "final") {
+      await supabase.from("art_briefs").update({
+        state: "pending_prep",
+        version_count: version,
+        updated_at: now,
+      }).eq("id", brief_id);
+    } else if (k === "wip") {
       await supabase.from("art_briefs").update({
         version_count: version,
         updated_at: now,

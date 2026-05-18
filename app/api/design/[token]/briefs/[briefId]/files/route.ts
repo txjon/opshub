@@ -25,13 +25,28 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
   const formData = await req.formData();
   const file = formData.get("file") as File;
-  // wip → 1st_draft → revision → final  (four-stage designer flow)
-  const kind = (formData.get("kind") as string) || "wip";
+  // first_draft → revision → final (three-stage designer flow). WIP
+  // was retired 2026-05-17 — designers go straight to first_draft and
+  // skip the HPD-pre-review middle step. Legacy WIP files in storage
+  // still render (historical), but new uploads default to first_draft.
+  const requestedKind = (formData.get("kind") as string) || "first_draft";
   // Optional note attached at upload time — lands as the uploader's
   // annotation on the new file (the per-image "caption" for this role).
   const note = ((formData.get("note") as string) || "").trim() || null;
   if (!file) return NextResponse.json({ error: "No file" }, { status: 400 });
-  if (!["wip", "first_draft", "revision", "final"].includes(kind)) return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
+  if (!["first_draft", "revision", "final"].includes(requestedKind)) return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
+
+  // Auto-promote second-and-later 1st Draft uploads to "revision" so
+  // the label sequence reads "1st Draft → 2nd Draft → 3rd Draft → …"
+  // (formatFileLabel maps revision #N to the (N+1)th draft). The very
+  // first first_draft upload is the only one stored under that kind.
+  let kind = requestedKind;
+  if (kind === "first_draft") {
+    const { count: firstDraftCount } = await ctx.db.from("art_brief_files")
+      .select("id", { count: "exact", head: true })
+      .eq("brief_id", ctx.brief.id).eq("kind", "first_draft");
+    if ((firstDraftCount || 0) > 0) kind = "revision";
+  }
 
   // Upload to Drive
   const token = await getDriveToken();
@@ -80,13 +95,12 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Auto state transition — maps upload kind to brief state:
-  //   wip → wip_review (HPD sanity-checks before client sees it)
   //   first_draft → client_review (client formally reviews)
-  //   revision → client_review (updated version, client reviews again)
-  //   final → pending_prep (HPD prepares production file before products spawn)
+  //   revision    → client_review (updated version, client reviews again)
+  //   final       → pending_prep  (HPD prepares production file before products spawn)
+  // WIP path retired 2026-05-17 — designers go straight to first_draft.
   const now = new Date().toISOString();
   let newState = ctx.brief.state;
-  if (kind === "wip") newState = "wip_review";
   if (kind === "first_draft") newState = "client_review";
   if (kind === "revision") newState = "client_review";
   if (kind === "final") newState = "pending_prep";
@@ -103,7 +117,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   // handles that transition.
 
   const kindLabel: Record<string, string> = {
-    wip: "WIP", first_draft: "1st Draft", revision: "Revision", final: "FINAL",
+    first_draft: "1st Draft", revision: "Revision", final: "FINAL",
   };
   const activityMsg = `Designer uploaded ${kindLabel[kind] || kind.toUpperCase()} v${version} for "${ctx.brief.title || "brief"}"`;
 

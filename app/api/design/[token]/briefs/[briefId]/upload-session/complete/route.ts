@@ -22,7 +22,9 @@ async function verifyAccess(token: string, briefId: string) {
   return { db, designer, brief };
 }
 
-const DESIGNER_KINDS = ["wip", "first_draft", "revision", "final"];
+// WIP retired 2026-05-17 — first_draft is the designer's first
+// deliverable. The `wip` kind is no longer accepted by the API.
+const DESIGNER_KINDS = ["first_draft", "revision", "final"];
 
 export async function POST(req: NextRequest, { params }: { params: { token: string; briefId: string } }) {
   try {
@@ -33,13 +35,27 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     if (!drive_file_id || !file_name) {
       return NextResponse.json({ error: "drive_file_id, file_name required" }, { status: 400 });
     }
-    const k = (kind || "wip").toLowerCase();
-    if (!DESIGNER_KINDS.includes(k)) return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
+    const requested = (kind || "first_draft").toLowerCase();
+    if (!DESIGNER_KINDS.includes(requested)) return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
+
+    // Auto-promote subsequent 1st Draft uploads to "revision" so the
+    // label sequence reads "1st Draft → 2nd Draft → 3rd Draft → …"
+    // (formatFileLabel maps revision #N to the (N+1)th draft). Saves
+    // the designer from having to manually pick "Revision" — the very
+    // first first_draft upload is the only one stored under that kind.
+    let k = requested;
+    if (k === "first_draft") {
+      const { count: firstDraftCount } = await ctx.db.from("art_brief_files")
+        .select("id", { count: "exact", head: true })
+        .eq("brief_id", ctx.brief.id).eq("kind", "first_draft");
+      if ((firstDraftCount || 0) > 0) k = "revision";
+    }
 
     try { await setFilePublicReadable(drive_file_id); } catch {}
     const webViewLink = await getDriveWebLink(drive_file_id);
 
-    // Version per kind
+    // Version per kind (computed against the effective kind so promoted
+    // revisions get the right sequence number for the "Nth Draft" label).
     const { count } = await ctx.db.from("art_brief_files").select("id", { count: "exact", head: true })
       .eq("brief_id", ctx.brief.id).eq("kind", k);
     const version = (count || 0) + 1;
@@ -73,10 +89,10 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       }).catch(() => {});
     }
 
-    // Auto state transition (same mapping as the legacy multipart route)
+    // Auto state transition. WIP path retired — first_draft is the
+    // first designer deliverable, going straight to client_review.
     const now = new Date().toISOString();
     let newState = (ctx.brief as any).state;
-    if (k === "wip") newState = "wip_review";
     if (k === "first_draft") newState = "client_review";
     if (k === "revision") newState = "client_review";
     if (k === "final") newState = "pending_prep";
@@ -88,7 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     }).eq("id", ctx.brief.id);
 
     const kindLabel: Record<string, string> = {
-      wip: "WIP", first_draft: "1st Draft", revision: "Revision", final: "FINAL",
+      first_draft: "1st Draft", revision: "Revision", final: "FINAL",
     };
     const activityMsg = `Designer uploaded ${kindLabel[k] || k.toUpperCase()} v${version} for "${(ctx.brief as any).title || "brief"}"`;
 
