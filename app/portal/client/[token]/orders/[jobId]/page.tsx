@@ -86,7 +86,7 @@ export default function ClientHubOrderDetail({ params }: { params: { token: stri
 // modal. Pass `onClose` to render as a modal (Close button top-right, no
 // back link); omit it to render as the standalone page (back link at
 // top-left).
-export function OrderDetailView({ token, jobId, onClose }: { token: string; jobId: string; onClose?: () => void }) {
+export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { token: string; jobId: string; onClose?: () => void; suppressOwnChrome?: boolean }) {
   const [data, setData] = useState<PortalData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -184,9 +184,10 @@ export function OrderDetailView({ token, jobId, onClose }: { token: string; jobI
   return (
     <div style={{ fontFamily: C.font, color: C.text, maxWidth: 800 }}>
       {/* Top bar: Back link when standalone, Close button when modal.
-          Close style matches the proof modal's Close button so there's
-          one consistent control pattern across all modals. */}
-      {onClose ? (
+          Suppressed when the wrapping shell provides its own chrome
+          (full-page modal in the Orders tab — the shell's header bar
+          owns the close action so a second button would be redundant). */}
+      {!suppressOwnChrome && (onClose ? (
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
           <button
             onClick={onClose}
@@ -205,7 +206,7 @@ export function OrderDetailView({ token, jobId, onClose }: { token: string; jobI
         }}>
           ← All orders
         </Link>
-      )}
+      ))}
 
       {/* ── Project Header ── */}
       <div style={{ marginBottom: 24 }}>
