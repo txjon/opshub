@@ -156,38 +156,71 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {/* Full-page modal for per-order detail. Uses the shared
-          OrderDetailView so deep links (/orders/[jobId]) and this modal
-          render identical content. Close button lives inside the view
-          itself (matches the proof modal pattern) so nested modals
-          don't end up with two X's fighting for the same corner. */}
+      {/* Full-window modal for per-order detail — mirrors the Worksheet
+          pattern on /clients/[id]. Opaque background covers the whole
+          viewport, fixed header bar with title + close, scrollable body
+          owns the OrderDetailView. Same chrome the rest of the client
+          hub uses; no dim backdrop, no centered card. */}
       {modalJobId && (
-        <div
-          onClick={() => setModalJobId(null)}
-          style={{
-            position: "fixed", inset: 0, zIndex: 10000,
-            background: "rgba(0,0,0,0.45)",
-            display: "flex", alignItems: "flex-start", justifyContent: "center",
-            overflowY: "auto",
-          }}>
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              position: "relative",
-              background: C.bg,
-              width: "min(920px, 96vw)",
-              minHeight: "100%",
-              padding: "28px 28px 60px",
-              boxSizing: "border-box",
-            }}>
-            <OrderDetailView
-              token={token}
-              jobId={modalJobId}
-              onClose={() => setModalJobId(null)}
-            />
+        <OrderFullScreenModal
+          token={token}
+          jobId={modalJobId}
+          onClose={() => setModalJobId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Full-window modal wrapper for an order's detail view. Esc closes,
+// body scroll locks while open. Header bar carries the close button
+// so OrderDetailView can suppress its own chrome. Matches the
+// Worksheet modal pattern on /clients/[id] — opaque background, no
+// dim backdrop, fills the viewport.
+function OrderFullScreenModal({ token, jobId, onClose }: {
+  token: string; jobId: string; onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 1000,
+      background: C.bg,
+      display: "flex", flexDirection: "column",
+      fontFamily: C.font, color: C.text,
+    }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "14px 28px", borderBottom: `1px solid ${C.border}`,
+        background: C.card, flexShrink: 0,
+      }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+            Order
           </div>
         </div>
-      )}
+        <button onClick={onClose}
+          style={{
+            background: "none", border: `1px solid ${C.border}`, borderRadius: 6,
+            color: C.muted, fontSize: 12, fontWeight: 600,
+            padding: "6px 14px", cursor: "pointer", fontFamily: C.font,
+          }}
+          title="Close (Esc)">Close ×</button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "22px 28px" }}>
+        <div style={{ maxWidth: 920, margin: "0 auto" }}>
+          <OrderDetailView token={token} jobId={jobId} onClose={onClose} suppressOwnChrome />
+        </div>
+      </div>
     </div>
   );
 }
@@ -280,33 +313,28 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
           }
         `}</style>
         <div style={{ minWidth: 0 }}>
+          {/* Headline reads as the invoice number once one exists —
+              that's the reference the client recognizes on their AP
+              side. Falls back to the internal job number when the
+              order hasn't been invoiced yet. The project memo (title)
+              is dropped per Jon's call: invoice # alone is enough
+              identification on this surface. */}
           <div style={{
             fontSize: 14, fontWeight: 700, color: C.text,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}>
-            {order.title || "Untitled"}
-            {order.job_number && (
-              <span style={{ fontSize: 11, color: C.faint, fontWeight: 500, marginLeft: 8 }}>
-                {order.job_number}
-              </span>
-            )}
+            {(order.invoice_number || order.qb_invoice_number)
+              ? `Invoice #${(order.invoice_number || order.qb_invoice_number)}`
+              : (order.job_number || order.title || "Untitled")}
           </div>
           <div style={{
             fontSize: 11, color: C.muted, marginTop: 3,
             display: "flex", gap: 10, flexWrap: "wrap",
           }}>
             {order.kind === "fulfillment" ? (
-              <>
-                <span>{order.total_qty.toLocaleString()} units sold</span>
-                {(order.invoice_number || order.qb_invoice_number) && <span>· Invoice #{(order.invoice_number || order.qb_invoice_number)}</span>}
-              </>
+              <span>{order.total_qty.toLocaleString()} units sold</span>
             ) : (
-              <>
-                <span>{order.total_qty} {order.total_qty === 1 ? "pc" : "pcs"}</span>
-                {(order.invoice_number || order.qb_invoice_number)
-                  ? <span>· Invoice #{(order.invoice_number || order.qb_invoice_number)}</span>
-                  : order.job_number ? <span>· {order.job_number}</span> : null}
-              </>
+              <span>{order.total_qty} {order.total_qty === 1 ? "pc" : "pcs"}</span>
             )}
           </div>
         </div>
