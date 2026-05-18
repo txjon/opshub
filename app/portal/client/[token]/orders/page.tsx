@@ -348,12 +348,12 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
               an invoice yet (status "none") show nothing — no invoice
               means nothing to pay, so "Unpaid" would be misleading. */}
           {(() => {
-            // No status when there's nothing to pay — either the order
-            // was never invoiced OR its total is zero (voided / migrated
-            // history record). Prevents "Unpaid · $0.00" from showing
-            // next to zero-dollar invoices.
+            // No status when there's nothing to surface — either the
+            // order was never invoiced OR it's a voided / migrated
+            // $0 record with no paid history. A $0 invoice WITH a
+            // paid payment record (legitimately settled at zero)
+            // still flips to "paid" server-side and renders here.
             if (order.payment_status === "none") return null;
-            if ((order.total || 0) <= 0.01) return null;
             const isPaid = order.payment_status === "paid";
             const isPartial = order.payment_status === "partial";
             const paidStamp = order.paid_at ? fmtDate(order.paid_at) : null;
@@ -378,8 +378,11 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* Hide the dollar amount until the client has actually been
               shown a number — quote sent, invoice sent, or a manual
-              payment record exists. Server zeros total in that state. */}
-          {order.pricing_visible !== false && (order.total || 0) > 0.01 && (
+              payment record exists (server zeros total in that state).
+              $0 invoices ARE shown when pricing_visible (the client
+              has been told this is the amount); the visibility flag
+              already gates the noise case. */}
+          {order.pricing_visible !== false && (
             <div style={{ fontSize: 13, fontWeight: 700, color: C.text, fontFamily: C.mono }}>
               ${order.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>

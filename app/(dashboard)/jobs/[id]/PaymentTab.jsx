@@ -416,8 +416,16 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={async () => {
-                const amount = parseFloat(String(pmAmount).replace(/[^0-9.\-]/g, "")) || 0;
-                if (!amount) return;
+                // Accept $0.00 payments — needed for invoices that
+                // settled at zero (e.g. fully credited, or QB shows
+                // balance due $0 after adjustments) so the job's
+                // payment status flips to paid in OpsHub without a
+                // separate workaround. Negative / NaN values still
+                // bail. Empty amount field reads as 0 too, which is
+                // the same as "mark this invoice paid at $0".
+                const parsed = parseFloat(String(pmAmount).replace(/[^0-9.\-]/g, ""));
+                const amount = Number.isFinite(parsed) && parsed >= 0 ? parsed : NaN;
+                if (!Number.isFinite(amount)) return;
                 const invoice_number = pmInvoice.trim() || null;
                 const paid_date = pmPaid || new Date().toISOString().split("T")[0];
                 await supabase.from("payment_records").insert({ job_id: job.id, type: pmType, amount, invoice_number, status: "paid", paid_date });

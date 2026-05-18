@@ -90,8 +90,16 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       const paidAmt = rows.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
       const totalAmt = rows.filter((p: any) => p.status && !["draft", "void"].includes(p.status))
         .reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      // A paid record on a $0 invoice has amount=0, so paidAmt is 0
+      // even though it's legitimately paid. Look for a "settled at
+      // zero" case separately (issued total ≤ $0 and at least one
+      // status=paid row). Otherwise compare paid vs. total dollars
+      // as usual.
+      const hasPaidRow = rows.some((p: any) => p.status === "paid");
+      const isSettledAtZero = hasPaidRow && totalAmt <= 0.01;
       let status: "paid" | "partial" | "unpaid" | "none" = "none";
       if (!hasIssued) status = "none";
+      else if (isSettledAtZero) status = "paid";
       else if (paidAmt > 0 && paidAmt >= totalAmt - 0.01) status = "paid";
       else if (paidAmt > 0) status = "partial";
       else status = "unpaid";
