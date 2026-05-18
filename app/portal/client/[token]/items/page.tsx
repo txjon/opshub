@@ -148,7 +148,11 @@ export default function ItemsPage() {
   // ago, or items the team manually archived) live in History so they
   // don't crowd live orders. Fixes the "wait, are my new belts already
   // delivered?" confusion when the same item ships more than once.
-  const [view, setView] = useState<"current" | "history">("current");
+  // Three top-level buckets — Active (the work in flight), History
+  // (anything past completion or manually archived), and On Hold (a
+  // paused project's items, surfaced separately so they're findable
+  // without polluting the active stage filters).
+  const [view, setView] = useState<"active" | "history" | "on_hold">("active");
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -166,8 +170,11 @@ export default function ItemsPage() {
   // apply within whichever bucket is showing.
   const all = items || [];
   const historyItems = all.filter(isItemArchived);
-  const currentItems = all.filter(it => !isItemArchived(it));
-  const inView = view === "history" ? historyItems : currentItems;
+  const onHoldItems = all.filter(it => it.status === "on_hold");
+  const activeItems = all.filter(it => !isItemArchived(it) && it.status !== "on_hold");
+  const inView = view === "history" ? historyItems
+    : view === "on_hold" ? onHoldItems
+    : activeItems;
 
   const active = FILTERS.find(f => f.key === filter) || FILTERS[0];
   const q = query.trim().toLowerCase();
@@ -175,7 +182,7 @@ export default function ItemsPage() {
   // is archived/complete/cancelled by definition, so the per-stage
   // filter rows would always return zero. In History we just search.
   const filtered = inView.filter(it => {
-    if (view === "current" && !active.matches(it.status)) return false;
+    if (view === "active" && !active.matches(it.status)) return false;
     if (!q) return true;
     return (
       it.name.toLowerCase().includes(q) ||
@@ -218,12 +225,14 @@ export default function ItemsPage() {
 
   return (
     <div>
-      {/* Top tabs: Current Orders vs History */}
+      {/* Top tabs: Active · History · On Hold */}
       <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: 16 }}>
-        {(["current", "history"] as const).map(v => {
+        {(["active", "history", "on_hold"] as const).map(v => {
           const isActive = view === v;
-          const count = v === "history" ? historyItems.length : currentItems.length;
-          const label = v === "current" ? "Current Orders" : "History";
+          const count = v === "history" ? historyItems.length
+            : v === "on_hold" ? onHoldItems.length
+            : activeItems.length;
+          const label = v === "active" ? "Active" : v === "history" ? "History" : "On Hold";
           return (
             <button key={v}
               onClick={() => { setView(v); setFilter("in_production"); }}
@@ -247,7 +256,7 @@ export default function ItemsPage() {
           if set, and profit per stage). Per-stage rows only make sense
           in Current Orders (every History item is past those stages by
           definition); skipped in History to avoid an all-zero table. */}
-      {!loading && inView.length > 0 && view === "current" && (
+      {!loading && inView.length > 0 && view === "active" && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 14, overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 580 }}>
             <thead>
@@ -289,7 +298,7 @@ export default function ItemsPage() {
           completion; there's no useful sub-stage to filter on, so the
           row collapses to just the search input. */}
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${C.border}`, paddingBottom: 6, alignItems: "center", marginBottom: 14 }}>
-        {view === "current" && FILTERS.map(f => {
+        {view === "active" && FILTERS.map(f => {
           const isActive = filter === f.key;
           const n = counts[f.key] || 0;
           return (
@@ -311,7 +320,7 @@ export default function ItemsPage() {
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder={view === "history" ? "Search past orders…" : "Search items, garment, or project…"}
+          placeholder={view === "history" ? "Search past orders…" : view === "on_hold" ? "Search paused items…" : "Search items, garment, or project…"}
           style={{
             marginLeft: "auto", flex: "1 1 220px", maxWidth: 360,
             padding: "8px 12px", fontSize: 13,
@@ -338,14 +347,14 @@ export default function ItemsPage() {
         <div className="portal-items-list" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {/* Column header — desktop-only. On mobile each row stands
               alone as a card with its own visual hierarchy. */}
-          <div className="portal-items-header" style={{ display: "grid", gridTemplateColumns: view === "history" ? "minmax(0, 1fr) 60px 80px 80px 44px" : "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px", gap: 8, padding: "4px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+          <div className="portal-items-header" style={{ display: "grid", gridTemplateColumns: view === "active" ? "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px" : "minmax(0, 1fr) 60px 80px 80px 44px", gap: 8, padding: "4px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
             <div>Item</div>
             <div style={{ textAlign: "right" }}>Qty</div>
             <div style={{ textAlign: "right" }}>Cost</div>
             <div style={{ textAlign: "right" }}>Retail</div>
-            {view === "current" && <div style={{ textAlign: "right" }}>Profit</div>}
-            {view === "current" && <div>Status</div>}
-            {view === "current" && <div>ETA</div>}
+            {view === "active" && <div style={{ textAlign: "right" }}>Profit</div>}
+            {view === "active" && <div>Status</div>}
+            {view === "active" && <div>ETA</div>}
             <div style={{ textAlign: "center" }}>Paid</div>
           </div>
           {/* Responsive: at ≤640px the row grid collapses to a single
@@ -386,7 +395,7 @@ export default function ItemsPage() {
             .portal-item-row__mobile-summary { display: none; }
           `}</style>
           {filtered.map(it => (
-            <ItemRow key={it.id} item={it} compact={view === "history"} onOpen={() => setDetail(it)} />
+            <ItemRow key={it.id} item={it} compact={view !== "active"} onOpen={() => setDetail(it)} />
           ))}
         </div>
       )}

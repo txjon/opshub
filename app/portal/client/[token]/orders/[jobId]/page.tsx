@@ -187,6 +187,14 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
   const balance = (quote.total || 0) - totalPaid;
   const hasQuote = quote.items.length > 0;
   const actualProofs = items.flatMap(i => i.proofs.filter(p => p.stage === "proof"));
+  // Section visibility — show when items have ANY visual file
+  // (mockup OR proof). Previously this gated on actualProofs only,
+  // which hid the section entirely for items that only had mockups
+  // attached + internal artwork_status approval (Jon's common flow).
+  const hasVisuals = items.some(i => i.proofs.length > 0);
+  // Approval-flow state is still proof-driven: only formal proofs
+  // have a pending → approved cycle. hasProofs gates the pay-online
+  // "approve-before-pay" prompt (mockup-only items don't trigger it).
   const hasProofs = actualProofs.length > 0;
   const allProofsApproved = hasProofs && actualProofs.every(p => p.approval === "approved");
   const pendingProofCount = actualProofs.filter(p => p.approval === "pending").length;
@@ -644,8 +652,8 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
         </div>
       )}
 
-      {/* ── Proofs Section ── */}
-      {hasProofs && (
+      {/* ── Proofs / Designs Section ── */}
+      {hasVisuals && (
         <div style={{
           background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
           padding: isMobile ? "16px" : "20px 24px", marginBottom: 20,
@@ -670,10 +678,30 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
             {items.filter(i => i.proofs.length > 0).map(item => {
               const mockups = item.proofs.filter((p: any) => p.stage === "mockup");
               const proofs = item.proofs.filter((p: any) => p.stage === "proof");
+              // Pick the primary visual + view target. Formal proofs
+              // win when they exist (those drive the approval flow);
+              // mockup-only items fall back to the mockup for both
+              // the thumbnail AND the open-in-viewer action so the
+              // client can still see what was made for them.
               const firstProof = proofs[0];
+              const primaryVisual = firstProof || mockups[0];
+              const isMockupOnly = !firstProof && !!mockups[0];
               const allApproved = proofs.length > 0 && proofs.every((p: any) => p.approval === "approved");
-              const statusLabel = allApproved ? "Approved" : firstProof?.approval === "revision_requested" ? "Revision Requested" : firstProof?.approval === "pending" ? "Pending" : null;
-              const statusColor = allApproved ? C.green : C.amber;
+              // Mockup-only items inherit approval from item.artwork_status
+              // (cascaded onto every file by the API). If the team marked
+              // approval internally, surface "Approved" so the client
+              // doesn't think the design is still in limbo.
+              const mockupApproved = isMockupOnly && mockups[0].approval === "approved";
+              const statusLabel = allApproved
+                ? "Approved"
+                : mockupApproved
+                ? "Approved"
+                : firstProof?.approval === "revision_requested"
+                ? "Revision Requested"
+                : firstProof?.approval === "pending"
+                ? "Pending"
+                : null;
+              const statusColor = (allApproved || mockupApproved) ? C.green : C.amber;
               return (
                 <div key={item.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 14px", background: C.bg }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -688,14 +716,17 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                       {proofs.length > 0 && (
                         <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{proofs.length} proof{proofs.length !== 1 ? "s" : ""}</div>
                       )}
+                      {isMockupOnly && (
+                        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Mockup</div>
+                      )}
                     </div>
                     {statusLabel && (
                       <span style={{ fontSize: 11, fontWeight: 600, color: statusColor, flexShrink: 0 }}>{statusLabel}</span>
                     )}
-                    {firstProof?.driveFileId && (
-                      <button onClick={() => setViewingProof(firstProof)}
+                    {primaryVisual?.driveFileId && (
+                      <button onClick={() => setViewingProof(primaryVisual)}
                         style={{ fontSize: 13, color: "#fff", fontWeight: 700, background: C.accent, border: "none", borderRadius: 6, padding: "10px 20px", cursor: "pointer", flexShrink: 0 }}>
-                        View Proof
+                        {firstProof ? "View Proof" : "View Mockup"}
                       </button>
                     )}
                   </div>

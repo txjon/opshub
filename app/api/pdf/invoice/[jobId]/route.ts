@@ -205,7 +205,13 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       return ai - bi;
     });
 
-    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    // Invoice date — pin to the date the invoice was originally sent
+    // so re-opening the portal later doesn't shift the issue date to
+    // today. Falls back to today only when the invoice hasn't been
+    // sent yet (HPD-side preview / draft view).
+    const invoiceSentAt = (job.type_meta as any)?.invoice_sent_at;
+    const today = (invoiceSentAt ? new Date(invoiceSentAt) : new Date())
+      .toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     const clientName = (job.clients as any)?.name || "—";
     const termsRaw = job.payment_terms || "";
     const terms = TERMS_LABELS[termsRaw] || termsRaw.replace(/_/g, " ") || "—";
