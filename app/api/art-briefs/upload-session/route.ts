@@ -5,7 +5,12 @@ import { createResumableUploadSession } from "@/lib/drive-resumable";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const ALLOWED_KINDS = ["reference", "wip", "final", "print_ready"];
+// HPD can now upload every kind a designer or client can — first_draft
+// and revision were added 2026-05-17 so the internal team can drive a
+// brief end-to-end without bouncing through the designer portal (or
+// when HPD is doing the design work themselves). wip kept for legacy
+// records but no new wip uploads happen since WIP was retired.
+const ALLOWED_KINDS = ["reference", "first_draft", "revision", "wip", "final", "print_ready"];
 
 // POST — HPD creates a resumable upload session for a brief file.
 // Returns a Drive upload URL; client PUTs the bytes directly (bypasses

@@ -75,60 +75,34 @@ function thumbUrl(fileId: string | null | undefined, w = 400) {
 
 type Thumb = { drive_file_id: string | null; preview_drive_file_id?: string | null; drive_link: string | null };
 
-function ImageMosaic({ thumbs, total, aspect = "4/3" }: { thumbs: Thumb[]; total: number; aspect?: string }) {
-  const count = Math.min(thumbs.length, 4);
-  const overflow = Math.max(0, total - 4);
-
-  if (count === 0) {
+function ImageMosaic({ thumbs, total: _total, aspect = "4/3" }: { thumbs: Thumb[]; total: number; aspect?: string }) {
+  // Collapsed 2026-05-17 — single image, most recent upload. The brief
+  // tile reads as "what's the latest state of this design" rather than
+  // a thumbnail wall of every version. The API returns thumbs in
+  // priority order (final → revision → draft → wip → reference), so
+  // thumbs[0] is the right pick.
+  const t = thumbs[0];
+  const src = t?.preview_drive_file_id || t?.drive_file_id;
+  if (!src) {
     return (
       <div style={{ width: "100%", aspectRatio: aspect, background: "#f4f4f7", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <span style={{ fontSize: 10, color: T.faint }}>No images</span>
       </div>
     );
   }
-
-  let gridTemplate = "1fr", rows = "1fr";
-  if (count === 2) { gridTemplate = "1fr 1fr"; rows = "1fr"; }
-  if (count === 3) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
-  if (count === 4) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
-
   return (
     <div style={{
-      width: "100%", aspectRatio: aspect, background: "#f4f4f7",
-      display: "grid", gridTemplateColumns: gridTemplate, gridTemplateRows: rows,
-      gap: 2, overflow: "hidden",
+      width: "100%", aspectRatio: aspect, background: "#fff",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      overflow: "hidden",
     }}>
-      {thumbs.slice(0, count).map((t, i) => {
-        const spanLeft = count === 3 && i === 0;
-        const isLast = i === count - 1;
-        return (
-          <div key={i} style={{
-            position: "relative", background: "#fff",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            overflow: "hidden",
-            ...(spanLeft ? { gridRow: "1 / span 2" } : {}),
-          }}>
-            {(t.preview_drive_file_id || t.drive_file_id) ? (
-              <img
-                src={thumbUrl(t.preview_drive_file_id || t.drive_file_id, 320) || ""}
-                referrerPolicy="no-referrer"
-                alt=""
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                onError={e => ((e.target as HTMLImageElement).style.display = "none")}
-              />
-            ) : (
-              <span style={{ fontSize: 9, color: T.faint }}>—</span>
-            )}
-            {isLast && overflow > 0 && (
-              <div style={{
-                position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                color: "#fff", fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em",
-              }}>+{overflow}</div>
-            )}
-          </div>
-        );
-      })}
+      <img
+        src={thumbUrl(src, 320) || ""}
+        referrerPolicy="no-referrer"
+        alt=""
+        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        onError={e => ((e.target as HTMLImageElement).style.display = "none")}
+      />
     </div>
   );
 }
@@ -244,7 +218,7 @@ function BriefTile({
           <div style={{
             position: "absolute", inset: 0,
             display: "flex",
-            alignItems: actionPending ? "center" : "flex-end",
+            alignItems: "flex-end",
             justifyContent: "center",
             padding: 12, zIndex: 2, pointerEvents: "none",
           }}>
@@ -926,9 +900,14 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   }
 
   const refInputRef = useRef<HTMLInputElement>(null);
-  const printInputRef = useRef<HTMLInputElement>(null);
+  const workInputRef = useRef<HTMLInputElement>(null);
   const [uploadingRefs, setUploadingRefs] = useState(0);
   const [refUploadError, setRefUploadError] = useState<string | null>(null);
+  // File-first staging for the kind-aware upload — pick file, then
+  // confirm Draft / Final / Print-Ready. Mirrors the designer flow.
+  // Reference uploads stay as a separate multi-file shortcut since
+  // they don't need a kind decision.
+  const [stagedWorkFile, setStagedWorkFile] = useState<File | null>(null);
   // After a print-ready upload, show a "where to next?" card with the
   // file id so the two CTAs (new project / add to existing) can carry
   // the graphic forward.
@@ -939,7 +918,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   } | null>(null);
   const [showAddToExisting, setShowAddToExisting] = useState(false);
 
-  async function uploadFiles(files: File[], kind: "reference" | "print_ready") {
+  async function uploadFiles(files: File[], kind: "reference" | "first_draft" | "final" | "print_ready") {
     if (!files.length) return;
     setUploadingRefs(files.length);
     setRefUploadError(null);
@@ -1217,32 +1196,90 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
               style={{ ...ic, resize: "vertical", lineHeight: 1.4 }} />
           </div>
 
-          {/* Upload bar — references + print-ready */}
+          {/* Upload bar — two paths:
+                • "+ Reference" stays a quick multi-file shortcut since
+                   references are context (no kind decision needed).
+                • "+ Upload" is the file-first staged flow shared with
+                   the designer portal — pick a file, then confirm
+                   Draft / Final / Print-Ready. Same anti-foot-gun
+                   pattern: kind decision is tied to a concrete file.
+          */}
           <div style={{ padding: "12px 22px", background: T.card, borderBottom: `1px solid ${T.border}`, flexShrink: 0, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.12em" }}>Upload</div>
-            <button onClick={() => refInputRef.current?.click()} disabled={uploadingRefs > 0}
-              style={{ padding: "6px 12px", background: T.card, color: T.text, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.5 : 1 }}>
-              + Reference
-            </button>
-            <button onClick={() => printInputRef.current?.click()} disabled={uploadingRefs > 0}
-              title="Upload production-ready file (separations, CMYK) — flips request to production_ready"
-              style={{ padding: "6px 12px", background: T.green, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.5 : 1 }}>
-              + Print-Ready
-            </button>
-            <div style={{ flex: 1 }} />
-            {uploadingRefs > 0 && <span style={{ fontSize: 11, color: T.blue, fontWeight: 600 }}>Uploading… {uploadingRefs} left</span>}
-            {refUploadError && <span style={{ fontSize: 11, color: T.red, fontWeight: 600 }}>{refUploadError}</span>}
+
+            {stagedWorkFile ? (
+              <>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "5px 10px", borderRadius: 5,
+                  background: T.surface, border: `1px solid ${T.border}`,
+                  maxWidth: 320, minWidth: 0,
+                }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 600, color: T.text,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>{stagedWorkFile.name}</span>
+                  <span style={{ fontSize: 10, color: T.faint, fontFamily: mono, flexShrink: 0 }}>
+                    {(stagedWorkFile.size / 1024 / 1024).toFixed(1)}MB
+                  </span>
+                  <button onClick={() => setStagedWorkFile(null)}
+                    disabled={uploadingRefs > 0}
+                    aria-label="Cancel"
+                    style={{
+                      background: "none", border: "none", color: T.muted,
+                      fontSize: 15, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer",
+                      padding: "0 4px", lineHeight: 1,
+                    }}>×</button>
+                </div>
+                <div style={{ flex: 1 }} />
+                <button
+                  onClick={() => { const f = stagedWorkFile; if (f) { setStagedWorkFile(null); uploadFiles([f], "first_draft"); } }}
+                  disabled={uploadingRefs > 0}
+                  style={{ padding: "6px 12px", background: T.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.6 : 1 }}>
+                  Upload as Draft
+                </button>
+                <button
+                  onClick={() => { const f = stagedWorkFile; if (f) { setStagedWorkFile(null); uploadFiles([f], "final"); } }}
+                  disabled={uploadingRefs > 0}
+                  style={{ padding: "6px 12px", background: T.green, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.6 : 1 }}>
+                  Upload as Final
+                </button>
+                <button
+                  onClick={() => { const f = stagedWorkFile; if (f) { setStagedWorkFile(null); uploadFiles([f], "print_ready"); } }}
+                  disabled={uploadingRefs > 0}
+                  title="Production-ready file (separations, CMYK). Flips brief to delivered + writes the print-ready link onto the linked item."
+                  style={{ padding: "6px 12px", background: T.card, color: T.green, border: `1px solid ${T.green}`, borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.6 : 1 }}>
+                  Upload as Print-Ready
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => refInputRef.current?.click()} disabled={uploadingRefs > 0}
+                  style={{ padding: "6px 12px", background: T.card, color: T.text, border: `1px solid ${T.border}`, borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.5 : 1 }}>
+                  + Reference
+                </button>
+                <button onClick={() => workInputRef.current?.click()} disabled={uploadingRefs > 0}
+                  title="Upload a Draft / Final / Print-Ready file — you'll pick the type after choosing the file."
+                  style={{ padding: "6px 12px", background: T.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.5 : 1 }}>
+                  + Upload work
+                </button>
+                <div style={{ flex: 1 }} />
+                {uploadingRefs > 0 && <span style={{ fontSize: 11, color: T.blue, fontWeight: 600 }}>Uploading… {uploadingRefs} left</span>}
+                {refUploadError && <span style={{ fontSize: 11, color: T.red, fontWeight: 600 }}>{refUploadError}</span>}
+              </>
+            )}
+
             <input ref={refInputRef} type="file" multiple style={{ display: "none" }}
               onChange={e => {
                 const files = Array.from(e.target.files || []);
                 uploadFiles(files, "reference");
                 if (refInputRef.current) refInputRef.current.value = "";
               }} />
-            <input ref={printInputRef} type="file" style={{ display: "none" }}
+            <input ref={workInputRef} type="file" style={{ display: "none" }}
               onChange={e => {
-                const files = Array.from(e.target.files || []);
-                uploadFiles(files, "print_ready");
-                if (printInputRef.current) printInputRef.current.value = "";
+                const f = e.target.files?.[0];
+                if (f) setStagedWorkFile(f);
+                if (workInputRef.current) workInputRef.current.value = "";
               }} />
           </div>
 

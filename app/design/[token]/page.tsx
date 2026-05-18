@@ -272,52 +272,30 @@ export default function DesignerPortal({ params }: { params: { token: string } }
 
 // 4-up mosaic — matches the OpsHub Art Studio tile pattern. Renders 1/2/3/4
 // thumbs in a smart grid. Overflow (>4) shown as "+N" on the last cell.
-function TileMosaic({ thumbs, total }: { thumbs: ThumbLite[]; total: number }) {
-  const count = Math.min(thumbs.length, 4);
-  const overflow = Math.max(0, total - 4);
-  if (count === 0) {
+function TileMosaic({ thumbs, total: _total }: { thumbs: ThumbLite[]; total: number }) {
+  // Collapsed 2026-05-17 — show only the most recent upload. The API
+  // hands thumbs back in priority order (final → revision → draft → wip
+  // → reference), so thumbs[0] is the file that best represents the
+  // brief's current state.
+  const t = thumbs[0];
+  const tid = (t as any)?.preview_drive_file_id || t?.drive_file_id;
+  const thumb = tid ? `/api/files/thumbnail?id=${tid}&thumb=1` : null;
+  if (!thumb) {
     return (
       <div style={{ width: "100%", height: "100%", background: "#f4f4f7", display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 12 }}>
         No work yet
       </div>
     );
   }
-  let gridTemplate = "1fr", rows = "1fr";
-  if (count === 2) { gridTemplate = "1fr 1fr"; rows = "1fr"; }
-  if (count === 3) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
-  if (count === 4) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
   return (
     <div style={{
-      width: "100%", height: "100%", background: "#f4f4f7",
-      display: "grid", gridTemplateColumns: gridTemplate, gridTemplateRows: rows,
-      gap: 2, overflow: "hidden",
+      width: "100%", height: "100%", background: "#fff",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      overflow: "hidden", padding: 6,
     }}>
-      {thumbs.slice(0, count).map((t, i) => {
-        const spanLeft = count === 3 && i === 0;
-        const isLast = i === count - 1;
-        // Prefer server-rendered preview (PSD → PNG) over the original
-        const tid = (t as any).preview_drive_file_id || t.drive_file_id;
-        const thumb = tid ? `/api/files/thumbnail?id=${tid}&thumb=1` : null;
-        return (
-          <div key={i} style={{
-            position: "relative", background: "#fff",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            overflow: "hidden", padding: 6,
-            ...(spanLeft ? { gridRow: "1 / span 2" } : {}),
-          }}>
-            {thumb && (
-              <img src={thumb} alt="" loading="lazy"
-                style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-                onError={(e: any) => { e.target.style.display = "none"; }} />
-            )}
-            {isLast && overflow > 0 && (
-              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 14, fontWeight: 700 }}>
-                +{overflow}
-              </div>
-            )}
-          </div>
-        );
-      })}
+      <img src={thumb} alt="" loading="lazy"
+        style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+        onError={(e: any) => { e.target.style.display = "none"; }} />
     </div>
   );
 }
@@ -437,7 +415,7 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: () => void }) {
           <div style={{
             position: "absolute", inset: 0,
             display: "flex",
-            alignItems: actionPending ? "center" : "flex-end",
+            alignItems: "flex-end",
             justifyContent: "center",
             padding: 12, zIndex: 2, pointerEvents: "none",
           }}>
@@ -517,9 +495,11 @@ function pickHeroFile(state: string, files: BriefFile[]): BriefFile | null {
   return [...files].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0] || null;
 }
 
-type UploadKind = "wip" | "first_draft" | "revision" | "final";
+// WIP retired 2026-05-17 — designers upload first_draft as the first
+// deliverable. The "wip" kind is no longer accepted by the API; legacy
+// WIP files still render in thumbnail lists but can't be created.
+type UploadKind = "first_draft" | "revision" | "final";
 const UPLOAD_LABELS: Record<UploadKind, string> = {
-  wip: "WIP",
   first_draft: "1st Draft",
   revision: "Revision",
   final: "Final",
@@ -598,7 +578,12 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
   const [brief, setBrief] = useState<any>(null);
   const [files, setFiles] = useState<BriefFile[]>([]);
   const [uploadingKind, setUploadingKind] = useState<UploadKind | null>(null);
-  const [selectedKind, setSelectedKind] = useState<UploadKind>("first_draft");
+  // File-first upload flow: designer chooses a file via input or drag-
+  // drop, then explicitly confirms whether it's a Draft or a Final.
+  // Prevents the old foot-gun where the kind pill was set to "Final"
+  // and a follow-up file accidentally landed as Final. The selectedKind
+  // state is gone — kind is decided per-upload after the file is staged.
+  const [stagedFile, setStagedFile] = useState<File | null>(null);
   const [heroId, setHeroId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -626,9 +611,6 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
     setBrief(data.brief);
     setFiles(data.files || []);
     setLoading(false);
-    // Default the upload kind to whatever the state suggests is next
-    const nextKind = defaultUploadKind(data.brief?.state);
-    if (nextKind) setSelectedKind(nextKind);
   }
 
   async function upload(file: File, kind: UploadKind) {
@@ -754,10 +736,13 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={e => {
+          // Drag-drop stages the file instead of auto-uploading so
+          // the designer still picks Draft / Final after the drop.
+          // Same file-first flow as the Choose-file button.
           e.preventDefault();
           setDragOver(false);
           const f = e.dataTransfer.files?.[0];
-          if (f) upload(f, selectedKind);
+          if (f) setStagedFile(f);
         }}
         style={{
           flex: 1, minHeight: 0, overflow: "auto",
@@ -784,8 +769,19 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
           </div>
         )}
 
-        {/* Upload bar — sticky at top of the scrolling column. Single
-            row: kind pills · note · choose file. Wraps on narrow widths. */}
+        {/* Upload bar — sticky at top. Two states:
+              1. Idle: a single "+ Choose file" button. File-first flow
+                 means the designer picks a file BEFORE picking a kind,
+                 so the kind decision is always tied to a concrete file
+                 (no orphaned "Final" pill waiting to mis-tag the next
+                 upload). Drag-and-drop also goes through this staging
+                 step — drops set the staged file, they don't auto-fire.
+              2. Staged: filename + two big confirm buttons — "Upload
+                 as Draft" / "Upload as Final" — plus a cancel ×. Draft
+                 is the common path; the server auto-promotes 2nd-and-
+                 later drafts so the label reads "2nd Draft", "3rd
+                 Draft", etc. Revision was retired as a manual choice.
+        */}
         <div style={{
           position: "sticky", top: 0, zIndex: 5,
           padding: "10px 18px",
@@ -796,46 +792,88 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
           <span style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.12em" }}>
             Upload
           </span>
-          <div style={{ display: "flex", gap: 4 }}>
-            {(["first_draft", "revision", "final"] as UploadKind[]).map(k => {
-              const isSelected = selectedKind === k;
-              const isFinal = k === "final";
-              return (
-                <button key={k}
-                  onClick={() => setSelectedKind(k)}
+
+          {stagedFile ? (
+            <>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "6px 10px", borderRadius: 6,
+                background: C.surface, border: `1px solid ${C.border}`,
+                maxWidth: 340, minWidth: 0,
+              }}>
+                <span style={{
+                  fontSize: 11, fontWeight: 600, color: C.text,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>{stagedFile.name}</span>
+                <span style={{ fontSize: 10, color: C.faint, fontFamily: C.mono, flexShrink: 0 }}>
+                  {(stagedFile.size / 1024 / 1024).toFixed(1)}MB
+                </span>
+                <button onClick={() => setStagedFile(null)}
+                  disabled={uploadingKind !== null}
+                  aria-label="Cancel"
                   style={{
-                    padding: "5px 10px",
-                    borderRadius: 4,
-                    background: isSelected ? (isFinal ? C.green : C.accent) : C.surface,
-                    color: isSelected ? "#fff" : (isFinal ? C.green : C.muted),
-                    border: `1px solid ${isSelected ? (isFinal ? C.green : C.accent) : C.border}`,
-                    fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: C.font,
+                    background: "none", border: "none", color: C.muted,
+                    fontSize: 16, cursor: uploadingKind ? "not-allowed" : "pointer",
+                    padding: "0 4px", lineHeight: 1,
+                  }}>×</button>
+              </div>
+              <div style={{ flex: 1 }} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => { const f = stagedFile; if (f) { setStagedFile(null); upload(f, "first_draft"); } }}
+                  disabled={uploadingKind !== null || isClientAborted}
+                  style={{
+                    padding: "7px 14px",
+                    background: uploadingKind ? C.surface : C.accent,
+                    color: uploadingKind ? C.muted : "#fff",
+                    border: "none", borderRadius: 6,
+                    fontSize: 12, fontWeight: 700,
+                    cursor: uploadingKind ? "wait" : "pointer", fontFamily: C.font,
                   }}>
-                  {UPLOAD_LABELS[k]}
+                  {uploadingKind === "first_draft" ? "Uploading…" : "Upload as Draft"}
                 </button>
-              );
-            })}
-          </div>
-          <div style={{ flex: 1 }} />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploadingKind !== null || isClientAborted}
-            title={isClientAborted ? "Client aborted this design request — upload disabled" : undefined}
-            style={{
-              padding: "7px 16px",
-              background: isClientAborted ? C.surface : (uploadingKind ? C.surface : C.text),
-              color: isClientAborted ? C.faint : (uploadingKind ? C.muted : "#fff"),
-              border: "none", borderRadius: 6,
-              fontSize: 12, fontWeight: 700,
-              cursor: (uploadingKind || isClientAborted) ? "not-allowed" : "pointer",
-              fontFamily: C.font, whiteSpace: "nowrap",
-            }}>
-            {isClientAborted ? "Upload disabled" : (uploadingKind ? `Uploading ${UPLOAD_LABELS[uploadingKind]}…` : `+ Choose file`)}
-          </button>
+                <button
+                  onClick={() => { const f = stagedFile; if (f) { setStagedFile(null); upload(f, "final"); } }}
+                  disabled={uploadingKind !== null || isClientAborted}
+                  style={{
+                    padding: "7px 14px",
+                    background: uploadingKind ? C.surface : C.green,
+                    color: uploadingKind ? C.muted : "#fff",
+                    border: "none", borderRadius: 6,
+                    fontSize: 12, fontWeight: 700,
+                    cursor: uploadingKind ? "wait" : "pointer", fontFamily: C.font,
+                  }}>
+                  {uploadingKind === "final" ? "Uploading…" : "Upload as Final"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: 11, color: C.muted }}>
+                Choose a file — you'll confirm Draft or Final next.
+              </span>
+              <div style={{ flex: 1 }} />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isClientAborted}
+                title={isClientAborted ? "Client aborted this design request — upload disabled" : undefined}
+                style={{
+                  padding: "7px 16px",
+                  background: isClientAborted ? C.surface : C.text,
+                  color: isClientAborted ? C.faint : "#fff",
+                  border: "none", borderRadius: 6,
+                  fontSize: 12, fontWeight: 700,
+                  cursor: isClientAborted ? "not-allowed" : "pointer",
+                  fontFamily: C.font, whiteSpace: "nowrap",
+                }}>
+                {isClientAborted ? "Upload disabled" : "+ Choose file"}
+              </button>
+            </>
+          )}
           <input ref={fileInputRef} type="file" style={{ display: "none" }}
             onChange={e => {
               const f = e.target.files?.[0];
-              if (f) upload(f, selectedKind);
+              if (f) setStagedFile(f);
               e.target.value = "";
             }} />
         </div>
@@ -847,7 +885,7 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
           </div>
           {dragOver && (
             <span style={{ color: C.blue, fontSize: 11, fontWeight: 700 }}>
-              Drop to upload as {UPLOAD_LABELS[selectedKind]}
+              Drop to stage — then choose Draft or Final
             </span>
           )}
         </div>
@@ -880,7 +918,7 @@ function BriefDetailModal({ token, briefId, onClose }: { token: string; briefId:
         ) : (
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center", color: C.faint, fontSize: 13 }}>
             {dragOver ? (
-              <span style={{ color: C.blue, fontWeight: 700 }}>Drop to upload as {UPLOAD_LABELS[selectedKind]}</span>
+              <span style={{ color: C.blue, fontWeight: 700 }}>Drop to stage — then choose Draft or Final</span>
             ) : (
               <div>
                 <div style={{ fontSize: 36, marginBottom: 8, color: C.faint }}>↑</div>

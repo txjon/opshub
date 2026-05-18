@@ -22,7 +22,10 @@ async function verifyAccess(token: string, briefId: string) {
   return { db, designer, brief };
 }
 
-const DESIGNER_KINDS = ["wip", "first_draft", "revision", "final"];
+// WIP retired 2026-05-17 — designers upload first_draft as the first
+// deliverable. Historical files with kind="wip" still render in
+// thumbnail lists; new uploads default to first_draft and reject "wip".
+const DESIGNER_KINDS = ["first_draft", "revision", "final"];
 
 export async function POST(req: NextRequest, { params }: { params: { token: string; briefId: string } }) {
   try {
@@ -31,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
     const { file_name, mime_type, kind } = await req.json();
     if (!file_name) return NextResponse.json({ error: "file_name required" }, { status: 400 });
-    const k = (kind || "wip").toLowerCase();
+    const k = (kind || "first_draft").toLowerCase();
     if (!DESIGNER_KINDS.includes(k)) return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
 
     const clientName = (ctx.brief as any).clients?.name || "Unassigned";

@@ -52,7 +52,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    this item's decorator? Used by the canonical status compute).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, decorator_assignments(decorators(name, short_code))")
+      .select("id, job_id, name, garment_type, mockup_color, blank_vendor, blank_sku, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -152,6 +152,16 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         name: it.name || "Untitled",
         garment_type: it.garment_type || null,
         mockup_color: it.mockup_color || null,
+        // Blank identification — vendor + SKU is what the client sees
+        // on the actual product. The SKU often encodes the color
+        // (e.g. "3001 - Black"). mockup_color is the template
+        // background hex, not the product color, so we don't use it.
+        blank_vendor: it.blank_vendor || null,
+        blank_sku: it.blank_sku || null,
+        // Per-size breakdown for the detail modal.
+        sizes: (it.buy_sheet_lines || [])
+          .map((l: any) => ({ size: l.size, qty: Number(l.qty_ordered) || 0 }))
+          .filter((s: any) => s.qty > 0),
         qty: qtyByItem[it.id] || 0,
         status: (() => {
           const assignment = it.decorator_assignments?.[0];

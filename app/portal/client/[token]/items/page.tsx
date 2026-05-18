@@ -5,12 +5,16 @@ import { C, fmtDate, fmtDateYear, daysUntil } from "../_shared/theme";
 import { ItemState, STATE_LABELS } from "@/lib/item-status";
 import { StatusPill } from "../_shared/StatusPill";
 import { MobileSheet } from "../_shared/MobileSheet";
+import { SIZE_ORDER } from "@/lib/theme";
 
 type Item = {
   id: string;
   name: string;
   garment_type: string | null;
   mockup_color: string | null;
+  blank_vendor: string | null;
+  blank_sku: string | null;
+  sizes: { size: string; qty: number }[];
   qty: number;
   status: ItemState;
   thumb_id: string | null;
@@ -70,6 +74,22 @@ function friendlyColor(raw: string | null): string | null {
   return HEX_COLOR_NAMES[norm] || null;
 }
 
+// Color only makes sense on actual apparel. Patches, stickers, custom
+// accessories, tote bags, etc. carry a mockup_color value (often the
+// default #ffffff) that isn't a real product attribute — it's a stray
+// default the Buy Sheet wrote. Mirrors NON_GARMENT in lib/pricing.ts /
+// lib/lifecycle.ts.
+const NON_GARMENT_TYPES = new Set([
+  "accessory","patch","sticker","poster","pin","koozie","banner","flag",
+  "lighter","towel","water_bottle","samples","custom","key_chain",
+  "woven_labels","bandana","socks","tote","custom_bag","pillow","rug",
+  "pens","napkins","balloons","stencils",
+]);
+function shouldShowColor(garmentType: string | null): boolean {
+  if (!garmentType) return true;
+  return !NON_GARMENT_TYPES.has(garmentType);
+}
+
 // History bucket = anything past completion. The internal model
 // distinguishes "complete" (recently delivered) from "archived"
 // (delivered 30+ days ago or manually archived), but on the portal
@@ -79,8 +99,15 @@ function isItemArchived(it: Item): boolean {
 }
 
 // ETA resolver — manual override wins over job target ship date.
-// Returns null if neither is set so callers can omit the line entirely.
+// Returns null if neither is set, OR if the item is past the in-transit
+// stages (in_stock / complete / archived / cancelled). Once the item
+// has landed at HPD, the "X days until delivery" countdown loses its
+// meaning — the original ETA prediction was for arrival, which has
+// happened. A separate fulfillment-out ETA isn't tracked.
 function resolveItemEta(it: Item): { date: string; isOverride: boolean } | null {
+  if (it.status === "in_stock" || it.status === "complete" || it.status === "archived" || it.status === "cancelled") {
+    return null;
+  }
   if (it.client_eta) return { date: it.client_eta, isOverride: true };
   if (it.job.target_ship_date) return { date: it.job.target_ship_date, isOverride: false };
   return null;
@@ -321,23 +348,22 @@ export default function ItemsPage() {
             {view === "current" && <div>ETA</div>}
             <div style={{ textAlign: "center" }}>Paid</div>
           </div>
-          {/* Responsive: at ≤640px the row grid collapses to a card
-              layout — thumb left, content stack right, secondary
-              columns fold into a single mobile summary row. */}
+          {/* Responsive: at ≤640px the row grid collapses to a single
+              column. The Item cell hosts everything — thumb (scaled up
+              from 36 → 84), name, job line, and a mobile summary row
+              with status pill + qty + cost + ETA. Secondary columns
+              hide entirely since the summary covers them. */}
           <style>{`
             @media (max-width: 640px) {
               .portal-items-header { display: none !important; }
               .portal-item-row {
-                grid-template-columns: 84px 1fr !important;
-                grid-template-areas: "thumb content" !important;
+                grid-template-columns: 1fr !important;
                 padding: 12px !important;
-                gap: 14px !important;
-                align-items: flex-start !important;
+                gap: 0 !important;
               }
-              .portal-item-row__cell--thumb { grid-area: thumb; }
               .portal-item-row__cell--name {
-                grid-area: content;
-                min-width: 0;
+                align-items: flex-start !important;
+                gap: 14px !important;
               }
               .portal-item-row__thumb-box {
                 width: 84px !important; height: 84px !important;
@@ -401,35 +427,44 @@ function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => 
       onMouseEnter={e => { e.currentTarget.style.borderColor = C.text; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}
     >
-      {/* Item cell — thumb (split into its own grid cell on mobile so
-          it sits left of a vertical content stack) + name + job meta. */}
-      <div className="portal-item-row__cell--thumb portal-item-row__thumb-box"
-        style={{
-          width: 36, height: 36, flexShrink: 0,
-          background: "#fff", borderRadius: 6, overflow: "hidden",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          border: `1px solid ${C.border}`,
-        }}>
-        {item.thumb_id ? (
-          <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
-            alt="" referrerPolicy="no-referrer" loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
-            onError={(e: any) => { e.target.style.display = "none"; }} />
-        ) : (
-          <span style={{ color: C.faint, fontSize: 8 }}>—</span>
-        )}
-      </div>
+      {/* Item cell — thumb nested inside on desktop so the 8-column
+          grid template stays intact. On mobile the parent grid drops
+          to 1fr and the thumb scales up via CSS (see <style> block in
+          the parent). */}
       <div className="portal-item-row__cell--name"
         style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="portal-item-row__thumb-box"
+          style={{
+            width: 36, height: 36, flexShrink: 0,
+            background: "#fff", borderRadius: 6, overflow: "hidden",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            border: `1px solid ${C.border}`,
+          }}>
+          {item.thumb_id ? (
+            <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
+              alt="" referrerPolicy="no-referrer" loading="lazy"
+              style={{ width: "100%", height: "100%", objectFit: "contain" }}
+              onError={(e: any) => { e.target.style.display = "none"; }} />
+          ) : (
+            <span style={{ color: C.faint, fontSize: 8 }}>—</span>
+          )}
+        </div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="portal-item-row__name-text" style={{
             fontSize: 12, fontWeight: 600, color: C.text, lineHeight: 1.3,
             display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2,
             overflow: "hidden", wordBreak: "break-word",
           }}>{item.name}</div>
+          {/* Reference label — single soft line under the item name.
+              Prefer the QB/Stripe invoice # once it exists (that's
+              what the client recognizes), fall back to the OpsHub
+              job number while the order is still pre-bill. Project
+              title dropped — the item name + invoice/job # is enough
+              identification and reads cleaner. */}
           <div className="portal-item-row__job-line" style={{ fontSize: 10, color: C.muted, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {item.job.job_number && <span style={{ fontFamily: C.mono }}>{item.job.job_number}</span>}
-            {item.job.title && <> · {item.job.title}</>}
+            {item.invoice_number
+              ? `Invoice #${item.invoice_number}`
+              : item.job.job_number || ""}
           </div>
           {/* Mobile-only summary — status pill + qty + (cost) + ETA
               chip. Tucked under the name so the row reads top-down on
@@ -540,13 +575,20 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
   // widths, presents as a centered modal on desktop. Header / body /
   // footer slots are owned by the wrapper so this component just lays
   // out content. Reorder button gets primary-action weight.
+  // Subtitle uses the actual SKU (vendor + sku) — that's what the
+  // client recognizes on the product. mockup_color was the mockup
+  // template's background hex, often a stray default that misrepresents
+  // the product color. Falls back to just garment_type when no blank
+  // is assigned.
+  const subtitleBits = [item.garment_type, item.blank_vendor, item.blank_sku]
+    .filter((b): b is string => !!b);
+
   return (
     <MobileSheet
       open
       onClose={onClose}
       title={item.name}
-      subtitle={[item.garment_type, friendlyColor(item.mockup_color)].filter(Boolean).join(" · ") || undefined}
-      rightAccessory={<StatusPill status={item.status} size="sm" />}
+      subtitle={subtitleBits.join(" · ") || undefined}
       footer={
         <>
           <button onClick={onClose}
@@ -591,7 +633,39 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
 
         {/* Meta */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Meta label="Quantity" value={item.qty ? `${item.qty} pcs` : "—"} />
+          {/* Status — body-level row matching the rest of the meta
+              labels, replaces the header status pill. */}
+          <div>
+            <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Status</div>
+            <StatusPill status={item.status} size="md" />
+          </div>
+          {/* Quantity — total plus per-size breakdown when present. */}
+          <div>
+            <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Quantity</div>
+            <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{item.qty ? `${item.qty} pcs` : "—"}</div>
+            {item.sizes && item.sizes.length > 0 && (
+              <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {[...item.sizes]
+                  .sort((a, b) => {
+                    const ai = SIZE_ORDER.indexOf(a.size), bi = SIZE_ORDER.indexOf(b.size);
+                    if (ai === -1 && bi === -1) return a.size.localeCompare(b.size);
+                    if (ai === -1) return 1;
+                    if (bi === -1) return -1;
+                    return ai - bi;
+                  })
+                  .map(s => (
+                    <span key={s.size} style={{
+                      display: "inline-flex", alignItems: "baseline", gap: 4,
+                      padding: "3px 8px", borderRadius: 4,
+                      background: C.surface, fontSize: 11,
+                    }}>
+                      <span style={{ color: C.muted, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>{s.size}</span>
+                      <span style={{ color: C.text, fontFamily: C.mono, fontWeight: 600 }}>{s.qty}</span>
+                    </span>
+                  ))}
+              </div>
+            )}
+          </div>
           {(() => {
             // Estimated delivery — manual override wins. Countdown
             // is from today; note appears when the team set one

@@ -135,6 +135,11 @@ export function ArtReferencesGrid({
   emptyState,
   protectImages,
 }: ArtReferencesGridProps) {
+  // Collapses the deliverable stack to just the most recent upload by
+  // default. Older versions live behind the "Show N earlier versions"
+  // button so the conversation stays anchored to the current state.
+  const [showOlder, setShowOlder] = useState(false);
+
   if (files.length === 0) {
     return emptyState ? <>{emptyState}</> : null;
   }
@@ -142,12 +147,24 @@ export function ArtReferencesGrid({
   const ordered = sortFiles(files);
   const canDeleteFn = canDelete ?? ((f: RefFile) => f.uploader_role === viewerRole);
 
-  // Split into two zones — deliverables (the actual creative work) get
-  // larger cards and fewer columns; references are context, smaller and
-  // denser. Gives the latest WIP / draft / final visual primacy without
-  // burying it under a row of refs.
+  // Split into two zones — deliverables (the actual creative work) and
+  // references (context). Deliverables collapse to JUST the most recent
+  // one by default — older versions hide behind a toggle. Jon's call
+  // (2026-05-17): the latest is what matters; stacking 5 cards of every
+  // draft + revision was visual noise and pushed the conversation down.
+  //
+  // "Most recent" = newest by created_at across ALL deliverable kinds
+  // (final, revision, first_draft, wip, print_ready). The kind-rank
+  // sort still matters for the older list when expanded.
   const deliverables = ordered.filter(f => f.kind !== "reference");
   const refs = ordered.filter(f => f.kind === "reference");
+  const newestDeliverable = [...deliverables].sort((a, b) =>
+    (b.created_at || "").localeCompare(a.created_at || "")
+  )[0];
+  const olderDeliverables = deliverables.filter(f => f.id !== newestDeliverable?.id);
+  const visibleDeliverables = newestDeliverable
+    ? [newestDeliverable, ...(showOlder ? olderDeliverables : [])]
+    : [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, fontFamily: C.font }}>
@@ -155,7 +172,7 @@ export function ArtReferencesGrid({
         <div style={{
           display: "flex", flexDirection: "column", gap: 12,
         }}>
-          {deliverables.map(f => (
+          {visibleDeliverables.map(f => (
             <FileCard
               key={f.id}
               file={f}
@@ -167,6 +184,27 @@ export function ArtReferencesGrid({
               protectImages={!!protectImages}
             />
           ))}
+          {olderDeliverables.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowOlder(v => !v)}
+              style={{
+                alignSelf: "center",
+                padding: "6px 14px",
+                background: "transparent",
+                color: C.muted,
+                border: `1px solid ${C.border}`,
+                borderRadius: 999,
+                fontSize: 11, fontWeight: 600,
+                cursor: "pointer", fontFamily: C.font,
+              }}
+              aria-expanded={showOlder}
+            >
+              {showOlder
+                ? `Hide older versions`
+                : `Show ${olderDeliverables.length} earlier version${olderDeliverables.length === 1 ? "" : "s"}`}
+            </button>
+          )}
         </div>
       )}
 

@@ -191,10 +191,15 @@ function ClientFilterPill({ label, count, active, onClick, accent }: {
   );
 }
 
-function TileMosaic({ thumbs, total }: { thumbs: Thumb[]; total: number }) {
-  const count = Math.min(thumbs.length, 4);
-  const overflow = Math.max(0, total - 4);
-  if (count === 0) {
+function TileMosaic({ thumbs, total: _total }: { thumbs: Thumb[]; total: number }) {
+  // Collapsed 2026-05-17 — show just the most recent upload, not a
+  // 4-up mosaic. The API hands thumbs in newest-first priority order
+  // (final → revision → draft → wip → reference), so thumbs[0] is the
+  // image that best represents the current state of the brief.
+  const t = thumbs[0];
+  const tid = t?.preview_drive_file_id || t?.drive_file_id;
+  const src = tid ? `/api/files/thumbnail?id=${tid}&thumb=1` : null;
+  if (!src) {
     return (
       <div style={{
         width: "100%", height: "100%", background: "#f4f4f7",
@@ -205,45 +210,15 @@ function TileMosaic({ thumbs, total }: { thumbs: Thumb[]; total: number }) {
       </div>
     );
   }
-  let gridTemplate = "1fr", rows = "1fr";
-  if (count === 2) { gridTemplate = "1fr 1fr"; rows = "1fr"; }
-  if (count === 3) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
-  if (count === 4) { gridTemplate = "1fr 1fr"; rows = "1fr 1fr"; }
   return (
     <div style={{
-      width: "100%", height: "100%", background: "#f4f4f7",
-      display: "grid", gridTemplateColumns: gridTemplate, gridTemplateRows: rows,
-      gap: 2, overflow: "hidden",
+      width: "100%", height: "100%", background: "#fff",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      overflow: "hidden", padding: 6,
     }}>
-      {thumbs.slice(0, count).map((t, i) => {
-        const spanLeft = count === 3 && i === 0;
-        const isLast = i === count - 1;
-        const tid = t.preview_drive_file_id || t.drive_file_id;
-        const src = tid ? `/api/files/thumbnail?id=${tid}&thumb=1` : null;
-        return (
-          <div key={i} style={{
-            position: "relative", background: "#fff",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            overflow: "hidden", padding: 6,
-            ...(spanLeft ? { gridRow: "1 / span 2" } : {}),
-          }}>
-            {src && (
-              <img src={src} alt="" loading="lazy"
-                style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-                onError={(e: any) => { e.target.style.display = "none"; }} />
-            )}
-            {isLast && overflow > 0 && (
-              <div style={{
-                position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                color: "#fff", fontSize: 14, fontWeight: 700,
-              }}>
-                +{overflow}
-              </div>
-            )}
-          </div>
-        );
-      })}
+      <img src={src} alt="" loading="lazy"
+        style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
+        onError={(e: any) => { e.target.style.display = "none"; }} />
     </div>
   );
 }
@@ -317,7 +292,7 @@ function BriefTile({ brief, meta, onOpen }: {
           <div style={{
             position: "absolute", inset: 0,
             display: "flex",
-            alignItems: actionPending ? "center" : "flex-end",
+            alignItems: "flex-end",
             justifyContent: "center",
             padding: 12, zIndex: 2, pointerEvents: "none",
           }}>
