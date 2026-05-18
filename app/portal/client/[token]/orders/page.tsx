@@ -62,12 +62,16 @@ type Order = {
 export default function OrdersPage() {
   const { token } = useClientPortal();
   const search = useSearchParams();
-  const filterParam = (search?.get("filter") as "all" | "unpaid" | "paid" | null) || "all";
+  // Default to Unpaid — the action filter the client cares about
+  // most when they land here. On Hold pulls out paused projects so
+  // they're findable without scrolling. Paid dropped per Jon's call:
+  // the All view + "Paid" status on the row is enough scan.
+  const filterParam = (search?.get("filter") as "all" | "unpaid" | "on_hold" | null) || "unpaid";
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [archive, setArchive] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "unpaid" | "paid">(filterParam === "unpaid" || filterParam === "paid" ? filterParam : "all");
+  const [filter, setFilter] = useState<"all" | "unpaid" | "on_hold">(filterParam === "all" || filterParam === "on_hold" ? filterParam : "unpaid");
   // Project orders open a full-page modal using the shared OrderDetailView
   // instead of navigating. Keeps scroll position + filter state intact.
   const [modalJobId, setModalJobId] = useState<string | null>(null);
@@ -89,12 +93,12 @@ export default function OrdersPage() {
 
   const filtered = (orders || []).filter(o => {
     if (filter === "unpaid") return o.payment_status === "unpaid" || o.payment_status === "partial";
-    if (filter === "paid") return o.payment_status === "paid";
+    if (filter === "on_hold") return o.phase === "on_hold";
     return true;
   });
 
   const unpaidTotal = (orders || []).filter(o => o.payment_status === "unpaid" || o.payment_status === "partial").length;
-  const paidTotal = (orders || []).filter(o => o.payment_status === "paid").length;
+  const onHoldTotal = (orders || []).filter(o => o.phase === "on_hold").length;
 
   return (
     <div>
@@ -103,14 +107,14 @@ export default function OrdersPage() {
         display: "flex", gap: 18, alignItems: "center", marginBottom: 18,
         flexWrap: "wrap", borderBottom: `1px solid ${C.border}`, paddingBottom: 6,
       }}>
-        <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
-          All {orders && `· ${orders.length}`}
-        </FilterPill>
         <FilterPill active={filter === "unpaid"} onClick={() => setFilter("unpaid")}>
           Unpaid{orders ? ` · ${unpaidTotal}` : ""}
         </FilterPill>
-        <FilterPill active={filter === "paid"} onClick={() => setFilter("paid")}>
-          Paid{orders ? ` · ${paidTotal}` : ""}
+        <FilterPill active={filter === "on_hold"} onClick={() => setFilter("on_hold")}>
+          On Hold{orders ? ` · ${onHoldTotal}` : ""}
+        </FilterPill>
+        <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
+          All {orders && `· ${orders.length}`}
         </FilterPill>
         <div style={{ flex: 1 }} />
         <button onClick={() => setArchive(a => !a)}

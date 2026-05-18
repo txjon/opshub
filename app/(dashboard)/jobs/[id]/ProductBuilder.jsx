@@ -288,6 +288,11 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [psdProcessing, setPsdProcessing] = useState(null);
   const [distRow, setDistRow] = useState(null);
   const [distTotal, setDistTotal] = useState("");
+  // EditSizesModal — opens from the size grid's "Edit sizes" button.
+  // Lets the user add / remove sizes and set qtys without going back
+  // through the full blank picker (supplier → brand → style → color →
+  // sizes). Holds the item id; null = closed.
+  const [editSizesItemId, setEditSizesItemId] = useState(null);
   // Accessories
   const [accType, setAccType] = useState("");
   const [accName, setAccName] = useState("");
@@ -974,6 +979,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 scheduleCommit={scheduleCommit} inputRefs={inputRefs} distRow={distRow}
                 setDistRow={setDistRow} distTotal={distTotal} setDistTotal={setDistTotal}
                 handleDist={handleDist} removeItem={removeItem} setAssignBlankTo={setAssignBlankTo}
+                setEditSizesItemId={setEditSizesItemId}
                 setShowAddModal={setShowAddModal} onItemsChanged={onItemsChanged}
                 requestMove={(it) => setMoveItemTarget({ id: it.id, name: it.name || "" })}
                 requestCopy={(it) => setCopyItemTarget({ id: it.id, name: it.name || "" })}
@@ -1045,14 +1051,229 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           }}
         />
       )}
+
+      {editSizesItemId && (() => {
+        const target = (workingItems || []).find(it => it.id === editSizesItemId);
+        if (!target) return null;
+        return (
+          <EditSizesModal
+            item={target}
+            onClose={() => setEditSizesItemId(null)}
+            onSave={(nextSizes, nextQtys) => {
+              const totalQty = Object.values(nextQtys).reduce((a, v) => a + (Number(v) || 0), 0);
+              updateLocal((workingItems || []).map(it =>
+                it.id === editSizesItemId
+                  ? { ...it, sizes: nextSizes, qtys: nextQtys, totalQty }
+                  : it
+              ));
+              setEditSizesItemId(null);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
+// EditSizesModal — add/remove sizes + set qtys on an item without
+// going back through the blank picker. Toggle row picks which sizes
+// are active; qty grid for active sizes; Distribute helper fills by
+// the item's curve (or default S/M/L/XL ladder).
+// ═══════════════════════════════════════════════════════════════
+function EditSizesModal({ item, onClose, onSave }) {
+  // Working copy of sizes + qtys — committed via onSave on save.
+  const [sizes, setSizes] = useState(() => [...(item.sizes || [])]);
+  const [qtys, setQtys] = useState(() => ({ ...(item.qtys || {}) }));
+  const [distTotal, setDistTotal] = useState("");
+
+  // Esc closes.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Adult + youth sizes from the canonical SIZE_ORDER. OS / OSFA are
+  // one-size variants — clicked individually they swap the item to
+  // single-size mode (any other adult/youth size toggling them off).
+  const ADULT_SIZES = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"];
+  const YOUTH_SIZES = ["YXS", "YS", "YM", "YL", "YXL"];
+  const ONE_SIZE = ["OSFA", "OS"];
+
+  const toggleSize = (sz) => {
+    const isOneSize = ONE_SIZE.includes(sz);
+    const next = new Set(sizes);
+    if (next.has(sz)) {
+      next.delete(sz);
+      const q = { ...qtys }; delete q[sz];
+      setQtys(q);
+    } else {
+      // Toggling a one-size variant clears the sized list and vice
+      // versa — an item is either "OSFA · qty" or a size run.
+      if (isOneSize) {
+        setQtys({ [sz]: qtys[sz] || 0 });
+        setSizes([sz]);
+        return;
+      } else {
+        for (const o of ONE_SIZE) next.delete(o);
+      }
+      next.add(sz);
+    }
+    setSizes(sortSizesLocal([...next]));
+  };
+
+  const setQty = (sz, val) => {
+    const n = parseInt(val, 10);
+    setQtys({ ...qtys, [sz]: Number.isFinite(n) && n >= 0 ? n : 0 });
+  };
+
+  const doDist = () => {
+    const total = parseInt(distTotal, 10);
+    if (!Number.isFinite(total) || total <= 0 || sizes.length === 0) return;
+    const next = distribute(total, sizes, item.curve || DEFAULT_CURVE);
+    setQtys(next);
+    setDistTotal("");
+  };
+
+  const total = Object.values(qtys).reduce((a, v) => a + (Number(v) || 0), 0);
+
+  return (
+    <div onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)", fontFamily: font }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: T.card, borderRadius: 12, width: "min(640px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: `1px solid ${T.border}` }}>
+        <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Edit sizes & qtys</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name || "Item"}</div>
+          </div>
+          <button onClick={onClose}
+            style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 18 }}>
+          {/* Size toggle row — adult sizes, youth sizes, one-size. */}
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Sizes</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {ADULT_SIZES.map(sz => {
+                const on = sizes.includes(sz);
+                return (
+                  <button key={sz} onClick={() => toggleSize(sz)}
+                    style={{ minWidth: 42, padding: "6px 10px", fontSize: 12, fontFamily: mono, fontWeight: 700,
+                      background: on ? T.accent : T.card, color: on ? "#fff" : T.muted,
+                      border: `1px solid ${on ? T.accent : T.border}`, borderRadius: 6, cursor: "pointer" }}>
+                    {sz}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {YOUTH_SIZES.map(sz => {
+                const on = sizes.includes(sz);
+                return (
+                  <button key={sz} onClick={() => toggleSize(sz)}
+                    style={{ minWidth: 42, padding: "6px 10px", fontSize: 12, fontFamily: mono, fontWeight: 700,
+                      background: on ? T.accent : T.card, color: on ? "#fff" : T.muted,
+                      border: `1px solid ${on ? T.accent : T.border}`, borderRadius: 6, cursor: "pointer" }}>
+                    {sz}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {ONE_SIZE.map(sz => {
+                const on = sizes.includes(sz);
+                return (
+                  <button key={sz} onClick={() => toggleSize(sz)}
+                    style={{ minWidth: 64, padding: "6px 10px", fontSize: 12, fontFamily: mono, fontWeight: 700,
+                      background: on ? T.accent : T.card, color: on ? "#fff" : T.muted,
+                      border: `1px solid ${on ? T.accent : T.border}`, borderRadius: 6, cursor: "pointer" }}
+                    title="One-size — replaces any sized run">
+                    {sz}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Qty grid for active sizes */}
+          {sizes.length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Quantities</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                {sizes.map(sz => (
+                  <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, fontFamily: mono }}>{sz}</span>
+                    <input type="text" inputMode="numeric" value={qtys[sz] ?? 0}
+                      onChange={e => setQty(sz, e.target.value)}
+                      onFocus={e => e.target.select()}
+                      style={{ width: 56, height: 36, textAlign: "center", fontSize: 14, fontWeight: 600,
+                        border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text,
+                        fontFamily: font, outline: "none" }} />
+                  </div>
+                ))}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, marginLeft: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: T.faint }}>TOTAL</span>
+                  <span style={{ fontSize: 20, fontWeight: 800, fontFamily: mono, color: T.text }}>{total}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Distribute helper — fills sizes by curve */}
+          {sizes.length > 0 && !ONE_SIZE.includes(sizes[0]) && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Distribute total</div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="text" inputMode="numeric" value={distTotal}
+                  onChange={e => setDistTotal(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && doDist()}
+                  placeholder="Total qty"
+                  style={{ width: 110, height: 36, padding: "0 10px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontFamily: font, outline: "none" }} />
+                <button onClick={doDist}
+                  style={{ fontSize: 12, color: "#fff", background: T.accent, border: "none", borderRadius: 6, padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontFamily: font }}>
+                  Fill
+                </button>
+                <span style={{ fontSize: 11, color: T.faint }}>Spreads total across active sizes using the item's curve.</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onClose}
+            style={{ padding: "8px 18px", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+            Cancel
+          </button>
+          <button onClick={() => onSave(sizes, qtys)}
+            style={{ padding: "8px 22px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Local size sorter — mirrors lib/theme sortSizes but available
+// inside this file without importing.
+function sortSizesLocal(arr) {
+  const order = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
+  return [...arr].sort((a, b) => {
+    const ai = order.indexOf(a), bi = order.indexOf(b);
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Expanded item body — manages its own file state per item
 // ═══════════════════════════════════════════════════════════════
-function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setShowAddModal, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked, requestMove, requestCopy }) {
+function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setEditSizesItemId, setShowAddModal, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked, requestMove, requestCopy }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -1215,6 +1436,10 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                 <div style={{ fontSize: 9, color: T.muted }}>units</div>
               </div>
               {!costingLocked && <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}>Dist</button>}
+              {!costingLocked && <button onClick={() => setEditSizesItemId(item.id)} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}
+                title="Add or remove sizes without changing the blank">
+                Edit sizes
+              </button>}
             </div>
             {distRow === idx && (
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>

@@ -203,7 +203,13 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
       itemQtys[it.id] = qtys;
     }
 
-    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    // Quote date — pin to the date the quote was originally sent so
+    // a client re-opening their portal a month later still sees the
+    // correct issue date on the PDF. Falls back to today only when
+    // the quote hasn't been sent yet (HPD-side preview / draft view).
+    const quoteSentAt = (job.type_meta as any)?.quote_sent_at;
+    const today = (quoteSentAt ? new Date(quoteSentAt) : new Date())
+      .toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     const clientName = (job.clients as any)?.name || orderInfo.clientName || "—";
 
     // Build product list — use costing_data if available, fall back to items table

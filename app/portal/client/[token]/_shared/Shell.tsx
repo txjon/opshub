@@ -66,8 +66,8 @@ const ICONS: Record<string, TabIcon> = {
 const TABS: { label: keyof typeof ICONS; path: string; unreadKey?: "designs" }[] = [
   { label: "Overview", path: "" },
   { label: "Designs", path: "/designs", unreadKey: "designs" },
-  { label: "Items", path: "/items" },
   { label: "Orders", path: "/orders" },
+  { label: "Items", path: "/items" },
 ];
 
 export default function Shell({ children }: { children: ReactNode }) {
