@@ -552,6 +552,7 @@ function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => 
 
 function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClose: () => void }) {
   const [reordering, setReordering] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [reorderResult, setReorderResult] = useState<string | null>(null);
 
   async function reorder() {
@@ -575,12 +576,12 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
   // widths, presents as a centered modal on desktop. Header / body /
   // footer slots are owned by the wrapper so this component just lays
   // out content. Reorder button gets primary-action weight.
-  // Subtitle uses the actual SKU (vendor + sku) — that's what the
-  // client recognizes on the product. mockup_color was the mockup
-  // template's background hex, often a stray default that misrepresents
-  // the product color. Falls back to just garment_type when no blank
-  // is assigned.
-  const subtitleBits = [item.garment_type, item.blank_vendor, item.blank_sku]
+  // Subtitle = item info only (brand + sku). garment_type is dropped
+  // because it's the QuickBooks invoice category — internal taxonomy
+  // ("tee", "patch", "hoodie") that the client doesn't need to see.
+  // The actual product identification is in blank_vendor + blank_sku
+  // (e.g. "Bella + Canvas · 3001 - Black", or "Patch · Embroidered").
+  const subtitleBits = [item.blank_vendor, item.blank_sku]
     .filter((b): b is string => !!b);
 
   return (
@@ -613,14 +614,30 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
         @media (min-width: 640px) {
           .item-detail-body { grid-template-columns: 240px 1fr !important; }
         }
+        .item-detail-thumb {
+          aspect-ratio: 1; background: #fff; border-radius: 10;
+          overflow: hidden; display: flex; align-items: center; justify-content: center;
+          border: 1px solid ${C.border};
+          padding: 0; cursor: pointer;
+        }
+        .item-detail-thumb:hover { border-color: ${C.text}; }
       `}</style>
       <div className="item-detail-body" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
-        {/* Thumb */}
-        <div style={{
-          aspectRatio: "1", background: "#fff", borderRadius: 10,
-          overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
-          border: `1px solid ${C.border}`,
-        }}>
+        {/* Thumb — click to enlarge in a full-screen lightbox (same
+            pattern the order-detail proof viewer uses). */}
+        <button
+          type="button"
+          className="item-detail-thumb"
+          onClick={() => { if (item.thumb_id) setLightboxOpen(true); }}
+          disabled={!item.thumb_id}
+          aria-label={item.thumb_id ? "Enlarge image" : "No image"}
+          style={{
+            aspectRatio: "1", background: "#fff", borderRadius: 10,
+            overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
+            border: `1px solid ${C.border}`,
+            padding: 0, cursor: item.thumb_id ? "pointer" : "default",
+            fontFamily: C.font,
+          }}>
           {item.thumb_id ? (
             <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
               alt="" referrerPolicy="no-referrer"
@@ -629,22 +646,58 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
           ) : (
             <span style={{ color: C.faint, fontSize: 12 }}>No preview</span>
           )}
-        </div>
+        </button>
 
-        {/* Meta */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {/* Status — body-level row matching the rest of the meta
-              labels, replaces the header status pill. */}
-          <div>
-            <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Status</div>
-            <StatusPill status={item.status} size="md" />
+        {/* Meta column — Status + ETA share the top row, Quantity is
+            full-width below (size list needs the room), Project +
+            Invoice pair next, Design at the bottom. Clean two-column
+            flow throughout. */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          {/* Row 1: Status | Estimated delivery */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Status</div>
+              <StatusPill status={item.status} size="md" />
+            </div>
+            {(() => {
+              const eta = resolveItemEta(item);
+              if (!eta) {
+                return (
+                  <div>
+                    <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Estimated delivery</div>
+                    <div style={{ fontSize: 13, color: C.faint }}>—</div>
+                  </div>
+                );
+              }
+              const cd = daysUntil(eta.date);
+              return (
+                <div>
+                  <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Estimated delivery</div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 14, color: C.text, fontWeight: 700 }}>{fmtDateYear(eta.date)}</div>
+                    {cd && (
+                      <div style={{ fontSize: 11, color: cd.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        {cd.text}
+                      </div>
+                    )}
+                  </div>
+                  {item.client_eta_note && (
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 4, fontStyle: "italic" }}>
+                      {item.client_eta_note}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
-          {/* Quantity — total plus per-size breakdown when present. */}
+
+          {/* Row 2: Quantity full-width with per-size breakdown laid
+              out as a clean text line (no pills). */}
           <div>
-            <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Quantity</div>
-            <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{item.qty ? `${item.qty} pcs` : "—"}</div>
+            <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Quantity</div>
+            <div style={{ fontSize: 14, color: C.text, fontWeight: 700 }}>{item.qty ? `${item.qty.toLocaleString()} pcs` : "—"}</div>
             {item.sizes && item.sizes.length > 0 && (
-              <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ marginTop: 6, fontSize: 12, color: C.muted, fontFamily: C.mono, lineHeight: 1.6 }}>
                 {[...item.sizes]
                   .sort((a, b) => {
                     const ai = SIZE_ORDER.indexOf(a.size), bi = SIZE_ORDER.indexOf(b.size);
@@ -653,59 +706,24 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
                     if (bi === -1) return -1;
                     return ai - bi;
                   })
-                  .map(s => (
-                    <span key={s.size} style={{
-                      display: "inline-flex", alignItems: "baseline", gap: 4,
-                      padding: "3px 8px", borderRadius: 4,
-                      background: C.surface, fontSize: 11,
-                    }}>
-                      <span style={{ color: C.muted, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>{s.size}</span>
-                      <span style={{ color: C.text, fontFamily: C.mono, fontWeight: 600 }}>{s.qty}</span>
+                  .map((s, i, arr) => (
+                    <span key={s.size}>
+                      <span style={{ color: C.faint, fontWeight: 700 }}>{s.size}</span>
+                      <span style={{ marginLeft: 6, color: C.text }}>{s.qty}</span>
+                      {i < arr.length - 1 && <span style={{ color: C.faint, margin: "0 10px" }}>·</span>}
                     </span>
                   ))}
               </div>
             )}
           </div>
-          {(() => {
-            // Estimated delivery — manual override wins. Countdown
-            // is from today; note appears when the team set one
-            // (e.g. "freight delay, rebooked").
-            const eta = resolveItemEta(item);
-            if (!eta) return null;
-            const cd = daysUntil(eta.date);
-            return (
-              <div>
-                <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>
-                  Estimated delivery
-                </div>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                  <div style={{ fontSize: 14, color: C.text, fontWeight: 700 }}>{fmtDateYear(eta.date)}</div>
-                  {cd && (
-                    <div style={{ fontSize: 11, color: cd.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                      {cd.text}
-                    </div>
-                  )}
-                </div>
-                {item.client_eta_note && (
-                  <div style={{ fontSize: 11, color: C.muted, marginTop: 4, fontStyle: "italic" }}>
-                    {item.client_eta_note}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-          <Meta label="Project" value={item.job.title || "—"}
-            sub={item.job.job_number ? `${item.job.job_number}${item.job.target_ship_date && !item.client_eta ? ` · ships ${fmtDate(item.job.target_ship_date)}` : ""}` : undefined}
-          />
-          {/* Invoice + payment paired — the label only makes sense
-              once an invoice exists. Hidden entirely on un-invoiced
-              orders so we don't show "Pending" against an item that
-              hasn't been billed yet. */}
+
+          {/* Row 3: Invoice — takes the slot where Project used to
+              live. Project dropped per Jon's call: the order modal
+              already carries that context, so it's redundant here.
+              Hidden until the order has actually been billed. */}
           {item.invoice_number && (
             <div>
-              <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>
-                Invoice
-              </div>
+              <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Invoice</div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                 <div style={{ fontSize: 14, color: C.text, fontWeight: 700, fontFamily: C.mono }}>#{item.invoice_number}</div>
                 {(() => {
@@ -722,6 +740,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
               </div>
             </div>
           )}
+
           {item.brief && (
             <Meta label="Design" value={item.brief.title || "—"} sub={item.brief.state?.replace(/_/g, " ")} />
           )}
@@ -741,7 +760,52 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
           {reorderResult}
         </div>
       )}
+
+      {/* Lightbox — full-screen image viewer, same chrome the order
+          detail's proof viewer uses (white background, sticky header
+          with Close). Click backdrop or Esc to dismiss. Sits above
+          the parent MobileSheet via higher z-index. */}
+      {lightboxOpen && item.thumb_id && (
+        <ImageLightbox
+          src={`/api/files/thumbnail?id=${item.thumb_id}`}
+          title={item.name}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
     </MobileSheet>
+  );
+}
+
+function ImageLightbox({ src, title, onClose }: { src: string; title: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "#fff", zIndex: 1200,
+      display: "flex", flexDirection: "column", fontFamily: C.font,
+    }}>
+      <div style={{
+        padding: "12px 20px", borderBottom: `1px solid ${C.border}`,
+        display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0,
+      }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {title}
+        </div>
+        <button onClick={onClose} style={{
+          background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
+          fontSize: 13, fontWeight: 600, color: C.text,
+          cursor: "pointer", padding: "8px 20px", fontFamily: C.font,
+        }}>Close</button>
+      </div>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: C.bg, padding: 20, overflow: "auto" }}>
+        <img src={src} alt={title} referrerPolicy="no-referrer"
+          style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 8 }}
+          onError={(e: any) => { e.target.style.display = "none"; }} />
+      </div>
+    </div>
   );
 }
 
