@@ -32,17 +32,16 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   contacts: [
     { href: "/clients", label: "Clients" },
     { href: "/decorators", label: "Decorators" },
+    { href: "/settings/designers", label: "Designers" },
   ],
   settings: [
     { href: "/settings", label: "Team" },
-    { href: "/settings/designers", label: "Designers" },
   ],
 };
 
 // Side quest pages accessible from any department
 const SIDE_QUESTS = [
   { href: "/toolkit", label: "Toolkit" },
-  { href: "/staging", label: "Staging" },
 ];
 
 const DEPT_ICONS: Record<Department, { Icon: any; label: string }> = {
@@ -64,6 +63,10 @@ function detectDept(pathname: string): Department {
   if (["/insights", "/reports", "/god-mode", "/integrations"].some(p => pathname.startsWith(p))) return "owner";
   if (["/ecomm"].some(p => pathname.startsWith(p))) return "ecomm";
   if (["/distro", "/receiving", "/shipping", "/fulfillment"].some(p => pathname.startsWith(p))) return "distro";
+  // Designers nav lives under Contacts even though the page itself
+  // still resolves at /settings/designers — match the more specific
+  // path BEFORE the generic /settings catch so the right dept lights up.
+  if (pathname.startsWith("/settings/designers")) return "contacts";
   if (["/clients", "/decorators"].some(p => pathname.startsWith(p))) return "contacts";
   if (["/settings"].some(p => pathname.startsWith(p))) return "settings";
   return "labs";
