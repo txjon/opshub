@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sortSizes } from "@/lib/theme";
+import { resolveItemStatus, type ItemState } from "@/lib/item-status";
 // Client Hub per-order detail.
 // Mirrors /api/portal/[token] (the old per-job portal) but auth'd via the
 // client's portal_token + verifies the jobId belongs to that client.
@@ -25,7 +26,7 @@ async function authAndLoadJob(token: string, jobId: string) {
   const { data: job, error: jobErr } = await sb
     .from("jobs")
     .select(
-      "id, title, job_number, phase, payment_terms, target_ship_date, type_meta, quote_approved, quote_approved_at, costing_data, costing_summary, client_id, shipping_route, portal_token"
+      "id, title, job_number, phase, payment_terms, target_ship_date, type_meta, quote_approved, quote_approved_at, costing_data, costing_summary, client_id, shipping_route, portal_token, phase_timestamps"
     )
     .eq("id", jobId)
     .eq("client_id", client.id)
@@ -85,10 +86,42 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, client_eta, client_eta_note, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
+
+    // Pre-compute po_sent_vendors as a lowercased set so the per-item
+    // canonical status resolver knows whether a PO has been sent for
+    // that item's decorator. Mirrors the items endpoint.
+    const poSentVendors = new Set(
+      (((job.type_meta as any)?.po_sent_vendors || []) as string[])
+        .map(s => (s || "").toLowerCase().trim())
+        .filter(Boolean)
+    );
+    const phaseTimestamps = ((job as any).phase_timestamps || {}) as any;
+    function statusForItem(it: any): ItemState {
+      const assignment = it?.decorator_assignments?.[0];
+      const decName = assignment?.decorators?.name || null;
+      const decShort = assignment?.decorators?.short_code || null;
+      const poSent = !!(
+        (decName && poSentVendors.has(decName.toLowerCase())) ||
+        (decShort && poSentVendors.has(decShort.toLowerCase()))
+      );
+      return resolveItemStatus({
+        archived_at: it?.archived_at,
+        completed_at: it?.completed_at,
+        pipeline_stage: it?.pipeline_stage,
+        received_at_hpd: !!it?.received_at_hpd,
+        sell_per_unit: it?.sell_per_unit != null ? Number(it.sell_per_unit) : null,
+        blanks_order_cost: it?.blanks_order_cost != null ? Number(it.blanks_order_cost) : null,
+        po_sent: poSent,
+        job_phase: job.phase || null,
+        job_shipping_route: (job as any).shipping_route || null,
+        item_shipping_route: it?.shipping_route || null,
+        job_completed_at: phaseTimestamps?.complete || null,
+      });
+    }
 
     const itemIds = (items || []).map((i: any) => i.id);
 
@@ -172,7 +205,14 @@ export async function GET(
         clientMsg = match ? `${match[1]} proof approved` : "Proof approved";
       }
       else if (/proofs sent to client/i.test(msg)) clientMsg = "Proofs delivered";
-      else if (/shipped|tracking/i.test(msg) && !/decorator|warehouse|production/i.test(msg)) clientMsg = msg;
+      else if (/shipped|tracking/i.test(msg) && !/decorator|warehouse|production/i.test(msg)) {
+        // Scrub vendor / decorator names from shipped messages — the
+        // client never needs to know which printer touched the order.
+        // "Shipped by Battle Maple — Tee 3-PACK · Tracking: …" becomes
+        // "Tee 3-PACK shipped · Tracking: …". Same de-anonymization
+        // rule the shipments list applies.
+        clientMsg = msg.replace(/^Shipped by [^—]+—\s*/i, "").replace(/^(.+?) · Tracking/i, "$1 shipped · Tracking");
+      }
 
       if (!clientMsg) continue;
       if (seen.has(clientMsg)) continue;
@@ -242,6 +282,10 @@ export async function GET(
           qty: totalQty,
           sellPerUnit,
           total: grossRev,
+          // Per-item canonical status — same vocabulary the Items tab
+          // uses, so the client sees a consistent state model across
+          // every surface (item card · order detail · history).
+          status: item ? statusForItem(item) : ("setup" as ItemState),
         });
       }
     }
@@ -262,7 +306,30 @@ export async function GET(
           driveFileId: f.drive_file_id,
           createdAt: f.created_at,
         }));
-      return { id: item.id, name: item.name, proofs: itemProofs };
+      // Total qty from buy sheet lines (pre-ship). Status per the
+      // canonical resolver so this list reads with the same vocabulary
+      // as the Items tab and the order row's hover summary.
+      const qty = (item.buy_sheet_lines || []).reduce(
+        (a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0
+      );
+      // Per-item ETA — manual client_eta wins; otherwise fall back to
+      // the job's target ship date. Suppressed for items past the
+      // in-transit phase (in_stock / complete / archived / cancelled)
+      // — once it's at HPD the original prediction is fulfilled.
+      const status = statusForItem(item);
+      const etaCutOff = status === "in_stock" || status === "complete" || status === "archived" || status === "cancelled";
+      const etaDate = etaCutOff
+        ? null
+        : (item.client_eta || job.target_ship_date || null);
+      return {
+        id: item.id,
+        name: item.name,
+        qty,
+        status,
+        eta: etaDate,
+        eta_note: item.client_eta_note || null,
+        proofs: itemProofs,
+      };
     });
 
     const phaseLabels: Record<string, string> = {

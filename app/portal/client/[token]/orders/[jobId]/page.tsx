@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { StatusPill } from "../../_shared/StatusPill";
 
 // Per-order detail view inside the Client Hub. Clone of /portal/[token]
 // with these changes:
@@ -39,6 +40,21 @@ const fmtDate = (iso: string) => {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 };
+// Short date for per-item ETAs in the Items list — drops the year so
+// the chip stays compact (most ETAs are near-term).
+const fmtDateShort = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+// Countdown for per-item ETAs. Returns the color-tinted countdown text
+// (e.g. "5d", "today", "2d overdue") or null if no date. Mirrors the
+// daysUntil helper used elsewhere in the portal.
+function etaCountdown(iso: string | null): { text: string; color: string } | null {
+  if (!iso) return null;
+  const diff = Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
+  if (diff < 0) return { text: `${Math.abs(diff)}d overdue`, color: C.red };
+  if (diff === 0) return { text: "today", color: C.red };
+  if (diff <= 3) return { text: `${diff}d`, color: C.amber };
+  return { text: `${diff}d`, color: C.muted };
+}
 const timeAgo = (iso: string) => {
   const ms = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(ms / 60000);
@@ -59,7 +75,7 @@ type PortalData = {
   client: { name: string };
   quote: { items: any[]; subtotal: number; tax: number; total: number };
   invoiceStale: boolean;
-  items: { id: string; name: string; proofs: any[] }[];
+  items: { id: string; name: string; qty: number; status: import("@/lib/item-status").ItemState; eta: string | null; eta_note: string | null; proofs: any[] }[];
   payments: { id: string; type: string; amount: number; status: string; dueDate: string | null; paidDate: string | null; invoiceNumber: string | null }[];
   paymentLink: string | null;
   invoiceNumber: string | null;
@@ -96,7 +112,12 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
   const [showQuoteReject, setShowQuoteReject] = useState(false);
   const [quoteRejectNote, setQuoteRejectNote] = useState("");
   const [viewingProof, setViewingProof] = useState<any>(null);
-  const [pdfPreview, setPdfPreview] = useState<{ src: string; title: string } | null>(null);
+  // PDF preview modal — full-screen viewer for invoice, quote, packing
+  // slip, etc. Same chrome the proof viewer uses (sticky header with
+  // title · Download · Close, white viewport body) so the client sees
+  // one consistent pattern for every document. downloadHref optional —
+  // when omitted the Download button is hidden.
+  const [pdfPreview, setPdfPreview] = useState<{ src: string; title: string; downloadHref?: string; downloadName?: string } | null>(null);
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -182,7 +203,7 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
   const currentIdx = phaseOrder.indexOf(currentStep);
 
   return (
-    <div style={{ fontFamily: C.font, color: C.text, maxWidth: 800 }}>
+    <div style={{ fontFamily: C.font, color: C.text, maxWidth: 800, margin: "0 auto" }}>
       {/* Top bar: Back link when standalone, Close button when modal.
           Suppressed when the wrapping shell provides its own chrome
           (full-page modal in the Orders tab — the shell's header bar
@@ -208,51 +229,94 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
         </Link>
       ))}
 
-      {/* ── Project Header ── */}
+      {/* ── Project Header ── headline is the invoice # once issued,
+            else the OpsHub job number. Project memo (title) dropped
+            per Jon's call — the invoice/job ref is the recognized
+            identifier. Subtitle = client name. Est. ship date moved
+            into the per-item ETAs in the Items list below. */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: isMobile ? 22 : 26, fontWeight: 800, color: C.text, margin: 0, lineHeight: 1.2 }}>{project.title}</h1>
+        <h1 style={{ fontSize: isMobile ? 22 : 26, fontWeight: 800, color: C.text, margin: 0, lineHeight: 1.2 }}>
+          {invoiceNumber
+            ? `Invoice #${invoiceNumber}`
+            : (project.jobNumber || project.title || "Order")}
+        </h1>
         <div style={{ fontSize: 14, color: C.muted, fontWeight: 500, marginTop: 4 }}>
           {client.name}
-          {(invoiceNumber || project.jobNumber) && <span style={{ fontFamily: C.mono, fontSize: 12, color: C.faint }}>{"  ·  "}{invoiceNumber ? `#${invoiceNumber}` : project.jobNumber}</span>}
         </div>
-        {project.shipDate && (
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
-            <span style={{ fontWeight: 600, textTransform: "uppercase", fontSize: 10, letterSpacing: "0.04em" }}>Est. Ship Date</span>
-            <span style={{ marginLeft: 8 }}>{fmtDate(project.shipDate)}</span>
-          </div>
-        )}
       </div>
 
-      {/* ── Phase Progress ── */}
-      <div style={{
-        background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
-        padding: isMobile ? "16px" : "16px 24px", marginBottom: 20,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 4 : 8 }}>
-          {PHASE_STEPS.map((step, idx) => {
-            const isActive = idx <= currentIdx && currentIdx >= 0;
-            const isCurrent = step.key === currentStep;
-            return (
-              <div key={step.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                <div style={{
-                  height: 3, width: "100%", borderRadius: 2,
-                  background: isActive ? C.accent : "#e0e0e4",
-                  transition: "background 0.3s",
-                }} />
-                <span style={{
-                  fontSize: isMobile ? 9 : 10, fontWeight: isCurrent ? 700 : 500,
-                  color: isCurrent ? C.accent : isActive ? C.text : C.faint,
+      {/* ── Items list ── At-a-glance per-item state. Mirrors the
+            hover summary on the orders list: item name, total qty,
+            canonical status pill. Always visible regardless of quote
+            status (Quote section may still be empty pre-send). */}
+      {items.length > 0 && (
+        <div style={{
+          background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
+          padding: isMobile ? "16px" : "20px 24px", marginBottom: 20,
+        }}>
+          <h2 style={{ margin: "0 0 14px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.muted }}>
+            Items {items.length > 0 && <span style={{ fontWeight: 400, color: C.faint }}>· {items.length}</span>}
+          </h2>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {items.map(it => {
+              const cd = etaCountdown(it.eta);
+              return (
+                <div key={it.id} style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(0, 1fr) 96px 96px 120px",
+                  alignItems: "center", gap: 14,
+                  padding: "10px 0",
+                  borderBottom: `1px solid ${C.border}`,
                 }}>
-                  {step.label}
-                </span>
-              </div>
-            );
-          })}
+                  {/* Item name — wraps freely, takes remaining space. */}
+                  <span style={{
+                    minWidth: 0,
+                    fontSize: 14, fontWeight: 600, color: C.text,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>{it.name || "Item"}</span>
+                  {/* Qty column — right-aligned mono so digits line up. */}
+                  <span style={{ fontSize: 12, color: C.muted, fontFamily: C.mono, whiteSpace: "nowrap", textAlign: "right" }}>
+                    {it.qty > 0 ? `${it.qty.toLocaleString()} ${it.qty === 1 ? "pc" : "pcs"}` : "—"}
+                  </span>
+                  {/* ETA column — date stacked over countdown,
+                      right-aligned in its slot so the whole list
+                      reads as clean vertical columns. */}
+                  <span style={{
+                    display: "inline-flex", flexDirection: "column",
+                    alignItems: "flex-end", gap: 1,
+                  }}>
+                    {it.eta ? (
+                      <>
+                        <span style={{ fontSize: 12, color: C.text, fontFamily: C.mono, whiteSpace: "nowrap" }}>
+                          {fmtDateShort(it.eta)}
+                        </span>
+                        {cd && (
+                          <span style={{ fontSize: 9, color: cd.color, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                            {cd.text}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span style={{ fontSize: 12, color: C.faint, fontFamily: C.mono }}>—</span>
+                    )}
+                  </span>
+                  {/* Status column — fixed-width slot, left-aligned
+                      inside the column so the labels line up at their
+                      starting edge. */}
+                  <span style={{ textAlign: "left" }}>
+                    <StatusPill status={it.status} size="sm" />
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <div style={{ textAlign: "center", marginTop: 12, fontSize: 13, fontWeight: 600, color: C.accent }}>
-          {PHASE_STEPS[currentIdx]?.label || project.phaseLabel}
-        </div>
-      </div>
+      )}
+
+      {/* Phase progress bar removed 2026-05-17 — replaced by per-item
+          status pills on the Quote section's line items. The single
+          project-phase indicator collapsed multi-item orders into one
+          state, which lied when items were at different stages. */}
 
       {/* ── Payment Section ── */}
       {invoiceNumber && (
@@ -281,11 +345,15 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
               onClick={() => setPdfPreview({
                 src: `/api/pdf/invoice/${project.id}?portal=${jobPortalToken}`,
                 title: `Invoice #${invoiceNumber}`,
+                downloadHref: `/api/pdf/invoice/${project.id}?portal=${jobPortalToken}&download=1`,
+                downloadName: `invoice-${invoiceNumber}.pdf`,
               })}
               style={{
-                marginLeft: "auto", padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-                background: C.surface, color: C.text, border: `1px solid ${C.border}`,
-                fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", fontFamily: C.font,
+                marginLeft: "auto",
+                fontSize: 13, color: "#fff", fontWeight: 700,
+                background: C.accent, border: "none", borderRadius: 6,
+                padding: "10px 20px", cursor: "pointer", flexShrink: 0,
+                whiteSpace: "nowrap", fontFamily: C.font,
               }}>
               View Invoice #{invoiceNumber}
             </button>
@@ -387,17 +455,21 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                     const params = new URLSearchParams({ portal: jobPortalToken });
                     if (s.decoratorId) params.set("decoratorId", s.decoratorId);
                     if (s.tracking) params.set("tracking", s.tracking);
+                    const base = `/api/pdf/packing-slip/${project.id}?${params.toString()}`;
                     setPdfPreview({
-                      src: `/api/pdf/packing-slip/${project.id}?${params.toString()}`,
+                      src: base,
                       title: `Packing slip · ${s.tracking}`,
+                      downloadHref: `${base}&download=1`,
+                      downloadName: `packing-slip-${s.tracking}.pdf`,
                     });
                   }}
                   style={{
-                    padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-                    background: C.surface, color: C.text, border: `1px solid ${C.border}`,
-                    fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", fontFamily: C.font,
+                    fontSize: 13, color: "#fff", fontWeight: 700,
+                    background: C.accent, border: "none", borderRadius: 6,
+                    padding: "10px 20px", cursor: "pointer", flexShrink: 0,
+                    whiteSpace: "nowrap", fontFamily: C.font,
                   }}>
-                  Download packing slip
+                  View packing slip
                 </button>
               </div>
             ))}
@@ -441,12 +513,21 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
               return (
                 <div key={i} style={{ display: "flex", alignItems: "flex-start", padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
                   <div style={{ width: 28, fontSize: 10, fontWeight: 700, color: C.faint, paddingTop: 2 }}>{letter}</div>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{qi.name}</div>
                     {(qi.style || qi.color) && (
                       <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>
                         {qi.style && <span>{qi.style}</span>}
                         {qi.color && <div style={{ color: C.faint }}>{qi.color}</div>}
+                      </div>
+                    )}
+                    {/* Per-item canonical status — same vocabulary as
+                        the Items tab + item modal. Replaces the
+                        single project-phase progress bar that used to
+                        sit at the top of this view. */}
+                    {qi.status && (
+                      <div style={{ marginTop: 6 }}>
+                        <StatusPill status={qi.status} size="sm" />
                       </div>
                     )}
                   </div>
@@ -550,6 +631,8 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
             onClick={() => setPdfPreview({
               src: `/api/pdf/quote/${project.id}?portal=${jobPortalToken}`,
               title: `Quote ${project.jobNumber || ""}`.trim(),
+              downloadHref: `/api/pdf/quote/${project.id}?portal=${jobPortalToken}&download=1`,
+              downloadName: `quote-${project.jobNumber || project.id}.pdf`,
             })}
             style={{
               display: "inline-block", marginTop: 12, padding: 0, fontSize: 12, fontWeight: 600,
@@ -661,9 +744,24 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                 {(() => { const pending = actualProofs.filter(p => p.approval === "pending"); const idx = pending.findIndex(p => p.id === viewingProof.id); return pending.length > 1 && idx >= 0 ? ` · ${idx + 1} of ${pending.length}` : ""; })()}
               </div>
             </div>
-            <button onClick={() => { setViewingProof(null); setShowRevisionInput(null); }} style={{
-              background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.text, cursor: "pointer", padding: "8px 20px",
-            }}>Close</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              {viewingProof.driveFileId && (
+                <a
+                  href={`/api/files/view/${encodeURIComponent(viewingProof.fileName || "proof")}?id=${viewingProof.driveFileId}&download=1`}
+                  download={viewingProof.fileName || true}
+                  style={{
+                    background: C.text, border: "none", borderRadius: 8,
+                    color: "#fff", fontSize: 13, fontWeight: 700,
+                    padding: "8px 18px", textDecoration: "none",
+                    fontFamily: C.font, cursor: "pointer",
+                  }}>
+                  Download
+                </a>
+              )}
+              <button onClick={() => { setViewingProof(null); setShowRevisionInput(null); }} style={{
+                background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.text, cursor: "pointer", padding: "8px 20px",
+              }}>Close</button>
+            </div>
           </div>
 
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "auto", background: C.bg, padding: 20 }}>
@@ -733,35 +831,47 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
         </div>
       )}
 
-      {/* ── PDF preview modal ── */}
+      {/* ── PDF preview modal ── matches the proof viewer chrome:
+            full-screen white background, sticky header with title +
+            Download (when downloadHref present) + Close, iframe body.
+            One consistent pattern for every document the client views
+            (invoice · packing slip · quote). */}
       {pdfPreview && (
-        <div
-          onClick={() => setPdfPreview(null)}
-          style={{
-            position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            zIndex: 10000, padding: 24, fontFamily: C.font,
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              position: "relative", width: "min(1000px, 96vw)", height: "92vh",
-              background: C.card, borderRadius: 10, display: "flex",
-              flexDirection: "column", overflow: "hidden",
-              boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
-            }}
-          >
-            <div style={{ padding: "12px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{pdfPreview.title}</div>
-              <button
-                onClick={() => setPdfPreview(null)}
-                style={{ background: "none", border: "none", color: C.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}
-              >×</button>
+        <div style={{
+          position: "fixed", inset: 0, background: "#fff", zIndex: 10000,
+          display: "flex", flexDirection: "column", fontFamily: C.font,
+        }}>
+          <div style={{
+            padding: "12px 20px", borderBottom: `1px solid ${C.border}`,
+            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexShrink: 0,
+          }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {pdfPreview.title}
             </div>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              {pdfPreview.downloadHref && (
+                <a href={pdfPreview.downloadHref}
+                  download={pdfPreview.downloadName || true}
+                  style={{
+                    background: C.text, border: "none", borderRadius: 8,
+                    color: "#fff", fontSize: 13, fontWeight: 700,
+                    padding: "8px 18px", textDecoration: "none",
+                    fontFamily: C.font, cursor: "pointer",
+                  }}>
+                  Download
+                </a>
+              )}
+              <button onClick={() => setPdfPreview(null)} style={{
+                background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
+                fontSize: 13, fontWeight: 600, color: C.text,
+                cursor: "pointer", padding: "8px 20px", fontFamily: C.font,
+              }}>Close</button>
+            </div>
+          </div>
+          <div style={{ flex: 1, display: "flex", background: C.bg, padding: 20 }}>
             <iframe
               src={pdfPreview.src}
-              style={{ flex: 1, border: "none", background: "#fff" }}
+              style={{ flex: 1, border: "none", background: "#fff", borderRadius: 8 }}
               title={pdfPreview.title}
             />
           </div>
