@@ -259,9 +259,17 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       const balance = Math.max(0, visibleTotal - visiblePaidAmount);
 
       let paymentStatus: "paid" | "unpaid" | "partial" | "deposit" | "none" = "none";
-      // Zero-total orders (voided, migrated history, etc.) carry no
-      // payment status — nothing to pay, so "Unpaid · $0" is noise.
-      if (total <= 0.01) paymentStatus = "none";
+      // Resolve payment status. Zero-total orders need special
+      // handling: a $0 invoice with an explicit paid payment record
+      // (settled at zero — fully credited, adjusted, etc.) should
+      // flip to "paid" so OpsHub's payment gate doesn't get stuck.
+      // Only force "none" when there's neither a real total nor an
+      // issued paid record — that's the legitimate "noise" case
+      // (voided / migrated history that we don't want surfacing
+      // "Unpaid · $0").
+      const hasPaidRecord = paidPays.length > 0;
+      if (total <= 0.01 && !hasPaidRecord) paymentStatus = "none";
+      else if (total <= 0.01 && hasPaidRecord) paymentStatus = "paid";
       else if (paidAmount > 0 && balance <= 0.01) paymentStatus = "paid";
       else if (paidAmount > 0) paymentStatus = "partial";
       else if (isInvoiced) paymentStatus = "unpaid";

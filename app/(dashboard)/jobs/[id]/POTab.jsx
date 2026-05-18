@@ -455,12 +455,33 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             <button key={v} onClick={async()=>{
               const supabase = createClient();
               if (sent) {
-                // Un-mark as sent
+                // Un-mark as sent. Revert the items that the mark
+                // advanced — set pipeline_stage back to null for
+                // any item that's currently "in_production" under
+                // this vendor (matches the inverse of the mark-sent
+                // logic above). Items that progressed further
+                // (shipped, received_at_hpd) are NOT rewound — a
+                // revoke shouldn't pull a shipped item back to
+                // pre-PO. Without this revert the canonical status
+                // resolver still reads in_production from
+                // pipeline_stage and the client hub stays stuck.
                 const updated = poSentVendors.filter(x=>x!==v);
                 const meta = {...(project.type_meta||{}), po_sent_vendors: updated};
                 await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
                 if(onUpdateJob) onUpdateJob({type_meta:meta});
-                logJobActivity(project.id, `PO for ${v} unmarked as sent`);
+                const vendorItems = items.filter(it=>{
+                  const cp = costingData?.costProds?.find(cp=>cp.id===it.id);
+                  return cp?.printVendor===v;
+                });
+                for (const it of vendorItems) {
+                  if (it.pipeline_stage === "in_production") {
+                    const ts = { ...(it.pipeline_timestamps || {}) };
+                    delete ts.in_production;
+                    await supabase.from("items").update({ pipeline_stage: null, pipeline_timestamps: ts }).eq("id", it.id);
+                  }
+                }
+                logJobActivity(project.id, `PO for ${v} unmarked as sent — ${vendorItems.length} item${vendorItems.length===1?"":"s"} reverted to pre-PO`);
+                if(onRecalcPhase) onRecalcPhase();
               } else {
                 // Mark as sent + advance items to in_production. Stamp
                 // po_sent_dates if no date exists yet — keeps the
