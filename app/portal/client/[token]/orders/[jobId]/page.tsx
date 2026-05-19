@@ -265,11 +265,39 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
           <h2 style={{ margin: "0 0 14px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.muted }}>
             Items {items.length > 0 && <span style={{ fontWeight: 400, color: C.faint }}>· {items.length}</span>}
           </h2>
+          {/* On phones the 4-col grid (96+96+120 = 312px of fixed
+              columns) collapses the name column to nothing. CSS
+              below flips to a 2-row stack at <640px: name on top,
+              qty · ETA · status laid out on a second row. */}
+          <style>{`
+            @media (max-width: 640px) {
+              .order-items-row {
+                grid-template-columns: 1fr !important;
+                gap: 4px !important;
+                padding: 12px 0 !important;
+              }
+              .order-items-row__name {
+                white-space: normal !important;
+                overflow: visible !important;
+                text-overflow: clip !important;
+              }
+              .order-items-row__meta {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                align-items: baseline !important;
+                gap: 12px !important;
+                margin-top: 4px !important;
+              }
+              .order-items-row__meta > * { text-align: left !important; min-width: 0 !important; }
+              .order-items-row__meta .order-items-row__eta { align-items: flex-start !important; }
+            }
+            .order-items-row__meta { display: contents; }
+          `}</style>
           <div style={{ display: "flex", flexDirection: "column" }}>
             {items.map(it => {
               const cd = etaCountdown(it.eta);
               return (
-                <div key={it.id} style={{
+                <div key={it.id} className="order-items-row" style={{
                   display: "grid",
                   gridTemplateColumns: "minmax(0, 1fr) 96px 96px 120px",
                   alignItems: "center", gap: 14,
@@ -277,42 +305,46 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                   borderBottom: `1px solid ${C.border}`,
                 }}>
                   {/* Item name — wraps freely, takes remaining space. */}
-                  <span style={{
+                  <span className="order-items-row__name" style={{
                     minWidth: 0,
                     fontSize: 14, fontWeight: 600, color: C.text,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   }}>{it.name || "Item"}</span>
-                  {/* Qty column — right-aligned mono so digits line up. */}
-                  <span style={{ fontSize: 12, color: C.muted, fontFamily: C.mono, whiteSpace: "nowrap", textAlign: "right" }}>
-                    {it.qty > 0 ? `${it.qty.toLocaleString()} ${it.qty === 1 ? "pc" : "pcs"}` : "—"}
-                  </span>
-                  {/* ETA column — date stacked over countdown,
-                      right-aligned in its slot so the whole list
-                      reads as clean vertical columns. */}
-                  <span style={{
-                    display: "inline-flex", flexDirection: "column",
-                    alignItems: "flex-end", gap: 1,
-                  }}>
-                    {it.eta ? (
-                      <>
-                        <span style={{ fontSize: 12, color: C.text, fontFamily: C.mono, whiteSpace: "nowrap" }}>
-                          {fmtDateShort(it.eta)}
-                        </span>
-                        {cd && (
-                          <span style={{ fontSize: 9, color: cd.color, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                            {cd.text}
+                  {/* Meta cells — render as grid columns on desktop
+                      (display:contents hands them off to the parent
+                      grid). On mobile the CSS above flips this wrap
+                      to a flex row beneath the name so qty / ETA /
+                      status sit on a second line without crushing
+                      the name column. */}
+                  <span className="order-items-row__meta">
+                    {/* Qty */}
+                    <span style={{ fontSize: 12, color: C.muted, fontFamily: C.mono, whiteSpace: "nowrap", textAlign: "right" }}>
+                      {it.qty > 0 ? `${it.qty.toLocaleString()} ${it.qty === 1 ? "pc" : "pcs"}` : "—"}
+                    </span>
+                    {/* ETA */}
+                    <span className="order-items-row__eta" style={{
+                      display: "inline-flex", flexDirection: "column",
+                      alignItems: "flex-end", gap: 1,
+                    }}>
+                      {it.eta ? (
+                        <>
+                          <span style={{ fontSize: 12, color: C.text, fontFamily: C.mono, whiteSpace: "nowrap" }}>
+                            {fmtDateShort(it.eta)}
                           </span>
-                        )}
-                      </>
-                    ) : (
-                      <span style={{ fontSize: 12, color: C.faint, fontFamily: C.mono }}>—</span>
-                    )}
-                  </span>
-                  {/* Status column — fixed-width slot, left-aligned
-                      inside the column so the labels line up at their
-                      starting edge. */}
-                  <span style={{ textAlign: "left" }}>
-                    <StatusPill status={it.status} size="sm" />
+                          {cd && (
+                            <span style={{ fontSize: 9, color: cd.color, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                              {cd.text}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span style={{ fontSize: 12, color: C.faint, fontFamily: C.mono }}>—</span>
+                      )}
+                    </span>
+                    {/* Status */}
+                    <span style={{ textAlign: "left" }}>
+                      <StatusPill status={it.status} size="sm" />
+                    </span>
                   </span>
                 </div>
               );
@@ -704,7 +736,12 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
               const statusColor = (allApproved || mockupApproved) ? C.green : C.amber;
               return (
                 <div key={item.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 14px", background: C.bg }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {/* Thumb + name on the top row, status + button on
+                      the bottom row. Keeps the layout from overlapping
+                      "Approved" onto wrapped item names at phone width.
+                      Wraps cleanly at any size — name takes whatever
+                      width's available, controls always sit beneath. */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     {mockups[0]?.driveFileId && (
                       <img src={`/api/files/thumbnail?id=${mockups[0].driveFileId}`} alt=""
                         onClick={() => setViewingProof(mockups[0])}
@@ -712,7 +749,7 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                         style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6, border: `1px solid ${C.border}`, flexShrink: 0, cursor: "pointer" }} />
                     )}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{item.name}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.text, lineHeight: 1.3 }}>{item.name}</div>
                       {proofs.length > 0 && (
                         <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{proofs.length} proof{proofs.length !== 1 ? "s" : ""}</div>
                       )}
@@ -720,16 +757,23 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                         <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Mockup</div>
                       )}
                     </div>
-                    {statusLabel && (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: statusColor, flexShrink: 0 }}>{statusLabel}</span>
-                    )}
-                    {primaryVisual?.driveFileId && (
-                      <button onClick={() => setViewingProof(primaryVisual)}
-                        style={{ fontSize: 13, color: "#fff", fontWeight: 700, background: C.accent, border: "none", borderRadius: 6, padding: "10px 20px", cursor: "pointer", flexShrink: 0 }}>
-                        {firstProof ? "View Proof" : "View Mockup"}
-                      </button>
-                    )}
                   </div>
+                  {(statusLabel || primaryVisual?.driveFileId) && (
+                    <div style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      gap: 12, marginTop: 10, flexWrap: "wrap",
+                    }}>
+                      {statusLabel ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, textTransform: "uppercase", letterSpacing: "0.06em" }}>{statusLabel}</span>
+                      ) : <span />}
+                      {primaryVisual?.driveFileId && (
+                        <button onClick={() => setViewingProof(primaryVisual)}
+                          style={{ fontSize: 13, color: "#fff", fontWeight: 700, background: C.accent, border: "none", borderRadius: 6, padding: "8px 18px", cursor: "pointer", flexShrink: 0 }}>
+                          {firstProof ? "View Proof" : "View Mockup"}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
