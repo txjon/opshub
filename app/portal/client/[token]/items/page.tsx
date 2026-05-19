@@ -113,6 +113,16 @@ function resolveItemEta(it: Item): { date: string; isOverride: boolean } | null 
   return null;
 }
 
+// True when the item is in an active phase that warrants an ETA but
+// nothing's been set yet — render "TBD" instead of an em-dash so the
+// client sees a deliberate state, not a missing field. Flips back to
+// a real date the moment client_eta or job.target_ship_date is set.
+function isEtaTbd(it: Item): boolean {
+  if (resolveItemEta(it)) return false;
+  if (it.status === "in_stock" || it.status === "complete" || it.status === "archived" || it.status === "cancelled") return false;
+  return true;
+}
+
 // Status display — same labels (STATE_LABELS) the internal worksheet
 // uses; colors mapped onto the portal's C palette.
 const STATUS_META: Record<ItemState, { label: string; color: string; bg: string }> = {
@@ -172,9 +182,23 @@ export default function ItemsPage() {
   const historyItems = all.filter(isItemArchived);
   const onHoldItems = all.filter(it => it.status === "on_hold");
   const activeItems = all.filter(it => !isItemArchived(it) && it.status !== "on_hold");
-  const inView = view === "history" ? historyItems
-    : view === "on_hold" ? onHoldItems
-    : activeItems;
+  // Per-view sort. Active = ETA ascending (next-due first; items with
+  // no ETA sink to the bottom). History + On Hold = alphabetical by
+  // item name (case-insensitive). The API hands them back newest-
+  // first by created_at, which we override here.
+  const byEtaAsc = (a: Item, b: Item) => {
+    const ae = resolveItemEta(a)?.date || null;
+    const be = resolveItemEta(b)?.date || null;
+    if (!ae && !be) return (a.name || "").localeCompare(b.name || "");
+    if (!ae) return 1;
+    if (!be) return -1;
+    return ae.localeCompare(be);
+  };
+  const byNameAsc = (a: Item, b: Item) =>
+    (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" });
+  const inView = view === "history" ? [...historyItems].sort(byNameAsc)
+    : view === "on_hold" ? [...onHoldItems].sort(byNameAsc)
+    : [...activeItems].sort(byEtaAsc);
 
   const active = FILTERS.find(f => f.key === filter) || FILTERS[0];
   const q = query.trim().toLowerCase();
@@ -251,46 +275,101 @@ export default function ItemsPage() {
         })}
       </div>
 
-      {/* KPI rollup — mirrors the internal Working Sheet so the client
-          sees the same financial roll-up Jon does (their cost, retail
-          if set, and profit per stage). Per-stage rows only make sense
-          in Current Orders (every History item is past those stages by
-          definition); skipped in History to avoid an all-zero table. */}
+      {/* KPI rollup — two layouts.
+            • Desktop (≥641px): full table with every column (Phase /
+              Items / Qty / Cost / Gross / Profit) so the back-office
+              gets the same scan Jon sees in the internal worksheet.
+            • Mobile (≤640px): one bold "Total" header showing Gross +
+              Profit, then a vertical stack of phase cards. Drops
+              Items / Qty / Cost from the mobile read since clients
+              care about value + margin at-a-glance. */}
       {!loading && inView.length > 0 && view === "active" && (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 14, overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 580 }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                {["Phase", "Items", "Qty", "Cost", "Gross", "Profit"].map((h, i) => (
-                  <th key={h} style={{ padding: "6px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {ROLLUP_ROWS.map(({ key, color }) => {
-                const r = rollups[key];
-                return (
-                  <tr key={key}>
-                    <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.07em" }}>{STATE_LABELS[key]}</td>
-                    <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.muted, textAlign: "right" }}>{r.count}</td>
-                    <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{r.qty.toLocaleString()}</td>
-                    <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{fmtMoneyShort(r.cost)}</td>
-                    <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{fmtMoneyShort(r.gross)}</td>
-                    <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, fontWeight: 600, color: C.green, textAlign: "right" }}>{fmtMoneyShort(r.profit)}</td>
-                  </tr>
-                );
-              })}
-              <tr style={{ borderTop: `1px solid ${C.border}`, background: C.surface }}>
-                <td style={{ padding: "8px 10px", fontSize: 11, fontWeight: 700, color: C.text, textTransform: "uppercase", letterSpacing: "0.07em" }}>Total</td>
-                <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{rollups.total.count}</td>
-                <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{rollups.total.qty.toLocaleString()}</td>
-                <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{fmtMoneyShort(rollups.total.cost)}</td>
-                <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{fmtMoneyShort(rollups.total.gross)}</td>
-                <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 800, color: C.green, textAlign: "right" }}>{fmtMoneyShort(rollups.total.profit)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <>
+          <style>{`
+            @media (max-width: 640px) { .portal-kpi-table { display: none !important; } }
+            @media (min-width: 641px) { .portal-kpi-cards { display: none !important; } }
+          `}</style>
+
+          {/* Desktop table */}
+          <div className="portal-kpi-table" style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 14, overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 580 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                  {["Phase", "Items", "Qty", "Cost", "Gross", "Profit"].map((h, i) => (
+                    <th key={h} style={{ padding: "6px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ROLLUP_ROWS.map(({ key, color }) => {
+                  const r = rollups[key];
+                  return (
+                    <tr key={key}>
+                      <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.07em" }}>{STATE_LABELS[key]}</td>
+                      <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.muted, textAlign: "right" }}>{r.count}</td>
+                      <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{r.qty.toLocaleString()}</td>
+                      <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{fmtMoneyShort(r.cost)}</td>
+                      <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{fmtMoneyShort(r.gross)}</td>
+                      <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, fontWeight: 600, color: C.green, textAlign: "right" }}>{fmtMoneyShort(r.profit)}</td>
+                    </tr>
+                  );
+                })}
+                <tr style={{ borderTop: `1px solid ${C.border}`, background: C.surface }}>
+                  <td style={{ padding: "8px 10px", fontSize: 11, fontWeight: 700, color: C.text, textTransform: "uppercase", letterSpacing: "0.07em" }}>Total</td>
+                  <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{rollups.total.count}</td>
+                  <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{rollups.total.qty.toLocaleString()}</td>
+                  <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{fmtMoneyShort(rollups.total.cost)}</td>
+                  <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{fmtMoneyShort(rollups.total.gross)}</td>
+                  <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 800, color: C.green, textAlign: "right" }}>{fmtMoneyShort(rollups.total.profit)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile cards — Total headline + per-phase rows */}
+          <div className="portal-kpi-cards" style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{
+              background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
+              padding: "16px 18px",
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Total · {rollups.total.count} item{rollups.total.count === 1 ? "" : "s"}</div>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 18, marginTop: 8, flexWrap: "wrap" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Gross</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text, fontFamily: C.mono, lineHeight: 1.1 }}>{fmtMoneyShort(rollups.total.gross)}</div>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Profit</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.green, fontFamily: C.mono, lineHeight: 1.1 }}>{fmtMoneyShort(rollups.total.profit)}</div>
+                </div>
+              </div>
+            </div>
+            {ROLLUP_ROWS.map(({ key, color }) => {
+              const r = rollups[key];
+              if (r.count === 0) return null;
+              return (
+                <div key={key} style={{
+                  background: C.card, border: `1px solid ${C.border}`, borderRadius: 10,
+                  padding: "12px 14px",
+                  display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 14,
+                }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>{STATE_LABELS[key]}</div>
+                    <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{r.count} item{r.count === 1 ? "" : "s"}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Gross / Profit</div>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, justifyContent: "flex-end", marginTop: 2 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: C.text, fontFamily: C.mono }}>{fmtMoneyShort(r.gross)}</span>
+                      <span style={{ fontSize: 11, color: C.faint }}>/</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: C.green, fontFamily: C.mono }}>{fmtMoneyShort(r.profit)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {/* Filters + search on one row — stage filters only render in
@@ -489,15 +568,13 @@ function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => 
                 {item.qty.toLocaleString()} pc{item.qty === 1 ? "" : "s"}
               </span>
             )}
-            {!compact && cost != null && (
-              <span style={{ fontSize: 11, color: C.muted, fontFamily: C.mono }}>
-                · {fmtMoney(cost)}
-              </span>
-            )}
             {!compact && eta && (
               <span style={{ fontSize: 11, color: cd?.color || C.muted, fontWeight: 600 }}>
                 · {fmtDate(eta.date)}{cd ? ` (${cd.text})` : ""}
               </span>
+            )}
+            {!compact && !eta && isEtaTbd(item) && (
+              <span style={{ fontSize: 11, color: C.faint, fontWeight: 700, letterSpacing: "0.05em" }}>· TBD</span>
             )}
             {item.paid && (
               <span style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>· Paid</span>
@@ -546,6 +623,8 @@ function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => 
                   </span>
                 )}
               </div>
+            ) : isEtaTbd(item) ? (
+              <span style={{ color: C.faint, fontWeight: 700, letterSpacing: "0.05em", fontFamily: C.font }}>TBD</span>
             ) : "—"}
           </div>
         </>
@@ -674,7 +753,11 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
                 return (
                   <div>
                     <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Estimated delivery</div>
-                    <div style={{ fontSize: 13, color: C.faint }}>—</div>
+                    {isEtaTbd(item) ? (
+                      <div style={{ fontSize: 13, color: C.muted, fontWeight: 700, letterSpacing: "0.04em" }}>TBD</div>
+                    ) : (
+                      <div style={{ fontSize: 13, color: C.faint }}>—</div>
+                    )}
                   </div>
                 );
               }
