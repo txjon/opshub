@@ -646,7 +646,25 @@ function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => 
 
 function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClose: () => void }) {
   const [reordering, setReordering] = useState(false);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
+  // Progressive image load — the thumbnail is already cached from the
+  // item row preview, so it paints instantly when the sheet opens.
+  // The full-res file fetches in parallel; once it lands we swap the
+  // <img>'s src to the higher-quality version. The dropped secondary
+  // lightbox modal (replaced by this inline upgrade) removed an extra
+  // tap + a fight with the bottom-sheet swipe gesture on touch.
+  const [imgSrc, setImgSrc] = useState<string | null>(
+    item.thumb_id ? `/api/files/thumbnail?id=${item.thumb_id}&thumb=1` : null
+  );
+  useEffect(() => {
+    if (!item.thumb_id) { setImgSrc(null); return; }
+    const thumbUrl = `/api/files/thumbnail?id=${item.thumb_id}&thumb=1`;
+    const fullUrl = `/api/files/thumbnail?id=${item.thumb_id}`;
+    setImgSrc(thumbUrl);
+    // Preload the full-res in the background; swap when it lands.
+    const pre = new Image();
+    pre.onload = () => setImgSrc(fullUrl);
+    pre.src = fullUrl;
+  }, [item.thumb_id]);
   const [reorderResult, setReorderResult] = useState<string | null>(null);
 
   async function reorder() {
@@ -708,39 +726,26 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
         @media (min-width: 640px) {
           .item-detail-body { grid-template-columns: 240px 1fr !important; }
         }
-        .item-detail-thumb {
-          aspect-ratio: 1; background: #fff; border-radius: 10;
-          overflow: hidden; display: flex; align-items: center; justify-content: center;
-          border: 1px solid ${C.border};
-          padding: 0; cursor: pointer;
-        }
-        .item-detail-thumb:hover { border-color: ${C.text}; }
       `}</style>
       <div className="item-detail-body" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
-        {/* Thumb — click to enlarge in a full-screen lightbox (same
-            pattern the order-detail proof viewer uses). */}
-        <button
-          type="button"
-          className="item-detail-thumb"
-          onClick={() => { if (item.thumb_id) setLightboxOpen(true); }}
-          disabled={!item.thumb_id}
-          aria-label={item.thumb_id ? "Enlarge image" : "No image"}
-          style={{
-            aspectRatio: "1", background: "#fff", borderRadius: 10,
-            overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
-            border: `1px solid ${C.border}`,
-            padding: 0, cursor: item.thumb_id ? "pointer" : "default",
-            fontFamily: C.font,
-          }}>
-          {item.thumb_id ? (
-            <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
-              alt="" referrerPolicy="no-referrer"
-              style={{ width: "100%", height: "100%", objectFit: "contain" }}
+        {/* Image — thumb paints instantly, full-res swaps in once
+            it's loaded (see imgSrc upgrade effect above). No
+            secondary lightbox modal anymore; clients view the
+            high-res inline. */}
+        <div style={{
+          aspectRatio: "1", background: "#fff", borderRadius: 10,
+          overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
+          border: `1px solid ${C.border}`,
+        }}>
+          {imgSrc ? (
+            <img src={imgSrc}
+              alt={item.name} referrerPolicy="no-referrer"
+              style={{ width: "100%", height: "100%", objectFit: "contain", transition: "opacity 0.2s" }}
               onError={(e: any) => { e.target.style.display = "none"; }} />
           ) : (
             <span style={{ color: C.faint, fontSize: 12 }}>No preview</span>
           )}
-        </button>
+        </div>
 
         {/* Meta column — Status + ETA share the top row, Quantity is
             full-width below (size list needs the room), Project +
@@ -859,51 +864,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
         </div>
       )}
 
-      {/* Lightbox — full-screen image viewer, same chrome the order
-          detail's proof viewer uses (white background, sticky header
-          with Close). Click backdrop or Esc to dismiss. Sits above
-          the parent MobileSheet via higher z-index. */}
-      {lightboxOpen && item.thumb_id && (
-        <ImageLightbox
-          src={`/api/files/thumbnail?id=${item.thumb_id}`}
-          title={item.name}
-          onClose={() => setLightboxOpen(false)}
-        />
-      )}
     </MobileSheet>
-  );
-}
-
-function ImageLightbox({ src, title, onClose }: { src: string; title: string; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return (
-    <div style={{
-      position: "fixed", inset: 0, background: "#fff", zIndex: 1200,
-      display: "flex", flexDirection: "column", fontFamily: C.font,
-    }}>
-      <div style={{
-        padding: "12px 20px", borderBottom: `1px solid ${C.border}`,
-        display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0,
-      }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {title}
-        </div>
-        <button onClick={onClose} style={{
-          background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
-          fontSize: 13, fontWeight: 600, color: C.text,
-          cursor: "pointer", padding: "8px 20px", fontFamily: C.font,
-        }}>Close</button>
-      </div>
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: C.bg, padding: 20, overflow: "auto" }}>
-        <img src={src} alt={title} referrerPolicy="no-referrer"
-          style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 8 }}
-          onError={(e: any) => { e.target.style.display = "none"; }} />
-      </div>
-    </div>
   );
 }
 
