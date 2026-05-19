@@ -316,17 +316,21 @@ export async function GET(
       // the job's target ship date. Suppressed for items past the
       // in-transit phase (in_stock / complete / archived / cancelled)
       // — once it's at HPD the original prediction is fulfilled.
+      // eta_tbd flags active items with no ETA set yet so the frontend
+      // can render "TBD" instead of an em-dash.
       const status = statusForItem(item);
       const etaCutOff = status === "in_stock" || status === "complete" || status === "archived" || status === "cancelled";
       const etaDate = etaCutOff
         ? null
         : (item.client_eta || job.target_ship_date || null);
+      const eta_tbd = !etaCutOff && !etaDate;
       return {
         id: item.id,
         name: item.name,
         qty,
         status,
         eta: etaDate,
+        eta_tbd,
         eta_note: item.client_eta_note || null,
         proofs: itemProofs,
       };

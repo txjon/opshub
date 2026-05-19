@@ -1,19 +1,24 @@
 "use client";
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { ReactNode, useEffect } from "react";
+import { Drawer } from "vaul";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { C } from "./theme";
 
-// Mobile-first modal that slides up from the bottom on phone-sized
-// screens and presents as a centered modal on desktop. Apple-style:
-// drag handle at the top, swipe-down to dismiss on mobile, click
-// backdrop or × to dismiss anywhere.
+// Detail surface — mobile uses vaul's Drawer (iOS-grade bottom sheet:
+// drag-from-anywhere, overscroll-to-dismiss, momentum, focus trap,
+// safe-area aware). Desktop falls back to a centered card modal —
+// bottom-sheet on a wide screen feels off when the user expects a
+// dialog. Both share the same content layout + slot props so callers
+// don't need to know which variant rendered.
 //
-// Mobile vs desktop is media-query gated via inline <style> rather
-// than viewport JS so SSR + first paint match what the client sees.
-// The body element gets `data-portal-sheet-open` for the duration so
-// background scroll can be locked without jumping to top.
+// API preserved from the previous hand-rolled component:
+//   open / onClose / title / subtitle / rightAccessory / footer / children
 //
-// Used for the Item detail surface; can wrap any other detail panel
-// later (Order detail, Design preview) for a consistent feel.
+// Replaced 2026-05-19 — the hand-rolled version only attached swipe-
+// dismiss to a 38px-wide drag handle, so users swiping anywhere else
+// fell through to the browser's pull-to-show-URL gesture. vaul fixes
+// that by treating the whole sheet body as drag surface (until the
+// inner scroll position passes zero).
 
 export function MobileSheet({
   open,
@@ -32,130 +37,122 @@ export function MobileSheet({
   footer?: ReactNode;
   children: ReactNode;
 }) {
-  // Touch-drag dismiss state. Tracks vertical movement of the sheet
-  // so the user can flick it down to close on iOS-style.
-  const [dragY, setDragY] = useState(0);
-  const startY = useRef<number | null>(null);
+  const isMobile = useIsMobile();
 
+  // Esc closes on every viewport (desktop fallback also wires it).
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
+    return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
   if (!open) return null;
 
-  const onTouchStart = (e: React.TouchEvent) => { startY.current = e.touches[0].clientY; };
-  const onTouchMove = (e: React.TouchEvent) => {
-    if (startY.current == null) return;
-    const dy = e.touches[0].clientY - startY.current;
-    if (dy > 0) setDragY(dy);
-  };
-  const onTouchEnd = () => {
-    if (dragY > 100) onClose();
-    setDragY(0);
-    startY.current = null;
-  };
-
-  return (
-    <div onClick={onClose}
-      className="portal-mobile-sheet-root"
-      style={{
-        position: "fixed", inset: 0, zIndex: 1100,
-        background: "rgba(0,0,0,0.45)",
-        display: "flex", justifyContent: "center",
-        fontFamily: C.font,
-      }}>
-      <style>{`
-        .portal-mobile-sheet-root { align-items: center; padding: clamp(12px, 3vw, 32px); }
-        .portal-mobile-sheet-card {
-          background: ${C.card}; border-radius: 14px;
-          width: min(720px, 100%); max-height: 94vh;
-          display: flex; flex-direction: column; overflow: hidden;
-          transform: translateY(0);
-          transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
-        }
-        .portal-mobile-sheet-handle { display: none; }
-        @media (max-width: 640px) {
-          .portal-mobile-sheet-root { align-items: flex-end; padding: 0; }
-          .portal-mobile-sheet-card {
-            border-radius: 18px 18px 0 0;
-            width: 100%; max-height: 92vh;
-            padding-bottom: env(safe-area-inset-bottom);
-            animation: portal-sheet-up 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-          }
-          .portal-mobile-sheet-handle {
-            display: flex; justify-content: center; padding: 8px 0 4px;
-            background: ${C.card};
-          }
-          .portal-mobile-sheet-handle::before {
-            content: ""; display: block; width: 38px; height: 4px;
-            background: ${C.border}; border-radius: 2px;
-          }
-        }
-        @keyframes portal-sheet-up {
-          from { transform: translateY(100%); }
-          to   { transform: translateY(0); }
-        }
-      `}</style>
-      <div className="portal-mobile-sheet-card"
-        onClick={e => e.stopPropagation()}
-        style={{ transform: dragY ? `translateY(${dragY}px)` : undefined, transition: dragY ? "none" : undefined }}>
-        {/* Drag handle (mobile only via CSS). Swipe-down dismiss. */}
-        <div className="portal-mobile-sheet-handle"
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
-        />
-
-        {(title || subtitle || rightAccessory) && (
-          <div style={{
-            padding: "14px 20px", borderBottom: `1px solid ${C.border}`,
-            display: "flex", alignItems: "center", gap: 12,
-          }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {title && (
+  const body = (
+    <>
+      {(title || subtitle || rightAccessory) && (
+        <div style={{
+          padding: "14px 20px", borderBottom: `1px solid ${C.border}`,
+          display: "flex", alignItems: "center", gap: 12,
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {title && (
+              <Drawer.Title asChild>
                 <div style={{
                   fontSize: 16, fontWeight: 700, color: C.text,
                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 }}>{title}</div>
-              )}
-              {subtitle && (
-                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{subtitle}</div>
-              )}
-            </div>
-            {rightAccessory}
-            <button onClick={onClose}
-              aria-label="Close"
-              style={{
-                background: "none", border: "none", color: C.muted,
-                fontSize: 22, cursor: "pointer", padding: "4px 8px",
-                lineHeight: 1, minWidth: 44, minHeight: 44,
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>×</button>
+              </Drawer.Title>
+            )}
+            {subtitle && (
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{subtitle}</div>
+            )}
           </div>
-        )}
-
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
-          {children}
+          {rightAccessory}
+          <button onClick={onClose}
+            aria-label="Close"
+            style={{
+              background: "none", border: "none", color: C.muted,
+              fontSize: 22, cursor: "pointer", padding: "4px 8px",
+              lineHeight: 1, minWidth: 44, minHeight: 44,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>×</button>
         </div>
+      )}
 
-        {footer && (
-          <div style={{
-            padding: "12px 20px",
-            borderTop: `1px solid ${C.border}`,
-            display: "flex", gap: 10, justifyContent: "flex-end",
-            flexWrap: "wrap",
-          }}>
-            {footer}
-          </div>
-        )}
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+        {children}
+      </div>
+
+      {footer && (
+        <div style={{
+          padding: "12px 20px",
+          borderTop: `1px solid ${C.border}`,
+          display: "flex", gap: 10, justifyContent: "flex-end",
+          flexWrap: "wrap",
+        }}>
+          {footer}
+        </div>
+      )}
+    </>
+  );
+
+  // Mobile: vaul bottom sheet
+  if (isMobile) {
+    return (
+      <Drawer.Root open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+        <Drawer.Portal>
+          <Drawer.Overlay style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1099,
+          }} />
+          <Drawer.Content
+            aria-describedby={undefined}
+            style={{
+              position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 1100,
+              background: C.card,
+              borderRadius: "18px 18px 0 0",
+              maxHeight: "92vh",
+              display: "flex", flexDirection: "column",
+              outline: "none",
+              fontFamily: C.font,
+              paddingBottom: "env(safe-area-inset-bottom)",
+            }}>
+            {/* Drag handle — vaul wires the gesture across the whole
+                sheet header, the handle is just the visual cue. */}
+            <div style={{
+              display: "flex", justifyContent: "center", padding: "10px 0 6px",
+              flexShrink: 0,
+            }}>
+              <div style={{
+                width: 38, height: 4, borderRadius: 2, background: C.border,
+              }} />
+            </div>
+            {body}
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
+    );
+  }
+
+  // Desktop: centered modal (vaul's bottom-sheet feel is wrong for a
+  // wide viewport, so we keep the dialog pattern on desktop).
+  return (
+    <div onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 1100,
+        background: "rgba(0,0,0,0.45)",
+        display: "flex", justifyContent: "center", alignItems: "center",
+        padding: "clamp(12px, 3vw, 32px)",
+        fontFamily: C.font,
+      }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{
+          background: C.card, borderRadius: 14,
+          width: "min(720px, 100%)", maxHeight: "94vh",
+          display: "flex", flexDirection: "column", overflow: "hidden",
+        }}>
+        {body}
       </div>
     </div>
   );

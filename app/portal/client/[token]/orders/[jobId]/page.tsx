@@ -75,7 +75,7 @@ type PortalData = {
   client: { name: string };
   quote: { items: any[]; subtotal: number; tax: number; total: number };
   invoiceStale: boolean;
-  items: { id: string; name: string; qty: number; status: import("@/lib/item-status").ItemState; eta: string | null; eta_note: string | null; proofs: any[] }[];
+  items: { id: string; name: string; qty: number; status: import("@/lib/item-status").ItemState; eta: string | null; eta_tbd?: boolean; eta_note: string | null; proofs: any[] }[];
   payments: { id: string; type: string; amount: number; status: string; dueDate: string | null; paidDate: string | null; invoiceNumber: string | null }[];
   paymentLink: string | null;
   invoiceNumber: string | null;
@@ -337,6 +337,8 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                             </span>
                           )}
                         </>
+                      ) : it.eta_tbd ? (
+                        <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: "0.05em" }}>TBD</span>
                       ) : (
                         <span style={{ fontSize: 12, color: C.faint, fontFamily: C.mono }}>—</span>
                       )}
