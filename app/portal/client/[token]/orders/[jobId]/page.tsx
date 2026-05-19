@@ -366,7 +366,12 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
         }}>
           <h2 style={{ margin: "0 0 16px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.muted }}>Payment</h2>
 
-          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 24, flexWrap: "wrap", marginBottom: 12 }}>
+          {/* Meta blocks (Total · Paid · Balance Due) in their own
+              wrap row so they line up cleanly on every width. The
+              View Invoice button gets its own row below — full-width
+              on mobile, right-aligned on desktop. Avoids the awkward
+              "button alone on wrapped line with flex gap" case. */}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: isMobile ? 16 : 24, flexWrap: "wrap", marginBottom: 14 }}>
             <div>
               <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>Total</div>
               <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtD(quote.total)}</div>
@@ -381,6 +386,8 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                 <div style={{ fontSize: 18, fontWeight: 700, color: C.red }}>{fmtD(balance)}</div>
               </div>
             )}
+          </div>
+          <div style={{ marginBottom: 12, display: "flex", justifyContent: isMobile ? "stretch" : "flex-end" }}>
             <button
               onClick={() => setPdfPreview({
                 src: `/api/pdf/invoice/${project.id}?portal=${jobPortalToken}`,
@@ -389,11 +396,11 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                 downloadName: `invoice-${invoiceNumber}.pdf`,
               })}
               style={{
-                marginLeft: "auto",
                 fontSize: 13, color: "#fff", fontWeight: 700,
                 background: C.accent, border: "none", borderRadius: 6,
-                padding: "10px 20px", cursor: "pointer", flexShrink: 0,
+                padding: "10px 20px", cursor: "pointer",
                 whiteSpace: "nowrap", fontFamily: C.font,
+                width: isMobile ? "100%" : "auto",
               }}>
               View Invoice #{invoiceNumber}
             </button>
