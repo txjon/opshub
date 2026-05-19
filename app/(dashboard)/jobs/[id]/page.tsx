@@ -8,6 +8,7 @@ import { POTab } from "./POTab.jsx";
 import { BlanksTab } from "./BlanksTab";
 import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
+import { JobItemsList } from "./JobItemsList.jsx";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { EmailThread } from "@/components/EmailThread";
 import { ProductBuilder } from "./ProductBuilder";
@@ -1184,31 +1185,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             </div>
           </div>
 
-          {/* Items — full-width compact list */}
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginTop:10}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-              <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Items</div>
-              <span style={{fontSize:10,color:T.muted}}>{items.length} items · {totalUnits.toLocaleString()} units</span>
-            </div>
-            {items.length===0&&<p style={{fontSize:12,color:T.muted}}>No items yet. Add items in the Buy Sheet tab.</p>}
-            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:4}}>
-              {items.map(item=>{
-                const qty=tQty(item.qtys||{});
-                const dc=(item as any).decoration_type;
-                const isAccessory=(item as any).garment_type==="accessory";
-                return (
-                  <div key={item.id} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",background:T.surface,borderRadius:6}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <span style={{fontSize:12,fontWeight:600,color:T.text}}>{item.name}</span>
-                      <span style={{fontSize:10,color:T.muted,marginLeft:7}}>{item.blank_vendor} {item.blank_sku}{qty>0?` · ${qty.toLocaleString()} units`:""}</span>
-                    </div>
-                    {!isAccessory&&dc&&<span style={{fontSize:10,fontWeight:700,color:T.accent,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{dc.replace(/_/g," ")}</span>}
-                    {isAccessory&&<span style={{fontSize:10,fontWeight:700,color:T.purple,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>Accessory</span>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          {/* Items — worksheet-style row (name · qty · status · ETA).
+              ETA writes to items.client_eta — the same column the
+              client-detail worksheet, ProductionTab, and /production
+              all edit. All four surfaces stay in sync via that column. */}
+          <JobItemsList items={items} job={job} isMobile={isMobile} onChange={reloadItems} />
 
           {/* Hold + Delete — small action links, bottom-right */}
           <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}}>
