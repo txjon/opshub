@@ -42,6 +42,19 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [itemThumbs, setItemThumbs] = useState<Record<string, string>>({});
   const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
   const [itemViewMode, setItemViewMode] = useState<"list"|"tiles">("list");
+  // History panel can take up a lot of vertical space on long-lived
+  // clients. Collapsing it gets the Working Sheet above the fold.
+  // localStorage so the choice persists across navigations / refreshes.
+  const [historyCollapsed, setHistoryCollapsed] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("clientHistoryCollapsed");
+    if (saved === "1") setHistoryCollapsed(true);
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("clientHistoryCollapsed", historyCollapsed ? "1" : "0");
+  }, [historyCollapsed]);
   const [infoExpanded, setInfoExpanded] = useState(false);
   const [worksheetOpen, setWorksheetOpen] = useState(false);
   const [workingTab, setWorkingTab] = useState<"setup"|"in_production"|"shipped"|"in_stock"|"archived">("in_production");
@@ -913,7 +926,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
         {/* History */}
         <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8,flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:historyCollapsed?0:8,gap:8,flexWrap:"wrap"}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
                 {(["projects","items"] as const).map(v=>(
@@ -924,7 +937,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   </button>
                 ))}
               </div>
-              {historyView==="items"&&(
+              {historyView==="items"&&!historyCollapsed&&(
                 <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
                   {(["list","tiles"] as const).map(v=>(
                     <button key={v} onClick={()=>setItemViewMode(v)}
@@ -936,9 +949,19 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 </div>
               )}
             </div>
-            <span style={{fontSize:10,color:T.faint}}>{historyView==="projects"?`${jobs.length} projects`:`${historicalItems.length} archived`}</span>
+            <button type="button"
+              onClick={()=>setHistoryCollapsed(c=>!c)}
+              aria-expanded={!historyCollapsed}
+              title={historyCollapsed?"Expand":"Collapse"}
+              style={{display:"flex",alignItems:"center",gap:8,background:"transparent",border:"none",cursor:"pointer",padding:"4px 6px",borderRadius:4,fontFamily:font}}
+              onMouseEnter={(e:any)=>{e.currentTarget.style.background=T.surface;}}
+              onMouseLeave={(e:any)=>{e.currentTarget.style.background="transparent";}}>
+              <span style={{fontSize:10,color:T.faint}}>{historyView==="projects"?`${jobs.length} projects`:`${historicalItems.length} archived`}</span>
+              <span style={{fontSize:10,color:T.muted,display:"inline-block",transform:historyCollapsed?"rotate(-90deg)":"rotate(0deg)",transition:"transform 0.15s"}}>▾</span>
+            </button>
           </div>
 
+          {!historyCollapsed&&(<>
           {historyView==="projects"&&(
             <>
               {jobs.length===0&&<p style={{fontSize:12,color:T.muted}}>No projects yet.</p>}
@@ -1126,6 +1149,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               </div>
             </>
           )}
+          </>)}
         </div>
 
         {/* Working Sheet — back-office financial worksheet, separate
