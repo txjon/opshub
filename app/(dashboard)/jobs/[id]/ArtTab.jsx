@@ -582,9 +582,48 @@ export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId
     try { const v = localStorage.getItem(`art-exp-${item.id}`); return v !== null ? v === "1" : true; } catch { return true; }
   });
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [replacingMockup, setReplacingMockup] = useState(false);
   const fileInputRef = useRef(null);
+  const mockupReplaceRef = useRef(null);
 
   useEffect(() => { loadFiles(); }, [item.id]);
+
+  // Swap the existing mockup image without touching the proof or
+  // any other stage. Mockups are read by every surface that shows
+  // an item preview (costing, portals, PO PDF, order detail), so
+  // replacing the underlying item_files row flips the image
+  // everywhere — no other state to update.
+  async function handleReplaceMockup(newFile, currentMockup) {
+    if (!newFile) return;
+    setReplacingMockup(true);
+    try {
+      const driveFile = await uploadToDrive({
+        blob: newFile,
+        fileName: newFile.name,
+        mimeType: newFile.type || "image/png",
+        itemId: item.id,
+        clientName, projectTitle, itemName: item.name,
+      });
+      // Force stage = "mockup" regardless of the filename — Jon
+      // shouldn't have to rename a file just to swap a mockup.
+      await registerFileInDb({ ...driveFile, itemId: item.id, stage: "mockup" });
+      // Then drop the previous mockup so there's only one. /api/files
+      // DELETE removes both the DB row and the Drive file.
+      if (currentMockup) {
+        await fetch("/api/files", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileId: currentMockup.id, driveFileId: currentMockup.drive_file_id }),
+        });
+      }
+      logJobActivity(item.job_id, `Mockup image replaced for ${item.name}`);
+      await loadFiles();
+    } catch (err) {
+      console.error("Mockup replace error:", err);
+    }
+    if (mockupReplaceRef.current) mockupReplaceRef.current.value = "";
+    setReplacingMockup(false);
+  }
 
   async function loadFiles() {
     const res = await fetch(`/api/files?itemId=${item.id}`);
@@ -734,10 +773,28 @@ export function ItemArtSection({ item, clientName, projectTitle, contacts, jobId
                     driveLink={mockupFile.drive_link || null}
                     style={{ height: 240, maxHeight: 240, width: "auto", borderRadius: 8, border: `1px solid ${T.border}`, display: "block", objectFit: "contain" }}
                   />
+                  {replacingMockup && (
+                    <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, fontWeight: 600 }}>
+                      Replacing…
+                    </div>
+                  )}
+                  {/* Replace mockup — swaps the image used on every
+                      display surface (costing, portals, PO PDF). Does
+                      NOT touch any proof rows, so an approved proof
+                      stays approved. */}
+                  <button onClick={e => { e.stopPropagation(); mockupReplaceRef.current?.click(); }}
+                    disabled={replacingMockup}
+                    title="Replace mockup image (does not affect the proof)"
+                    style={{ position: "absolute", top: 4, right: 28, width: 20, height: 20, borderRadius: 4, background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", fontSize: 11, cursor: replacingMockup ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: replacingMockup ? 0.5 : 1 }}
+                    onMouseEnter={e => !replacingMockup && (e.currentTarget.style.background = T.accent)}
+                    onMouseLeave={e => (e.currentTarget.style.background = "rgba(0,0,0,0.6)")}>⟳</button>
                   <button onClick={e => { e.stopPropagation(); setConfirmDelete(mockupFile); }}
                     style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: 4, background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                     onMouseEnter={e => (e.currentTarget.style.background = T.red)}
                     onMouseLeave={e => (e.currentTarget.style.background = "rgba(0,0,0,0.6)")}>✕</button>
+                  <input ref={mockupReplaceRef} type="file" accept="image/*"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleReplaceMockup(f, mockupFile); }}
+                    style={{ display: "none" }} />
                 </div>
               ) : (
                 <div style={{ width: 120, display: "flex", alignItems: "center", justifyContent: "center" }}>
