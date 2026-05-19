@@ -49,54 +49,61 @@ export function MobileSheet({
 
   if (!open) return null;
 
-  const body = (
-    <>
-      {(title || subtitle || rightAccessory) && (
-        <div style={{
-          padding: "14px 20px", borderBottom: `1px solid ${C.border}`,
-          display: "flex", alignItems: "center", gap: 12,
-        }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            {title && (
-              <Drawer.Title asChild>
-                <div style={{
-                  fontSize: 16, fontWeight: 700, color: C.text,
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }}>{title}</div>
-              </Drawer.Title>
-            )}
-            {subtitle && (
-              <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{subtitle}</div>
-            )}
+  // Body builder. `useDrawerTitle` wraps the title in Drawer.Title
+  // for a11y inside vaul; off it for the desktop fallback (Drawer.Title
+  // throws if it's not inside Drawer.Root).
+  const buildBody = (useDrawerTitle: boolean) => {
+    const titleNode = title && (
+      <div style={{
+        fontSize: 16, fontWeight: 700, color: C.text,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>{title}</div>
+    );
+    return (
+      <>
+        {(title || subtitle || rightAccessory) && (
+          <div style={{
+            padding: "14px 20px", borderBottom: `1px solid ${C.border}`,
+            display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {title && (useDrawerTitle
+                ? <Drawer.Title asChild>{titleNode}</Drawer.Title>
+                : titleNode
+              )}
+              {subtitle && (
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{subtitle}</div>
+              )}
+            </div>
+            {rightAccessory}
+            <button onClick={onClose}
+              aria-label="Close"
+              style={{
+                background: "none", border: "none", color: C.muted,
+                fontSize: 22, cursor: "pointer", padding: "4px 8px",
+                lineHeight: 1, minWidth: 44, minHeight: 44,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>×</button>
           </div>
-          {rightAccessory}
-          <button onClick={onClose}
-            aria-label="Close"
-            style={{
-              background: "none", border: "none", color: C.muted,
-              fontSize: 22, cursor: "pointer", padding: "4px 8px",
-              lineHeight: 1, minWidth: 44, minHeight: 44,
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>×</button>
-        </div>
-      )}
+        )}
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
-        {children}
-      </div>
-
-      {footer && (
-        <div style={{
-          padding: "12px 20px",
-          borderTop: `1px solid ${C.border}`,
-          display: "flex", gap: 10, justifyContent: "flex-end",
-          flexWrap: "wrap",
-        }}>
-          {footer}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+          {children}
         </div>
-      )}
-    </>
-  );
+
+        {footer && (
+          <div style={{
+            padding: "12px 20px",
+            borderTop: `1px solid ${C.border}`,
+            display: "flex", gap: 10, justifyContent: "flex-end",
+            flexWrap: "wrap",
+          }}>
+            {footer}
+          </div>
+        )}
+      </>
+    );
+  };
 
   // Mobile: vaul bottom sheet
   if (isMobile) {
@@ -128,7 +135,7 @@ export function MobileSheet({
                 width: 38, height: 4, borderRadius: 2, background: C.border,
               }} />
             </div>
-            {body}
+            {buildBody(true)}
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
@@ -152,7 +159,7 @@ export function MobileSheet({
           width: "min(720px, 100%)", maxHeight: "94vh",
           display: "flex", flexDirection: "column", overflow: "hidden",
         }}>
-        {body}
+        {buildBody(false)}
       </div>
     </div>
   );

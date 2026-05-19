@@ -326,48 +326,54 @@ export default function ItemsPage() {
             </table>
           </div>
 
-          {/* Mobile cards — Total headline + per-phase rows */}
-          <div className="portal-kpi-cards" style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          {/* Mobile card — single tight card with the Total headline
+              on top and one ~24px row per phase beneath. Cuts the
+              footprint roughly in half vs. one card per phase while
+              keeping the at-a-glance Gross + Profit signal. */}
+          <div className="portal-kpi-cards" style={{ marginBottom: 14 }}>
             <div style={{
               background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
-              padding: "16px 18px",
+              padding: "12px 14px",
             }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Total · {rollups.total.count} item{rollups.total.count === 1 ? "" : "s"}</div>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 18, marginTop: 8, flexWrap: "wrap" }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Gross</div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text, fontFamily: C.mono, lineHeight: 1.1 }}>{fmtMoneyShort(rollups.total.gross)}</div>
+              {/* Total headline */}
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 14 }}>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Total · {rollups.total.count} item{rollups.total.count === 1 ? "" : "s"}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: C.text, fontFamily: C.mono, lineHeight: 1.15, marginTop: 2 }}>{fmtMoneyShort(rollups.total.gross)}</div>
                 </div>
-                <div style={{ minWidth: 0 }}>
+                <div style={{ textAlign: "right" }}>
                   <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Profit</div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: C.green, fontFamily: C.mono, lineHeight: 1.1 }}>{fmtMoneyShort(rollups.total.profit)}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: C.green, fontFamily: C.mono, lineHeight: 1.15, marginTop: 2 }}>{fmtMoneyShort(rollups.total.profit)}</div>
                 </div>
               </div>
-            </div>
-            {ROLLUP_ROWS.map(({ key, color }) => {
-              const r = rollups[key];
-              if (r.count === 0) return null;
-              return (
-                <div key={key} style={{
-                  background: C.card, border: `1px solid ${C.border}`, borderRadius: 10,
-                  padding: "12px 14px",
-                  display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 14,
-                }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>{STATE_LABELS[key]}</div>
-                    <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{r.count} item{r.count === 1 ? "" : "s"}</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Gross / Profit</div>
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, justifyContent: "flex-end", marginTop: 2 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: C.text, fontFamily: C.mono }}>{fmtMoneyShort(r.gross)}</span>
-                      <span style={{ fontSize: 11, color: C.faint }}>/</span>
-                      <span style={{ fontSize: 14, fontWeight: 800, color: C.green, fontFamily: C.mono }}>{fmtMoneyShort(r.profit)}</span>
-                    </div>
-                  </div>
+              {/* Per-phase rows — only show phases with content. Each
+                  row is name · count on the left, gross / profit on
+                  the right, all on a single line. */}
+              {ROLLUP_ROWS.some(({ key }) => rollups[key].count > 0) && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {ROLLUP_ROWS.map(({ key, color }) => {
+                    const r = rollups[key];
+                    if (r.count === 0) return null;
+                    return (
+                      <div key={key} style={{
+                        display: "flex", alignItems: "baseline", justifyContent: "space-between",
+                        gap: 10, fontSize: 12,
+                      }}>
+                        <span style={{ minWidth: 0, display: "flex", alignItems: "baseline", gap: 6 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>{STATE_LABELS[key]}</span>
+                          <span style={{ fontSize: 10, color: C.faint, fontFamily: C.mono }}>{r.count}</span>
+                        </span>
+                        <span style={{ display: "flex", alignItems: "baseline", gap: 6, fontFamily: C.mono, whiteSpace: "nowrap" }}>
+                          <span style={{ color: C.muted, fontWeight: 600 }}>{fmtMoneyShort(r.gross)}</span>
+                          <span style={{ color: C.faint }}>/</span>
+                          <span style={{ color: C.green, fontWeight: 700 }}>{fmtMoneyShort(r.profit)}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              )}
+            </div>
           </div>
         </>
       )}
