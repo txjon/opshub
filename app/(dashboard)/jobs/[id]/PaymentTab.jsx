@@ -38,6 +38,7 @@ export function PaymentTab(props) {
 function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcPhase, onUpdateJob }) {
   const supabase = createClient();
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
+  const [showReminderEmail, setShowReminderEmail] = useState(false);
   const [showInvoiceProofsEmail, setShowInvoiceProofsEmail] = useState(false);
   const [pushingToQB, setPushingToQB] = useState(false);
   const [qbError, setQbError] = useState("");
@@ -272,6 +273,30 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
             Send Invoice
           </button>
         </div>
+
+        {/* Send Reminder — appears once the invoice has been sent so
+            HPD can nudge the client without re-sending the original
+            invoice email. Reuses the email pipeline with reminder
+            copy + the same pay link. Reminder doesn't bump
+            invoice_sent_at (the original send date pins the PDF
+            issue date); tracked via last_reminder_sent_at. */}
+        {job.type_meta?.invoice_sent_at && (
+          <div style={{ padding: "8px 14px 12px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <span style={{ fontSize: 10, color: T.faint, fontFamily: font }}>
+              {job.type_meta?.last_reminder_sent_at
+                ? `Last reminded ${new Date(job.type_meta.last_reminder_sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                : "Invoice sent — send a reminder if no payment yet"}
+            </span>
+            <button onClick={() => setShowReminderEmail(true)}
+              style={{ height: 32, borderRadius: 6, border: `1px solid ${T.border}`,
+                background: T.card, color: T.text, cursor: "pointer",
+                fontSize: 11, fontWeight: 700, fontFamily: font, padding: "0 14px" }}
+              onMouseEnter={e => e.currentTarget.style.background = T.surface}
+              onMouseLeave={e => e.currentTarget.style.background = T.card}>
+              Send Reminder
+            </button>
+          </div>
+        )}
 
         {/* Invoice # + Pay link — one tight row, no wrap */}
         <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
@@ -553,6 +578,18 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
           />
         );
       })()}
+
+      {showReminderEmail && (
+        <SendEmailDialog
+          type="reminder"
+          jobId={job.id}
+          contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
+          defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
+          defaultSubject={`Invoice reminder — ${job.clients?.name || ""}${job.type_meta?.qb_invoice_number ? ` · Invoice ${job.type_meta.qb_invoice_number}` : ""}`}
+          onClose={() => setShowReminderEmail(false)}
+          onSent={() => { logJobActivity(job.id, `Invoice reminder sent to client`); setShowReminderEmail(false); }}
+        />
+      )}
 
       <ConfirmDialog
         open={showSendAnywayConfirm}

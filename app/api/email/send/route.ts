@@ -104,6 +104,16 @@ export async function POST(req: NextRequest) {
       const invoiceLabel = isRevisedInvoice ? "Revised invoice" : "Invoice";
       defaultSubject = subject || `${invoiceLabel} — ${clientName}${qbInvNum ? ` · Invoice ${qbInvNum}` : ""} · ${projectTitle}`.trim();
       filename = `invoice-${qbInvNum || jobId.slice(0, 8)}${isRevisedInvoice ? "-revised" : ""}.pdf`;
+    } else if (type === "reminder") {
+      // Reminder reuses the invoice PDF + payment link pipeline. Same
+      // billing from-address, same attachment; only the subject + body
+      // copy flips to a nudge. Subject deliberately omits the project
+      // title — the invoice # is the reference the client recognizes.
+      pdfUrl = `${baseUrl}/api/pdf/invoice/${jobId}?download=1`;
+      fromAddress = namedFrom(company.from_email_billing || fromQuotes);
+      const clientName = (jobData as any)?.clients?.name || "";
+      defaultSubject = subject || `Invoice reminder — ${clientName}${qbInvNum ? ` · Invoice ${qbInvNum}` : ""}`.trim();
+      filename = `invoice-${qbInvNum || jobId.slice(0, 8)}-reminder.pdf`;
     } else if (type === "rfq") {
       const itemsQs = Array.isArray(rfqItemIds) && rfqItemIds.length > 0 ? `&items=${encodeURIComponent(rfqItemIds.join(","))}` : "";
       pdfUrl = `${baseUrl}/api/pdf/rfq/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}${itemsQs}`;
@@ -137,7 +147,7 @@ export async function POST(req: NextRequest) {
     // a fresh customer-facing one before sending — otherwise the email ships
     // with no "Pay online" button.
     let qbPaymentLink = "";
-    if (type === "invoice" && jobId) {
+    if ((type === "invoice" || type === "reminder") && jobId) {
       const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
       const { data: jobData } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
       qbPaymentLink = jobData?.type_meta?.qb_payment_link || "";
@@ -166,7 +176,7 @@ export async function POST(req: NextRequest) {
     // our white-label pay page (/portal/{token}/pay) so the client never
     // sees stripe.com — Payment Element renders inline on our domain.
     let payOnlineUrl: string = "";
-    if (type === "invoice") {
+    if (type === "invoice" || type === "reminder") {
       if (tenantPaymentProvider === "stripe") {
         const portalToken = (jobData as any)?.portal_token;
         const stripeInvoiceId = (jobData as any)?.type_meta?.stripe_invoice_id;
@@ -235,6 +245,19 @@ export async function POST(req: NextRequest) {
               closing: `Thanks,\n${companyName}`,
             });
           })()
+        : type === "reminder"
+        ? renderBrandedEmail({
+            eyebrow: companyName,
+            heading: `Reminder${qbInvNum ? ` · Invoice #${qbInvNum}` : ""}`,
+            greeting: `Hi ${clientGreeting},`,
+            bodyHtml: qbInvNum
+              ? `Just a reminder that <strong>Invoice ${qbInvNum}</strong> is still open. You can pay online or view full details — including approved proofs — through your portal.`
+              : `Just a reminder that your invoice is still open. You can pay online or view full details — including approved proofs — through your portal.`,
+            cta: payOnlineUrl ? { label: "Pay Online", url: payOnlineUrl, style: "green" } : undefined,
+            secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
+            hint: `If this has already been paid, please disregard.`,
+            closing: `Thanks,\n${companyName}`,
+          })
         : type === "rfq"
         ? (() => {
             const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -300,6 +323,8 @@ export async function POST(req: NextRequest) {
           ? `Quote attached (${filename})\n\nHere's your quote — take a look and let us know if you have any questions or want to make changes.`
           : type === "invoice"
           ? `${(jobData as any)?.type_meta?.invoice_sent_at ? "Revised invoice" : "Invoice"} attached (${filename})\n\nAttached is your ${(jobData as any)?.type_meta?.invoice_sent_at ? "revised invoice" : "invoice"}. Let us know if you have any questions.`
+          : type === "reminder"
+          ? `Friendly reminder — invoice attached (${filename})\n\nA gentle nudge that the attached invoice is still open. Reply or call if you have questions; if it's already been paid, please disregard.`
           : `${type} attached (${filename})`,
         resend_message_id: data?.id || null,
       });
@@ -310,6 +335,14 @@ export async function POST(req: NextRequest) {
         const updateData: any = { type_meta: { ...(jd?.type_meta || {}), [tsKey]: new Date().toISOString() } };
         if (type === "quote") updateData.quote_rejection_notes = null;
         await adminClient.from("jobs").update(updateData).eq("id", jobId);
+      }
+      // Reminders don't move invoice_sent_at (the original send date
+      // pins the invoice PDF's issue date). Track separately so the
+      // dashboard can show "last reminded …" later.
+      if (type === "reminder") {
+        const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
+        const meta = { ...(jd?.type_meta || {}), last_reminder_sent_at: new Date().toISOString() };
+        await adminClient.from("jobs").update({ type_meta: meta }).eq("id", jobId);
       }
       // RFQ history — append to type_meta.rfq_history so the Costing tab
       // can show "RFQ sent to X · Y days ago" badges next to affected items.
@@ -330,6 +363,7 @@ export async function POST(req: NextRequest) {
       const activityMsg =
         type === "quote" ? `Quote sent to client (${recipientEmail})`
         : type === "invoice" ? `${(jobData as any)?.type_meta?.invoice_sent_at ? "Revised invoice" : "Invoice"} sent to client (${recipientEmail})`
+        : type === "reminder" ? `Invoice reminder sent to client (${recipientEmail})`
         : type === "po" ? `PO sent to ${vendor || "decorator"} (${recipientEmail})`
         : type === "rfq" ? `Quote request sent to ${vendor || "decorator"} (${recipientEmail}${Array.isArray(rfqItemIds) && rfqItemIds.length ? ` · ${rfqItemIds.length} item${rfqItemIds.length !== 1 ? "s" : ""}` : ""})`
         : `Email sent (${type})`;
