@@ -31,6 +31,11 @@ export async function GET(req: NextRequest) {
   // for larger sizes (up to ~1600) to get a sharper preview in the
   // lightbox. Ignored for the full-file path.
   const sizeHint = Math.min(Math.max(parseInt(req.nextUrl.searchParams.get("size") || "0", 10) || 0, 0), 1600);
+  // dl=1: force a full-file download with Content-Disposition: attachment.
+  // Bypasses the non-renderable-mime thumbnail fallback so PSD/AI etc.
+  // come back as the original binary, not a PNG preview. Used by the
+  // Download button in the file lightbox.
+  const forceDownload = req.nextUrl.searchParams.get("dl") === "1";
   if (!fileId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
   try {
@@ -49,8 +54,9 @@ export async function GET(req: NextRequest) {
     // Decide whether to serve the thumbnail. Two triggers:
     //   1. The caller asked for it (?thumb=1)
     //   2. The file's mime can't be rendered in a browser <img>
+    // Force-download bypasses both — the caller wants the raw bytes.
     const mustUseThumbnail = !isBrowserRenderable(mimeType);
-    const shouldServeThumbnail = (useThumbnail || mustUseThumbnail) && meta?.thumbnailLink;
+    const shouldServeThumbnail = !forceDownload && (useThumbnail || mustUseThumbnail) && meta?.thumbnailLink;
 
     if (shouldServeThumbnail) {
       // Drive's thumbnailLink URL ends with `=sNNN` where NNN is the
@@ -93,11 +99,12 @@ export async function GET(req: NextRequest) {
     // screenshots contain U+202F (narrow no-break space) and other
     // high-Unicode chars that break a naked `filename="..."` header.
     const asciiName = fileName.replace(/[^\x20-\x7E]/g, "_");
+    const disposition = forceDownload ? "attachment" : "inline";
     return new NextResponse(buf, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-        "Cache-Control": "public, max-age=3600, s-maxage=3600",
+        "Content-Disposition": `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+        "Cache-Control": forceDownload ? "no-store" : "public, max-age=3600, s-maxage=3600",
       },
     });
   } catch (err: any) {
