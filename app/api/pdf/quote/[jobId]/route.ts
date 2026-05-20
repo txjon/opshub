@@ -189,7 +189,7 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     // Fetch buy_sheet_lines for accurate qtys
     const { data: items } = await supabase
       .from("items")
-      .select("id, name, blank_vendor, blank_sku, sell_per_unit, buy_sheet_lines(size, qty_ordered)")
+      .select("id, name, blank_vendor, blank_sku, sell_per_unit, client_eta, buy_sheet_lines(size, qty_ordered)")
       .eq("job_id", jobId)
       .order("sort_order");
 
@@ -277,12 +277,25 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     // Round each line item's grossRev to 2 decimals before summing — total matches what client sees
     const quoteTotal = prods.reduce((a, p) => a + p.grossRev, 0);
 
+    // Est ship date = latest per-item client_eta (same rule as the
+    // invoice PDF). jobs.target_ship_date is now Drake's internal
+    // "requested in-hands date" and orderInfo.shipDate is a legacy
+    // costing-side override — neither belongs on a client-facing
+    // quote anymore. MAX is conservative: client expects everything
+    // by the latest item ETA.
+    const itemEtas = (items || []).map((it: any) => it.client_eta).filter(Boolean) as string[];
+    itemEtas.sort();
+    const latestEta = itemEtas.length ? itemEtas[itemEtas.length - 1] : null;
+    const shipDateLong = latestEta
+      ? new Date(latestEta + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+      : "";
+
     const branding = await getPdfBranding();
     const html = renderQuoteHTML({
       invoiceNum: orderInfo.invoiceNum || job.job_number || "",
       today,
       validUntil: orderInfo.validUntil || "",
-      shipDate: orderInfo.shipDate || job.target_ship_date || "",
+      shipDate: shipDateLong,
       clientName,
       notes: orderInfo.notes || job.notes || "",
       prods,
