@@ -114,6 +114,21 @@ function DriveFileModal({
         <div style={{ flex: 1, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {fileName || "Preview"}
         </div>
+        {/* Download — hits the thumbnail endpoint with dl=1 so the
+            response comes back as Content-Disposition: attachment with
+            the original filename and bytes (not the preview PNG). Works
+            for any file type including PSD/AI/EPS. */}
+        <a
+          href={`/api/files/thumbnail?id=${driveFileId}&dl=1`}
+          download
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            padding: "8px 14px", borderRadius: 8,
+            background: "rgba(255,255,255,0.12)", color: "#fff",
+            fontSize: 12, fontWeight: 600, textDecoration: "none",
+            border: "1px solid rgba(255,255,255,0.25)",
+          }}
+        >Download</a>
         <button
           onClick={onClose}
           aria-label="Close"
