@@ -281,7 +281,10 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     setLoadingPsd(true);
     (async () => {
       try {
-        const res = await fetch(`/api/files/thumbnail?id=${psdFile.drive_file_id}`);
+        // dl=1 forces the full PSD bytes — the thumbnail endpoint
+        // otherwise serves Drive's PNG thumb for non-renderable mimes
+        // (PSD/AI/EPS), which ag-psd can't parse.
+        const res = await fetch(`/api/files/thumbnail?id=${psdFile.drive_file_id}&dl=1`);
         const buf = await res.arrayBuffer();
         const { readPsd } = await import("ag-psd");
         const psd = readPsd(new Uint8Array(buf));
