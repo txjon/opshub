@@ -102,7 +102,10 @@ export async function POST(req: NextRequest) {
       const clientName = (jobData as any)?.clients?.name || "";
       const isRevisedInvoice = !!(jobData as any)?.type_meta?.invoice_sent_at;
       const invoiceLabel = isRevisedInvoice ? "Revised invoice" : "Invoice";
-      defaultSubject = subject || `${invoiceLabel} — ${clientName}${qbInvNum ? ` · Invoice ${qbInvNum}` : ""} · ${projectTitle}`.trim();
+      defaultSubject = subject || [
+        `${invoiceLabel}${qbInvNum ? ` ${qbInvNum}` : ""} — ${clientName}`,
+        projectTitle,
+      ].filter(Boolean).join(" · ").trim();
       filename = `invoice-${qbInvNum || jobId.slice(0, 8)}${isRevisedInvoice ? "-revised" : ""}.pdf`;
     } else if (type === "reminder") {
       // Reminder reuses the invoice PDF + payment link pipeline. Same
@@ -112,7 +115,10 @@ export async function POST(req: NextRequest) {
       pdfUrl = `${baseUrl}/api/pdf/invoice/${jobId}?download=1`;
       fromAddress = namedFrom(company.from_email_billing || fromQuotes);
       const clientName = (jobData as any)?.clients?.name || "";
-      defaultSubject = subject || `Invoice reminder — ${clientName}${qbInvNum ? ` · Invoice ${qbInvNum}` : ""}`.trim();
+      defaultSubject = subject || [
+        `Invoice reminder${qbInvNum ? ` · ${qbInvNum}` : ""} — ${clientName}`,
+        projectTitle,
+      ].filter(Boolean).join(" · ").trim();
       filename = `invoice-${qbInvNum || jobId.slice(0, 8)}-reminder.pdf`;
     } else if (type === "rfq") {
       const itemsQs = Array.isArray(rfqItemIds) && rfqItemIds.length > 0 ? `&items=${encodeURIComponent(rfqItemIds.join(","))}` : "";

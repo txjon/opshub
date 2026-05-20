@@ -572,7 +572,10 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
             jobId={job.id}
             contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
             defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
-            defaultSubject={`${invoiceLabel} — ${job.clients?.name || ""}${job.type_meta?.qb_invoice_number ? ` · Invoice ${job.type_meta.qb_invoice_number}` : ""} · ${job.title}`}
+            defaultSubject={[
+              `${invoiceLabel}${job.type_meta?.qb_invoice_number ? ` ${job.type_meta.qb_invoice_number}` : ""} — ${job.clients?.name || ""}`,
+              job.title,
+            ].filter(Boolean).join(" · ")}
             onClose={() => setShowInvoiceEmail(false)}
             onSent={() => { logJobActivity(job.id, `${invoiceLabel} sent to client`); setShowInvoiceEmail(false); }}
           />
@@ -585,7 +588,10 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
           jobId={job.id}
           contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
           defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
-          defaultSubject={`Invoice reminder — ${job.clients?.name || ""}${job.type_meta?.qb_invoice_number ? ` · Invoice ${job.type_meta.qb_invoice_number}` : ""}`}
+          defaultSubject={[
+            `Invoice reminder${job.type_meta?.qb_invoice_number ? ` · ${job.type_meta.qb_invoice_number}` : ""} — ${job.clients?.name || ""}`,
+            job.title,
+          ].filter(Boolean).join(" · ")}
           onClose={() => setShowReminderEmail(false)}
           onSent={() => { logJobActivity(job.id, `Invoice reminder sent to client`); setShowReminderEmail(false); }}
         />
