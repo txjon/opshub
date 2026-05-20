@@ -151,7 +151,7 @@ function Lightbox({
           </div>
         )}
         <img
-          src={`/api/files/thumbnail?id=${driveFileId}`}
+          src={`/api/files/thumbnail?id=${driveFileId}&size=1600`}
           alt={title || ""}
           style={{ maxWidth: "100%", maxHeight: hasHeader ? "calc(92vh - 40px)" : "92vh", objectFit: "contain", borderRadius: 8, display: "block" }}
         />
