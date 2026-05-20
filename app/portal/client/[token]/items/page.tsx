@@ -645,6 +645,8 @@ function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => 
 }
 
 function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClose: () => void }) {
+  const { data: portalData } = useClientPortal();
+  const tenantLabel = (portalData?.company?.slug || "hpd").toUpperCase();
   const [reordering, setReordering] = useState(false);
   // Progressive image load — the thumbnail is already cached from the
   // item row preview, so it paints instantly when the sheet opens.
@@ -674,7 +676,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
       const res = await fetch(`/api/portal/client/${token}/items/${item.id}/reorder`, { method: "POST" });
       const data = await res.json();
       if (res.ok) {
-        setReorderResult("Re-order request created — HPD will be in touch.");
+        setReorderResult(`Re-order request created — ${tenantLabel} will be in touch.`);
       } else {
         setReorderResult(data.error || "Couldn't start re-order");
       }
