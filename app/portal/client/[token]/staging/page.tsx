@@ -995,6 +995,8 @@ function UploadDialog({ token, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { data: portalData } = useClientPortal();
+  const tenantLabel = (portalData?.company?.slug || "hpd").toUpperCase();
   const [name, setName] = useState("");
   const [qty, setQty] = useState("");
   const [notes, setNotes] = useState("");
@@ -1129,7 +1131,7 @@ function UploadDialog({ token, onClose, onCreated }: {
             <div>
               <label style={{ fontSize: 11, color: C.muted, display: "block", marginBottom: 4, fontWeight: 600 }}>Notes</label>
               <input value={notes} onChange={e => setNotes(e.target.value)}
-                placeholder="Anything HPD should know"
+                placeholder={`Anything ${tenantLabel} should know`}
                 style={{ width: "100%", padding: "9px 12px", fontSize: 14, border: `1px solid ${C.border}`, borderRadius: 6, fontFamily: C.font, outline: "none", boxSizing: "border-box" as const }} />
             </div>
           </div>

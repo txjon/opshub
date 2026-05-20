@@ -60,7 +60,8 @@ type Order = {
 };
 
 export default function OrdersPage() {
-  const { token } = useClientPortal();
+  const { token, data: portalData } = useClientPortal();
+  const tenantLabel = (portalData?.company?.slug || "hpd").toUpperCase();
   const search = useSearchParams();
   // Default to Unpaid — the action filter the client cares about
   // most when they land here. On Hold pulls out paused projects so
@@ -144,7 +145,7 @@ export default function OrdersPage() {
           color: C.muted, fontSize: 13,
         }}>
           {orders?.length === 0
-            ? "No orders yet. Once HPD starts a job for you, it'll land here."
+            ? `No orders yet. Once ${tenantLabel} starts a job for you, it'll land here.`
             : "Nothing matches that filter."}
         </div>
       ) : (
@@ -468,6 +469,8 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
 }
 
 function OrderDetail({ order, token }: { order: Order; token: string }) {
+  const { data: portalData } = useClientPortal();
+  const tenantLabel = (portalData?.company?.slug || "hpd").toUpperCase();
   return (
     <div style={{
       borderTop: `1px solid ${C.border}`,
@@ -501,7 +504,7 @@ function OrderDetail({ order, token }: { order: Order; token: string }) {
               }}>
                 <div style={{ fontSize: 13, color: C.text, lineHeight: 1.6 }}>
                   Fulfillment fee for <strong>{order.period_label}</strong> covering{" "}
-                  <strong>{order.total_qty.toLocaleString()} units</strong> shipped through HPD.
+                  <strong>{order.total_qty.toLocaleString()} units</strong> shipped through {tenantLabel}.
                 </div>
                 <a
                   href={`/api/pdf/shipstation/${order.id}?portal=${token}`}

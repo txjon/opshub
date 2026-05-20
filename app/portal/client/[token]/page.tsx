@@ -80,7 +80,7 @@ export default function OverviewPage() {
             padding: "28px 12px", textAlign: "center",
             color: C.muted, fontSize: 13,
           }}>
-            No activity yet. HPD will send you a link when something's ready to review.
+            No activity yet. {(data.company?.slug || "hpd").toUpperCase()} will send you a link when something's ready to review.
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column" }}>

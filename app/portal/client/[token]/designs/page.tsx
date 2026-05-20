@@ -131,7 +131,7 @@ export default function DesignsPage() {
           color: C.muted, fontSize: 13,
         }}>
           {briefs.length === 0
-            ? "No active design requests yet. HPD will send you a link when one is ready."
+            ? `No active design requests yet. ${(data.company?.slug || "hpd").toUpperCase()} will send you a link when one is ready.`
             : "Nothing in this bucket."}
         </div>
       ) : (
@@ -429,8 +429,9 @@ function BriefDetailModal({ token, brief, meta, onClose, autoApprove }: {
   onClose: () => void;
   autoApprove?: boolean;
 }) {
-  const { token: ctxToken } = useClientPortal();
+  const { token: ctxToken, data: portalData } = useClientPortal();
   const tk = token || ctxToken;
+  const tenantLabel = (portalData?.company?.slug || "hpd").toUpperCase();
   const [detail, setDetail] = useState<DetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -491,7 +492,7 @@ function BriefDetailModal({ token, brief, meta, onClose, autoApprove }: {
   }
 
   function confirmAbort() {
-    if (!window.confirm("Abort this design request? It'll be removed from your view. HPD can still access it for 60 days in case anything needs to be repurposed.")) return;
+    if (!window.confirm(`Abort this design request? It'll be removed from your view. ${tenantLabel} can still access it for 60 days in case anything needs to be repurposed.`)) return;
     runAction("abort");
   }
 
@@ -622,7 +623,7 @@ function BriefDetailModal({ token, brief, meta, onClose, autoApprove }: {
             </div>
           </div>
           <button onClick={confirmAbort} disabled={!!actionPending}
-            title="Remove this request — HPD still sees it for 60 days"
+            title={`Remove this request — ${tenantLabel} still sees it for 60 days`}
             style={{ background: "none", border: `1px solid ${C.border}`, color: C.muted, fontSize: 10, fontWeight: 600, cursor: "pointer", padding: "6px 10px", borderRadius: 5, fontFamily: C.font, minHeight: 32 }}>
             Abort
           </button>
