@@ -236,7 +236,7 @@ function AddDecoratorModal({ open, onClose, onSaved }) {
   );
 }
 
-const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onUpdateProject})=>{
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onUpdateProject,onPullFromPsds,pullingPsds,pullResult})=>{
   const branding=useClientBranding();
   const [costTab,setCostTab]=useState(initialTab||"calc");
   const [showSendEmail,setShowSendEmail]=useState(false);
@@ -453,6 +453,22 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             </span>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {/* Pull from PSDs — re-runs the auto-detect that fires on
+                tab mount, but on-demand. Useful when art lands AFTER
+                the user opened Costing (the initial auto-run found
+                nothing and won't re-fire). Skips items that already
+                have print locations set so it's safe to click any
+                time. */}
+            {onPullFromPsds && (
+              <button onClick={onPullFromPsds} disabled={pullingPsds}
+                style={{padding:"6px 14px",borderRadius:6,fontSize:12,fontWeight:600,cursor:pullingPsds?"default":"pointer",background:"transparent",border:`1px solid ${T.border}`,color:T.muted,fontFamily:font,opacity:pullingPsds?0.6:1}}
+                title="Re-scan items' PSD files in Art Files and populate empty print locations">
+                {pullingPsds ? "Pulling…" : "Pull from PSDs"}
+              </button>
+            )}
+            {pullResult && (
+              <span style={{fontSize:11,color:T.muted,fontFamily:font}}>{pullResult}</span>
+            )}
             <button onClick={openRfqModal}
               style={{padding:"6px 14px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.accent}`,color:T.accent,fontFamily:font}}
               title="Send a quote request to a decorator for selected items">
@@ -1001,8 +1017,42 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
         const quoteProds=costProds.filter(p=>(p.totalQty||0)>0);
         const quoteTotal=quoteProds.reduce((a,p)=>{const r2=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);if(!r2) return a; const spu=Math.round(r2.sellPerUnit*100)/100; return a+Math.round(spu*r2.qty*100)/100;},0);
         const approved=project.prodStatus==="Awaiting Deposit"||project.prodStatus==="Ready for Production"||project.prodStatus==="Bulk Production";
+        const rejectionNotes = project?.quote_rejection_notes || null;
+        const clearRejectionNotes = async () => {
+          await createClient().from("jobs").update({ quote_rejection_notes: null }).eq("id", project.id);
+          if (onUpdateProject) onUpdateProject({ quote_rejection_notes: null });
+          logJobActivity(project.id, "Quote feedback marked as handled");
+        };
         return(
           <div style={{maxWidth:680,margin:"0 auto"}}>
+            {/* Client feedback banner — appears when the client rejected
+                the quote with notes via the portal. Dashboard "Quote
+                feedback" alert deep-links here. Cleared automatically
+                when a new quote is sent (email send route nulls the
+                column) or manually via Mark handled. */}
+            {rejectionNotes && !approved && (
+              <div style={{
+                background: T.redDim, border: `1px solid ${T.red}66`, borderRadius: 10,
+                padding: "12px 14px", marginBottom: 14,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.red, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                    Client feedback — quote rejected
+                  </div>
+                  <button onClick={clearRejectionNotes}
+                    style={{ background: "transparent", border: `1px solid ${T.red}66`, color: T.red, fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 5, cursor: "pointer", fontFamily: font, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    Mark handled
+                  </button>
+                </div>
+                <div style={{ fontSize: 13, color: T.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                  {rejectionNotes}
+                </div>
+                <div style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>
+                  Sending a revised quote below clears this automatically.
+                </div>
+              </div>
+            )}
+
             {/* Quote details */}
             <div style={{display:"flex",gap:12,marginBottom:14,alignItems:"flex-start"}}>
               <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",flex:1}}>
@@ -1499,28 +1549,34 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     };
   }, []);
 
-  // Auto-detect print locations from PSD files (runs once on load)
-  const psdDetectedRef = React.useRef(false);
-  useEffect(() => {
-    if (psdDetectedRef.current) return;
-    psdDetectedRef.current = true;
-    // Only process items with no print locations set
+  // Auto-detect print locations from PSD files. Runs once on mount
+  // (the ref guard below) AND on-demand via the "Pull from PSDs"
+  // button in the calc header — same logic, same skip rule
+  // (won't overwrite items that already have locations set), so it's
+  // safe to click any time.
+  const [pullingPsds, setPullingPsds] = useState(false);
+  const [pullResult, setPullResult] = useState(null);
+  const detectFromPsds = React.useCallback(async () => {
     const itemsNeedingPsd = costProds.filter(cp => {
       if (cp.garment_type === "accessory") return false;
       const locs = cp.printLocations || {};
       const hasLocations = Object.values(locs).some(l => l?.location);
       return !hasLocations;
     });
-    if (itemsNeedingPsd.length === 0) return;
+    if (itemsNeedingPsd.length === 0) return { scanned: 0, populated: 0 };
 
-    (async () => {
+    setPullingPsds(true);
+    let populated = 0;
+    try {
       const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
       const ids = itemsNeedingPsd.map(cp => cp.id);
-      const { data: psdFiles } = await supabase.from("item_files").select("item_id, drive_file_id, file_name, notes").in("item_id", ids).ilike("file_name", "%.psd");
-      if (!psdFiles || psdFiles.length === 0) return;
+      const { data: psdFiles } = await supabase.from("item_files")
+        .select("item_id, drive_file_id, file_name, notes")
+        .in("item_id", ids)
+        .ilike("file_name", "%.psd");
+      if (!psdFiles || psdFiles.length === 0) return { scanned: itemsNeedingPsd.length, populated: 0 };
 
-      // Take first PSD per item
       const psdByItem = {};
       for (const f of psdFiles) { if (!psdByItem[f.item_id]) psdByItem[f.item_id] = f; }
 
@@ -1529,7 +1585,6 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
 
       for (const [itemId, psdFile] of Object.entries(psdByItem)) {
         try {
-          // Fast path: read cached PSD data from notes (set by Processing tab)
           let cachedData = null;
           try { cachedData = psdFile.notes ? JSON.parse(psdFile.notes) : null; } catch {}
           if (cachedData?.psd_locations) {
@@ -1544,12 +1599,12 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
               if (cp.id !== itemId) return cp;
               const hasExisting = Object.values(cp.printLocations || {}).some(l => l?.location);
               if (hasExisting) return cp;
+              populated++;
               return { ...cp, printLocations: newLocations, printCount: locIdx - 1, tagPrint: cachedData.psd_has_tag || cp.tagPrint };
             }));
             continue;
           }
 
-          // Slow path: download and parse PSD from Drive
           const res = await fetch(`/api/files/thumbnail?id=${psdFile.drive_file_id}`);
           if (!res.ok) continue;
           const buf = await res.arrayBuffer();
@@ -1570,33 +1625,55 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
             const colorCount = group.children.filter(l => !SKIP_GROUPS.includes(l.name) && l.name).length;
             const locName = PLACEMENT_MAP[group.name] || group.name;
 
-            newLocations[String(locIdx)] = {
-              location: locName,
-              screens: colorCount,
-              printer: "",
-            };
+            newLocations[String(locIdx)] = { location: locName, screens: colorCount, printer: "" };
             locIdx++;
           }
-
-          // Pad remaining slots empty
           for (let i = locIdx; i <= 6; i++) newLocations[String(i)] = {};
 
           setCostProds(prev => prev.map(cp => {
             if (cp.id !== itemId) return cp;
             const hasExisting = Object.values(cp.printLocations || {}).some(l => l?.location);
-            if (hasExisting) return cp; // Don't overwrite if user already set locations
-            return {
-              ...cp,
-              printLocations: newLocations,
-              printCount: locIdx - 1,
-              tagPrint: hasTag || cp.tagPrint,
-            };
+            if (hasExisting) return cp;
+            populated++;
+            return { ...cp, printLocations: newLocations, printCount: locIdx - 1, tagPrint: hasTag || cp.tagPrint };
           }));
         } catch (e) {
-          console.error("PSD auto-detect error for item", itemId, e);
+          console.error("PSD detect error for item", itemId, e);
         }
       }
-    })();
+    } finally {
+      setPullingPsds(false);
+    }
+    return { scanned: itemsNeedingPsd.length, populated };
+  }, [costProds]);
+
+  const handlePullFromPsds = React.useCallback(async () => {
+    const result = await detectFromPsds();
+    if (result.populated > 0) {
+      setPullResult(`Pulled print locations from ${result.populated} item${result.populated !== 1 ? "s" : ""}.`);
+    } else if (result.scanned === 0) {
+      setPullResult("All items already have print locations set.");
+    } else {
+      setPullResult("No matching PSDs found — upload PSDs in Art Files first.");
+    }
+    setTimeout(() => setPullResult(null), 4000);
+  }, [detectFromPsds]);
+
+  // First-load auto-run — same behavior as before, just delegates to
+  // the shared function now.
+  const psdDetectedRef = React.useRef(false);
+  useEffect(() => {
+    if (psdDetectedRef.current) return;
+    psdDetectedRef.current = true;
+    const itemsNeedingPsd = costProds.filter(cp => {
+      if (cp.garment_type === "accessory") return false;
+      const locs = cp.printLocations || {};
+      const hasLocations = Object.values(locs).some(l => l?.location);
+      return !hasLocations;
+    });
+    if (itemsNeedingPsd.length === 0) return;
+    detectFromPsds();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Sync buy item changes (name, sizes, qtys, adds, removes) into both costProds AND savedCostProds
@@ -1788,6 +1865,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       decoratorRecords={decoratorRecords}
       onRefreshDecorators={refreshDecorators}
       costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs} selectedItemId={selectedItemId} onUpdateProject={onUpdateProject}
+      onPullFromPsds={handlePullFromPsds} pullingPsds={pullingPsds} pullResult={pullResult}
     />
   );
 }
