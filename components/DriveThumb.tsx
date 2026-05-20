@@ -148,6 +148,22 @@ function Lightbox({
         {hasHeader && (
           <div style={{ display: "flex", alignItems: "center", gap: 16, color: "#fff", fontSize: 12 }}>
             {title && <span style={{ fontWeight: 600, letterSpacing: "-0.01em" }}>{title}</span>}
+            {/* Download — hits the thumbnail endpoint with dl=1 so it
+                returns the original file (Content-Disposition:
+                attachment), not the preview PNG. Works for any file
+                type: PSD/AI/EPS download their native bytes, images
+                download as the original raster. */}
+            <a
+              href={`/api/files/thumbnail?id=${driveFileId}&dl=1`}
+              download
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                padding: "4px 12px", borderRadius: 6,
+                background: "rgba(255,255,255,0.12)", color: "#fff",
+                fontSize: 11, fontWeight: 600, textDecoration: "none",
+                border: "1px solid rgba(255,255,255,0.25)",
+              }}
+            >Download</a>
           </div>
         )}
         <img
