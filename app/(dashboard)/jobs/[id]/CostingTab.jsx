@@ -1610,7 +1610,11 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
             continue;
           }
 
-          const res = await fetch(`/api/files/thumbnail?id=${psdFile.drive_file_id}`);
+          // dl=1 is critical: the thumbnail endpoint serves Drive's PNG
+          // thumb for non-browser-renderable mimes (PSD/AI/EPS) by
+          // default. We need the actual PSD bytes for ag-psd to parse,
+          // so force the full-file path here.
+          const res = await fetch(`/api/files/thumbnail?id=${psdFile.drive_file_id}&dl=1`);
           if (!res.ok) continue;
           const buf = await res.arrayBuffer();
           const { readPsd } = await import("ag-psd");
