@@ -1567,15 +1567,20 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
 
     setPullingPsds(true);
     let populated = 0;
+    let psdFiles = null;
+    let queryError = null;
     try {
       const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
       const ids = itemsNeedingPsd.map(cp => cp.id);
-      const { data: psdFiles } = await supabase.from("item_files")
+      const queryRes = await supabase.from("item_files")
         .select("item_id, drive_file_id, file_name, notes")
         .in("item_id", ids)
         .ilike("file_name", "%.psd");
-      if (!psdFiles || psdFiles.length === 0) return { scanned: itemsNeedingPsd.length, populated: 0 };
+      psdFiles = queryRes.data;
+      queryError = queryRes.error;
+      console.log("[Pull from PSDs] scanned", itemsNeedingPsd.length, "items, found", psdFiles?.length || 0, "PSDs", queryError ? `(error: ${queryError.message})` : "");
+      if (!psdFiles || psdFiles.length === 0) return { scanned: itemsNeedingPsd.length, populated: 0, foundFiles: 0, error: queryError?.message };
 
       const psdByItem = {};
       for (const f of psdFiles) { if (!psdByItem[f.item_id]) psdByItem[f.item_id] = f; }
@@ -1644,7 +1649,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     } finally {
       setPullingPsds(false);
     }
-    return { scanned: itemsNeedingPsd.length, populated };
+    return { scanned: itemsNeedingPsd.length, populated, foundFiles: psdFiles?.length || 0 };
   }, [costProds]);
 
   const handlePullFromPsds = React.useCallback(async () => {
@@ -1653,10 +1658,14 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       setPullResult(`Pulled print locations from ${result.populated} item${result.populated !== 1 ? "s" : ""}.`);
     } else if (result.scanned === 0) {
       setPullResult("All items already have print locations set.");
+    } else if (result.error) {
+      setPullResult(`Query error: ${result.error}`);
+    } else if (result.foundFiles > 0) {
+      setPullResult(`Scanned ${result.scanned} items, found ${result.foundFiles} PSDs but none had readable print layers.`);
     } else {
-      setPullResult("No matching PSDs found — upload PSDs in Art Files first.");
+      setPullResult(`Scanned ${result.scanned} items — no PSDs in item_files. Check Art Files / browser console.`);
     }
-    setTimeout(() => setPullResult(null), 4000);
+    setTimeout(() => setPullResult(null), 10000);
   }, [detectFromPsds]);
 
   // First-load auto-run — same behavior as before, just delegates to
