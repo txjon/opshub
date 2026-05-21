@@ -570,7 +570,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         </div>
                         {!isMobile && <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>}
                         <div style={{display:"flex",alignItems:"center",gap:8,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}} onClick={e=>e.stopPropagation()}>
-                          <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+                          <div style={{display:"flex",flexDirection:isMobile?"row":"column",gap:isMobile?4:2,flexShrink:0}}>
                             {p._sellOverride?(
                               <>
                                 <button onClick={()=>updateProd(i,{...p,sellOverride:(()=>{const _v=parseFloat(p._sellOverrideVal);return Number.isNaN(_v)?null:_v;})(),_sellOverride:false})}
@@ -618,7 +618,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           </div>
                         </div>
                       </div>
-                      {!selectedItemId && <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>}
+                      {!selectedItemId && !isMobile && <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>}
                     </div>
                     {/* Vendor selector + Cost line items */}
                     <div style={{padding:"12px 16px",display:bodyDisplay,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}}>
@@ -785,9 +785,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         <div style={{fontSize:9,color:T.faint,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
                         <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                       </div>
-                      <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>
+                      {!isMobile && <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>}
                       <div style={{display:"flex",alignItems:"center",gap:8,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}} onClick={e=>e.stopPropagation()}>
-                        <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+                        <div style={{display:"flex",flexDirection:isMobile?"row":"column",gap:isMobile?4:2,flexShrink:0}}>
                           {p._sellOverride?(
                             <>
                               <button onClick={()=>updateProd(i,{...p,sellOverride:(()=>{const _v=parseFloat(p._sellOverrideVal);return Number.isNaN(_v)?null:_v;})(),_sellOverride:false})}
@@ -834,7 +834,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         </div>
                       </div>
                     </div>
-                    {!selectedItemId && <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>}
+                    {!selectedItemId && !isMobile && <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>}
                   </div>
                   <div style={{padding:16,display:bodyDisplay,flexDirection:"column",gap:14,alignItems:"stretch",position:"relative"}}>
                     {/* DECORATION PANEL — full width on top. This is
