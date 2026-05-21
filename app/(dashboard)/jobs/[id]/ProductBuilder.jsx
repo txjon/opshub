@@ -169,6 +169,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         if (JSON.stringify(item.blankCosts) !== JSON.stringify(prev?.blankCosts)) dbUpdates.blank_costs = item.blankCosts || null;
         if (item.blank_vendor) dbUpdates.blank_vendor = item.blank_vendor;
         if (item.blank_sku) dbUpdates.blank_sku = item.blank_sku;
+        if (item.is_fleece !== prev?.is_fleece) dbUpdates.is_fleece = !!item.is_fleece;
         dbUpdates.sort_order = current.indexOf(item);
         await supabase.from("items").update(dbUpdates).eq("id", item.id);
         // If the item's name changed and it already has a Drive folder,
@@ -1663,6 +1664,15 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
+                {/* Fleece flag — drives the decorator's "Fleece Upcharge"
+                    per print location and switches packaging to the
+                    Fleece variant. Lives here because fleece-ness is a
+                    property of the garment, not the costing run. */}
+                <button onClick={e => { e.stopPropagation(); if (costingLocked) return; onUpdateItem(item.id, { is_fleece: !item.is_fleece }); }}
+                  title="Mark this blank as fleece (applies decorator fleece upcharge per print)"
+                  style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 6, border: `1px solid ${item.is_fleece ? T.accent : T.border}`, background: item.is_fleece ? T.accent : T.card, color: item.is_fleece ? "#fff" : T.muted, cursor: costingLocked ? "default" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", opacity: costingLocked ? 0.5 : 1 }}>
+                  Fleece
+                </button>
                 {!isMobile && <span style={{ fontSize: 10, color: T.faint, marginLeft: "auto" }}>click to change</span>}
               </>
             ) : (
