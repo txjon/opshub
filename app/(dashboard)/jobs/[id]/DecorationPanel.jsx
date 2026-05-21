@@ -577,7 +577,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             <span style={{fontSize:10,color:T.faint}}>›</span>
           </button>
           <SettingsModal open={!!p._setupOpen} onClose={()=>updateProd(i,{...p,_setupOpen:false})} title="Setup Fees" summary={activeSetup.length>0?activeSetup.join(" · "):"None applied"} width={520}>
-            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {Object.keys(pr.setup).map(key=>{
                 const isScreens = key.toLowerCase().replace(/\s/g,"") === "screens";
                 const isTagScreens = key.toLowerCase().replace(/\s/g,"") === "tagscreens";
@@ -586,16 +586,14 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
 
                 let autoVal = 0;
                 if (isScreens) {
-                  // Sum screens minus shared duplicates (within item + across items)
                   const seenGroups = {};
                   const myIdx = costProds.findIndex(cp => cp.id === p.id);
                   autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
                     if (!l?.screens) return sum;
                     if (l.shared && l.shareGroup) {
                       const gk = l.shareGroup.trim().toLowerCase();
-                      if (seenGroups[gk]) return sum; // skip within-item duplicate
+                      if (seenGroups[gk]) return sum;
                       seenGroups[gk] = true;
-                      // Skip if another item earlier has this group (cross-item)
                       const firstIdx = costProds.findIndex(cp => Object.values(cp.printLocations||{}).some(cl => cl.shared && cl.shareGroup && cl.shareGroup.trim().toLowerCase() === gk && cl.screens > 0));
                       if (firstIdx >= 0 && myIdx > firstIdx) return sum;
                     }
@@ -606,7 +604,6 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                 } else if (specialtyMatch) {
                   const isPuffScreen = key.toLowerCase().includes("puff") && key.toLowerCase().includes("screen");
                   if (isPuffScreen && p.specialtyQtys?.[specialtyMatch+"_on"]) {
-                    // Puff screen up charge = sum of puffColors per location (deduped for share groups)
                     const seenPG = {};
                     autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
                       if (!l?.location || !l?.screens || !l.puffColors) return sum;
@@ -620,27 +617,34 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                 }
                 const val = isAuto ? autoVal : (p.setupFees?.[key]||0);
                 const unitCost = pr.setup[key]||0;
+                const rowCost = val * unitCost;
+                const active = val > 0;
 
                 return (
-                  <div key={key} style={{display:"flex",alignItems:"center",gap:8,fontSize:11}}>
-                    <span style={{flex:1,color:T.muted}}>{key}</span>
+                  <div key={key} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8}}>
+                    <span style={{flex:1,fontSize:13,fontWeight:600,color:T.text,fontFamily:font}}>{key}</span>
                     {isAuto ? (
-                      <span style={{fontFamily:mono,color:T.text,fontSize:11}}>{val} <span style={{fontSize:8,color:T.faint}}>auto</span></span>
+                      <div style={{display:"inline-flex",alignItems:"baseline",gap:6}}>
+                        <span style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:mono}}>{val}</span>
+                        <span style={{fontSize:9,color:T.faint,fontFamily:font,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>auto</span>
+                      </div>
                     ) : (
                       <input type="text" inputMode="decimal" value={p.setupFees?.[key]||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[key]:parseFloat(e.target.value)||0}})}
-                        style={{width:40,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,fontFamily:mono,outline:"none",padding:"2px"}}/>
+                        placeholder="0"
+                        style={{width:60,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"5px 8px"}}/>
                     )}
-                    <span style={{fontFamily:mono,color:T.faint,fontSize:10,minWidth:50,textAlign:"right"}}>${(val*unitCost).toFixed(2)}</span>
+                    <span style={{fontFamily:mono,fontWeight:700,fontSize:13,color:active?T.text:T.faint,minWidth:72,textAlign:"right"}}>${rowCost.toFixed(2)}</span>
                   </div>
                 );
               })}
-              {/* Manual cost */}
-              <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,borderTop:`1px solid ${T.border}`,paddingTop:4}}>
-                <span style={{flex:1,color:T.muted}}>Manual cost</span>
-                <div style={{display:"flex",alignItems:"center"}}>
-                  <span style={{fontSize:10,color:T.faint,marginRight:1}}>$</span>
+              {/* Manual cost — visually separated row */}
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,marginTop:4}}>
+                <span style={{flex:1,fontSize:13,fontWeight:600,color:T.text,fontFamily:font}}>Manual cost</span>
+                <div style={{display:"inline-flex",alignItems:"center",gap:4,background:T.card,border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px"}}>
+                  <span style={{fontSize:12,color:T.faint,fontFamily:mono}}>$</span>
                   <input type="text" inputMode="decimal" value={p.setupFees?.manualCost||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),manualCost:parseFloat(e.target.value)||0}})}
-                    style={{width:50,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,fontFamily:mono,outline:"none",padding:"2px"}}/>
+                    placeholder="0.00"
+                    style={{width:64,textAlign:"left",background:"transparent",border:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:0}}/>
                 </div>
               </div>
             </div>
@@ -667,31 +671,32 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             <span style={{fontSize:10,color:T.faint}}>›</span>
           </button>
           <SettingsModal open={!!p._specOpen} onClose={()=>updateProd(i,{...p,_specOpen:false})} title="Specialty" summary={activeSpecs.length>0?activeSpecs.join(" · "):"None applied"} width={460}>
-            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {Object.entries(pr.specialty).map(([key,rate])=>{
                 const isFleece = key.toLowerCase().includes("fleece");
                 const on = isFleece ? p.isFleece : (p.specialtyQtys?.[key+"_on"]>0);
                 const stored = p.specialtyQtys?.[key+"_count"]||0;
                 const count = isFleece ? allPrintCount : (stored > 0 && stored < activeLocs ? stored : activeLocs);
+                const rowCost = on ? rate * count : 0;
 
                 return (
-                  <div key={key} style={{display:"flex",alignItems:"center",gap:8,fontSize:11}}>
-                    <button onClick={()=>{
-                      if (isFleece) return;
-                      const newOn = !on;
-                      const newQtys = {...(p.specialtyQtys||{}), [key+"_on"]:newOn?1:0};
-                      if (newOn && !newQtys[key+"_count"]) newQtys[key+"_count"] = activeLocs;
-                      updateProd(i,{...p,specialtyQtys:newQtys});
-                    }}
-                      style={{padding:"2px 8px",fontSize:10,fontWeight:on?600:400,borderRadius:4,cursor:isFleece?"default":"pointer",border:`1px solid ${on?T.accent:T.border}`,background:on?T.accentDim:"transparent",color:on?T.accent:T.faint,fontFamily:font}}>
-                      {key}
-                    </button>
+                  <div key={key} onClick={()=>{
+                    if (isFleece) return;
+                    const newOn = !on;
+                    const newQtys = {...(p.specialtyQtys||{}), [key+"_on"]:newOn?1:0};
+                    if (newOn && !newQtys[key+"_count"]) newQtys[key+"_count"] = activeLocs;
+                    updateProd(i,{...p,specialtyQtys:newQtys});
+                  }} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:on?T.greenDim:T.surface,border:`1px solid ${on?T.green+"66":T.border}`,borderRadius:8,cursor:isFleece?"default":"pointer",transition:"all 0.15s",userSelect:"none"}}>
+                    <span style={{flex:1,fontSize:13,fontWeight:600,color:on?T.green:T.text,fontFamily:font}}>{key}</span>
                     {on && !isFleece && (
-                      <input type="text" inputMode="numeric" value={count||""} onChange={e=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_count"]:parseInt(e.target.value)||0}})}
-                        style={{width:30,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,fontFamily:mono,outline:"none",padding:"2px"}}/>
+                      <div style={{display:"inline-flex",alignItems:"center",gap:6}} onClick={e=>e.stopPropagation()}>
+                        <input type="text" inputMode="numeric" value={count||""} onChange={e=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_count"]:parseInt(e.target.value)||0}})}
+                          style={{width:46,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"4px 6px"}}/>
+                        <span style={{fontSize:10,color:T.muted,fontFamily:font,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>locs</span>
+                      </div>
                     )}
-                    {isFleece && on && <span style={{fontSize:9,color:T.faint,fontFamily:mono}}>{count}</span>}
-                    <span style={{fontFamily:mono,color:on?T.text:T.faint,fontSize:10}}>${on?(rate*count).toFixed(2):"—"}</span>
+                    {isFleece && on && <span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{count} sizes</span>}
+                    <span style={{fontFamily:mono,fontWeight:700,fontSize:13,color:on?T.green:T.faint,minWidth:72,textAlign:"right"}}>${on?rowCost.toFixed(2):"—"}</span>
                   </div>
                 );
               })}
@@ -718,28 +723,30 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           <SettingsModal open={!!p._customOpen} onClose={()=>updateProd(i,{...p,_customOpen:false})} title="Custom Costs" summary={activeCosts.length>0?activeCosts.map(c=>c.desc).join(" · "):"None applied"} width={520}>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {(p.customCosts||[]).map((cc,ci)=>(
-                <div key={ci} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,minWidth:0,flexWrap:"wrap"}}>
+                <div key={ci} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,flexWrap:"wrap"}}>
                   <input value={cc.desc||""} onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
-                    style={{flex:"1 1 140px",minWidth:80,background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,padding:"3px 6px",outline:"none",fontFamily:font}}/>
-                  <div style={{display:"flex",gap:2,flexShrink:0}}>
+                    placeholder="Description"
+                    style={{flex:"1 1 160px",minWidth:120,background:T.card,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,fontSize:13,padding:"6px 10px",outline:"none",fontFamily:font,fontWeight:500}}/>
+                  <div style={{display:"inline-flex",background:T.card,border:`1px solid ${T.border}`,borderRadius:6,overflow:"hidden",flexShrink:0}}>
                     {[{label:"/ unit",flat:false},{label:"flat",flat:true}].map(opt=>{
                       const sel=cc.flat===opt.flat;
                       return <button key={opt.label} onClick={()=>{const c=[...p.customCosts];c[ci]={...c[ci],flat:opt.flat};updateProd(i,{...p,customCosts:c});}}
-                        style={{padding:"2px 6px",fontSize:8,fontWeight:600,border:`1px solid ${sel?T.accent:T.border}`,borderRadius:4,cursor:"pointer",background:sel?T.accent:"transparent",color:sel?"#fff":T.faint}}>{opt.label}</button>;
+                        style={{padding:"6px 12px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer",background:sel?T.text:"transparent",color:sel?"#fff":T.muted,fontFamily:font}}>{opt.label}</button>;
                     })}
                   </div>
-                  <div style={{display:"flex",alignItems:"center",flexShrink:0}}>
-                    <span style={{fontSize:9,color:T.faint,marginRight:1}}>$</span>
+                  <div style={{display:"inline-flex",alignItems:"center",gap:4,background:T.card,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",flexShrink:0}}>
+                    <span style={{fontSize:12,color:T.faint,fontFamily:mono}}>$</span>
                     <input type="text" inputMode="decimal" value={cc.perUnit||cc.amount||""} onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],perUnit:e.target.value,amount:e.target.value};updateProd(i,{...p,customCosts:c});}}
-                      style={{width:44,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:10,fontFamily:mono,outline:"none",padding:"2px"}}/>
+                      placeholder="0.00"
+                      style={{width:60,textAlign:"left",background:"transparent",border:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:0}}/>
                   </div>
                   <button onClick={()=>{const c=p.customCosts.filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
-                    style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:10,flexShrink:0}}
-                    onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
+                    style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:18,flexShrink:0,padding:"2px 6px",lineHeight:1}}
+                    onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
                 </div>
               ))}
               <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
-                style={{fontSize:11,color:T.muted,background:"none",border:`1px dashed ${T.border}`,borderRadius:6,padding:"8px",cursor:"pointer",fontFamily:font,textAlign:"center",minHeight:36}}
+                style={{fontSize:13,fontWeight:600,color:T.muted,background:"none",border:`1px dashed ${T.border}`,borderRadius:8,padding:"12px",cursor:"pointer",fontFamily:font,textAlign:"center"}}
                 onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.muted}>
                 + Add cost
               </button>
