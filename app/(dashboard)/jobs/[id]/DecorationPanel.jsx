@@ -320,10 +320,10 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           // print locations.
           const puffActive = isActive && p.specialtyQtys && Object.keys(p.specialtyQtys).some(k=>k.toLowerCase().includes("puff")&&k.endsWith("_on")&&p.specialtyQtys[k]);
           return (
-            <div key={loc} style={{background:isActive?T.surface:"transparent",border:`1px solid ${isActive?T.border:T.border+"66"}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:10,minHeight:38}}>
+            <div key={loc} style={{background:isActive?T.surface:"transparent",border:`1px solid ${isActive?T.border:T.border+"66"}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
               {/* Location name — fixed-width column so colors below
                   line up across all rows. */}
-              <div style={{width:170,flexShrink:0,position:"relative"}}>
+              <div style={{width:isMobile?120:170,flexShrink:0,position:"relative"}}>
                 <input value={ld.location||""} onChange={e=>updateLoc(loc,{location:e.target.value,printer:p.printVendor})}
                   list={`loc-presets-${i}-${loc}`}
                   style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:font,width:"100%",padding:0}}
@@ -455,9 +455,9 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
         const hasPackaging = p.printVendor && pr.packaging && Object.keys(pr.packaging).length > 0;
         const hasFinishing = p.printVendor && pr.finishing && Object.keys(pr.finishing).length > 0;
         return (
-          <div style={{display:"flex",gap:24,flexWrap:"wrap",alignItems:"flex-start",padding:"4px 0"}}>
+          <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:isMobile?12:24,flexWrap:"wrap",alignItems:isMobile?"stretch":"flex-start",padding:"4px 0"}}>
             {/* Tag */}
-            <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:140}}>
+            <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:isMobile?0:140}}>
               <div style={sectionLabel}>Tag print</div>
               <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                 <button onClick={()=>updateProd(i,{...p,tagPrint:!p.tagPrint,tagRepeat:p.tagPrint?false:p.tagRepeat})}
@@ -508,7 +508,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
 
             {/* Packaging */}
             {hasPackaging && (
-              <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:140}}>
+              <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:isMobile?0:140}}>
                 <div style={sectionLabel}>Packaging</div>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                   {Object.keys(pr.packaging).map(k=>{
@@ -529,7 +529,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
 
             {/* Finishing */}
             {hasFinishing && (
-              <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:140}}>
+              <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:isMobile?0:140}}>
                 <div style={sectionLabel}>Finishing</div>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                   {Object.keys(pr.finishing).map(key=>{
@@ -553,7 +553,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           so the collapsed summaries sit side-by-side instead of
           stacking down the page. Each card expands inline when
           tapped; on narrow viewports the grid wraps. */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3, minmax(0, 1fr))",gap:8,alignItems:"start"}}>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3, minmax(0, 1fr))",gap:8,alignItems:"start"}}>
       {p.printVendor && pr.setup && (()=>{
         const activeSetup = Object.keys(pr.setup).filter(key => {
           const isScreens = key.toLowerCase().replace(/\s/g,"") === "screens";
