@@ -862,20 +862,26 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           just floating over instead of pushing the
                           page down. */}
                       <div onClick={()=>updateProd(i,{...p,_blanksExpanded:true})}
-                        style={{display:"flex",alignItems:"center",gap:14,padding:"6px 12px",borderRadius:10,background:T.surface,border:`1px solid ${T.border}`,cursor:"pointer",transition:"all 0.15s"}}
+                        style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",gap:isMobile?4:14,padding:"8px 12px",borderRadius:10,background:T.surface,border:`1px solid ${T.border}`,cursor:"pointer",transition:"all 0.15s"}}
                         onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent+"55";}}
                         onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
-                        <div style={{flex:1,minWidth:0,display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
-                          <span style={{fontSize:13,fontWeight:700,color:T.text}}>{p.supplier || "— supplier —"}</span>
-                          {(p.style || p.color) && (
-                            <span style={{fontSize:11,color:T.muted}}>
-                              {[p.style, p.color].filter(Boolean).join(" · ")}
-                            </span>
-                          )}
-                          {p.isFleece && <span style={{fontSize:9,fontWeight:700,color:T.accent,letterSpacing:"0.06em",textTransform:"uppercase"}}>Fleece</span>}
+                        {/* Row 1: supplier · style · color · chevron */}
+                        <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:isMobile?"0 0 auto":1}}>
+                          <div style={{flex:1,minWidth:0,display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
+                            <span style={{fontSize:13,fontWeight:700,color:T.text}}>{p.supplier || "— supplier —"}</span>
+                            {(p.style || p.color) && (
+                              <span style={{fontSize:11,color:T.muted}}>
+                                {[p.style, p.color].filter(Boolean).join(" · ")}
+                              </span>
+                            )}
+                            {p.isFleece && <span style={{fontSize:9,fontWeight:700,color:T.accent,letterSpacing:"0.06em",textTransform:"uppercase"}}>Fleece</span>}
+                          </div>
+                          {isMobile && <span style={{fontSize:12,color:T.faint,flexShrink:0,lineHeight:1}}>›</span>}
                         </div>
-                        {sizeSummary && <span style={{fontSize:12,color:T.text,fontFamily:mono,fontWeight:700,flexShrink:0}}>{sizeSummary}</span>}
-                        <span style={{fontSize:12,color:T.faint,flexShrink:0,lineHeight:1}}>›</span>
+                        {/* Sizes — on mobile sits on its own row below the
+                            identity; on desktop stays inline to the right. */}
+                        {sizeSummary && <span style={{fontSize:isMobile?11:12,color:isMobile?T.muted:T.text,fontFamily:mono,fontWeight:isMobile?500:700,flexShrink:0,whiteSpace:isMobile?"normal":"nowrap",overflow:isMobile?"visible":"hidden",textOverflow:isMobile?"clip":"ellipsis"}}>{sizeSummary}</span>}
+                        {!isMobile && <span style={{fontSize:12,color:T.faint,flexShrink:0,lineHeight:1}}>›</span>}
                       </div>
 
                       {/* Editor opens in a centered modal. Size
