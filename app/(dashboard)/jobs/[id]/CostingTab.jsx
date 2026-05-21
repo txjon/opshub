@@ -551,15 +551,18 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 return (
                   <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
                     {/* Header: Letter + Name + Qty + Sell $/unit override */}
-                    <div onClick={()=>headerClick(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
-                      <span style={{width:24,height:24,borderRadius:5,background:T.purpleDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.purple,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
-                      <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
-                        <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||"Accessory"}</span>
-                        <span style={{fontSize:10,color:T.purple,fontWeight:600}}>Accessory</span>
-                        <RfqBadge itemId={p.id} />
+                    <div onClick={()=>headerClick(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",gap:isMobile?12:10,cursor:"pointer",userSelect:"none"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,flex:isMobile?"0 0 auto":1,minWidth:0}}>
+                        <span style={{width:24,height:24,borderRadius:5,background:T.purpleDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.purple,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
+                        <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",minWidth:0}}>
+                          <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||"Accessory"}</span>
+                          <span style={{fontSize:10,color:T.purple,fontWeight:600}}>Accessory</span>
+                          <RfqBadge itemId={p.id} />
+                        </div>
+                        {isMobile && !selectedItemId && <span style={{fontSize:14,color:T.faint,marginLeft:6,flexShrink:0,lineHeight:1}}>›</span>}
                       </div>
-                      <div style={{display:"flex",gap:0,alignItems:"center"}}>
-                        <div style={{textAlign:"right",width:70,flexShrink:0,marginRight:16}}>
+                      <div style={{display:"flex",gap:0,alignItems:"center",justifyContent:isMobile?"space-between":"flex-start"}}>
+                        <div style={{textAlign:isMobile?"left":"right",width:isMobile?"auto":70,flexShrink:0,marginRight:isMobile?0:16}}>
                           <div style={{fontSize:9,color:T.faint,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
                           <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                         </div>
@@ -762,15 +765,21 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               const chevron = onSelectItem ? "›" : (isCollapsed?"v":"^");
               return(
                 <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
-                  <div onClick={()=>headerClick(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
-                    <span style={{width:24,height:24,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
-                    <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
-                      <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||("Product "+(i+1))}</span>
-                      {(p.style||p.color)&&<span style={{fontSize:11,color:T.muted,fontFamily:font}}>{p.style}{p.color?` · ${p.color}`:""}</span>}
-                      <RfqBadge itemId={p.id} />
+                  <div onClick={()=>headerClick(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",gap:isMobile?12:10,cursor:"pointer",userSelect:"none"}}>
+                    {/* Identity row — letter + name + style. On mobile
+                        this is its own line; on desktop it shares the
+                        row with the controls and chevron. */}
+                    <div style={{display:"flex",alignItems:"center",gap:10,flex:isMobile?"0 0 auto":1,minWidth:0}}>
+                      <span style={{width:24,height:24,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
+                      <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",minWidth:0}}>
+                        <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||("Product "+(i+1))}</span>
+                        {(p.style||p.color)&&<span style={{fontSize:11,color:T.muted,fontFamily:font}}>{p.style}{p.color?` · ${p.color}`:""}</span>}
+                        <RfqBadge itemId={p.id} />
+                      </div>
+                      {isMobile && !selectedItemId && <span style={{fontSize:14,color:T.faint,marginLeft:6,flexShrink:0,lineHeight:1}}>›</span>}
                     </div>
-                    <div style={{display:"flex",gap:0,alignItems:"center"}}>
-                      <div style={{textAlign:"right",width:70,flexShrink:0,marginRight:16}}>
+                    <div style={{display:"flex",gap:0,alignItems:"center",justifyContent:isMobile?"space-between":"flex-start"}}>
+                      <div style={{textAlign:isMobile?"left":"right",width:isMobile?"auto":70,flexShrink:0,marginRight:isMobile?0:16}}>
                         <div style={{fontSize:9,color:T.faint,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
                         <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                       </div>
