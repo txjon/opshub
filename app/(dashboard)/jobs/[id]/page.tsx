@@ -162,10 +162,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         const lines = it.buy_sheet_lines || [];
         const sizes = sortSizes(lines.map((l: any) => l.size));
         const qtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
+        const totalQty = lines.reduce((a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0);
         const assignment = it.decorator_assignments?.[0];
         return {
           ...it,
-          sizes, qtys,
+          sizes, qtys, totalQty,
           decorator: assignment?.decorators?.name || null,
           decoration_type: assignment?.decoration_type || null,
           pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || null,
@@ -199,10 +200,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         const lines = it.buy_sheet_lines || [];
         const sizes = sortSizes(lines.map((l: any) => l.size));
         const qtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
+        const totalQty = lines.reduce((a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0);
         const assignment = it.decorator_assignments?.[0];
         return {
           ...it,
-          sizes, qtys,
+          sizes, qtys, totalQty,
           decorator: assignment?.decorators?.name || null,
           decoration_type: assignment?.decoration_type || null,
           pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || null,
