@@ -453,7 +453,6 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           ...(opts.outlined && !on ? { border: `1px solid ${T.border}`, background: "transparent" } : {}),
         });
         const hasPackaging = p.printVendor && pr.packaging && Object.keys(pr.packaging).length > 0;
-        const hasFinishing = p.printVendor && pr.finishing && Object.keys(pr.finishing).length > 0;
         return (
           <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:isMobile?12:24,flexWrap:"wrap",alignItems:isMobile?"stretch":"flex-start",padding:"4px 0"}}>
             {/* Tag */}
@@ -527,23 +526,10 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
               </div>
             )}
 
-            {/* Finishing */}
-            {hasFinishing && (
-              <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:isMobile?0:140}}>
-                <div style={sectionLabel}>Finishing</div>
-                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                  {Object.keys(pr.finishing).map(key=>{
-                    const on = p.finishingQtys?.[key+"_on"]>0;
-                    return (
-                      <button key={key} onClick={()=>updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),[key+"_on"]:on?0:1}})}
-                        style={toggleBtn(on)}>
-                        {key}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            {/* Finishing items (hem tag, hang tag, etc.) moved into the
+                Specialty/Add-ons modal — they're per-piece add-ons and
+                rarely used, so they don't earn always-visible real
+                estate next to Tag Print + Packaging. */}
           </div>
         );
       })()}
@@ -653,26 +639,31 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
         );
       })()}
 
-      {/* Specialty — column 2 of the grid */}
-      {p.printVendor && pr.specialty && Object.keys(pr.specialty).length>0 ? (()=>{
-        const activeSpecs = Object.entries(pr.specialty).filter(([key])=>{
+      {/* Specialty + Finishing — column 2 of the grid. The two share a
+          modal as "Add-ons" since both are per-piece optional charges
+          for the print run. Specialty rows scale by location count;
+          Finishing rows are flat per-piece toggles. */}
+      {p.printVendor && ((pr.specialty && Object.keys(pr.specialty).length>0) || (pr.finishing && Object.keys(pr.finishing).length>0)) ? (()=>{
+        const activeSpecs = Object.entries(pr.specialty||{}).filter(([key])=>{
           const isFleece = key.toLowerCase().includes("fleece");
           return isFleece ? p.isFleece : (p.specialtyQtys?.[key+"_on"]>0);
         }).map(([key])=>key);
-        const specSummary = activeSpecs.length>0 ? activeSpecs.join(", ") : "None";
+        const activeFinishing = Object.keys(pr.finishing||{}).filter(key => p.finishingQtys?.[key+"_on"]>0);
+        const activeAll = [...activeSpecs, ...activeFinishing];
+        const addonsSummary = activeAll.length>0 ? activeAll.join(", ") : "None";
         return (
         <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden"}}>
           <button onClick={()=>updateProd(i,{...p,_specOpen:true})}
             style={{width:"100%",padding:"6px 10px",background:T.surface,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",fontFamily:font}}>
             <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-              <span style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Specialty</span>
-              <span style={{fontSize:9,color:activeSpecs.length>0?T.accent:T.faint,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{specSummary}</span>
+              <span style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Add-ons</span>
+              <span style={{fontSize:9,color:activeAll.length>0?T.accent:T.faint,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addonsSummary}</span>
             </div>
             <span style={{fontSize:10,color:T.faint}}>›</span>
           </button>
-          <SettingsModal open={!!p._specOpen} onClose={()=>updateProd(i,{...p,_specOpen:false})} title="Specialty" summary={activeSpecs.length>0?activeSpecs.join(" · "):"None applied"} width={460}>
+          <SettingsModal open={!!p._specOpen} onClose={()=>updateProd(i,{...p,_specOpen:false})} title="Add-ons" summary={activeAll.length>0?activeAll.join(" · "):"None applied"} width={460}>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {Object.entries(pr.specialty).map(([key,rate])=>{
+              {Object.entries(pr.specialty||{}).map(([key,rate])=>{
                 const isFleece = key.toLowerCase().includes("fleece");
                 const on = isFleece ? p.isFleece : (p.specialtyQtys?.[key+"_on"]>0);
                 const stored = p.specialtyQtys?.[key+"_count"]||0;
@@ -696,6 +687,19 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                       </div>
                     )}
                     {isFleece && on && <span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{count} sizes</span>}
+                    <span style={{fontFamily:mono,fontWeight:700,fontSize:13,color:on?T.green:T.faint,minWidth:72,textAlign:"right"}}>${on?rowCost.toFixed(2):"—"}</span>
+                  </div>
+                );
+              })}
+              {/* Finishing rows — flat per-piece, on/off only, no count input. */}
+              {Object.entries(pr.finishing||{}).map(([key,rate])=>{
+                const on = p.finishingQtys?.[key+"_on"]>0;
+                const rowCost = on ? rate * (p.totalQty||0) : 0;
+                return (
+                  <div key={"fin-"+key} onClick={()=>updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),[key+"_on"]:on?0:1}})}
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:on?T.greenDim:T.surface,border:`1px solid ${on?T.green+"66":T.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s",userSelect:"none"}}>
+                    <span style={{flex:1,fontSize:13,fontWeight:600,color:on?T.green:T.text,fontFamily:font}}>{key}</span>
+                    <span style={{fontSize:10,color:T.muted,fontFamily:font,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>{`$${rate.toFixed(2)} ea`}</span>
                     <span style={{fontFamily:mono,fontWeight:700,fontSize:13,color:on?T.green:T.faint,minWidth:72,textAlign:"right"}}>${on?rowCost.toFixed(2):"—"}</span>
                   </div>
                 );
