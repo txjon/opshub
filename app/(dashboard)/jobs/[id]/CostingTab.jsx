@@ -10,6 +10,7 @@ import { SettingsModal } from "./SettingsModal";
 import { DriveThumb } from "@/components/DriveThumb";
 import { calcCostProduct as sharedCalcCostProduct, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, buildPrintersMap } from "@/lib/pricing";
 import { useClientBranding } from "@/lib/branding-client";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 const BLANK_COSTS = {
   "NL6210_White":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
@@ -240,6 +241,7 @@ function AddDecoratorModal({ open, onClose, onSaved }) {
 
 const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
   const branding=useClientBranding();
+  const isMobile=useIsMobile();
   const [costTab,setCostTab]=useState(initialTab||"calc");
   // Portal target for the right rail. Resolved after mount so the
   // host page (which renders the rail in its outer flex) has had a
@@ -473,7 +475,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
           fallback for any caller that still mounts the tab without
           piping through actionsRef/onPullStateChange. */}
       {costTab==="calc"&&!hideToolbar&&(
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,paddingBottom:8,borderBottom:`1px solid ${T.border}`}}>
+        <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",justifyContent:"space-between",gap:isMobile?10:0,marginBottom:12,paddingBottom:8,borderBottom:`1px solid ${T.border}`}}>
           <div>
             <span style={{fontSize:11,fontWeight:700,color:project?.type_meta?.costing_locked?T.green:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>
               {project?.type_meta?.costing_locked?"Pricing locked":"Pricing not locked"}
@@ -482,7 +484,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               {project?.type_meta?.costing_locked?"Ready to quote":"Lock in pricing when all items are costed"}
             </span>
           </div>
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             {/* Pull from PSDs — re-runs the auto-detect that fires on
                 tab mount, but on-demand. Useful when art lands AFTER
                 the user opened Costing (the initial auto-run found
@@ -527,7 +529,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
       )}
 
       {costTab==="calc"&&(
-        <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
+        <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:isMobile?12:16,alignItems:isMobile?"stretch":"flex-start"}}>
           <div style={{flex:1,minWidth:0}}>
             {costProds.map((p,i)=>{
               // If a sidebar item is selected, only render that item
@@ -839,7 +841,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       const sizeSummary = (p.sizes || []).filter(sz => (p.qtys?.[sz] || 0) > 0).map(sz => `${sz}:${p.qtys[sz]}`).join(" · ");
                       const marginColor = r ? (r.margin_pct >= 0.30 ? T.green : r.margin_pct >= 0.20 ? T.amber : T.red) : T.muted;
                       return (
-                    <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:20,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}}>
+                    <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:isMobile?0:20,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}}>
                       {/* Section label above the chip, matching Tag
                           Print / Packaging / Finishing headers. */}
                       <div style={{fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Blanks</div>
@@ -995,8 +997,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                     {/* KPI strip — 6 chips across the bottom of the item.
                         Revenue accent, profit trio colored by margin tier. */}
                     {r && (
-                      <div style={{paddingLeft:20,marginTop:2}}>
-                        <div style={{display:"grid",gridTemplateColumns:"repeat(6, minmax(0, 1fr))",gap:8}}>
+                      <div style={{paddingLeft:isMobile?0:20,marginTop:2}}>
+                        <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(3, minmax(0, 1fr))":"repeat(6, minmax(0, 1fr))",gap:8}}>
                           {[
                             ["Revenue",    fmtD(r.grossRev),       T.accent],
                             ["Blanks",     fmtD(r.blankCost),      T.text],
@@ -1039,7 +1041,14 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             });
             const vendorEntries=Object.entries(poByVendor).sort((a,b)=>b[1]-a[1]);
             const portalTarget = totalsRailEl;
-            const widthStyle = portalTarget ? {width:"100%"} : {width:200,flexShrink:0,position:"sticky",top:20};
+            // Portal exists on desktop only (page-level rail). On mobile
+            // the right column falls inline and stacks below items as
+            // full-width — sticky doesn't apply there.
+            const widthStyle = portalTarget
+              ? {width:"100%"}
+              : isMobile
+                ? {width:"100%"}
+                : {width:200,flexShrink:0,position:"sticky",top:20};
             const rightCol = (
             <div style={{...widthStyle,display:"flex",flexDirection:"column",gap:6}}>
               <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
