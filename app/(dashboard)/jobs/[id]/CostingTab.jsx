@@ -928,20 +928,13 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             })()
                           )}
                         </div>
-                        <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
-                          <span style={{fontSize:10,color:T.muted,fontFamily:font}}>Fleece</span>
-                          <div style={{display:"flex",borderRadius:5,overflow:"hidden",border:`1px solid ${T.border}`}}>
-                            {["Yes","No"].map(opt=>{
-                              const sel=(p.isFleece?"Yes":"No")===opt;
-                              return(
-                                <button key={opt} onClick={()=>updateProd(i,{...p,isFleece:opt==="Yes"})}
-                                  style={{padding:"4px 10px",fontSize:11,fontFamily:font,fontWeight:600,border:"none",cursor:"pointer",background:sel?(opt==="Yes"?T.accent:T.surface):T.card,color:sel?(opt==="Yes"?"#fff":T.text):T.faint,transition:"all 0.12s"}}>
-                                  {opt}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
+                        {/* Fleece flag now lives on the item (Product
+                            Builder is the canonical edit surface).
+                            Shown here as a read-only tag so costers see
+                            it but don't toggle it from this surface. */}
+                        {p.isFleece && (
+                          <span style={{fontSize:9,fontWeight:700,color:T.accent,letterSpacing:"0.08em",textTransform:"uppercase",border:`1px solid ${T.accent}66`,borderRadius:5,padding:"3px 8px",flexShrink:0}}>Fleece</span>
+                        )}
                       </div>
                       </div>
                       {/* Size breakdown — always expanded inside the
@@ -1583,6 +1576,11 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       // the consolidation. Tab unmounts on switch (autosave flushes), so
       // POTab edits are picked up on next mount.
       updates.itemNotes = it.production_notes_po || saved.itemNotes || "";
+      // Fleece flag — items.is_fleece is the canonical value (set in
+      // Product Builder). Old jobs that had isFleece on the costing run
+      // keep their flag via the saved.isFleece fallback so existing
+      // pricing math stays correct.
+      updates.isFleece = !!(it.is_fleece || saved.isFleece);
       return { ...saved, ...updates };
     }
     let blankCosts = {};
@@ -1620,6 +1618,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       blankCostPerUnit,
       totalQty: Object.values(it.qtys || {}).reduce((a, v) => a + v, 0),
       garment_type: it.garment_type || null,
+      isFleece: !!it.is_fleece,
       itemNotes: it.production_notes_po || "",
       ...((()=>{ const NG=["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]; return NG.includes(it.garment_type) && !saved ? { customCosts: [{desc:"",perUnit:0,flat:false},{desc:"",perUnit:0,flat:false}] } : {}; })()),
     };
