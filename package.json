@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:mobile": "echo \"\\n📱 On your phone, open: http://$(ipconfig getifaddr en0):3000\\n\" && next dev -H 0.0.0.0",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

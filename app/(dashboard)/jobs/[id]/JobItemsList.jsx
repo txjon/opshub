@@ -166,6 +166,54 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
           const stateColor = ITEM_STATE_COLORS[state] || T.muted;
           const etaValue = localEta[item.id] !== undefined ? localEta[item.id] : (item.client_eta || "");
 
+          if (isMobile) {
+            // Mobile card: vertical stack — name + meta on top, then a
+            // labeled qty / status / ETA row at the bottom. The bare
+            // date input got replaced with a label-above-input pattern
+            // so it reads as "set the client ETA" instead of an
+            // unlabeled date floating in the corner.
+            return (
+              <div key={item.id} style={{
+                display: "flex", flexDirection: "column", gap: 10,
+                padding: "12px 14px", background: T.surface, borderRadius: 8,
+              }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, lineHeight: 1.25, wordBreak: "break-word" }}>
+                    {item.name}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                    {[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ") || "—"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <span style={{ fontSize: 12, fontFamily: mono, color: T.text }}>
+                    {qty > 0 ? `${qty.toLocaleString()} units` : "—"}
+                  </span>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, color: stateColor,
+                    textTransform: "uppercase", letterSpacing: "0.06em",
+                  }}>{stateLabel}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                    Client ETA
+                  </span>
+                  <input type="date"
+                    value={etaValue}
+                    onChange={e => updateEta(item.id, e.target.value)}
+                    onBlur={() => flushEta(item.id)}
+                    style={{
+                      padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 6,
+                      background: T.card, color: T.text, fontSize: 13, fontFamily: mono,
+                      outline: "none", minHeight: 36, flex: "1 1 0",
+                      display: "block", WebkitAppearance: "none",
+                      MozAppearance: "none", appearance: "none",
+                    }} />
+                </div>
+              </div>
+            );
+          }
+
           return (
             <div key={item.id} style={{
               display: "grid", gridTemplateColumns: cols, gap: 10,
@@ -179,46 +227,22 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
                   {[item.blank_vendor, item.blank_sku].filter(Boolean).join(" ") || "—"}
                 </div>
               </div>
-
-              {isMobile ? (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 6 }}>
-                  <span style={{ fontSize: 11, fontFamily: mono, color: T.text }}>
-                    {qty > 0 ? `${qty.toLocaleString()} units` : "—"}
-                  </span>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, color: stateColor,
-                    textTransform: "uppercase", letterSpacing: "0.06em",
-                  }}>{stateLabel}</span>
-                  <input type="date"
-                    value={etaValue}
-                    onChange={e => updateEta(item.id, e.target.value)}
-                    onBlur={() => flushEta(item.id)}
-                    style={{
-                      padding: "4px 8px", border: `1px solid ${T.border}`, borderRadius: 4,
-                      background: T.card, color: T.text, fontSize: 11, fontFamily: mono,
-                      outline: "none", flex: "0 1 130px", minWidth: 0,
-                    }} />
-                </div>
-              ) : (
-                <>
-                  <div style={{ fontSize: 12, fontFamily: mono, color: T.text, textAlign: "right" }}>
-                    {qty > 0 ? qty.toLocaleString() : "—"}
-                  </div>
-                  <div style={{
-                    fontSize: 10, fontWeight: 700, color: stateColor,
-                    textTransform: "uppercase", letterSpacing: "0.06em",
-                  }}>{stateLabel}</div>
-                  <input type="date"
-                    value={etaValue}
-                    onChange={e => updateEta(item.id, e.target.value)}
-                    onBlur={() => flushEta(item.id)}
-                    style={{
-                      padding: "4px 8px", border: `1px solid ${T.border}`, borderRadius: 4,
-                      background: T.card, color: T.text, fontSize: 11, fontFamily: mono,
-                      outline: "none", width: "100%", boxSizing: "border-box",
-                    }} />
-                </>
-              )}
+              <div style={{ fontSize: 12, fontFamily: mono, color: T.text, textAlign: "right" }}>
+                {qty > 0 ? qty.toLocaleString() : "—"}
+              </div>
+              <div style={{
+                fontSize: 10, fontWeight: 700, color: stateColor,
+                textTransform: "uppercase", letterSpacing: "0.06em",
+              }}>{stateLabel}</div>
+              <input type="date"
+                value={etaValue}
+                onChange={e => updateEta(item.id, e.target.value)}
+                onBlur={() => flushEta(item.id)}
+                style={{
+                  padding: "4px 8px", border: `1px solid ${T.border}`, borderRadius: 4,
+                  background: T.card, color: T.text, fontSize: 11, fontFamily: mono,
+                  outline: "none", width: "100%", boxSizing: "border-box",
+                }} />
             </div>
           );
         })}

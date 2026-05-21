@@ -1,10 +1,12 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { DecorationPanel } from "./DecorationPanel";
+import { SettingsModal } from "./SettingsModal";
 import { DriveThumb } from "@/components/DriveThumb";
 import { calcCostProduct as sharedCalcCostProduct, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, buildPrintersMap } from "@/lib/pricing";
 import { useClientBranding } from "@/lib/branding-client";
@@ -236,9 +238,22 @@ function AddDecoratorModal({ open, onClose, onSaved }) {
   );
 }
 
-const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onUpdateProject,onPullFromPsds,pullingPsds,pullResult})=>{
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
   const branding=useClientBranding();
   const [costTab,setCostTab]=useState(initialTab||"calc");
+  // Portal target for the right rail. Resolved after mount so the
+  // host page (which renders the rail in its outer flex) has had a
+  // chance to commit it to the DOM. While null, the rail renders
+  // in-flow inside the costing inner flex.
+  const [totalsRailEl, setTotalsRailEl] = useState(null);
+  useEffect(() => {
+    const find = () => setTotalsRailEl(document.getElementById("costing-totals-rail"));
+    find();
+    // Re-resolve after the next frame in case the rail mounts in a
+    // sibling render pass (parent conditional on `tab === "costing"`).
+    const raf = requestAnimationFrame(find);
+    return () => cancelAnimationFrame(raf);
+  }, []);
   const [showSendEmail,setShowSendEmail]=useState(false);
   const [showRfqModal,setShowRfqModal]=useState(false);
   const [rfqVendor,setRfqVendor]=useState("");
@@ -335,6 +350,11 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
     setRfqShowPreview(false);
     setShowRfqModal(true);
   };
+  // Expose openRfqModal to the wrapper so the project header toolbar
+  // can trigger it without owning RFQ state.
+  useEffect(() => {
+    if (openRfqRef) openRfqRef.current = openRfqModal;
+  }, [openRfqRef]);
   const sendRfq = async () => {
     setRfqError("");
     const dec = getDecRecord(rfqVendor);
@@ -441,8 +461,11 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 
       {/* margin/toggles moved to project totals sidebar */}
 
-      {/* Lock In Pricing */}
-      {costTab==="calc"&&(
+      {/* Lock In Pricing — hidden when the project header is rendering
+          the unified toolbar (hideToolbar prop). Kept inline as a
+          fallback for any caller that still mounts the tab without
+          piping through actionsRef/onPullStateChange. */}
+      {costTab==="calc"&&!hideToolbar&&(
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,paddingBottom:8,borderBottom:`1px solid ${T.border}`}}>
           <div>
             <span style={{fontSize:11,fontWeight:700,color:project?.type_meta?.costing_locked?T.green:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>
@@ -459,9 +482,13 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 nothing and won't re-fire). Skips items that already
                 have print locations set so it's safe to click any
                 time. */}
+            {/* Action group — same height/padding/radius across all
+                three so they read as a coherent toolbar.
+                Tertiary (Pull) = ghost; Secondary (Request) = outlined;
+                Primary (Lock) = filled. */}
             {onPullFromPsds && (
               <button onClick={onPullFromPsds} disabled={pullingPsds}
-                style={{padding:"6px 14px",borderRadius:6,fontSize:12,fontWeight:600,cursor:pullingPsds?"default":"pointer",background:"transparent",border:`1px solid ${T.border}`,color:T.muted,fontFamily:font,opacity:pullingPsds?0.6:1}}
+                style={{height:34,padding:"0 14px",borderRadius:8,fontSize:12,fontWeight:600,cursor:pullingPsds?"default":"pointer",background:"transparent",border:`1px solid ${T.border}`,color:T.muted,fontFamily:font,opacity:pullingPsds?0.6:1,display:"inline-flex",alignItems:"center"}}
                 title="Re-scan items' PSD files in Art Files and populate empty print locations">
                 {pullingPsds ? "Pulling…" : "Pull from PSDs"}
               </button>
@@ -470,22 +497,20 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               <span style={{fontSize:11,color:T.muted,fontFamily:font}}>{pullResult}</span>
             )}
             <button onClick={openRfqModal}
-              style={{padding:"6px 14px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.accent}`,color:T.accent,fontFamily:font}}
+              style={{height:34,padding:"0 14px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.accent}`,color:T.accent,fontFamily:font,display:"inline-flex",alignItems:"center"}}
               title="Send a quote request to a decorator for selected items">
               Request Pricing
             </button>
             <button onClick={async ()=>{
-              // Save costing first
               if (onSave) await onSave();
               const { createClient: cc } = await import("@/lib/supabase/client");
               const sb = cc();
               const newVal = !project?.type_meta?.costing_locked;
               const meta = {...(project?.type_meta||{}), costing_locked: newVal, costing_locked_at: newVal ? new Date().toISOString() : null};
               await sb.from("jobs").update({type_meta: meta}).eq("id", project.id);
-              // Update local state immediately
               if (onUpdateProject) onUpdateProject({ type_meta: meta });
             }}
-              style={{padding:"6px 16px",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer",border:"none",
+              style={{height:34,padding:"0 16px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",border:"none",fontFamily:font,display:"inline-flex",alignItems:"center",
                 background:project?.type_meta?.costing_locked?T.surface:T.green,
                 color:project?.type_meta?.costing_locked?T.muted:"#fff"}}>
               {project?.type_meta?.costing_locked?"Unlock Pricing":"Lock In Pricing"}
@@ -742,14 +767,18 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             </>
                           ):(()=>{
                             const isOverride = p.sellOverride != null;
-                            const onStyle = {background:T.text,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
+                            // Amber when the override is applied — signals the
+                            // calculated sell price has been manually replaced.
+                            // Auto-mode active stays neutral dark.
+                            const overrideActiveStyle = {background:T.amber,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
+                            const autoActiveStyle = {background:T.text,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
                             const offStyle = {background:"none",border:"1px solid "+T.border,borderRadius:4,color:T.muted,cursor:"pointer",padding:"2px 0",fontSize:9,fontFamily:font,fontWeight:500,width:52,textAlign:"center"};
                             return (
                               <>
                                 <button onClick={()=>updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""})}
-                                  style={isOverride?onStyle:offStyle}>override</button>
+                                  style={isOverride?overrideActiveStyle:offStyle}>override</button>
                                 <button onClick={()=>updateProd(i,{...p,sellOverride:null})}
-                                  style={!isOverride?onStyle:offStyle}>auto</button>
+                                  style={!isOverride?autoActiveStyle:offStyle}>auto</button>
                               </>
                             );
                           })()}
@@ -777,11 +806,59 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                     </div>
                     {!selectedItemId && <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>}
                   </div>
-                  <div style={{padding:16,display:bodyDisplay,gridTemplateColumns:"280px 1fr",gap:0,alignItems:"start",position:"relative"}}>
-                    {/* BLANKS PANEL — dimmed when locked (no summary view here yet) */}
-                    <div style={{display:"flex",flexDirection:"column",gap:12,paddingRight:20,borderRight:"1px solid "+T.border,flexShrink:0,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}}>
-                      {/* BLANKS HEADER */}
-                      <div style={{fontSize:11,fontWeight:800,color:T.text,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",paddingBottom:8,borderBottom:`2px solid ${T.text}`}}>Blanks</div>
+                  <div style={{padding:16,display:bodyDisplay,flexDirection:"column",gap:14,alignItems:"stretch",position:"relative"}}>
+                    {/* DECORATION PANEL — full width on top. This is
+                        where the work happens (vendor, locations,
+                        colors, finishing) so it gets the wide stage. */}
+                    <DecorationPanel p={p} i={i} costProds={costProds} PRINTERS={PRINTERS} decoratorRecords={decoratorRecords} onAddDecorator={()=>setAddDecoratorTargetIdx(i)} updateProd={updateProd} setCostProds={setCostProds} lookupPrintPrice={lookupPrintPrice} lookupTagPrice={lookupTagPrice} costingLocked={!!project?.type_meta?.costing_locked} />
+
+                    {/* BLANKS — summary chip by default, expands on
+                        click to reveal the full editable panel. Keeps
+                        the supplier / fleece / size / cost / notes
+                        controls accessible without competing with
+                        Decoration for column space. */}
+                    {(() => {
+                      const blanksExpanded = !!p._blanksExpanded;
+                      const sizeSummary = (p.sizes || []).filter(sz => (p.qtys?.[sz] || 0) > 0).map(sz => `${sz}:${p.qtys[sz]}`).join(" · ");
+                      const marginColor = r ? (r.margin_pct >= 0.30 ? T.green : r.margin_pct >= 0.20 ? T.amber : T.red) : T.muted;
+                      return (
+                    <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:20,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}}>
+                      {/* Section label above the chip, matching Tag
+                          Print / Packaging / Finishing headers. */}
+                      <div style={{fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Blanks</div>
+                      {/* Summary chip — click opens the editor in a
+                          centered modal so the page height stays
+                          constant. Same data, same edit surface,
+                          just floating over instead of pushing the
+                          page down. */}
+                      <div onClick={()=>updateProd(i,{...p,_blanksExpanded:true})}
+                        style={{display:"flex",alignItems:"center",gap:14,padding:"6px 12px",borderRadius:10,background:T.surface,border:`1px solid ${T.border}`,cursor:"pointer",transition:"all 0.15s"}}
+                        onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent+"55";}}
+                        onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                        <div style={{flex:1,minWidth:0,display:"flex",alignItems:"baseline",gap:10,flexWrap:"wrap"}}>
+                          <span style={{fontSize:13,fontWeight:700,color:T.text}}>{p.supplier || "— supplier —"}</span>
+                          {(p.style || p.color) && (
+                            <span style={{fontSize:11,color:T.muted}}>
+                              {[p.style, p.color].filter(Boolean).join(" · ")}
+                            </span>
+                          )}
+                          {p.isFleece && <span style={{fontSize:9,fontWeight:700,color:T.accent,letterSpacing:"0.06em",textTransform:"uppercase"}}>Fleece</span>}
+                        </div>
+                        {sizeSummary && <span style={{fontSize:12,color:T.text,fontFamily:mono,fontWeight:700,flexShrink:0}}>{sizeSummary}</span>}
+                        <span style={{fontSize:12,color:T.faint,flexShrink:0,lineHeight:1}}>›</span>
+                      </div>
+
+                      {/* Editor opens in a centered modal. Size
+                          breakdown is forced open inside since the
+                          modal handles the height and there's no
+                          point in a nested collapsible. */}
+                      <SettingsModal
+                        open={blanksExpanded}
+                        onClose={()=>updateProd(i,{...p,_blanksExpanded:false})}
+                        title={`Blanks — ${p.name || "Item"}`}
+                        summary={[p.supplier, p.style, p.color].filter(Boolean).join(" · ") || "Configure blank"}
+                        width={620}>
+                    <div style={{display:"flex",flexDirection:"column",gap:12}}>
 
                       {/* Line 1: Supplier + All button */}
                       <div style={{marginBottom:0}}>
@@ -831,23 +908,13 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         </div>
                       </div>
                       </div>
-                      {/* Collapsible size grid */}
-                      <div onClick={()=>updateProd(i,{...p,_blankOpen:!p._blankOpen})} style={{cursor:"pointer",padding:"12px 8px",borderRadius:6,background:p._blankOpen?T.accentDim:T.surface,border:"1px solid "+(p._blankOpen?T.accent+"44":T.border),marginBottom:p._blankOpen?8:0,transition:"all 0.15s"}}>
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:!p._blankOpen&&(p.sizes||[]).some(sz=>(p.qtys?.[sz]||0)>0)?6:0}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <span style={{fontSize:10,fontWeight:700,color:p._blankOpen?T.accent:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</span>
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <span style={{fontSize:11,color:p._blankOpen?T.accent:T.faint,display:"inline-block",transform:p._blankOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.15s"}}>v</span>
-                          </div>
-                        </div>
-                        {!p._blankOpen&&(p.sizes||[]).some(sz=>(p.qtys?.[sz]||0)>0)&&(
-                          <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-                            {(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).map(sz=><span key={sz} style={{fontSize:11,color:T.text,fontFamily:mono}}>{sz}: {p.qtys[sz]}</span>)}
-                          </div>
-                        )}
-                      </div>
-                      {p._blankOpen&&<div style={{borderRadius:8,border:"1px solid "+T.border,overflow:"hidden"}}>
+                      {/* Size breakdown — always expanded inside the
+                          modal. The collapsible chrome was only there to
+                          save space when this lived inline; modal owns
+                          the height now so the grid renders directly. */}
+                      <div>
+                        <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Size breakdown</div>
+                      <div style={{borderRadius:8,border:"1px solid "+T.border,overflow:"hidden"}}>
                           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
                             <thead>
                               <tr style={{background:T.surface}}>
@@ -896,48 +963,50 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                               )}
                             </tbody>
                           </table>
-                      </div>}
+                      </div>
+                      </div>
                       <div>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Production notes</div>
                         <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})} placeholder="Item note on PO" rows={1}
                           style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:32,boxSizing:"border-box",lineHeight:1.4}}/>
                       </div>
-                      {r&&(
-                        <div style={{background:T.card,borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden",marginTop:4}}>
-                          <div style={{padding:"6px 10px",background:T.surface,fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:`1px solid ${T.border}`}}>Item Summary</div>
-                          <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
-                            <tbody>
-                              {[
-                                ["Revenue",    fmtD(r.grossRev),       T.accent],
-                                ["Blanks",     fmtD(r.blankCost),      T.text],
-                                ["PO Total",   fmtD(r.poTotal),        T.text],
-                                ...(r.shipping>0?[["Shipping", fmtD(r.shipping), T.text]]:[]),
-                                ...(r.ccFees>0?[["CC Fees", fmtD(r.ccFees), T.text]]:[]),
-                                ["Net Profit", fmtD(r.netProfit),      mc2],
-                                ["Margin",     fmtP(r.margin_pct),     mc2],
-                                ["Per Piece",  fmtD(r.profitPerPiece), mc2],
-                              ].map(([l,v,c],idx)=>{
-                                const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
-                                return (
-                                <tr key={l} style={{background:T.card,borderTop:l==="Net Profit"?`1px solid ${T.border}`:"none",borderBottom:`1px solid ${T.border}22`}}>
-                                  <td style={{padding:"3px 10px",color:T.muted,fontFamily:font,fontWeight:500}}>{l}</td>
-                                  <td style={{padding:"3px 10px",color:c,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{v}</td>
-                                </tr>
-                              );})}
-                            </tbody>
-                          </table>
+                    </div>
+                      </SettingsModal>
+                    </div>
+                      );
+                    })()}
+                    {/* KPI strip — 6 chips across the bottom of the item.
+                        Revenue accent, profit trio colored by margin tier. */}
+                    {r && (
+                      <div style={{paddingLeft:20,marginTop:2}}>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(6, minmax(0, 1fr))",gap:8}}>
+                          {[
+                            ["Revenue",    fmtD(r.grossRev),       T.accent],
+                            ["Blanks",     fmtD(r.blankCost),      T.text],
+                            ["PO Total",   fmtD(r.poTotal),        T.text],
+                            ["Net Profit", fmtD(r.netProfit),      mc2],
+                            ["Margin",     fmtP(r.margin_pct),     mc2],
+                            ["Per Piece",  fmtD(r.profitPerPiece), mc2],
+                          ].map(([l,v,c])=>(
+                            <div key={l} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"5px 10px",display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
+                              <div style={{fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{l}</div>
+                              <div style={{fontSize:13,fontWeight:700,color:c,fontFamily:mono,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v}</div>
+                            </div>
+                          ))}
                         </div>
-                      )}
-                    </div>{/* end blanks panel */}
-                    {/* DECORATION PANEL */}
-                    <DecorationPanel p={p} i={i} costProds={costProds} PRINTERS={PRINTERS} decoratorRecords={decoratorRecords} onAddDecorator={()=>setAddDecoratorTargetIdx(i)} updateProd={updateProd} setCostProds={setCostProds} lookupPrintPrice={lookupPrintPrice} lookupTagPrice={lookupTagPrice} costingLocked={!!project?.type_meta?.costing_locked} />
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Project totals — sticky sidebar */}
+          {/* Project totals — portaled into the page-level right rail
+              when the host page provides a #costing-totals-rail target.
+              Living outside the costing scroll context keeps the rail
+              fixed regardless of which item is selected. Falls back to
+              in-flow sticky render when the target isn't mounted. */}
           {results.length>0&&(()=>{
             const totBlank=results.reduce((a,r)=>a+r.blankCost,0);
             const totPO=results.reduce((a,r)=>a+r.poTotal,0);
@@ -952,20 +1021,22 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               poByVendor[cp.printVendor]=(poByVendor[cp.printVendor]||0)+results[i].poTotal;
             });
             const vendorEntries=Object.entries(poByVendor).sort((a,b)=>b[1]-a[1]);
-            return (
-            <div style={{width:200,flexShrink:0,position:"sticky",top:20,display:"flex",flexDirection:"column",gap:8}}>
+            const portalTarget = totalsRailEl;
+            const widthStyle = portalTarget ? {width:"100%"} : {width:200,flexShrink:0,position:"sticky",top:20};
+            const rightCol = (
+            <div style={{...widthStyle,display:"flex",flexDirection:"column",gap:6}}>
               <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
                 {["10%","15%","20%","25%","30%"].map(m=>(
                   <button key={m} onClick={()=>setCostMargin(m)}
                     style={{background:costMargin===m?T.amber:"transparent",color:costMargin===m?"#fff":T.muted,border:"none",borderRadius:4,padding:"2px 6px",fontSize:10,fontFamily:mono,cursor:"pointer",flex:1}}>{m}</button>
                 ))}
               </div>
-              <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+              <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:8}}>
                 <CToggle label="Shipping" value={inclShip} onChange={setInclShip}/>
                 <CToggle label="CC Fees" value={inclCC} onChange={setInclCC}/>
               </div>
-              <div style={{background:T.card,borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden"}}>
-                <div style={{padding:"6px 10px",background:T.surface,fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:`1px solid ${T.border}`}}>Project Totals</div>
+              <div style={{background:T.card,borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden",marginTop:8}}>
+                <div style={{padding:"5px 10px",background:T.surface,fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:`1px solid ${T.border}`}}>Project Totals</div>
                 <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
                   <tbody>
                     {[
@@ -984,8 +1055,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       const isVendorSub=l.startsWith("  ");
                       return (
                       <tr key={l+idx} style={{background:T.card,borderTop:l==="Net Profit"?`1px solid ${T.border}`:"none",borderBottom:`1px solid ${T.border}22`}}>
-                        <td style={{padding:isVendorSub?"3px 10px 3px 18px":"5px 10px",color:isVendorSub?T.faint:T.muted,fontFamily:font,fontWeight:isVendorSub?400:500,fontSize:isVendorSub?10:11}}>{l}</td>
-                        <td style={{padding:isVendorSub?"3px 10px":"5px 10px",color:c,fontFamily:mono,fontWeight:isVendorSub?500:700,textAlign:"right",fontSize:isVendorSub?10:11}}>{v}</td>
+                        <td style={{padding:isVendorSub?"2px 10px 2px 18px":"3px 10px",color:isVendorSub?T.faint:T.muted,fontFamily:font,fontWeight:isVendorSub?400:500,fontSize:isVendorSub?10:11}}>{l}</td>
+                        <td style={{padding:isVendorSub?"2px 10px":"3px 10px",color:c,fontFamily:mono,fontWeight:isVendorSub?500:700,textAlign:"right",fontSize:isVendorSub?10:11}}>{v}</td>
                       </tr>
                     );})}
                   </tbody>
@@ -1008,6 +1079,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               })()}
             </div>
             );
+            return portalTarget ? createPortal(rightCol, portalTarget) : rightCol;
           })()}
         </div>
       )}
@@ -1426,7 +1498,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 
 export { CostingTab };
 
-export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false, selectedItemId, onUpdateProject }) {
+export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false, selectedItemId, onUpdateProject, hideToolbar = false, actionsRef, onPullStateChange }) {
   const [pricingReady, setPricingReady] = useState(false);
   const [decoratorRecords, setDecoratorRecords] = useState([]);
   const vendorIdMapRef = React.useRef({});
@@ -1672,6 +1744,22 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     setTimeout(() => setPullResult(null), 10000);
   }, [detectFromPsds]);
 
+  // Project header toolbar registration. The wrapper owns pull state +
+  // PSD logic; the inner CostingTab owns the RFQ modal. Both register
+  // their handler onto the shared actionsRef so the header can fire
+  // either without a duplicate toolbar.
+  const openRfqRef = React.useRef(null);
+  useEffect(() => {
+    if (!actionsRef) return;
+    actionsRef.current = {
+      pullFromPsds: handlePullFromPsds,
+      openRfqModal: () => openRfqRef.current?.(),
+    };
+  }, [actionsRef, handlePullFromPsds]);
+  useEffect(() => {
+    if (onPullStateChange) onPullStateChange(pullingPsds, pullResult);
+  }, [pullingPsds, pullResult, onPullStateChange]);
+
   // First-load auto-run — same behavior as before, just delegates to
   // the shared function now.
   const psdDetectedRef = React.useRef(false);
@@ -1879,6 +1967,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       onRefreshDecorators={refreshDecorators}
       costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs} selectedItemId={selectedItemId} onUpdateProject={onUpdateProject}
       onPullFromPsds={handlePullFromPsds} pullingPsds={pullingPsds} pullResult={pullResult}
+      hideToolbar={hideToolbar} openRfqRef={openRfqRef}
     />
   );
 }
