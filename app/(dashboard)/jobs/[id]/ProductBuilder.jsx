@@ -1657,7 +1657,17 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                 <span style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: T.text, wordBreak: isMobile ? "break-word" : "normal" }}>{item.blank_vendor}</span>
                 {(item.color || item.blank_sku) && <span style={{ fontSize: isMobile ? 13 : 14, color: T.muted }}>{item.color || item.blank_sku}</span>}
                 <select value={item.garment_type || ""} onClick={e => e.stopPropagation()}
-                  onChange={e => { e.stopPropagation(); onUpdateItem(item.id, { garment_type: e.target.value || null }); }}
+                  onChange={e => {
+                    e.stopPropagation();
+                    const next = e.target.value || null;
+                    // Fleece garments auto-flag is_fleece so the
+                    // decorator's per-print fleece upcharge + fleece
+                    // packaging variant kick in without a second click.
+                    // Picking a non-fleece garment clears the flag.
+                    const FLEECE_TYPES = ["crewneck","hoodie","jacket"];
+                    const isFleeceType = next && FLEECE_TYPES.includes(next);
+                    onUpdateItem(item.id, { garment_type: next, is_fleece: !!isFleeceType });
+                  }}
                   style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, background: T.card, color: T.muted, border: `1px solid ${T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
                   <option value="">type</option>
                   {["bandana","banner","beanie","crewneck","custom","flag","hat","hoodie","jacket","koozie","lighter","longsleeve","pants","patch","pin","poster","samples","shorts","socks","sticker","tee","tote","towel","water_bottle"].map(t => (
@@ -1670,7 +1680,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                     property of the garment, not the costing run. */}
                 <button onClick={e => { e.stopPropagation(); if (costingLocked) return; onUpdateItem(item.id, { is_fleece: !item.is_fleece }); }}
                   title="Mark this blank as fleece (applies decorator fleece upcharge per print)"
-                  style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 6, border: `1px solid ${item.is_fleece ? T.accent : T.border}`, background: item.is_fleece ? T.accent : T.card, color: item.is_fleece ? "#fff" : T.muted, cursor: costingLocked ? "default" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", opacity: costingLocked ? 0.5 : 1 }}>
+                  style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 6, border: `1px solid ${item.is_fleece ? T.green : T.border}`, background: item.is_fleece ? T.green : T.card, color: item.is_fleece ? "#fff" : T.muted, cursor: costingLocked ? "default" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", opacity: costingLocked ? 0.5 : 1 }}>
                   {item.is_fleece ? "Fleece" : "Fleece?"}
                 </button>
                 {!isMobile && <span style={{ fontSize: 10, color: T.faint, marginLeft: "auto" }}>click to change</span>}
