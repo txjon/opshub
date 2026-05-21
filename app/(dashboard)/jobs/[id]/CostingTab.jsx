@@ -1072,7 +1072,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 <CToggle label="CC Fees" value={inclCC} onChange={setInclCC}/>
               </div>
               <div style={{background:T.card,borderRadius:8,border:`1px solid ${T.border}`,overflow:"hidden",marginTop:8}}>
-                <div style={{padding:"5px 10px",background:T.surface,fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:`1px solid ${T.border}`}}>Project Totals</div>
+                <div style={{padding:"4px 10px",background:T.surface,fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",borderBottom:`1px solid ${T.border}`}}>Project Totals</div>
                 <table style={{borderCollapse:"collapse",width:"100%",fontSize:11}}>
                   <tbody>
                     {[
@@ -1090,9 +1090,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
                       const isVendorSub=l.startsWith("  ");
                       return (
-                      <tr key={l+idx} style={{background:T.card,borderTop:l==="Net Profit"?`1px solid ${T.border}`:"none",borderBottom:`1px solid ${T.border}22`}}>
-                        <td style={{padding:isVendorSub?"2px 10px 2px 18px":"3px 10px",color:isVendorSub?T.faint:T.muted,fontFamily:font,fontWeight:isVendorSub?400:500,fontSize:isVendorSub?10:11}}>{l}</td>
-                        <td style={{padding:isVendorSub?"2px 10px":"3px 10px",color:c,fontFamily:mono,fontWeight:isVendorSub?500:700,textAlign:"right",fontSize:isVendorSub?10:11}}>{v}</td>
+                      <tr key={l+idx} style={{background:T.card,borderTop:l==="Net Profit"?`1px solid ${T.border}`:"none"}}>
+                        <td style={{padding:isVendorSub?"1px 10px 1px 18px":"2px 10px",color:isVendorSub?T.faint:T.muted,fontFamily:font,fontWeight:isVendorSub?400:500,fontSize:isVendorSub?10:11,lineHeight:1.25}}>{l}</td>
+                        <td style={{padding:isVendorSub?"1px 10px":"2px 10px",color:c,fontFamily:mono,fontWeight:isVendorSub?500:700,textAlign:"right",fontSize:isVendorSub?10:11,lineHeight:1.25}}>{v}</td>
                       </tr>
                     );})}
                   </tbody>
