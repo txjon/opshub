@@ -667,8 +667,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* ── Sidebar + Content Layout (Y axis: items | content) ── */}
       <div style={{display:"flex",gap:0,minHeight:"calc(100vh - 240px)"}}>
 
-        {/* ── Left Sidebar: Items list (only on builder + costing, hidden on mobile since editing is desktop-only) ── */}
-        {!isMobile && (tab === "builder" || tab === "costing") && <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.card,overflowY:"auto"}}>
+        {/* ── Left Sidebar: Items list (only on builder + costing, hidden on mobile since editing is desktop-only) ──
+            Sticky so a 26-item list stays in view while the user scrolls
+            through a long costing card on the right. alignSelf:
+            flex-start is required — default stretch defeats sticky. */}
+        {!isMobile && (tab === "builder" || tab === "costing") && <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.card,overflowY:"auto",position:"sticky",top:16,maxHeight:"calc(100vh - 32px)",alignSelf:"flex-start"}}>
           <div style={{padding:"8px 16px 6px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.08em"}}>
             Items ({items.length})
           </div>
