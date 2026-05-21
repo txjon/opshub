@@ -477,12 +477,14 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
       {costTab==="calc"&&!hideToolbar&&(
         <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",justifyContent:"space-between",gap:isMobile?10:0,marginBottom:12,paddingBottom:8,borderBottom:`1px solid ${T.border}`}}>
           <div>
-            <span style={{fontSize:11,fontWeight:700,color:project?.type_meta?.costing_locked?T.green:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>
+            <span style={{fontSize:isMobile?10:11,fontWeight:700,color:project?.type_meta?.costing_locked?T.green:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>
               {project?.type_meta?.costing_locked?"Pricing locked":"Pricing not locked"}
             </span>
-            <span style={{fontSize:11,color:T.muted,marginLeft:10}}>
-              {project?.type_meta?.costing_locked?"Ready to quote":"Lock in pricing when all items are costed"}
-            </span>
+            {!isMobile && (
+              <span style={{fontSize:11,color:T.muted,marginLeft:10}}>
+                {project?.type_meta?.costing_locked?"Ready to quote":"Lock in pricing when all items are costed"}
+              </span>
+            )}
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             {/* Pull from PSDs — re-runs the auto-detect that fires on
@@ -497,18 +499,18 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 Primary (Lock) = filled. */}
             {onPullFromPsds && (
               <button onClick={onPullFromPsds} disabled={pullingPsds}
-                style={{height:34,padding:"0 14px",borderRadius:8,fontSize:12,fontWeight:600,cursor:pullingPsds?"default":"pointer",background:"transparent",border:`1px solid ${T.border}`,color:T.muted,fontFamily:font,opacity:pullingPsds?0.6:1,display:"inline-flex",alignItems:"center"}}
+                style={{height:34,padding:isMobile?0:"0 14px",borderRadius:8,fontSize:isMobile?11:12,fontWeight:600,cursor:pullingPsds?"default":"pointer",background:"transparent",border:`1px solid ${T.border}`,color:T.muted,fontFamily:font,opacity:pullingPsds?0.6:1,display:"inline-flex",alignItems:"center",justifyContent:"center",flex:isMobile?1:"none"}}
                 title="Re-scan items' PSD files in Art Files and populate empty print locations">
-                {pullingPsds ? "Pulling…" : "Pull from PSDs"}
+                {pullingPsds ? "Pulling…" : (isMobile ? "Pull PSDs" : "Pull from PSDs")}
               </button>
             )}
-            {pullResult && (
+            {pullResult && !isMobile && (
               <span style={{fontSize:11,color:T.muted,fontFamily:font}}>{pullResult}</span>
             )}
             <button onClick={openRfqModal}
-              style={{height:34,padding:"0 14px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.accent}`,color:T.accent,fontFamily:font,display:"inline-flex",alignItems:"center"}}
+              style={{height:34,padding:isMobile?0:"0 14px",borderRadius:8,fontSize:isMobile?11:12,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.accent}`,color:T.accent,fontFamily:font,display:"inline-flex",alignItems:"center",justifyContent:"center",flex:isMobile?1:"none"}}
               title="Send a quote request to a decorator for selected items">
-              Request Pricing
+              {isMobile ? "Request" : "Request Pricing"}
             </button>
             <button onClick={async ()=>{
               if (onSave) await onSave();
@@ -519,10 +521,10 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               await sb.from("jobs").update({type_meta: meta}).eq("id", project.id);
               if (onUpdateProject) onUpdateProject({ type_meta: meta });
             }}
-              style={{height:34,padding:"0 16px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",border:"none",fontFamily:font,display:"inline-flex",alignItems:"center",
+              style={{height:34,padding:isMobile?0:"0 16px",borderRadius:8,fontSize:isMobile?11:12,fontWeight:700,cursor:"pointer",border:"none",fontFamily:font,display:"inline-flex",alignItems:"center",justifyContent:"center",flex:isMobile?1:"none",
                 background:project?.type_meta?.costing_locked?T.surface:T.green,
                 color:project?.type_meta?.costing_locked?T.muted:"#fff"}}>
-              {project?.type_meta?.costing_locked?"Unlock Pricing":"Lock In Pricing"}
+              {project?.type_meta?.costing_locked?(isMobile?"Unlock":"Unlock Pricing"):(isMobile?"Lock In":"Lock In Pricing")}
             </button>
           </div>
         </div>
@@ -566,7 +568,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           <div style={{fontSize:9,color:T.faint,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Qty</div>
                           <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                         </div>
-                        <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>
+                        {!isMobile && <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>}
                         <div style={{display:"flex",alignItems:"center",gap:8,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}} onClick={e=>e.stopPropagation()}>
                           <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
                             {p._sellOverride?(
