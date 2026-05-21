@@ -573,14 +573,18 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                               </>
                             ):(()=>{
                               const isOverride = p.sellOverride != null;
-                              const onStyle = {background:T.text,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
+                              // Amber for override-active, T.text for auto-active —
+                              // mirrors the apparel card so the visual signal that
+                              // "this price is manual" is consistent across types.
+                              const overrideActiveStyle = {background:T.amber,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
+                              const autoActiveStyle = {background:T.text,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
                               const offStyle = {background:"none",border:"1px solid "+T.border,borderRadius:4,color:T.muted,cursor:"pointer",padding:"2px 0",fontSize:9,fontFamily:font,fontWeight:500,width:52,textAlign:"center"};
                               return (
                                 <>
                                   <button onClick={()=>updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""})}
-                                    style={isOverride?onStyle:offStyle}>override</button>
+                                    style={isOverride?overrideActiveStyle:offStyle}>override</button>
                                   <button onClick={()=>updateProd(i,{...p,sellOverride:null})}
-                                    style={!isOverride?onStyle:offStyle}>auto</button>
+                                    style={!isOverride?autoActiveStyle:offStyle}>auto</button>
                                 </>
                               );
                             })()}
