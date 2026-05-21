@@ -1671,7 +1671,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                 <button onClick={e => { e.stopPropagation(); if (costingLocked) return; onUpdateItem(item.id, { is_fleece: !item.is_fleece }); }}
                   title="Mark this blank as fleece (applies decorator fleece upcharge per print)"
                   style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 6, border: `1px solid ${item.is_fleece ? T.accent : T.border}`, background: item.is_fleece ? T.accent : T.card, color: item.is_fleece ? "#fff" : T.muted, cursor: costingLocked ? "default" : "pointer", letterSpacing: "0.04em", textTransform: "uppercase", opacity: costingLocked ? 0.5 : 1 }}>
-                  Fleece
+                  {item.is_fleece ? "Fleece" : "Fleece?"}
                 </button>
                 {!isMobile && <span style={{ fontSize: 10, color: T.faint, marginLeft: "auto" }}>click to change</span>}
               </>
