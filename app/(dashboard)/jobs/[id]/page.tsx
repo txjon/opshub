@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { CostingTabWrapper } from "./CostingTab";
 import { POTab } from "./POTab.jsx";
 import { BlanksTab } from "./BlanksTab";
@@ -100,6 +101,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const saveBuySheetRef = useRef<(() => Promise<void>) | null>(null);
   const saveCostingRef = useRef<(() => Promise<void>) | null>(null);
   const saveBlanksRef = useRef<(() => Promise<void>) | null>(null);
+  // Costing header actions — wrapper registers these so the project
+  // header can drive Pull from PSDs / Request Pricing / Lock In Pricing
+  // without keeping a duplicate toolbar inside the costing tab itself.
+  const costingActionsRef = useRef<{pullFromPsds?: () => Promise<void>; openRfqModal?: () => void}>({});
+  const [costingPull, setCostingPull] = useState<{pulling: boolean; result: string | null}>({pulling: false, result: null});
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const autoSelectedRef = useRef(false);
   const [job, setJob] = useState<Job|null>(null);
@@ -153,6 +159,39 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       setTeamProfiles(map);
     });
   }, [params.id]);
+
+  // Ref always pointing at the current items array, so the drag
+  // handler doesn't depend on its render-time closure.
+  const itemsRef = useRef<Item[]>(items);
+  useEffect(() => { itemsRef.current = items; }, [items]);
+
+  // Drag-to-reorder items in the sidebar. Updates local state
+  // optimistically, persists items.sort_order in the background.
+  //
+  // Why not setItems(prev => splice…)?
+  // React StrictMode double-invokes state updater functions in dev
+  // to surface non-idempotent updates. A naïve splice updater isn't
+  // idempotent: the second call mutates the already-reordered array
+  // and produces garbage. Reading from itemsRef + passing a plain
+  // value to setItems sidesteps that entirely.
+  const onSidebarDragEnd = useCallback(async (result: any) => {
+    if (!result.destination || result.source.index === result.destination.index) return;
+    const current = itemsRef.current;
+    if (!current || result.source.index >= current.length || result.destination.index > current.length) return;
+    const reordered = [...current];
+    const [moved] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, moved);
+    setItems(reordered);
+    itemsRef.current = reordered;
+    const sb = createClient();
+    await Promise.all(reordered.map((it, i) => {
+      const id = it.id;
+      if (typeof id === "string" && id.length > 20) {
+        return (sb as any).from("items").update({ sort_order: i }).eq("id", id);
+      }
+      return Promise.resolve();
+    }));
+  }, []);
 
   // Light reload — just items, doesn't reset tab or loading state
   async function reloadItems() {
@@ -504,160 +543,168 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
   return (
     <div style={{fontFamily:"var(--font-sans)",color:T.text,maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
-      {/* Back */}
-      <button onClick={async ()=>{
-        try { await Promise.all([flushJobSave(), saveBuySheetRef.current?.(), saveCostingRef.current?.(), saveBlanksRef.current?.()]); } catch(e) {}
-        router.push("/jobs");
-      }} style={{background:"none",border:"none",color:T.faint,fontSize:11,cursor:"pointer",marginBottom:8,padding:0,fontFamily:font}}>
-        ← All projects
-      </button>
+      {/* ── Project detail header ──
+          Compact 3-row layout, client name primary:
+            Row 1: Back chevron · ship countdown (one line, right-aligned)
+            Row 2: Client name (H1) · project title inline subtitle
+            Row 3: Quiet metadata strip (job # · units · phase · priority)
+          Same hierarchy on desktop + mobile; only the countdown drops
+          to its own line on narrow widths.
+          Smaller H1 (20pt mobile / 22pt desktop) than the previous
+          take so this header actually shrinks vs. the original. */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        gap: 12, marginBottom: 6, flexWrap: "wrap",
+      }}>
+        <button onClick={async ()=>{
+          try { await Promise.all([flushJobSave(), saveBuySheetRef.current?.(), saveCostingRef.current?.(), saveBlanksRef.current?.()]); } catch(e) {}
+          router.push("/jobs");
+        }} style={{background:"transparent",border:"none",color:T.accent,fontSize:14,fontWeight:600,cursor:"pointer",padding:"4px 8px 4px 0",fontFamily:font,display:"inline-flex",alignItems:"center",gap:2,minHeight:36,marginLeft:-4}}
+          onMouseEnter={(e:any)=>{e.currentTarget.style.opacity="0.75";}}
+          onMouseLeave={(e:any)=>{e.currentTarget.style.opacity="1";}}>
+          <span style={{fontSize:20,lineHeight:1,marginRight:2}}>‹</span> Projects
+        </button>
+        {(() => {
+          const isComplete = job.phase === "complete";
+          const isCancelled = job.phase === "cancelled";
+          const fmt = (iso: string) => new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+          const render = (primary: string, date: string | null, color: string) => (
+            <span style={{display:"inline-flex",alignItems:"baseline",gap:6,fontFamily:font}}>
+              <span style={{fontSize:13,fontWeight:700,color,letterSpacing:"-0.01em"}}>{primary}</span>
+              {date && <span style={{fontSize:11,color:T.muted}}>· {date}</span>}
+              {saving && <span style={{fontSize:10,color:T.muted,fontStyle:"italic",marginLeft:4}}>Saving…</span>}
+            </span>
+          );
+          if (isComplete || isCancelled) {
+            const ts = (job as any).phase_timestamps?.[isComplete ? "complete" : "cancelled"];
+            return render(isComplete?"Completed":"Cancelled", ts ? fmt(ts) : null, isCancelled?T.red:T.green);
+          }
+          if (job.phase === "fulfillment" || job.phase === "shipping" || job.phase === "receiving") {
+            return render("At HPD", job.target_ship_date ? fmt(job.target_ship_date) : null, T.green);
+          }
+          if (daysLeft === null) return saving ? <span style={{fontSize:10,color:T.muted,fontStyle:"italic"}}>Saving…</span> : null;
+          const primary = daysLeft<0?`${Math.abs(daysLeft)}d overdue`:daysLeft===0?"Ships today":`${daysLeft}d to ship`;
+          const color = daysLeft<0?T.red:daysLeft<=3?T.amber:T.text;
+          return render(primary, fmt(job.target_ship_date!), color);
+        })()}
+      </div>
 
-      {/* Header — compact single row */}
-      <div style={{marginBottom:12}}>
-        <div style={{display:"flex",alignItems:isMobile?"flex-start":"center",justifyContent:"space-between",gap:12,flexDirection:isMobile?"column":"row"}}>
-          {/* Left: identifiers + name */}
-          <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0,width:isMobile?"100%":"auto"}}>
-            <div style={{minWidth:0,flex:1}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                <span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(job as any).type_meta?.qb_invoice_number || job.job_number}</span>
-                {(job as any).type_meta?.qb_invoice_number && <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>{job.job_number}</span>}
-                {(() => {
-                  // Per-item status buckets — matches /jobs project list
-                  // status column. Multi-vendor projects often have items
-                  // in different states; show every state with a count
-                  // instead of a single dominant phase label.
-                  const isTerminal = ["complete","cancelled","on_hold"].includes(job.phase);
-                  if (isTerminal || items.length === 0) {
-                    return <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>;
-                  }
-                  const costProds = ((job as any).costing_data?.costProds || []) as any[];
-                  const cpById: Record<string, any> = {};
-                  for (const cp of costProds) cpById[cp.id] = cp;
-                  const poSent = new Set<string>((job as any).type_meta?.po_sent_vendors || []);
-                  const counts = { needs_po: 0, production: 0, receiving: 0, at_hpd: 0 };
-                  for (const it of items as any[]) {
-                    if (it.received_at_hpd === true) { counts.at_hpd++; continue; }
-                    if (it.pipeline_stage === "shipped") { counts.receiving++; continue; }
-                    if (it.pipeline_stage === "in_production") { counts.production++; continue; }
-                    const vendor = cpById[it.id]?.printVendor;
-                    if (vendor && !poSent.has(vendor)) counts.needs_po++;
-                  }
-                  const buckets: { label: string; color: string; count: number }[] = [];
-                  if (counts.needs_po) buckets.push({ label: "Needs PO", color: T.amber, count: counts.needs_po });
-                  if (counts.production) buckets.push({ label: "Production", color: T.accent, count: counts.production });
-                  if (counts.receiving) buckets.push({ label: "Receiving", color: T.blue, count: counts.receiving });
-                  if (counts.at_hpd) buckets.push({ label: "At HPD", color: T.purple, count: counts.at_hpd });
-                  if (buckets.length === 0) {
-                    return <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>;
-                  }
-                  return (
-                    <span style={{display:"inline-flex",flexWrap:"wrap",gap:"0 10px",alignItems:"center"}}>
-                      {buckets.map((b, i) => (
-                        <span key={i} style={{fontSize:10,fontWeight:700,color:b.color,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>
-                          {b.label} <span style={{fontFamily:mono,fontWeight:600}}>· {b.count}</span>
-                        </span>
-                      ))}
-                    </span>
-                  );
-                })()}
-                {job.priority==="rush"&&<span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Rush</span>}
-                {job.priority==="hot"&&<span style={{fontSize:10,fontWeight:700,color:T.red,letterSpacing:"0.06em",textTransform:"uppercase"}}>Hot</span>}
-                {saving&&<span style={{fontSize:10,color:T.muted}}>Saving...</span>}
-              </div>
-              <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:2,flexWrap:"wrap"}}>
-                {job.client_id ? (
-                  <Link href={`/clients/${job.client_id}`}
-                    style={{fontSize:isMobile?16:18,fontWeight:800,color:T.text,letterSpacing:"-0.02em",textDecoration:"none"}}
-                    onMouseEnter={(e:any)=>e.currentTarget.style.color=T.accent}
-                    onMouseLeave={(e:any)=>e.currentTarget.style.color=T.text}
-                    title="View in client hub">
-                    {(job.clients as any)?.name||"No client"} <span style={{fontSize:13,fontWeight:500,color:T.muted}}>↗</span>
-                  </Link>
-                ) : (
-                  <span style={{fontSize:isMobile?16:18,fontWeight:800,color:T.text,letterSpacing:"-0.02em"}}>No client</span>
-                )}
-                <span style={{fontSize:13,color:T.muted}}>{job.title}</span>
-                <span style={{fontSize:11,color:T.faint}}>{totalUnits.toLocaleString()} units</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Right: ship date + actions */}
-          <div style={{display:"flex",alignItems:"center",gap:12,flexShrink:0,flexWrap:"wrap"}}>
-            {(() => {
-              const isComplete = job.phase === "complete";
-              const isCancelled = job.phase === "cancelled";
-              if (isComplete || isCancelled) {
-                const ts = (job as any).phase_timestamps?.[isComplete ? "complete" : "cancelled"];
-                const dateStr = ts
-                  ? new Date(ts).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})
-                  : null;
-                return (
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:16,fontWeight:700,color:isCancelled?T.red:T.green}}>
-                      {isComplete?"Completed":"Cancelled"}
-                    </div>
-                    {dateStr && <div style={{fontSize:10,color:T.muted}}>{dateStr}</div>}
-                  </div>
-                );
+      <div style={{marginBottom:10}}>
+        {/* H1 row — client name dominates, project title trails as
+            subtitle. Inline on desktop; project title drops to a
+            second line on mobile so the client name has full width. */}
+        <div style={{display:"flex",alignItems:"baseline",gap:isMobile?6:10,flexWrap:"wrap"}}>
+          {job.client_id ? (
+            <Link href={`/clients/${job.client_id}`}
+              style={{fontSize:isMobile?20:22,fontWeight:800,color:T.text,letterSpacing:"-0.02em",lineHeight:1.15,textDecoration:"none",display:"inline-flex",alignItems:"baseline",gap:4}}
+              onMouseEnter={(e:any)=>e.currentTarget.style.color=T.accent}
+              onMouseLeave={(e:any)=>e.currentTarget.style.color=T.text}
+              title="View in client hub">
+              {(job.clients as any)?.name||"No client"}
+              <span style={{fontSize:13,fontWeight:500,color:T.muted}}>↗</span>
+            </Link>
+          ) : (
+            <span style={{fontSize:isMobile?20:22,fontWeight:800,color:T.faint,letterSpacing:"-0.02em",lineHeight:1.15}}>No client</span>
+          )}
+          <span style={{fontSize:isMobile?13:14,color:T.muted,lineHeight:1.2}}>{job.title || "Untitled"}</span>
+          {/* Costing actions — only relevant on Product Builder + Costing
+              tabs. Pull from PSDs and Request Pricing operate on costing
+              state, so when triggered from Builder we jump to Costing
+              first; Lock In Pricing toggles the job directly. */}
+          {(tab === "builder" || tab === "costing") && !isMobile && (() => {
+            const locked = !!(job as any).type_meta?.costing_locked;
+            const ensureCosting = async () => {
+              if (tab !== "costing") {
+                await switchTab("costing");
+                await new Promise(r => setTimeout(r, 80));
               }
-              // Receive-side phases retire the "X overdue" countdown — items
-              // are at HPD (or partly there). Matches the Key Facts Ships cell.
-              if (job.phase === "fulfillment" || job.phase === "shipping" || job.phase === "receiving") {
-                const dateStr = job.target_ship_date
-                  ? new Date(job.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})
-                  : null;
-                return (
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:16,fontWeight:700,color:T.green}}>At HPD</div>
-                    {dateStr && <div style={{fontSize:10,color:T.muted}}>{dateStr}</div>}
-                  </div>
-                );
-              }
-              if (daysLeft === null) return null;
-              return (
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:16,fontWeight:700,color:daysLeft<0?T.red:daysLeft<=3?T.amber:T.text}}>
-                    {daysLeft<0?Math.abs(daysLeft)+"d overdue":daysLeft===0?"Ships today":daysLeft+"d to ship"}
-                  </div>
-                  <div style={{fontSize:10,color:T.muted}}>{new Date(job.target_ship_date!).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>
+            };
+            const onPull = async () => {
+              await ensureCosting();
+              await costingActionsRef.current?.pullFromPsds?.();
+            };
+            const onRequest = async () => {
+              await ensureCosting();
+              setTimeout(() => costingActionsRef.current?.openRfqModal?.(), 40);
+            };
+            const onLock = async () => {
+              try { await saveCostingRef.current?.(); } catch {}
+              const newVal = !locked;
+              const meta = {...((job as any).type_meta || {}), costing_locked: newVal, costing_locked_at: newVal ? new Date().toISOString() : null};
+              await supabase.from("jobs").update({type_meta: meta}).eq("id", job.id);
+              setJob(j => j ? {...j, type_meta: meta} as any : j);
+            };
+            return (
+              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",lineHeight:1.2}}>
+                  <span style={{fontSize:10,fontWeight:700,color:locked?T.green:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>
+                    {locked?"Pricing locked":"Pricing not locked"}
+                  </span>
+                  <span style={{fontSize:10,color:T.muted}}>
+                    {locked?"Ready to quote":"Lock in when all items are costed"}
+                  </span>
                 </div>
-              );
-            })()}
-          </div>
+                <button onClick={onPull} disabled={costingPull.pulling}
+                  style={{height:30,padding:"0 12px",borderRadius:7,fontSize:11,fontWeight:600,cursor:costingPull.pulling?"default":"pointer",background:"transparent",border:`1px solid ${T.border}`,color:T.muted,fontFamily:font,opacity:costingPull.pulling?0.6:1}}
+                  title="Re-scan items' PSD files and populate empty print locations">
+                  {costingPull.pulling ? "Pulling…" : "Pull from PSDs"}
+                </button>
+                <button onClick={onRequest}
+                  style={{height:30,padding:"0 12px",borderRadius:7,fontSize:11,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.accent}`,color:T.accent,fontFamily:font}}
+                  title="Send a quote request to a decorator">
+                  Request Pricing
+                </button>
+                <button onClick={onLock}
+                  style={{height:30,padding:"0 14px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",border:"none",fontFamily:font,background:locked?T.surface:T.green,color:locked?T.muted:"#fff"}}>
+                  {locked?"Unlock Pricing":"Lock In Pricing"}
+                </button>
+              </div>
+            );
+          })()}
         </div>
-        {/* KPI strip — compact */}
-        {/* When the job has been intentionally priced (costing saved OR
-            any item.sell_per_unit set) trust totalRev even if it's 0 —
-            don't fake a "~1.43× cost" estimate. The estimate is only for
-            jobs that haven't been priced yet (no costing_summary, all
-            sell_per_unit null). */}
-        {(() => { const displayRev = totalRev; return null; })()}
-        <div style={{display:"flex",gap:6,marginTop:8}}>
+
+        {/* Quiet metadata strip — single line, wraps if needed. */}
+        <div style={{display:"flex",alignItems:"center",gap:12,marginTop:6,flexWrap:"wrap",fontSize:11,color:T.muted}}>
+          <span style={{fontFamily:mono,color:T.muted}}>
+            {(job as any).type_meta?.qb_invoice_number || job.job_number}
+          </span>
+          {(job as any).type_meta?.qb_invoice_number && (
+            <span style={{fontFamily:mono,color:T.faint,fontSize:10}}>{job.job_number}</span>
+          )}
+          <span>{totalUnits.toLocaleString()} units</span>
           {(() => {
-            const pricingKnown = !!cs || items.some((it:any) => it.sell_per_unit != null);
-            const estRev = !pricingKnown && totalCost > 0 ? totalCost * 1.43 : null;
-            const effRev = totalRev > 0 ? totalRev : (estRev ?? totalRev);
-            const showRev = totalRev > 0 || pricingKnown || estRev != null;
-            const profit = totalCost > 0 ? effRev - totalCost : 0;
-            const marginPct = effRev > 0 ? (profit / effRev * 100) : 0;
-            // Show full cents — Math.round() was hiding the .46 on
-            // an $80.46 invoice, which led Taylor to mark a partial
-            // $80 payment as "Full Payment" because $80 looked like
-            // the total.
-            const fmt$ = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            return [
-              { label: "Revenue", value: showRev ? fmt$(effRev) : "—", color: T.text },
-              { label: "Cost", value: totalCost > 0 ? fmt$(totalCost) : "—" },
-              { label: "Profit", value: totalCost > 0 ? fmt$(profit) : "—", color: profit >= 0 ? T.green : T.red },
-              { label: "Margin", value: totalCost > 0 && effRev > 0 ? marginPct.toFixed(1) + "%" : "—", color: marginPct >= 30 ? T.green : marginPct >= 20 ? T.amber : T.red },
-            ];
-          })().map(s=>(
-            <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 12px",flex:1}}>
-              <div style={{fontSize:9,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em"}}>{s.label}</div>
-              <div style={{fontSize:14,fontWeight:700,color:(s as any).color||T.text,fontFamily:mono}}>{s.value}</div>
-            </div>
-          ))}
+            const isTerminal = ["complete","cancelled","on_hold"].includes(job.phase);
+            if (isTerminal || items.length === 0) {
+              return <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>;
+            }
+            const costProds = ((job as any).costing_data?.costProds || []) as any[];
+            const cpById: Record<string, any> = {};
+            for (const cp of costProds) cpById[cp.id] = cp;
+            const poSent = new Set<string>((job as any).type_meta?.po_sent_vendors || []);
+            const counts = { needs_po: 0, production: 0, receiving: 0, at_hpd: 0 };
+            for (const it of items as any[]) {
+              if (it.received_at_hpd === true) { counts.at_hpd++; continue; }
+              if (it.pipeline_stage === "shipped") { counts.receiving++; continue; }
+              if (it.pipeline_stage === "in_production") { counts.production++; continue; }
+              const vendor = cpById[it.id]?.printVendor;
+              if (vendor && !poSent.has(vendor)) counts.needs_po++;
+            }
+            const buckets: { label: string; color: string; count: number }[] = [];
+            if (counts.needs_po) buckets.push({ label: "Needs PO", color: T.amber, count: counts.needs_po });
+            if (counts.production) buckets.push({ label: "Production", color: T.accent, count: counts.production });
+            if (counts.receiving) buckets.push({ label: "Receiving", color: T.blue, count: counts.receiving });
+            if (counts.at_hpd) buckets.push({ label: "At HPD", color: T.purple, count: counts.at_hpd });
+            if (buckets.length === 0) {
+              return <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>;
+            }
+            return buckets.map((b, i) => (
+              <span key={i} style={{fontSize:10,fontWeight:700,color:b.color,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>
+                {b.label} <span style={{fontFamily:mono,fontWeight:600}}>· {b.count}</span>
+              </span>
+            ));
+          })()}
+          {job.priority==="rush" && <span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Rush</span>}
+          {job.priority==="hot" && <span style={{fontSize:10,fontWeight:700,color:T.red,letterSpacing:"0.06em",textTransform:"uppercase"}}>Hot</span>}
         </div>
       </div>
 
@@ -671,63 +718,116 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             Sticky so a 26-item list stays in view while the user scrolls
             through a long costing card on the right. alignSelf:
             flex-start is required — default stretch defeats sticky. */}
-        {!isMobile && (tab === "builder" || tab === "costing") && <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.card,overflowY:"auto",position:"sticky",top:16,maxHeight:"calc(100vh - 32px)",alignSelf:"flex-start"}}>
+        {!isMobile && (tab === "builder" || tab === "costing") && <div style={{width:220,flexShrink:0,borderRight:`1px solid ${T.border}`,background:T.card,alignSelf:"flex-start"}}>
           <div style={{padding:"8px 16px 6px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.08em"}}>
             Items ({items.length})
           </div>
-          {items.map((item: any, i: number) => {
-            const proofOk = proofStatus[item.id]?.allApproved || item.artwork_status === "approved";
-            const hasBlanks = ((item as any).blanks_order_cost ?? 0) > 0;
-            const stage = item.pipeline_stage;
-            const isSelected = selectedItemId === item.id;
-            return (
-              <div key={item.id}
-                onClick={() => { setSelectedItemId(prev => prev === item.id ? null : item.id); }}
-                style={{padding:"8px 12px 8px 16px",fontSize:12,display:"flex",alignItems:"center",gap:8,borderBottom:`1px solid ${T.border}`,cursor:"pointer",
-                  background:isSelected?T.bg:"transparent",borderLeft:isSelected?`3px solid ${T.accent}`:"3px solid transparent",transition:"background 0.1s"}}>
-                <span style={{width:18,height:18,borderRadius:4,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>
-                  {String.fromCharCode(65+i)}
-                </span>
-                <div style={{flex:1,minWidth:0}}
-                  onDoubleClick={e => {
-                    e.stopPropagation();
-                    const input = e.currentTarget.querySelector("input");
-                    if (input) { input.style.display = "block"; input.focus(); }
-                  }}>
-                  <div style={{fontSize:12,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name||"Untitled"}</div>
-                  <input value={item.name||""} onChange={e => { e.stopPropagation(); setItems((prev: any[]) => prev.map((it: any) => it.id === item.id ? {...it, name: e.target.value} : it)); }}
-                    onClick={e => e.stopPropagation()}
-                    onBlur={async e => {
-                      e.target.style.display = "none";
-                      const newName = e.target.value.trim();
-                      const oldName = (item as any)._prevName || item.name;
-                      if (newName && newName !== oldName) {
-                        const { createClient: cc } = await import("@/lib/supabase/client");
-                        cc().from("items").update({ name: newName }).eq("id", item.id).then(() => {});
-                        fetch("/api/files/cleanup", { method: "POST", headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ action: "rename-item", clientName: (job?.clients as any)?.name || "", projectTitle: job?.title || "", itemName: oldName, newName }),
-                        }).catch(() => {});
-                      }
-                    }}
-                    onFocus={e => { (item as any)._prevName = e.target.value; e.target.select(); }}
-                    onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                    style={{display:"none",fontSize:12,fontWeight:600,color:T.text,background:T.surface,border:`1px solid ${T.accent}`,outline:"none",width:"100%",padding:"2px 4px",borderRadius:4,marginTop:2}}
-                  />
-                  <div style={{fontSize:10,color:T.faint,marginTop:1,display:"flex",gap:6,alignItems:"center"}}>
-                    <span>{stage === "shipped" ? "Shipped" : stage === "in_production" ? "At decorator" : proofOk && hasBlanks ? "Ready" : !item.blank_vendor ? "No blank" : (item.totalQty||0) === 0 ? "No qty" : proofOk ? "Proofs approved" : "Setup"}</span>
-                    {item.sell_per_unit > 0 && <span style={{fontFamily:mono,color:T.muted,fontWeight:600}}>${Number(item.sell_per_unit).toFixed(2)}</span>}
-                  </div>
+          {/* Drag-to-reorder lives in the sidebar now (the right-side
+              list was retired with the master-detail rework). Drag
+              handle is the small grip on the left of each row; the
+              rest of the row remains tappable to select the item.
+              tab === "costing" doesn't disable drag — sort_order is
+              the single source of truth across builder + costing. */}
+          <DragDropContext onDragEnd={onSidebarDragEnd}>
+            <Droppable droppableId="sidebar-items">
+              {(dropProvided) => (
+                <div ref={dropProvided.innerRef} {...dropProvided.droppableProps}>
+                  {items.map((item: any, i: number) => {
+                    const proofOk = proofStatus[item.id]?.allApproved || item.artwork_status === "approved";
+                    const hasBlanks = ((item as any).blanks_order_cost ?? 0) > 0;
+                    const stage = item.pipeline_stage;
+                    const isSelected = selectedItemId === item.id;
+                    return (
+                      <Draggable key={String(item.id)} draggableId={String(item.id)} index={i}>
+                        {(dragProvided, snapshot) => (
+                          <div ref={dragProvided.innerRef}
+                            {...dragProvided.draggableProps}
+                            style={{
+                              ...dragProvided.draggableProps.style,
+                              background: snapshot.isDragging ? T.surface : (isSelected ? T.bg : T.card),
+                              borderBottom: `1px solid ${T.border}`,
+                              borderLeft: isSelected ? `3px solid ${T.accent}` : "3px solid transparent",
+                              boxShadow: snapshot.isDragging ? "0 6px 16px rgba(0,0,0,0.12)" : "none",
+                            }}>
+                            <div
+                              {...dragProvided.dragHandleProps}
+                              onClick={() => { if (!snapshot.isDragging) setSelectedItemId(prev => prev === item.id ? null : item.id); }}
+                              style={{
+                                padding:"8px 12px 8px 16px", fontSize:12, display:"flex", alignItems:"center", gap:8,
+                                cursor: snapshot.isDragging ? "grabbing" : "pointer",
+                                userSelect: "none",
+                              }}>
+                            <span style={{width:18,height:18,borderRadius:4,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>
+                              {String.fromCharCode(65+i)}
+                            </span>
+                            <div style={{flex:1,minWidth:0}}
+                              onDoubleClick={e => {
+                                e.stopPropagation();
+                                const input = e.currentTarget.querySelector("input");
+                                if (input) { input.style.display = "block"; input.focus(); }
+                              }}>
+                              <div style={{fontSize:12,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name||"Untitled"}</div>
+                              <input value={item.name||""} onChange={e => { e.stopPropagation(); setItems((prev: any[]) => prev.map((it: any) => it.id === item.id ? {...it, name: e.target.value} : it)); }}
+                                onClick={e => e.stopPropagation()}
+                                onBlur={async e => {
+                                  e.target.style.display = "none";
+                                  const newName = e.target.value.trim();
+                                  const oldName = (item as any)._prevName || item.name;
+                                  if (newName && newName !== oldName) {
+                                    const { createClient: cc } = await import("@/lib/supabase/client");
+                                    cc().from("items").update({ name: newName }).eq("id", item.id).then(() => {});
+                                    fetch("/api/files/cleanup", { method: "POST", headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ action: "rename-item", clientName: (job?.clients as any)?.name || "", projectTitle: job?.title || "", itemName: oldName, newName }),
+                                    }).catch(() => {});
+                                  }
+                                }}
+                                onFocus={e => { (item as any)._prevName = e.target.value; e.target.select(); }}
+                                onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                style={{display:"none",fontSize:12,fontWeight:600,color:T.text,background:T.surface,border:`1px solid ${T.accent}`,outline:"none",width:"100%",padding:"2px 4px",borderRadius:4,marginTop:2}}
+                              />
+                              {/* Stage label + at-a-glance state dots — Blank · Art · Qtys.
+                                  Green when satisfied, faint when missing. Lets the user
+                                  scan the sidebar and see which items still need
+                                  configuration without opening each one. */}
+                              <div style={{fontSize:10,color:T.faint,marginTop:1,display:"flex",gap:8,alignItems:"center"}}>
+                                <span>{stage === "shipped" ? "Shipped" : stage === "in_production" ? "At decorator" : proofOk && hasBlanks ? "Ready" : !item.blank_vendor ? "No blank" : (item.totalQty||0) === 0 ? "No qty" : proofOk ? "Proofs approved" : "Setup"}</span>
+                                {(() => {
+                                  const ok = (b: boolean) => ({ width:6, height:6, borderRadius:"50%", background: b ? T.green : T.border, flexShrink: 0 });
+                                  const okB = !!item.blank_vendor;
+                                  const okA = !!(item as any).hasFiles || stage === "in_production" || stage === "shipped" || proofOk;
+                                  const okQ = ((item as any).totalQty || 0) > 0;
+                                  return (
+                                    <span title={`Blank ${okB ? "✓" : "—"}  ·  Art ${okA ? "✓" : "—"}  ·  Qtys ${okQ ? "✓" : "—"}`}
+                                      style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                                      <span style={ok(okB)} />
+                                      <span style={ok(okA)} />
+                                      <span style={ok(okQ)} />
+                                    </span>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                            {proofOk && <span style={{width:6,height:6,borderRadius:3,background:T.green,flexShrink:0}} />}
+                            </div>
+                          </div>
+                        )}
+                      </Draggable>
+                    );
+                  })}
+                  {dropProvided.placeholder}
                 </div>
-                {proofOk && <span style={{width:6,height:6,borderRadius:3,background:T.green,flexShrink:0}} />}
-              </div>
-            );
-          })}
+              )}
+            </Droppable>
+          </DragDropContext>
         </div>}
 
         {/* ── Content area ── */}
         <div style={{flex:1,minWidth:0,overflowY:"auto",padding:"0 20px 40px"}}>
-      {/* Mobile editing-notice banner */}
-      {isMobile && ["builder","costing","quote","blanks","po","proofs"].includes(tab) && (
+      {/* Mobile editing-notice banner — only on tabs that genuinely
+          aren't mobile-friendly yet. Builder (Product Builder) was
+          reworked for mobile with iOS-style list → detail, so it
+          doesn't need the warning anymore. */}
+      {isMobile && ["costing","quote","blanks","po","proofs"].includes(tab) && (
         <div style={{background:T.amberDim,color:T.amber,border:`1px solid ${T.amber}44`,borderRadius:8,padding:"8px 12px",fontSize:11,fontWeight:600,marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
           <span>Use a laptop to edit — this tab is designed for a larger screen.</span>
         </div>
@@ -735,6 +835,40 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* OVERVIEW */}
                   {tab==="overview"&&(
         <div style={{fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
+
+          {/* KPI strip — Overview-only so switching to other tabs doesn't
+              jump the layout. 4-up on desktop, 2×2 on mobile so the
+              dollar values don't truncate on a 375px screen.
+              When the job has been intentionally priced (costing saved
+              OR any item.sell_per_unit set) trust totalRev even if it's
+              0 — don't fake a "~1.43× cost" estimate. The estimate is
+              only for jobs that haven't been priced yet. */}
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, 1fr)",gap:6,marginBottom:12}}>
+            {(() => {
+              const pricingKnown = !!cs || items.some((it:any) => it.sell_per_unit != null);
+              const estRev = !pricingKnown && totalCost > 0 ? totalCost * 1.43 : null;
+              const effRev = totalRev > 0 ? totalRev : (estRev ?? totalRev);
+              const showRev = totalRev > 0 || pricingKnown || estRev != null;
+              const profit = totalCost > 0 ? effRev - totalCost : 0;
+              const marginPct = effRev > 0 ? (profit / effRev * 100) : 0;
+              // Show full cents — Math.round() was hiding the .46 on
+              // an $80.46 invoice, which led Taylor to mark a partial
+              // $80 payment as "Full Payment" because $80 looked like
+              // the total.
+              const fmt$ = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              return [
+                { label: "Revenue", value: showRev ? fmt$(effRev) : "—", color: T.text },
+                { label: "Cost", value: totalCost > 0 ? fmt$(totalCost) : "—" },
+                { label: "Profit", value: totalCost > 0 ? fmt$(profit) : "—", color: profit >= 0 ? T.green : T.red },
+                { label: "Margin", value: totalCost > 0 && effRev > 0 ? marginPct.toFixed(1) + "%" : "—", color: marginPct >= 30 ? T.green : marginPct >= 20 ? T.amber : T.red },
+              ];
+            })().map(s=>(
+              <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 12px"}}>
+                <div style={{fontSize:9,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em"}}>{s.label}</div>
+                <div style={{fontSize:14,fontWeight:700,color:(s as any).color||T.text,fontFamily:mono}}>{s.value}</div>
+              </div>
+            ))}
+          </div>
 
           {/* Production strip — mirrors the per-project row on /production.
               Same visual + decorator chip behavior; clicking a chip
@@ -977,7 +1111,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               {/* Col 2: Client-provided info — When + Where */}
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>From client</div>
-                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date</label><input style={{...ic,height:34,cursor:"pointer",colorScheme:"dark"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date</label><input style={{...ic,height:34,cursor:"pointer",colorScheme:"dark",display:"block",WebkitAppearance:"none",MozAppearance:"none",appearance:"none"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
                   const ship = e.target.value;
                   const updates: any = { target_ship_date: ship };
                   if (ship) updates.priority = calculatePriority(ship);
@@ -1405,6 +1539,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onSaved={(data: any) => setJob(j => j ? {...j, ...data} : j)}
           initialTab="calc"
           hideSubTabs={true}
+          hideToolbar={true}
+          actionsRef={costingActionsRef}
+          onPullStateChange={(pulling: boolean, result: string | null) => setCostingPull({pulling, result})}
           selectedItemId={selectedItemId}
           onUpdateProject={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
         />
@@ -1483,6 +1620,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         />
       )}
         </div>{/* end tab content */}
+        {/* ── Right rail: Project Totals (costing only) ──
+            Sits at the outer flex level so it never moves with item
+            selection or center-column scrolling. CostingTab portals
+            its totals JSX into this container via #costing-totals-rail. */}
+        {!isMobile && tab === "costing" && (
+          <div style={{width:220,flexShrink:0,borderLeft:`1px solid ${T.border}`,background:T.card,alignSelf:"flex-start",position:"sticky",top:0}}>
+            <div style={{padding:"8px 16px 6px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.08em"}}>
+              Margin
+            </div>
+            <div id="costing-totals-rail" style={{padding:"0 12px 12px"}} />
+          </div>
+        )}
       </div>{/* end flex layout */}
 
       {/* Save indicator */}

@@ -9,6 +9,8 @@ import { DriveThumb } from "@/components/DriveThumb";
 import { parsePsd } from "./ProcessingTab";
 import MoveItemDialog from "@/components/MoveItemDialog";
 import { DriveFileLink } from "@/components/DriveFileLink";
+import { useIsMobile } from "@/lib/useIsMobile";
+import { MobileBlankPicker } from "./MobileBlankPicker";
 // ItemArtSection from ArtTab is no longer rendered — removed after workflow merge
 import {
   detectGarmentType, handleSizeToggle, distribute, DEFAULT_CURVE,
@@ -23,6 +25,16 @@ import {
  * ALL save logic is identical to BuySheetTab (1500ms debounce, 3-state qty, temp ID swap).
  */
 export function ProductBuilder({ project, items, contacts, onItemsChanged, onRegisterSave, onSaveStatus, onSaved, onUpdateItem, selectedItemId }) {
+  const isMobile = useIsMobile();
+  // Mobile uses an iOS-style list → push-to-detail pattern since there's
+  // no sidebar on mobile. mobileSelectedId mirrors desktop's
+  // selectedItemId prop but is owned by this component. When set, the
+  // detail view of that item fills the screen with a back chevron at
+  // the top. When null, the compact list view shows all items.
+  const [mobileSelectedId, setMobileSelectedId] = useState(null);
+  // Single id that drives "which item is the work surface". Desktop
+  // takes it from the sidebar (prop), mobile from local state.
+  const activeItemId = isMobile ? mobileSelectedId : selectedItemId;
   // ═══════════════════════════════════════════════════════════════
   // BUY SHEET SAVE INFRASTRUCTURE — copied verbatim from BuySheetTab
   // ═══════════════════════════════════════════════════════════════
@@ -38,6 +50,32 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 
   useEffect(() => {
     if (localItems === null) setSavedSnapshot(JSON.stringify(items || []));
+  }, [items]);
+
+  // Sort-order sync — when the parent's items prop reorders (e.g.
+  // user dragged a row in the sidebar), reshuffle localItems to
+  // match without dropping any in-flight edits. Function updater
+  // is used so this reads the LATEST localItems even when the
+  // effect closure was captured during a previous render — without
+  // it, rapid back-to-back drags would compute against a stale
+  // localItems and the second drag's reorder would never persist.
+  useEffect(() => {
+    setLocalItems(prev => {
+      if (prev === null) return prev;
+      const propIds = (items || []).map(it => it.id);
+      const localIds = prev.map(it => it.id);
+      if (propIds.length !== localIds.length) return prev;
+      const sameSet = propIds.every(id => localIds.includes(id));
+      if (!sameSet) return prev;
+      const sameOrder = propIds.every((id, i) => id === localIds[i]);
+      if (sameOrder) return prev;
+      const byId = Object.fromEntries(prev.map(it => [it.id, it]));
+      const reordered = propIds.map(id => byId[id]);
+      // Bump savedSnapshot too so auto-save doesn't immediately fire
+      // and try to re-persist what the sidebar already saved.
+      setSavedSnapshot(JSON.stringify(reordered));
+      return reordered;
+    });
   }, [items]);
 
   // Auto-save: 1500ms debounce
@@ -283,6 +321,11 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [moveItemTarget, setMoveItemTarget] = useState(null); // { id, name } — opens MoveItemDialog
   const [copyItemTarget, setCopyItemTarget] = useState(null); // { id, name } — opens MoveItemDialog in copy mode
   const [favorites, setFavorites] = useState([]);
+  // Mobile picker — one search-driven sheet that replaces the desktop
+  // source-selection + per-supplier catalog modals on mobile. MVP
+  // scope: S&S + favorites. Tapping + Add item or "click to change"
+  // on a blank opens this instead of the desktop flow.
+  const [mobilePickerOpen, setMobilePickerOpen] = useState(false);
   const [fileSummary, setFileSummary] = useState({}); // { itemId: { printReady: bool, fileCount: number, hasProof: bool } }
   const [mockupMap, setMockupMap] = useState({}); // { itemId: drive_file_id } — preloaded so thumbnail renders instantly on switch
   const [psdProcessing, setPsdProcessing] = useState(null);
@@ -806,76 +849,268 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         );
       })()}
 
-      {/* ══ Add item button + Bulk + File drop zone ══ */}
-      <div style={{ display: "flex", gap: 8 }}>
-        {/* Add Item button */}
-        {!costingLocked && (
-        <button onClick={() => { if (!psdProcessing) setShowAddModal(true); }}
-          style={{ padding: "14px 24px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontSize: 13, fontWeight: 700, color: T.text, flexShrink: 0, transition: "all 0.15s" }}
-          onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
-          onMouseLeave={e => { e.currentTarget.style.background = T.card; }}>
-          + Add Item
-        </button>
-        )}
+      {/* ══ Above-the-list region ══
+          Three rendering modes:
+          - Desktop, no item selected: home state (paired CTAs + drop
+            zone + project-at-a-glance summary). The items list is
+            owned by the sidebar in this layout, so the right side is
+            an action surface, not a duplicate list.
+          - Mobile, no item selected: compact toolbar (Add + drop)
+            above the full list — mobile has no sidebar, the list IS
+            the navigator.
+          - Item selected (either viewport): nothing here. The
+            selected item's edit card fills the surface below. */}
+      {!activeItemId && !costingLocked && !isMobile && (() => {
+        const itemsNeedingBlanks = safeItems.filter(it => !it.blank_vendor).length;
+        const itemsNeedingArt = safeItems.filter(it => !fileSummary[it.id]?.printReady).length;
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* Action row — primary Add Item, Bulk Create stub for
+                when it ships, both tight and refined. */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <button onClick={() => { if (!psdProcessing) setShowAddModal(true); }}
+                style={{
+                  background: T.text, color: "#fff", border: "none",
+                  padding: "12px 16px", borderRadius: 10, fontSize: 13, fontWeight: 700,
+                  cursor: "pointer", fontFamily: font, textAlign: "left",
+                  display: "flex", alignItems: "center", gap: 10,
+                  transition: "background 0.15s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = "#333"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = T.text; }}>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>＋</span>
+                <span style={{ flex: 1 }}>Add an item</span>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.65)", fontWeight: 500 }}>Pick a blank</span>
+              </button>
+              <button disabled title="Bulk create — coming soon"
+                style={{
+                  background: T.surface, color: T.muted, border: `1px solid ${T.border}`,
+                  padding: "12px 16px", borderRadius: 10, fontSize: 13, fontWeight: 700,
+                  cursor: "default", fontFamily: font, textAlign: "left",
+                  display: "flex", alignItems: "center", gap: 10, opacity: 0.85,
+                }}>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>⊞</span>
+                <span style={{ flex: 1 }}>Bulk create</span>
+                <span style={{ fontSize: 10, color: T.faint, fontWeight: 500 }}>Soon</span>
+              </button>
+            </div>
 
-        {!costingLocked && <>
-        {/* Bulk Create button — coming soon */}
-        <button style={{ padding: "14px 20px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.card, cursor: "default", fontSize: 13, fontWeight: 700, color: T.faint, flexShrink: 0, opacity: 0.6 }}>
-          Bulk Create — Coming Soon
+            {/* Drop zone — bigger when it's the focus of the surface */}
+            <div
+              onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accentDim; }}
+              onDragLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.surface; }}
+              onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.surface; const files = Array.from(e.dataTransfer.files); const hasCreatableFiles = files.some(f => f.name.toLowerCase().endsWith(".psd") || /\.(png|jpg|jpeg|gif|webp)$/i.test(f.name)); if (hasCreatableFiles) { processFileDrop(files); } else { setShowAddModal(true); } }}
+              style={{ border: `2px dashed ${T.border}`, borderRadius: 12, padding: "28px 20px", textAlign: "center", background: T.surface, transition: "all 0.15s" }}
+            >
+              {psdProcessing ? (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginBottom: 8 }}>{psdProcessing.status}</div>
+                  {psdProcessing.total > 0 && (() => {
+                    const overallPct = Math.round((psdProcessing.done / psdProcessing.total) * 100 + (psdProcessing.uploadPct || 0) / psdProcessing.total);
+                    return (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, maxWidth: 320, margin: "0 auto" }}>
+                        <div style={{ flex: 1, height: 8, background: T.card, borderRadius: 4, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${overallPct}%`, background: T.accent, borderRadius: 4, transition: "width 0.15s" }} />
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>{overallPct}%</span>
+                      </div>
+                    );
+                  })()}
+                  {psdProcessing.fileName && <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{psdProcessing.fileName}</div>}
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 22, marginBottom: 6, color: T.faint }}>↓</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 4 }}>
+                    Drop PSDs or mockup files
+                  </div>
+                  <div style={{ fontSize: 11, color: T.muted }}>
+                    We'll auto-create items and detect print locations from PSD layers.
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Project at a glance — quick stats so the right side
+                isn't empty when no item is open. */}
+            <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 18px" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+                Project at a glance
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Items</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: T.text, fontFamily: mono, marginTop: 2 }}>{safeItems.length}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Units</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: T.text, fontFamily: mono, marginTop: 2 }}>{grandTotal.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Need blank</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: itemsNeedingBlanks > 0 ? T.amber : T.muted, fontFamily: mono, marginTop: 2 }}>{itemsNeedingBlanks}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Need art</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: itemsNeedingArt > 0 ? T.amber : T.muted, fontFamily: mono, marginTop: 2 }}>{itemsNeedingArt}</div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 11, color: T.faint, textAlign: "center", marginTop: 4 }}>
+              Pick an item from the left to configure it.
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Mobile toolbar — Add + compact drop zone, only when no item
+          is open and editing isn't locked. */}
+      {!activeItemId && !costingLocked && isMobile && (
+      <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+        <button onClick={() => { if (!psdProcessing) setMobilePickerOpen(true); }}
+          style={{
+            padding: "10px 16px", borderRadius: 8,
+            border: "none", background: T.text, color: "#fff",
+            cursor: "pointer", fontSize: 13, fontWeight: 700,
+            flexShrink: 0, fontFamily: font, display: "inline-flex", alignItems: "center", gap: 6,
+            minHeight: 44,
+          }}>
+          <span style={{ fontSize: 15, lineHeight: 1 }}>＋</span>
+          Add item
         </button>
 
-        {/* File drop zone */}
         <div
           onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accentDim; }}
           onDragLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}
           onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; const files = Array.from(e.dataTransfer.files); const hasCreatableFiles = files.some(f => f.name.toLowerCase().endsWith(".psd") || /\.(png|jpg|jpeg|gif|webp)$/i.test(f.name)); if (hasCreatableFiles) { processFileDrop(files); } else { setShowAddModal(true); } }}
-          style={{ flex: 1, border: `2px dashed ${T.border}`, borderRadius: 10, padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s" }}
+          style={{ flex: 1, border: `2px dashed ${T.border}`, borderRadius: 8, padding: "8px 16px", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", minHeight: 44 }}
         >
           {psdProcessing ? (
-            <div style={{ textAlign: "center" }}>
-              <div style={{ width: "100%", textAlign: "center" }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: T.accent, marginBottom: 6 }}>{psdProcessing.status}</div>
-                {psdProcessing.total > 0 && (()=>{
-                  const overallPct = Math.round((psdProcessing.done / psdProcessing.total) * 100 + (psdProcessing.uploadPct || 0) / psdProcessing.total);
-                  return (
+            <div style={{ width: "100%", textAlign: "center" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: T.accent, marginBottom: 4 }}>{psdProcessing.status}</div>
+              {psdProcessing.total > 0 && (()=>{
+                const overallPct = Math.round((psdProcessing.done / psdProcessing.total) * 100 + (psdProcessing.uploadPct || 0) / psdProcessing.total);
+                return (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ flex: 1, height: 8, background: T.surface, borderRadius: 4, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${overallPct}%`, background: T.accent, borderRadius: 4, transition: "width 0.15s" }} />
+                    <div style={{ flex: 1, height: 6, background: T.surface, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${overallPct}%`, background: T.accent, borderRadius: 3, transition: "width 0.15s" }} />
                     </div>
                     <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>{overallPct}%</span>
                   </div>
-                  );})()}
-                {psdProcessing.fileName && <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>{psdProcessing.fileName}</div>}
-              </div>
+                );
+              })()}
+              {psdProcessing.fileName && <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>{psdProcessing.fileName}</div>}
             </div>
           ) : (
-            <span style={{ fontSize: 12, color: T.faint }}>Drop PSD + mockup files to create items</span>
-        )}
+            <span style={{ fontSize: 12, color: T.faint }}>Drop PSD + mockup files</span>
+          )}
         </div>
-        </>}
       </div>
+      )}
 
-      {/* Grand total */}
-      {safeItems.length > 0 && (
+      {/* Mobile list view — iOS-style compact rows, tap to push to
+          detail. Lives entirely on the mobile path; desktop's list
+          stays in the sidebar. Detail view (mobile + activeItemId)
+          falls through to the shared item-card rendering below with a
+          sticky back chevron prepended. */}
+      {isMobile && !activeItemId && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {safeItems.length > 0 && (
+            <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, padding: "0 2px" }}>
+              {grandTotal.toLocaleString()} units · {safeItems.length} item{safeItems.length !== 1 ? "s" : ""}
+            </div>
+          )}
+          {safeItems.map((item, idx) => {
+            const okB = !!item.blank_vendor;
+            const okA = !!fileSummary[item.id]?.printReady;
+            const okQ = (item.totalQty || 0) > 0;
+            return (
+              <button key={item.id}
+                onClick={() => setMobileSelectedId(item.id)}
+                style={{
+                  width: "100%", textAlign: "left",
+                  padding: "14px 14px", display: "flex", alignItems: "center", gap: 12,
+                  background: T.card, border: `1px solid ${T.border}`, borderRadius: 12,
+                  cursor: "pointer", fontFamily: font, color: T.text, minHeight: 64,
+                }}>
+                <span style={{
+                  width: 38, height: 38, borderRadius: 8, background: T.accentDim,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 15, fontWeight: 800, color: T.accent, fontFamily: mono, flexShrink: 0,
+                }}>{String.fromCharCode(65 + idx)}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {item.name || "Untitled"}
+                  </div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ") || "No blank"}
+                  </div>
+                  <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 11, fontFamily: mono, color: T.text }}>
+                      {item.totalQty > 0 ? `${item.totalQty} units` : "—"}
+                    </span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: okB ? T.green : T.border }} />
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: okA ? T.green : T.border }} />
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: okQ ? T.green : T.border }} />
+                    </span>
+                  </div>
+                </div>
+                <span style={{ fontSize: 22, color: T.faint, flexShrink: 0 }}>›</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Mobile detail header — sticky back chevron when an item is
+          focused on mobile. The detail card itself renders in the
+          shared block below. */}
+      {isMobile && activeItemId && (
+        <div style={{
+          position: "sticky", top: 0, zIndex: 5,
+          background: "rgba(244,244,246,0.92)", backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          padding: "10px 0", marginLeft: -12, marginRight: -12, paddingLeft: 12, paddingRight: 12,
+          borderBottom: `1px solid ${T.border}`,
+        }}>
+          <button onClick={() => setMobileSelectedId(null)}
+            style={{
+              background: "transparent", border: "none", color: T.accent,
+              fontSize: 16, fontWeight: 600, cursor: "pointer", fontFamily: font,
+              padding: "8px 4px", minHeight: 44, display: "flex", alignItems: "center", gap: 4,
+            }}>
+            <span style={{ fontSize: 22, lineHeight: 1 }}>‹</span> Items
+          </button>
+        </div>
+      )}
+
+      {/* Grand total + Item list — only when an item is selected
+          (work-surface mode showing that one item) OR on desktop with
+          a selection. The mobile list view above handles the
+          no-selection mobile case. */}
+      {activeItemId && safeItems.length > 0 && !isMobile && (
         <div style={{ fontSize: 12, fontWeight: 600, color: T.accent, fontFamily: mono, padding: "2px 0" }}>
           {grandTotal.toLocaleString()} units · {safeItems.length} item{safeItems.length !== 1 ? "s" : ""}
         </div>
       )}
 
-      {/* ══ Item list ══ */}
-      {mounted ? (
+      {/* ══ Item list (work-surface view: full edit card) ══ */}
+      {activeItemId && (
+      mounted ? (
       <DragDropContext onDragEnd={result => {
         if (!result.destination || result.source.index === result.destination.index) return;
         // Map filtered indices back to full array indices when sidebar is filtering
-        if (selectedItemId) return; // Can't reorder when viewing single item
+        if (activeItemId) return; // Can't reorder when viewing single item
         onDragEnd(result);
       }}>
         <Droppable droppableId="product-builder-items">
           {(droppableProvided) => (
             <div ref={droppableProvided.innerRef} {...droppableProvided.droppableProps}>
       {safeItems.map((item, idx) => {
-        if (selectedItemId && item.id !== selectedItemId) return null;
-        const isExpanded = selectedItemId ? true : expandedId === item.id;
+        if (activeItemId && item.id !== activeItemId) return null;
+        const isExpanded = activeItemId ? true : expandedId === item.id;
         const hasBlank = !!item.blank_vendor;
 
         return (
@@ -894,13 +1129,19 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               marginBottom: 6,
             }}
           >
-            {/* ── Header (always visible) ── */}
+            {/* ── Header (always visible) ──
+                Mobile detail view treats this row as a UINavigationBar-
+                style title: bigger letter, larger name, redundant blank
+                info hidden (it appears in the body below). Desktop keeps
+                the tight inline layout. */}
             <div
               {...(!isExpanded ? provided.dragHandleProps : {})}
               onClick={() => { if (!snapshot.isDragging) setExpandedId(isExpanded ? null : item.id); }}
-              style={{ padding: "10px 16px", display: "flex", alignItems: "center", gap: 10, cursor: isExpanded ? "pointer" : "grab", borderBottom: isExpanded ? `1px solid ${T.border}44` : "none" }}
+              style={{ padding: isMobile && isExpanded ? "14px 16px" : "10px 16px", display: "flex", alignItems: "center", gap: isMobile && isExpanded ? 12 : 10, cursor: isExpanded ? "pointer" : "grab", borderBottom: isExpanded ? `1px solid ${T.border}44` : "none" }}
             >
-              <span style={{ width: 22, height: 22, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
+              <span style={isMobile && isExpanded
+                ? { width: 36, height: 36, borderRadius: 8, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 800, color: T.accent, fontFamily: mono, flexShrink: 0 }
+                : { width: 22, height: 22, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
                 {String.fromCharCode(65 + idx)}
               </span>
               <style dangerouslySetInnerHTML={{ __html: `
@@ -911,7 +1152,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 className="pb-name-wrap"
                 style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}
               >
-                <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name || "Untitled"}</span>
+                <span style={isMobile && isExpanded
+                  ? { fontSize: 17, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "-0.01em" }
+                  : { fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name || "Untitled"}</span>
                 {/* Hover-only rename button. Clicking it swaps the text
                     for an input (visibility toggled via a sibling data
                     attribute) without bubbling the click to the row —
@@ -960,14 +1203,22 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                   style={{ display: "none", flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: T.text, background: T.surface, border: `1px solid ${T.accent}`, outline: "none", padding: "2px 6px", borderRadius: 4 }}
                 />
               </div>
-              {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}</span>}
-              {!hasBlank && item.garment_type !== "accessory" && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
-              <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono, flexShrink: 0, minWidth: 50, textAlign: "right", color: item.totalQty > 0 ? T.text : T.faint }}>{item.totalQty > 0 ? item.totalQty : "—"}</span>
-              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                {fileSummary[item.id]?.printReady && <span style={{ fontSize: 9, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>Print-ready</span>}
-                {fileSummary[item.id]?.hasProof && <span style={{ fontSize: 9, fontWeight: 700, color: T.purple, letterSpacing: "0.06em", textTransform: "uppercase" }}>Proof</span>}
-                {fileSummary[item.id]?.fileCount > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }}>{fileSummary[item.id].fileCount} files</span>}
-              </div>
+              {/* Blank summary + qty + status indicators — hidden on
+                  mobile detail view to avoid duplicating what the body
+                  already shows large. Desktop keeps the row of inline
+                  metadata. */}
+              {!(isMobile && isExpanded) && (
+                <>
+                  {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}</span>}
+                  {!hasBlank && item.garment_type !== "accessory" && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
+                  <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono, flexShrink: 0, minWidth: 50, textAlign: "right", color: item.totalQty > 0 ? T.text : T.faint }}>{item.totalQty > 0 ? item.totalQty : "—"}</span>
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    {fileSummary[item.id]?.printReady && <span style={{ fontSize: 9, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>Print-ready</span>}
+                    {fileSummary[item.id]?.hasProof && <span style={{ fontSize: 9, fontWeight: 700, color: T.purple, letterSpacing: "0.06em", textTransform: "uppercase" }}>Proof</span>}
+                    {fileSummary[item.id]?.fileCount > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase" }}>{fileSummary[item.id].fileCount} files</span>}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* ── Expanded body ── */}
@@ -980,7 +1231,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 setDistRow={setDistRow} distTotal={distTotal} setDistTotal={setDistTotal}
                 handleDist={handleDist} removeItem={removeItem} setAssignBlankTo={setAssignBlankTo}
                 setEditSizesItemId={setEditSizesItemId}
-                setShowAddModal={setShowAddModal} onItemsChanged={onItemsChanged}
+                setShowAddModal={setShowAddModal} setMobilePickerOpen={setMobilePickerOpen} onItemsChanged={onItemsChanged}
                 requestMove={(it) => setMoveItemTarget({ id: it.id, name: it.name || "" })}
                 requestCopy={(it) => setCopyItemTarget({ id: it.id, name: it.name || "" })}
                 onUpdateItem={(id, updates) => { updateLocal(workingItems.map(it => it.id === id ? {...it, ...updates} : it)); onUpdateItem(id, updates); }}
@@ -1002,17 +1253,42 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       ) : (
         /* Pre-mount: render items without drag (avoids SSR hydration issues) */
         <div>{safeItems.map((item, idx) => {
-          if (selectedItemId && item.id !== selectedItemId) return null;
+          if (activeItemId && item.id !== activeItemId) return null;
           return <div key={item.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 16px", marginBottom: 6, fontSize: 13, fontWeight: 600 }}>{item.name || "Untitled"}</div>;
         })}</div>
+      )
       )}
 
-      {/* Empty state */}
-      {isEmpty && !psdProcessing && (
+      {/* Empty state — only when the list is showing (mobile or item
+          selected). Desktop home-state lives above and already shows a
+          friendly empty surface when there are no items. */}
+      {(isMobile || activeItemId) && isEmpty && !psdProcessing && (
         <div style={{ padding: "20px 0", textAlign: "center" }}>
           <div style={{ color: T.faint, fontSize: 13, marginBottom: 16 }}>No items yet — drop a PSD or add from catalog.</div>
         </div>
       )}
+
+      {/* Mobile blank picker — search-first MVP. Opens on mobile when
+          + Add item is tapped or when an item's blank is being
+          re-assigned ("click to change"). Bypasses the desktop
+          source-selection + supplier-catalog modals entirely. */}
+      <MobileBlankPicker
+        open={mobilePickerOpen}
+        onClose={() => { setMobilePickerOpen(false); setAssignBlankTo(null); }}
+        favorites={favorites}
+        toggleFav={toggleFav}
+        isFav={isFav}
+        assignMode={!!assignBlankTo}
+        defaultItemName={assignBlankTo ? ((workingItems || []).find(it => it.id === assignBlankTo)?.name || "") : ""}
+        existingQtys={assignBlankTo ? ((workingItems || []).find(it => it.id === assignBlankTo)?.qtys || null) : null}
+        onAdd={item => {
+          if (assignBlankTo) {
+            assignBlank(item);
+          } else {
+            addItem(item);
+          }
+        }}
+      />
 
       {moveItemTarget && (
         <MoveItemDialog
@@ -1273,7 +1549,8 @@ function sortSizesLocal(arr) {
 // ═══════════════════════════════════════════════════════════════
 // Expanded item body — manages its own file state per item
 // ═══════════════════════════════════════════════════════════════
-function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setEditSizesItemId, setShowAddModal, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked, requestMove, requestCopy }) {
+function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setEditSizesItemId, setShowAddModal, setMobilePickerOpen, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked, requestMove, requestCopy }) {
+  const isMobile = useIsMobile();
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -1333,43 +1610,51 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
     if (onFilesChanged) onFilesChanged();
   }
 
+  // Mobile sizes the thumbnail to span the full panel width with a
+  // soft 1:1 cap; desktop keeps the 160px fixed slot next to the info
+  // column. The flex-direction also flips on mobile so blank/sizes
+  // stack underneath the image rather than fighting for 50% width.
+  const thumbSize = isMobile ? "min(78vw, 320px)" : 160;
   return (
-    <div style={{ padding: "24px", position: "relative" }}>
-      {/* Row 1: Thumbnail + Info */}
-      <div style={{ display: "flex", gap: 24, marginBottom: 20 }}>
-        {/* Thumbnail — bigger. Uses parent-preloaded id for instant render on expand. */}
+    <div style={{ padding: isMobile ? "16px 14px" : "24px", position: "relative" }}>
+      {/* Row 1: Thumbnail + Info — stacks vertically on mobile */}
+      <div style={{ display: "flex", gap: isMobile ? 16 : 24, marginBottom: 20, flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "flex-start" }}>
+        {/* Thumbnail — full-width centered block on mobile, fixed 160px on desktop. */}
         {thumbDriveId ? (
-          <div style={{ flexShrink: 0 }}>
+          <div style={{ flexShrink: 0, alignSelf: isMobile ? "center" : "auto" }}>
             <DriveThumb
               driveFileId={thumbDriveId}
               enlargeable
               title={`${item.name} — mockup`}
               driveLink={mockupFile?.drive_link || null}
-              style={{ width: 160, height: 160, objectFit: "contain", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, display: "block" }}
+              style={{ width: thumbSize, height: thumbSize, objectFit: "contain", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, display: "block" }}
               fallback={
-                <div style={{ width: 160, height: 160, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: thumbSize, height: thumbSize, borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <span style={{ fontSize: 11, color: T.faint }}>No preview</span>
                 </div>
               }
             />
           </div>
         ) : (
-          <div style={{ width: 160, height: 160, borderRadius: 10, border: `2px dashed ${T.border}`, background: T.surface, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: thumbSize, height: thumbSize, borderRadius: 10, border: `2px dashed ${T.border}`, background: T.surface, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", alignSelf: isMobile ? "center" : "auto" }}>
             <span style={{ fontSize: 11, color: T.faint }}>No mockup</span>
           </div>
         )}
 
         {/* Info stack */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
-          {/* Blank — clickable to change */}
-          <div onClick={e => { e.stopPropagation(); if (costingLocked) return; setAssignBlankTo(item.id); setShowAddModal(true); }}
-            style={{ cursor: costingLocked ? "default" : "pointer", padding: "12px 16px", background: T.surface, borderRadius: 8, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s" }}
+          {/* Blank — clickable to change. On mobile, the contents wrap
+              so a long vendor/sku doesn't truncate; type selector
+              drops to its own line, "click to change" hint is hidden
+              (the whole row is already the affordance). */}
+          <div onClick={e => { e.stopPropagation(); if (costingLocked) return; setAssignBlankTo(item.id); if (isMobile) { setMobilePickerOpen(true); } else { setShowAddModal(true); } }}
+            style={{ cursor: costingLocked ? "default" : "pointer", padding: "12px 16px", background: T.surface, borderRadius: 8, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s", flexWrap: isMobile ? "wrap" : "nowrap" }}
             onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
             onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
             {hasBlank ? (
               <>
-                <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{item.blank_vendor}</span>
-                {(item.color || item.blank_sku) && <span style={{ fontSize: 14, color: T.muted }}>{item.color || item.blank_sku}</span>}
+                <span style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: T.text, wordBreak: isMobile ? "break-word" : "normal" }}>{item.blank_vendor}</span>
+                {(item.color || item.blank_sku) && <span style={{ fontSize: isMobile ? 13 : 14, color: T.muted }}>{item.color || item.blank_sku}</span>}
                 <select value={item.garment_type || ""} onClick={e => e.stopPropagation()}
                   onChange={e => { e.stopPropagation(); onUpdateItem(item.id, { garment_type: e.target.value || null }); }}
                   style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, background: T.card, color: T.muted, border: `1px solid ${T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
@@ -1378,7 +1663,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
-                <span style={{ fontSize: 10, color: T.faint, marginLeft: "auto" }}>click to change</span>
+                {!isMobile && <span style={{ fontSize: 10, color: T.faint, marginLeft: "auto" }}>click to change</span>}
               </>
             ) : (
               <span style={{ fontSize: 14, fontWeight: 700, color: T.accent }}>Assign Blank →</span>
@@ -1402,10 +1687,19 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
             </div>
           )}
 
-          {/* Sizes & Quantities — labels on top, bigger inputs */}
+          {/* Sizes & Quantities — labels on top, bigger inputs. On
+              mobile the row is horizontally scrollable so 5-10 sizes
+              all stay reachable; the total + Dist/Edit buttons wrap
+              below instead of fighting for the same line. */}
           {item.sizes.length > 0 && item.sizes[0] !== "OSFA" && (
             <div>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
+              <div style={{
+                display: "flex", alignItems: "flex-end", gap: 8,
+                overflowX: isMobile ? "auto" : "visible",
+                WebkitOverflowScrolling: "touch",
+                paddingBottom: isMobile ? 4 : 0,
+                flexWrap: isMobile ? "nowrap" : "wrap",
+              }}>
                 {item.sizes.map((sz, ci) => {
                   const localVal = getLocalQty(item.id, sz);
                   const displayVal = localVal !== null ? localVal : (item.qtys[sz] || 0);
@@ -1430,17 +1724,35 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                   </div>
                 );
               })}
-              <span style={{ width: 1, height: 28, background: T.border, margin: "0 6px" }} />
-              <div style={{ textAlign: "center" }}>
-                <span style={{ fontSize: 20, fontWeight: 800, fontFamily: mono }}>{item.totalQty}</span>
-                <div style={{ fontSize: 9, color: T.muted }}>units</div>
-              </div>
-              {!costingLocked && <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}>Dist</button>}
-              {!costingLocked && <button onClick={() => setEditSizesItemId(item.id)} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}
-                title="Add or remove sizes without changing the blank">
-                Edit sizes
-              </button>}
+              {/* Total + Dist/Edit — desktop keeps these inline next
+                  to the sizes (separator pip first). Mobile drops them
+                  to a second row below so the sizes scroller can start
+                  flush-left with all sizes reachable. */}
+              {!isMobile && <>
+                <span style={{ width: 1, height: 28, background: T.border, margin: "0 6px" }} />
+                <div style={{ textAlign: "center" }}>
+                  <span style={{ fontSize: 20, fontWeight: 800, fontFamily: mono }}>{item.totalQty}</span>
+                  <div style={{ fontSize: 9, color: T.muted }}>units</div>
+                </div>
+                {!costingLocked && <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}>Dist</button>}
+                {!costingLocked && <button onClick={() => setEditSizesItemId(item.id)} style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}
+                  title="Add or remove sizes without changing the blank">
+                  Edit sizes
+                </button>}
+              </>}
             </div>
+            {isMobile && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: T.text }}>{item.totalQty}</span>
+                <span style={{ fontSize: 11, color: T.muted }}>units</span>
+                <span style={{ flex: 1 }} />
+                {!costingLocked && <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", cursor: "pointer", fontFamily: font, minHeight: 36 }}>Distribute</button>}
+                {!costingLocked && <button onClick={() => setEditSizesItemId(item.id)} style={{ fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", cursor: "pointer", fontFamily: font, minHeight: 36 }}
+                  title="Add or remove sizes without changing the blank">
+                  Edit sizes
+                </button>}
+              </div>
+            )}
             {distRow === idx && (
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
                 <input type="text" inputMode="numeric" value={distTotal} onChange={e => setDistTotal(e.target.value)} onKeyDown={e => e.key === "Enter" && handleDist(idx)} placeholder="Total qty" autoFocus style={{ ...ic, width: 80, textAlign: "center" }} />
@@ -1504,9 +1816,13 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
           </div>
           <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={e => { handleFileDrop(e.target.files); e.target.value = ""; }} />
       </div>
-      {/* Move + Delete — bottom right corner. Move only shown for saved
-          items (real UUID, not an in-session temp id). */}
-      <div style={{ position: "absolute", bottom: 14, right: 16, display: "flex", gap: 14, alignItems: "center" }}>
+      {/* Move + Delete + Duplicate + Copy — absolute bottom-right on
+          desktop. On mobile, drop the absolute positioning and let
+          them flow as a wrapped row at the foot of the card so they
+          don't crash into the files block. */}
+      <div style={isMobile
+        ? { display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", padding: "12px 0 4px", borderTop: `1px solid ${T.border}`, marginTop: 14 }
+        : { position: "absolute", bottom: 14, right: 16, display: "flex", gap: 14, alignItems: "center" }}>
         {typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && (
           <button onClick={async e => {
               e.stopPropagation();

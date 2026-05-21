@@ -132,54 +132,81 @@ function Lightbox({
   // in-app per product direction. DriveFileLink is the more general wrapper.
   const hasHeader = !!title;
 
+  // Single header row at the top of the modal: title on the left,
+  // Download + Close on the right. Both buttons share the same height
+  // + radius so they read as a coherent action group instead of the
+  // old "floating circled ×" that sat outside the image.
+  const headerBtn: React.CSSProperties = {
+    height: 32, padding: "0 14px", borderRadius: 8,
+    background: "rgba(255,255,255,0.10)", color: "#fff",
+    fontSize: 12, fontWeight: 600, textDecoration: "none",
+    border: "1px solid rgba(255,255,255,0.18)",
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+    cursor: "pointer", fontFamily: font,
+    transition: "background 0.15s",
+  };
+
   return (
     <div
       onClick={onClose}
       style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        zIndex: 10000, padding: 32, fontFamily: font,
+        position: "fixed", inset: 0, background: "rgba(10,10,14,0.86)",
+        backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        zIndex: 10000, padding: "24px 16px", fontFamily: font,
       }}
     >
+      {/* Header bar — same width as the image area below so the row
+          reads like a proper toolbar, not floating chrome. */}
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ position: "relative", maxWidth: "92vw", maxHeight: "92vh", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}
+        style={{
+          width: "min(1100px, 96vw)",
+          display: "flex", alignItems: "center", gap: 12,
+          color: "#fff", marginBottom: 12,
+        }}
       >
         {hasHeader && (
-          <div style={{ display: "flex", alignItems: "center", gap: 16, color: "#fff", fontSize: 12 }}>
-            {title && <span style={{ fontWeight: 600, letterSpacing: "-0.01em" }}>{title}</span>}
-            {/* Download — hits the thumbnail endpoint with dl=1 so it
-                returns the original file (Content-Disposition:
-                attachment), not the preview PNG. Works for any file
-                type: PSD/AI/EPS download their native bytes, images
-                download as the original raster. */}
-            <a
-              href={`/api/files/thumbnail?id=${driveFileId}&dl=1`}
-              download
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                padding: "4px 12px", borderRadius: 6,
-                background: "rgba(255,255,255,0.12)", color: "#fff",
-                fontSize: 11, fontWeight: 600, textDecoration: "none",
-                border: "1px solid rgba(255,255,255,0.25)",
-              }}
-            >Download</a>
-          </div>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {title}
+          </span>
         )}
-        <img
-          src={`/api/files/thumbnail?id=${driveFileId}&size=1600`}
-          alt={title || ""}
-          style={{ maxWidth: "100%", maxHeight: hasHeader ? "calc(92vh - 40px)" : "92vh", objectFit: "contain", borderRadius: 8, display: "block" }}
-        />
+        {/* Download — hits the thumbnail endpoint with dl=1 so it
+            returns the original file (Content-Disposition: attachment),
+            not the preview PNG. Works for any file type: PSD/AI/EPS
+            download their native bytes, images as the original raster. */}
+        <a
+          href={`/api/files/thumbnail?id=${driveFileId}&dl=1`}
+          download
+          onClick={(e) => e.stopPropagation()}
+          style={headerBtn}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.18)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.10)"; }}
+        >Download</a>
         <button
           onClick={onClose}
           aria-label="Close"
-          style={{
-            position: "absolute", top: -14, right: -14, width: 36, height: 36, borderRadius: "50%",
-            background: "#fff", color: "#000", border: "none", fontSize: 20, cursor: "pointer",
-            fontWeight: 700, lineHeight: 1, boxShadow: "0 2px 10px rgba(0,0,0,0.3)",
-          }}
+          style={{ ...headerBtn, width: 32, padding: 0, fontSize: 18, fontWeight: 400, lineHeight: 1 }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.18)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.10)"; }}
         >×</button>
+      </div>
+
+      {/* Image */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(1100px, 96vw)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          flex: "0 1 auto",
+        }}
+      >
+        <img
+          src={`/api/files/thumbnail?id=${driveFileId}&size=1600`}
+          alt={title || ""}
+          style={{ maxWidth: "100%", maxHeight: "calc(92vh - 60px)", objectFit: "contain", borderRadius: 10, display: "block" }}
+        />
       </div>
     </div>
   );

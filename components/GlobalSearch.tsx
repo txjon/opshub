@@ -13,7 +13,7 @@ type Result = {
   subtitle: string;
 };
 
-export function GlobalSearch() {
+export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
   const supabase = createClient();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -180,21 +180,38 @@ export function GlobalSearch() {
     decorator: { label: "Decorator", color: T.purple },
   };
 
+  const openSearch = () => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 50); };
+
   return (
     <>
-      {/* Trigger button in sidebar */}
-      <button onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 50); }}
-        style={{
-          width: "100%", display: "flex", alignItems: "center", gap: 8,
-          padding: "7px 12px", borderRadius: 6,
-          background: T.surface, border: `1px solid ${T.border}`,
-          color: T.faint, fontSize: 12, fontFamily: font,
-          cursor: "pointer", textAlign: "left",
-        }}>
-        <Search size={14} />
-        <span style={{ flex: 1 }}>Search...</span>
-        <span style={{ fontSize: 9, fontFamily: mono, color: T.faint, background: T.card, padding: "1px 4px", borderRadius: 3 }}>⌘K</span>
-      </button>
+      {/* Trigger — compact icon button on mobile, full search field on
+          desktop. Same modal either way. */}
+      {compact ? (
+        <button onClick={openSearch}
+          aria-label="Search"
+          style={{
+            width: 44, height: 44, borderRadius: 10,
+            background: "transparent", border: "none",
+            color: "#1a1a1a", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0,
+          }}>
+          <Search size={20} />
+        </button>
+      ) : (
+        <button onClick={openSearch}
+          style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 8,
+            padding: "7px 12px", borderRadius: 6,
+            background: T.surface, border: `1px solid ${T.border}`,
+            color: T.faint, fontSize: 12, fontFamily: font,
+            cursor: "pointer", textAlign: "left",
+          }}>
+          <Search size={14} />
+          <span style={{ flex: 1 }}>Search...</span>
+          <span style={{ fontSize: 9, fontFamily: mono, color: T.faint, background: T.card, padding: "1px 4px", borderRadius: 3 }}>⌘K</span>
+        </button>
+      )}
 
       {/* Modal overlay */}
       {open && (

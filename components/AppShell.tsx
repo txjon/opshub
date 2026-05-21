@@ -235,28 +235,42 @@ export function AppShell({
         {/* ── Top nav bar ── */}
         <div style={{
           background: "#fff", borderBottom: "1px solid #dcdce0",
-          padding: isMobile ? "0 12px" : "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
-          height: 48, flexShrink: 0, gap: 8,
+          padding: isMobile ? "0 4px 0 8px" : "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
+          height: isMobile ? 52 : 48, flexShrink: 0, gap: 4,
         }}>
-          {/* Left: nav links (horizontally scrollable on mobile) */}
+          {/* Left: nav links (horizontally scrollable on mobile)
+              Mobile gets taller, bolder tabs with iOS-style underline
+              for the active state — proper 44px touch targets and
+              scroll-snap so they land cleanly when swiped. */}
           <div style={{
-            display: "flex", alignItems: "center", gap: 2,
+            display: "flex", alignItems: "center", gap: isMobile ? 0 : 2,
             overflowX: "auto", overflowY: "hidden",
             minWidth: 0, flex: 1,
             scrollbarWidth: "none", WebkitOverflowScrolling: "touch",
+            scrollSnapType: isMobile ? "x proximity" : undefined,
           }}>
             {navItems.map((item: any) => {
               const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
               const isDashboard = item.href === "/dashboard";
               const showBadge = isDashboard && dashboardUnread > 0;
-              const linkStyle = {
+              const linkStyle = isMobile ? ({
+                padding: "0 14px", minHeight: 44, fontSize: 15,
+                fontWeight: isActive ? 700 : 500,
+                textDecoration: "none", transition: "color 0.12s",
+                color: isActive ? "#000" : "#6b6b78",
+                background: "transparent",
+                borderBottom: isActive ? "2px solid #000" : "2px solid transparent",
+                flexShrink: 0, whiteSpace: "nowrap",
+                display: "inline-flex", alignItems: "center", gap: 8,
+                scrollSnapAlign: "start",
+              } as const) : ({
                 padding: "6px 14px", borderRadius: 6, fontSize: 13, fontWeight: isActive ? 700 : 500,
                 textDecoration: "none", transition: "all 0.12s",
                 color: isActive ? "#000" : "#6b6b78",
                 background: isActive ? "#eaeaee" : "transparent",
                 flexShrink: 0, whiteSpace: "nowrap",
                 display: "inline-flex", alignItems: "center", gap: 8,
-              } as const;
+              } as const);
               const badge = showBadge ? (
                 <span style={{
                   background: "#e8569b", color: "#fff",
@@ -309,9 +323,10 @@ export function AppShell({
             )}
           </div>
 
-          {/* Right: search + user */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-            <GlobalSearch />
+          {/* Right: search + user. Compact icon button on mobile, full
+              search field on desktop. */}
+          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 0 : 12, flexShrink: 0 }}>
+            <GlobalSearch compact={isMobile} />
             {!isMobile && <span style={{ fontSize: 11, color: "#a0a0ad" }}>{email?.split("@")[0]}</span>}
           </div>
         </div>

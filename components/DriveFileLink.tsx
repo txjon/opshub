@@ -93,21 +93,36 @@ function DriveFileModal({
   const thumbSrc = `/api/files/thumbnail?id=${driveFileId}`;
   const iframeSrc = `https://drive.google.com/file/d/${driveFileId}/preview`;
 
+  // Single toolbar style shared by Download + Close so they read as
+  // a paired set instead of a button next to a floating circled ×.
+  const headerBtn: React.CSSProperties = {
+    height: 32, padding: "0 14px", borderRadius: 8,
+    background: "rgba(255,255,255,0.10)", color: "#fff",
+    fontSize: 12, fontWeight: 600, textDecoration: "none",
+    border: "1px solid rgba(255,255,255,0.18)",
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+    cursor: "pointer",
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+    transition: "background 0.15s",
+  };
+
   return (
     <div
       onClick={onClose}
       style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+        position: "fixed", inset: 0, background: "rgba(10,10,14,0.86)",
+        backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
         zIndex: 10000, display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "center", padding: 24,
       }}
     >
-      {/* Header bar — filename + close */}
+      {/* Header bar — filename + Download + Close. All same height, all
+          part of a quiet toolbar so nothing floats over the image. */}
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "min(1200px, 96vw)", color: "#fff", fontSize: 13,
-          display: "flex", alignItems: "center", gap: 12, marginBottom: 10,
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 12,
           fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
         }}
       >
@@ -122,22 +137,16 @@ function DriveFileModal({
           href={`/api/files/thumbnail?id=${driveFileId}&dl=1`}
           download
           onClick={(e) => e.stopPropagation()}
-          style={{
-            padding: "8px 14px", borderRadius: 8,
-            background: "rgba(255,255,255,0.12)", color: "#fff",
-            fontSize: 12, fontWeight: 600, textDecoration: "none",
-            border: "1px solid rgba(255,255,255,0.25)",
-          }}
+          style={headerBtn}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.18)"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.10)"; }}
         >Download</a>
         <button
           onClick={onClose}
           aria-label="Close"
-          style={{
-            width: 36, height: 36, borderRadius: "50%",
-            background: "#fff", color: "#000", border: "none",
-            fontSize: 20, fontWeight: 700, lineHeight: 1,
-            cursor: "pointer", boxShadow: "0 2px 10px rgba(0,0,0,0.4)",
-          }}
+          style={{ ...headerBtn, width: 32, padding: 0, fontSize: 18, fontWeight: 400, lineHeight: 1 }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.18)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.10)"; }}
         >×</button>
       </div>
 
