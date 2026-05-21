@@ -3,12 +3,14 @@ import { useState } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { calcDecorationLines } from "@/lib/pricing";
 import { SettingsModal } from "./SettingsModal";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 const LOCATION_PRESETS = ["Front","Back","Left Sleeve","Right Sleeve","Left Chest","Right Chest","Neck","Hood","Pocket"];
 const SHARE_GROUPS = ["A","B","C","D","E","F","G","H","I","J"];
 const TAG_SHARE_GROUPS = ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10"];
 
 export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = [], onAddDecorator, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice, costingLocked = false }) {
+  const isMobile = useIsMobile();
   const pr = PRINTERS[p.printVendor] || {};
   const [forceExpanded, setForceExpanded] = useState(false);
   const activeLocsRaw = Object.values(p.printLocations||{}).filter(l=>l?.location&&l?.screens>0).length;
@@ -121,7 +123,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
     const decorationTotal = sumLines(lines);
 
     return (
-      <div style={{display:"flex",flexDirection:"column",gap:0,paddingLeft:20}}>
+      <div style={{display:"flex",flexDirection:"column",gap:0,paddingLeft:isMobile?0:20}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:8,borderBottom:`2px solid ${T.text}`,marginBottom:10}}>
           <div style={{fontSize:11,fontWeight:800,color:T.text,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Decoration · Locked</div>
           <button onClick={()=>setForceExpanded(true)}
@@ -173,7 +175,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
   }
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:10,paddingLeft:20,...(costingLocked?{pointerEvents:"none",opacity:0.6}:{})}}>
+    <div style={{display:"flex",flexDirection:"column",gap:10,paddingLeft:isMobile?0:20,...(costingLocked?{pointerEvents:"none",opacity:0.6}:{})}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:8,borderBottom:"2px solid "+T.text}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
