@@ -5,6 +5,7 @@ import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { PdfPreviewModal } from "@/components/PdfPreviewModal";
+import { useClientBranding } from "@/lib/branding-client";
 // dates — milestones removed, ship date is set manually
 
 function fmtD(n) {
@@ -134,6 +135,13 @@ const SHIP_METHODS = ["UPS Ground","UPS 2-Day","UPS Next Day","FedEx Ground","Fe
 
 export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selectedItemId}) {
   const supabase = createClient();
+  const branding = useClientBranding();
+  // Derive "HPD" / "IHM" from the company name initials so PO subjects
+  // match the tenant the user is acting on. Falls back to HPD until the
+  // companies row finishes loading.
+  const poPrefix = ((branding.name || "House Party Distro")
+    .split(/\s+/).filter(Boolean)
+    .map(w => (w[0] || "").toUpperCase()).join("")) || "HPD";
   const [decorators,setDecorators] = useState([]);
   const [shipMethods,setShipMethods] = useState(project?.type_meta?.po_ship_methods || {});
   const [poShipDates,setPoShipDates] = useState(project?.type_meta?.po_ship_dates || {});
@@ -420,7 +428,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
           vendor={active}
           contacts={getDec(active)?.contacts_list||[]}
           defaultEmail={getDec(active)?.contact_email||""}
-          defaultSubject={`HPD PO# ${project.type_meta?.qb_invoice_number || project.job_number || ""}${vItems.map(it=>String.fromCharCode(65+(it.sort_order||0))).join("")} — ${(project.clients?.name||project.title||"")} — ${active}`}
+          defaultSubject={`${poPrefix} PO# ${project.type_meta?.qb_invoice_number || project.job_number || ""}${vItems.map(it=>String.fromCharCode(65+(it.sort_order||0))).join("")} — ${(project.clients?.name||project.title||"")} — ${active}`}
           onClose={()=>setShowSendEmail(false)}
           onSent={async()=>{
             logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`);
