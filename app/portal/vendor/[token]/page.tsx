@@ -157,9 +157,15 @@ export default function VendorPortalPage({ params }: { params: { token: string }
         if (s === "pending") poReceived++;
         if (s === "in_production") inProduction++;
         if (s !== "shipped" && s !== "complete" && o.shipDate) {
-          const ms = new Date(o.shipDate).getTime();
-          if (ms < now) late++;
-          else if (ms - now <= oneWeek) shippingThisWeek++;
+          if (o.shipDate === "ASAP") {
+            // ASAP counts as "shipping this week" so it shows in the
+            // urgent bucket; not "late" since it has no calendar miss.
+            shippingThisWeek++;
+          } else {
+            const ms = new Date(o.shipDate).getTime();
+            if (ms < now) late++;
+            else if (ms - now <= oneWeek) shippingThisWeek++;
+          }
         }
       }
     }

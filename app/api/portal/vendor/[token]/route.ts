@@ -221,8 +221,10 @@ export async function GET(
       }
     }
 
-    // Sort active: soonest ship date first
+    // Sort active: ASAP first, then soonest ship date, then no-date last.
     orders.sort((a: any, b: any) => {
+      if (a.shipDate === "ASAP" && b.shipDate !== "ASAP") return -1;
+      if (b.shipDate === "ASAP" && a.shipDate !== "ASAP") return 1;
       if (!a.shipDate) return 1;
       if (!b.shipDate) return -1;
       return new Date(a.shipDate).getTime() - new Date(b.shipDate).getTime();

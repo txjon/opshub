@@ -31,14 +31,18 @@ export const C = {
   mono: "'IBM Plex Mono', 'Courier New', monospace",
 };
 
+// "ASAP" is a valid ship-date sentinel set on the PO tab when the
+// internal team wants the decorator to ship as soon as the print run
+// is done (no specific calendar date). Pass it through verbatim
+// instead of trying to parse it as an ISO string.
 export const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  iso === "ASAP" ? "ASAP" : new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 export const fmtDateYear = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  iso === "ASAP" ? "ASAP" : new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 export const fmtDateLong = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  iso === "ASAP" ? "ASAP" : new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
 export const fmtMoney = (n: number) =>
   "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -48,6 +52,7 @@ export const fmtMoney = (n: number) =>
 // schedule" — vendor doesn't need a thumbs-up, just an alert level).
 export const daysUntil = (iso: string | null) => {
   if (!iso) return null;
+  if (iso === "ASAP") return { text: "ASAP", color: C.red, urgent: true };
   const diff = Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
   if (diff < 0) return { text: `${Math.abs(diff)}d late`, color: C.red, urgent: true };
   if (diff === 0) return { text: "today", color: C.red, urgent: true };

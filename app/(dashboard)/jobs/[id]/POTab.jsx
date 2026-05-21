@@ -305,14 +305,37 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
           <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:"flex-start",flexShrink:0}}>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
-              <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
-                onChange={e=>{
-                  const val=e.target.value;
-                  const updated={...poShipDates,[active]:val};
-                  setPoShipDates(updated);
-                  saveTypeMeta({ po_ship_dates: updated });
-                }}
-                style={{background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:200,boxSizing:"border-box"}} />
+              {/* ASAP and a date are mutually exclusive — both write to the
+                  same po_ship_dates[vendor] slot. PDF route detects the
+                  "ASAP" sentinel and renders it as-is instead of parsing
+                  it as a date. */}
+              {poShipDates[active] === "ASAP" ? (
+                <div style={{display:"flex",alignItems:"center",gap:6,width:200,height:32,background:T.amberDim,border:`1px solid ${T.amber}66`,borderRadius:6,padding:"0 10px",boxSizing:"border-box"}}>
+                  <span style={{flex:1,fontSize:11,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>ASAP</span>
+                  <button onClick={()=>{
+                    const updated={...poShipDates,[active]:""};
+                    setPoShipDates(updated);
+                    saveTypeMeta({ po_ship_dates: updated });
+                  }} title="Clear" style={{background:"transparent",border:"none",color:T.amber,cursor:"pointer",fontSize:14,lineHeight:1,padding:"0 2px"}}>×</button>
+                </div>
+              ) : (
+                <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                  <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
+                    onChange={e=>{
+                      const val=e.target.value;
+                      const updated={...poShipDates,[active]:val};
+                      setPoShipDates(updated);
+                      saveTypeMeta({ po_ship_dates: updated });
+                    }}
+                    style={{flex:1,background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:152,boxSizing:"border-box"}} />
+                  <button onClick={()=>{
+                    const updated={...poShipDates,[active]:"ASAP"};
+                    setPoShipDates(updated);
+                    saveTypeMeta({ po_ship_dates: updated });
+                  }} title="Ship as soon as possible"
+                    style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.amber,fontFamily:font,fontSize:10,fontWeight:700,letterSpacing:"0.05em",padding:"0 8px",height:32,cursor:"pointer",boxSizing:"border-box"}}>ASAP</button>
+                </div>
+              )}
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
