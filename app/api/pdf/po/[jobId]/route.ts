@@ -313,7 +313,9 @@ function renderPOHTML(data: any): string {
     ? new Date(data.po_sent_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
     : new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const shipDate = data.target_ship_date
-    ? new Date(data.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+    ? (data.target_ship_date === "ASAP"
+        ? "ASAP"
+        : new Date(data.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }))
     : "—";
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
