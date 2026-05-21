@@ -238,7 +238,7 @@ function AddDecoratorModal({ open, onClose, onSaved }) {
   );
 }
 
-const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
   const branding=useClientBranding();
   const [costTab,setCostTab]=useState(initialTab||"calc");
   // Portal target for the right rail. Resolved after mount so the
@@ -410,6 +410,13 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
     updateProd(i,{...p,blankCosts:{...(p.blankCosts||{}),[sz]:parsed}});
   };
   const toggleCollapse=(id)=>setCollapsed(p=>({...p,[id]:!p[id]}));
+  // Click handler for the item strip header. Prefers the page-level
+  // selection model (single-item-at-a-time, mirrors left sidebar) when
+  // available; falls back to the inline collapse toggle otherwise.
+  const headerClick = (id) => {
+    if (onSelectItem) onSelectItem(id);
+    else toggleCollapse(id);
+  };
 
   // Mockup thumbnails for visual reference
   const [mockupMap, setMockupMap] = useState({}); // { itemId: { driveFileId, driveLink } }
@@ -532,14 +539,17 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
               if (NON_GARMENT.includes(p.garment_type)) {
                 const accTotal = (p.customCosts||[]).reduce((a,cc) => a + (cc.flat ? (parseFloat(cc.perUnit)||parseFloat(cc.amount)||0) : (parseFloat(cc.perUnit)||parseFloat(cc.amount)||0) * (p.totalQty||0)), 0);
-                const isCollapsed = selectedItemId ? false : !!collapsed[p.id];
+                // List view always shows strips when the page-level
+                // selection model is wired up (clicking a strip opens
+                // the full card via onSelectItem, not via inline expand).
+                const isCollapsed = selectedItemId ? false : (onSelectItem ? true : !!collapsed[p.id]);
                 const headerBB = isCollapsed ? "none" : `1px solid ${T.border}`;
                 const bodyDisplay = isCollapsed ? "none" : "block";
-                const chevron = isCollapsed ? "v" : "^";
+                const chevron = onSelectItem ? "›" : (isCollapsed ? "v" : "^");
                 return (
                   <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
                     {/* Header: Letter + Name + Qty + Sell $/unit override */}
-                    <div onClick={()=>toggleCollapse(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
+                    <div onClick={()=>headerClick(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
                       <span style={{width:24,height:24,borderRadius:5,background:T.purpleDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.purple,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
                       <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
                         <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||"Accessory"}</span>
@@ -737,13 +747,16 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               }
 
               // ── Apparel full card ──
-              const isCollapsed = selectedItemId ? false : !!collapsed[p.id];
+              // Same selection-model rule as the slim card above: when
+              // onSelectItem is wired, list view stays as strips and a
+              // click navigates rather than expanding inline.
+              const isCollapsed = selectedItemId ? false : (onSelectItem ? true : !!collapsed[p.id]);
               const headerBB=isCollapsed?"none":"1px solid "+T.border;
               const bodyDisplay=isCollapsed?"none":"grid";
-              const chevron=isCollapsed?"v":"^";
+              const chevron = onSelectItem ? "›" : (isCollapsed?"v":"^");
               return(
                 <div key={p.id} id={`item-${p.id}`} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,marginBottom:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.04)"}}>
-                  <div onClick={()=>toggleCollapse(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
+                  <div onClick={()=>headerClick(p.id)} style={{padding:"12px 16px",borderBottom:headerBB,display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none"}}>
                     <span style={{width:24,height:24,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
                     <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
                       <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||("Product "+(i+1))}</span>
@@ -1498,7 +1511,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 
 export { CostingTab };
 
-export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false, selectedItemId, onUpdateProject, hideToolbar = false, actionsRef, onPullStateChange }) {
+export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false, selectedItemId, onSelectItem, onUpdateProject, hideToolbar = false, actionsRef, onPullStateChange }) {
   const [pricingReady, setPricingReady] = useState(false);
   const [decoratorRecords, setDecoratorRecords] = useState([]);
   const vendorIdMapRef = React.useRef({});
@@ -1965,7 +1978,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       orderInfo={orderInfo} setOrderInfo={setOrderInfo}
       decoratorRecords={decoratorRecords}
       onRefreshDecorators={refreshDecorators}
-      costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs} selectedItemId={selectedItemId} onUpdateProject={onUpdateProject}
+      costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs} selectedItemId={selectedItemId} onSelectItem={onSelectItem} onUpdateProject={onUpdateProject}
       onPullFromPsds={handlePullFromPsds} pullingPsds={pullingPsds} pullResult={pullResult}
       hideToolbar={hideToolbar} openRfqRef={openRfqRef}
     />
