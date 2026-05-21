@@ -456,20 +456,26 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
         return (
           <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:isMobile?12:24,flexWrap:"wrap",alignItems:isMobile?"stretch":"flex-start",padding:"4px 0"}}>
             {/* Tag */}
-            <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:isMobile?0:140}}>
+            <div style={{display:"flex",flexDirection:"column",gap:6,minWidth:isMobile?0:140}}>
               <div style={sectionLabel}>Tag print</div>
-              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+              {/* Row 1: the Tag toggle alone. Keeping it on its own line
+                  means flipping it on doesn't widen the section and
+                  shift Packaging right. */}
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
                 <button onClick={()=>updateProd(i,{...p,tagPrint:!p.tagPrint,tagRepeat:p.tagPrint?false:p.tagRepeat})}
                   style={toggleBtn(p.tagPrint)}>
                   {p.tagPrint?"Tag":"Tag?"}
                 </button>
-                {p.tagPrint && (
+              </div>
+              {/* Row 2: sub-controls that only appear when the tag toggle
+                  is on (Repeat + Share + per-piece price). */}
+              {p.tagPrint && (
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                   <button onClick={()=>updateProd(i,{...p,tagRepeat:!p.tagRepeat})}
                     style={toggleBtn(p.tagRepeat)}>
                     Repeat
                   </button>
-                )}
-                {p.tagPrint && (() => {
+                  {(() => {
                   // Tag share — unified single dropdown matching the
                   // print-location share UX. Picking a group sets both
                   // tagShared and tagShareGroup in one update.
@@ -501,8 +507,9 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                       </span>
                     </div>
                   );
-                })()}
-              </div>
+                  })()}
+                </div>
+              )}
             </div>
 
             {/* Packaging */}
