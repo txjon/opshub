@@ -1543,6 +1543,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           actionsRef={costingActionsRef}
           onPullStateChange={(pulling: boolean, result: string | null) => setCostingPull({pulling, result})}
           selectedItemId={selectedItemId}
+          onSelectItem={(id: string) => setSelectedItemId(prev => prev === id ? null : id)}
           onUpdateProject={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
         />
       )}
