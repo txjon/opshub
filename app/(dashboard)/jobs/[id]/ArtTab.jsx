@@ -10,6 +10,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { ArtBriefPanel } from "./ArtBriefPanel";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
 import { DriveThumb } from "@/components/DriveThumb";
 import { DriveFileLink } from "@/components/DriveFileLink";
 
@@ -567,16 +568,13 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
             borderLeft: isMobile ? "none" : `1px solid ${T.border}`,
             borderTop: isMobile ? `1px solid ${T.border}` : "none",
             background: T.surface,
-            display: "flex", alignItems: "center", justifyContent: "center",
+            display: "flex", alignItems: "stretch", justifyContent: "center",
             minHeight: isMobile ? 480 : "auto",
           }}>
             {previewUrl ? (
-              <iframe
-                src={`${previewUrl}#view=FitH&zoom=page-width&toolbar=0&navpanes=0`}
-                style={{ width: "100%", height: "100%", border: "none", minHeight: isMobile ? 480 : 500 }}
-              />
+              <PdfCanvasPreview src={previewUrl} />
             ) : (
-              <div style={{ fontSize: 11, color: T.faint }}>Loading preview...</div>
+              <div style={{ fontSize: 11, color: T.faint, alignSelf: "center" }}>Loading preview...</div>
             )}
           </div>
         </div>
