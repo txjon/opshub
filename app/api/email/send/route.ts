@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
       fromAddress = namedFrom(company.from_email_billing || fromQuotes);
       const clientName = (jobData as any)?.clients?.name || "";
       const isRevisedInvoice = !!(jobData as any)?.type_meta?.invoice_sent_at;
-      const invoiceLabel = isRevisedInvoice ? "Revised invoice" : "Invoice";
+      const invoiceLabel = isRevisedInvoice ? "Revised Invoice" : "Invoice";
       defaultSubject = subject || [
         `${invoiceLabel}${qbInvNum || jobNum ? ` ${qbInvNum || jobNum}` : ""}`,
         clientName,
@@ -239,7 +239,7 @@ export async function POST(req: NextRequest) {
         ? (() => {
             const isRevised = !!(jobData as any)?.type_meta?.invoice_sent_at;
             const invoiceWord = isRevised ? "revised invoice" : "invoice";
-            const headingWord = isRevised ? "Revised invoice" : "Invoice";
+            const headingWord = isRevised ? "Revised Invoice" : "Invoice";
             return renderBrandedEmail({
               eyebrow: companyName,
               heading: `${headingWord}${qbInvNum ? ` #${qbInvNum}` : ""}`,
@@ -329,7 +329,7 @@ export async function POST(req: NextRequest) {
           : type === "quote"
           ? `Quote attached (${filename})\n\nHere's your quote — take a look and let us know if you have any questions or want to make changes.`
           : type === "invoice"
-          ? `${(jobData as any)?.type_meta?.invoice_sent_at ? "Revised invoice" : "Invoice"} attached (${filename})\n\nAttached is your ${(jobData as any)?.type_meta?.invoice_sent_at ? "revised invoice" : "invoice"}. Let us know if you have any questions.`
+          ? `${(jobData as any)?.type_meta?.invoice_sent_at ? "Revised Invoice" : "Invoice"} attached (${filename})\n\nAttached is your ${(jobData as any)?.type_meta?.invoice_sent_at ? "revised invoice" : "invoice"}. Let us know if you have any questions.`
           : type === "reminder"
           ? `Friendly reminder — invoice attached (${filename})\n\nA gentle nudge that the attached invoice is still open. Reply or call if you have questions; if it's already been paid, please disregard.`
           : `${type} attached (${filename})`,
@@ -369,7 +369,7 @@ export async function POST(req: NextRequest) {
       // Log activity server-side — works from dashboard, quote tab, anywhere
       const activityMsg =
         type === "quote" ? `Quote sent to client (${recipientEmail})`
-        : type === "invoice" ? `${(jobData as any)?.type_meta?.invoice_sent_at ? "Revised invoice" : "Invoice"} sent to client (${recipientEmail})`
+        : type === "invoice" ? `${(jobData as any)?.type_meta?.invoice_sent_at ? "Revised Invoice" : "Invoice"} sent to client (${recipientEmail})`
         : type === "reminder" ? `Invoice reminder sent to client (${recipientEmail})`
         : type === "po" ? `PO sent to ${vendor || "decorator"} (${recipientEmail})`
         : type === "rfq" ? `Quote request sent to ${vendor || "decorator"} (${recipientEmail}${Array.isArray(rfqItemIds) && rfqItemIds.length ? ` · ${rfqItemIds.length} item${rfqItemIds.length !== 1 ? "s" : ""}` : ""})`

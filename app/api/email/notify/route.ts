@@ -318,7 +318,7 @@ export async function POST(req: NextRequest) {
 
       const html = renderBrandedEmail({
         eyebrow: tenantName,
-        heading: `Revised invoice #${invoiceNum}`,
+        heading: `Revised Invoice #${invoiceNum}`,
         greeting: `Hi ${clientName || "there"},`,
         bodyHtml: `Your invoice for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has been updated with final shipped quantities. The revised copy is attached and waiting in your portal.`,
         cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
@@ -329,7 +329,11 @@ export async function POST(req: NextRequest) {
       const _r3 = await resend.emails.send({
         from: tenantFromQuotes,
         to: clientEmail,
-        subject: `Revised invoice — ${clientName}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""} · ${projectTitle}`,
+        subject: [
+          `Revised Invoice${invoiceNum ? ` ${invoiceNum}` : ""}`,
+          clientName,
+          projectTitle,
+        ].filter(Boolean).join(" · ").trim(),
         html,
         attachments: [{ filename: `HPD-Invoice-${invoiceNum}-Revised.pdf`, content: pdfBuffer.toString("base64") }],
       });
@@ -337,7 +341,7 @@ export async function POST(req: NextRequest) {
 
       await sb.from("job_activity").insert({
         job_id: jobId, user_id: null, type: "auto",
-        message: `Revised invoice ${invoiceNum} sent to client (${clientEmail})`,
+        message: `Revised Invoice ${invoiceNum} sent to client (${clientEmail})`,
       });
 
       return NextResponse.json({ success: true });
