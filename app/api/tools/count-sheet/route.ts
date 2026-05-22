@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 import { getPdfBranding } from "@/lib/branding";
 import { renderCountSheetHTML } from "@/lib/pdf/count-sheet-html";
+import { renderCountSheetStrippedHTML } from "@/lib/pdf/count-sheet-stripped-html";
 import { CountSheetData, CountSheetProduct } from "@/lib/pdf/count-sheet-types";
 import { parseShopifyProductCsv } from "@/lib/shopify-csv/parse";
 
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
     const url = new URL(req.url);
     const statusFilter = (url.searchParams.get("status") || "all").toLowerCase();
     const sortBy = (url.searchParams.get("sort") || "title").toLowerCase();
+    const format = (url.searchParams.get("format") || "full").toLowerCase();
 
     const form = await req.formData();
     const file = form.get("file");
@@ -99,7 +101,12 @@ export async function POST(req: NextRequest) {
       companyLogoSvg: branding.logoSvg,
     };
 
-    const html = renderCountSheetHTML(data);
+    // format=stripped → bare SKU · Item · Qty list (printable
+    // snapshot). Anything else → full count sheet with counted-qty
+    // boxes, match column, notes, and signoff strip.
+    const html = format === "stripped"
+      ? renderCountSheetStrippedHTML(data)
+      : renderCountSheetHTML(data);
     const pdf = await generatePDF(html);
 
     const tenantPrefix = (branding.name || "Inventory")
@@ -107,7 +114,8 @@ export async function POST(req: NextRequest) {
       .map((w) => w[0])
       .join("")
       .toUpperCase();
-    const filename = `${tenantPrefix}-Count-Sheet-${reportRef}.pdf`;
+    const fileSuffix = format === "stripped" ? "Inventory" : "Count-Sheet";
+    const filename = `${tenantPrefix}-${fileSuffix}-${reportRef}.pdf`;
 
     return new NextResponse(pdf as any, {
       status: 200,

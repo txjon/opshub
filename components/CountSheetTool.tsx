@@ -9,6 +9,11 @@ export default function CountSheetTool() {
       subtitle="Upload a Shopify product CSV export to generate a printable warehouse count sheet."
       endpoint="/api/tools/count-sheet"
       defaultStatus="draft"
+      defaultFormat="full"
+      formatOptions={[
+        { value: "full", label: "Full count sheet (with counted-qty + notes)" },
+        { value: "stripped", label: "Stripped — SKU · Item · Qty only" },
+      ]}
       defaultSort="title"
       sortOptions={[
         { value: "title", label: "Product title (A → Z)" },
