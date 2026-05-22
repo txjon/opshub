@@ -8,7 +8,6 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { DecorationPanel } from "./DecorationPanel";
 import { SettingsModal } from "./SettingsModal";
 import { DriveThumb } from "@/components/DriveThumb";
-import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { calcCostProduct as sharedCalcCostProduct, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, buildPrintersMap } from "@/lib/pricing";
 import { useClientBranding } from "@/lib/branding-client";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -258,7 +257,6 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
     return () => cancelAnimationFrame(raf);
   }, []);
   const [showSendEmail,setShowSendEmail]=useState(false);
-  const [previewingQuote,setPreviewingQuote]=useState(false);
   const [showRfqModal,setShowRfqModal]=useState(false);
   const [rfqVendor,setRfqVendor]=useState("");
   const [rfqSelected,setRfqSelected]=useState({});         // { itemId: bool }
@@ -1162,7 +1160,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               </div>
             )}
 
-            {/* Quote details */}
+            {/* Quote details + single Send Quote action. Everything
+                else (PDF preview + recipient picker + send) lives
+                inside the modal that opens from this button. */}
             <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:12,marginBottom:14,alignItems:isMobile?"stretch":"flex-start"}}>
               <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",flex:1}}>
                 <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Quote details</div>
@@ -1171,47 +1171,41 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                   <CInput label="Valid until" type="date" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))}/>
                 </div>
               </div>
-              <div style={{display:"flex",flexDirection:isMobile?"row":"column",gap:6}}>
-                <button onClick={()=>setPreviewingQuote(true)} style={{background:"transparent",color:T.text,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 16px",fontSize:13,fontWeight:600,fontFamily:font,cursor:"pointer",flex:isMobile?1:"none",whiteSpace:"nowrap"}}>Preview PDF</button>
-                <button onClick={()=>setShowSendEmail(!showSendEmail)} style={{background:T.blue,color:"#fff",border:"none",borderRadius:8,padding:"10px 16px",fontSize:13,fontWeight:700,fontFamily:font,cursor:"pointer",flex:isMobile?1:"none",whiteSpace:"nowrap"}}>Send to Client</button>
-              </div>
+              <button onClick={()=>setShowSendEmail(true)} style={{background:T.blue,color:"#fff",border:"none",borderRadius:8,padding:"12px 20px",fontSize:14,fontWeight:700,fontFamily:font,cursor:"pointer",whiteSpace:"nowrap",alignSelf:isMobile?"stretch":"stretch",minHeight:isMobile?44:undefined}}>
+                Send Quote
+              </button>
             </div>
-            <div style={{fontSize:12,color:T.muted,fontFamily:font,marginBottom:10}}>Preview — this is what your client sees</div>
             {showSendEmail&&(
-              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowSendEmail(false)}>
-              <div style={{background:T.card,borderRadius:12,width:"95vw",maxWidth:600,maxHeight:"90vh",overflow:"auto"}} onClick={e=>e.stopPropagation()}>
-                <SendEmailDialog
-                  type="quote"
-                  jobId={project.id}
-                  contacts={(contacts||[]).map(c=>({name:c.name||c.full_name||"",email:c.email||""}))}
-                  defaultEmail={orderInfo.clientEmail||""}
-                  defaultSubject={`Quote${orderInfo.invoiceNum?" #"+orderInfo.invoiceNum:""} — ${project.clients?.name||project.title||"House Party Distro"}`}
-                  onClose={()=>setShowSendEmail(false)}
-                  onSent={()=>logJobActivity(project.id, "Quote sent to client")}
-                />
+              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:isMobile?12:24}} onClick={()=>setShowSendEmail(false)}>
+              <div style={{background:T.card,borderRadius:12,width:"100%",maxWidth:1000,height:"calc(100vh - 48px)",maxHeight:"90vh",display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden",boxShadow:"0 24px 64px rgba(0,0,0,0.32)"}} onClick={e=>e.stopPropagation()}>
+                {/* Left/top: PDF preview */}
+                <div style={{flex:isMobile?"1 1 40%":"1 1 60%",background:"#fff",borderRight:isMobile?"none":`1px solid ${T.border}`,borderBottom:isMobile?`1px solid ${T.border}`:"none",overflow:"hidden",minHeight:isMobile?240:0}}>
+                  <iframe
+                    src={`/api/pdf/quote/${project.id}#toolbar=0&navpanes=0`}
+                    title="Quote preview"
+                    style={{width:"100%",height:"100%",border:"none",display:"block"}}
+                  />
+                </div>
+                {/* Right/bottom: send form */}
+                <div style={{flex:isMobile?"1 1 60%":"1 1 40%",display:"flex",flexDirection:"column",overflow:"hidden",minWidth:isMobile?0:320}}>
+                  <div style={{padding:"12px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <div style={{fontSize:14,fontWeight:800,color:T.text,letterSpacing:"-0.01em"}}>Send Quote</div>
+                    <button onClick={()=>setShowSendEmail(false)} aria-label="Close" style={{background:"transparent",border:"none",color:T.muted,fontSize:20,cursor:"pointer",padding:"4px 8px",lineHeight:1}}>×</button>
+                  </div>
+                  <div style={{flex:1,overflowY:"auto",padding:14}}>
+                    <SendEmailDialog
+                      type="quote"
+                      jobId={project.id}
+                      contacts={(contacts||[]).map(c=>({name:c.name||c.full_name||"",email:c.email||""}))}
+                      defaultEmail={orderInfo.clientEmail||""}
+                      defaultSubject={`Quote${orderInfo.invoiceNum?" #"+orderInfo.invoiceNum:""} — ${project.clients?.name||project.title||"House Party Distro"}`}
+                      onClose={()=>setShowSendEmail(false)}
+                      onSent={()=>logJobActivity(project.id, "Quote sent to client")}
+                    />
+                  </div>
+                </div>
               </div>
               </div>
-            )}
-            {/* Inline PDF preview — renders the real /api/pdf/quote
-                output the client will receive, so the preview can't
-                drift from the deliverable. Desktop shows it inline at
-                full height; mobile gets a shorter iframe with the
-                Preview PDF button as the primary affordance for full
-                screen. Replaces the legacy HTML mockup. */}
-            <div style={{background:"#fff",borderRadius:12,border:"1px solid #e5e7eb",overflow:"hidden",height:isMobile?420:900}}>
-              <iframe
-                src={`/api/pdf/quote/${project.id}#toolbar=0&navpanes=0`}
-                title="Quote preview"
-                style={{width:"100%",height:"100%",border:"none",display:"block"}}
-              />
-            </div>
-            {previewingQuote && (
-              <PdfPreviewModal
-                src={`/api/pdf/quote/${project.id}`}
-                title={`Quote${orderInfo.invoiceNum?" · #"+orderInfo.invoiceNum:""}`}
-                downloadHref={`/api/pdf/quote/${project.id}?download=1`}
-                onClose={()=>setPreviewingQuote(false)}
-              />
             )}
           </div>
         );
