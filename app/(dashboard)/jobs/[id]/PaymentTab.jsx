@@ -565,7 +565,7 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
 
       {showInvoiceEmail && (() => {
         const isRevised = !!job.type_meta?.invoice_sent_at;
-        const invoiceLabel = isRevised ? "Revised invoice" : "Invoice";
+        const invoiceLabel = isRevised ? "Revised Invoice" : "Invoice";
         return (
           <SendEmailDialog
             type="invoice"
