@@ -171,7 +171,7 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
 
         {/* Invoice metadata strip */}
         {stripeInvoiceNumber && (
-          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "baseline", gap: 18, flexWrap: "wrap", fontSize: 11 }}>
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", fontSize: 11 }}>
             <div>
               <span style={{ color: T.faint, marginRight: 5 }}>Total</span>
               <strong style={{ fontFamily: mono }}>${(stripeTotalCents / 100).toFixed(2)}</strong>
@@ -187,6 +187,35 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
               }}>
                 {stripeInvoiceStatus || "—"}
               </span>
+            </div>
+            {/* Invoice date override — only affects the OpsHub-generated
+                PDF. Stripe's own record keeps its issue date.
+                YYYY-MM-DD; blank clears the override so the PDF falls
+                back to invoice_sent_at (or today for drafts). */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ color: T.faint }}>Invoice date</span>
+              <input type="date"
+                value={job.type_meta?.invoice_date_override || ""}
+                onChange={async (e) => {
+                  const val = e.target.value || null;
+                  const next = { ...(job.type_meta || {}) };
+                  if (val) next.invoice_date_override = val;
+                  else delete next.invoice_date_override;
+                  await supabase.from("jobs").update({ type_meta: next }).eq("id", job.id);
+                  if (onUpdateJob) onUpdateJob({ type_meta: next });
+                }}
+                title="Manual override for the date shown on the OpsHub invoice PDF. Leave blank to use the send date."
+                style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontSize: 11, padding: "4px 8px", fontFamily: font, outline: "none", cursor: "pointer" }} />
+              {job.type_meta?.invoice_date_override && (
+                <button onClick={async () => {
+                  const next = { ...(job.type_meta || {}) };
+                  delete next.invoice_date_override;
+                  await supabase.from("jobs").update({ type_meta: next }).eq("id", job.id);
+                  if (onUpdateJob) onUpdateJob({ type_meta: next });
+                }}
+                  title="Clear override — PDF will use the send date again"
+                  style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 13, padding: "0 2px", lineHeight: 1 }}>×</button>
+              )}
             </div>
             <a href={`https://dashboard.stripe.com/invoices/${stripeInvoiceId}`} target="_blank" rel="noopener noreferrer"
               style={{ marginLeft: "auto", color: T.muted, fontSize: 10, textDecoration: "underline dotted" }}>

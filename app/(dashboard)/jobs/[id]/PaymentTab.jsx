@@ -225,9 +225,39 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
       <div style={card}>
 
         {/* Card header */}
-        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Invoicing</div>
-          {qbInvoiceNumber && <div style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>QB #{qbInvoiceNumber}</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            {/* Invoice date override — only affects the OpsHub-generated
+                PDF. QB's own record keeps its TxnDate. Blank clears the
+                override so the PDF falls back to invoice_sent_at. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 10, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Invoice date</span>
+              <input type="date"
+                value={job.type_meta?.invoice_date_override || ""}
+                onChange={async (e) => {
+                  const val = e.target.value || null;
+                  const next = { ...(job.type_meta || {}) };
+                  if (val) next.invoice_date_override = val;
+                  else delete next.invoice_date_override;
+                  await supabase.from("jobs").update({ type_meta: next }).eq("id", job.id);
+                  if (onUpdateJob) onUpdateJob({ type_meta: next });
+                }}
+                title="Manual override for the date shown on the OpsHub invoice PDF. Leave blank to use the send date."
+                style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontSize: 11, padding: "4px 8px", fontFamily: font, outline: "none", cursor: "pointer" }} />
+              {job.type_meta?.invoice_date_override && (
+                <button onClick={async () => {
+                  const next = { ...(job.type_meta || {}) };
+                  delete next.invoice_date_override;
+                  await supabase.from("jobs").update({ type_meta: next }).eq("id", job.id);
+                  if (onUpdateJob) onUpdateJob({ type_meta: next });
+                }}
+                  title="Clear override"
+                  style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 13, padding: "0 2px", lineHeight: 1 }}>×</button>
+              )}
+            </div>
+            {qbInvoiceNumber && <div style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>QB #{qbInvoiceNumber}</div>}
+          </div>
         </div>
 
         {/* Action buttons — slimmer 3-step row, no big arrow icons */}
