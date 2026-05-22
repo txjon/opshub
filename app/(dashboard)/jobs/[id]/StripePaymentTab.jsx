@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
+import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 
 // Stripe-backed invoice tab. Used by IHM (and any other tenant with
 // companies.default_payment_provider = 'stripe'). Two-step flow:
@@ -32,6 +33,11 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
   const [pmInvoice, setPmInvoice] = useState("");
   const [pmDue, setPmDue] = useState(new Date().toISOString().split("T")[0]);
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  // "Already previewed" gates the Email Invoice button so the team
+  // can't ship a Stripe invoice they haven't eyeballed. Mirrors the
+  // QB-side flow in PaymentTab.jsx.
+  const [previewed, setPreviewed] = useState(false);
 
   const stripeInvoiceId = job.type_meta?.stripe_invoice_id;
   const stripeInvoiceNumber = job.type_meta?.stripe_invoice_number;
@@ -149,9 +155,25 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
               : "Create Stripe Invoice"}
           </button>
           {hasActiveInvoice && (
-            <button onClick={() => setShowInvoiceEmail(true)}
-              style={{ height: 38, padding: "0 16px", borderRadius: 7, background: T.accent, color: "#fff",
-                border: "none", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer",
+            <button onClick={() => { setShowPreview(true); setPreviewed(true); }}
+              style={{ height: 38, padding: "0 16px", borderRadius: 7,
+                background: previewed ? T.accentDim : T.accent,
+                color: previewed ? T.accent : "#fff",
+                border: previewed ? `1.5px solid ${T.accent}` : "none",
+                fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 6 }}>
+              {previewed ? "✓ Preview" : "Preview"}
+            </button>
+          )}
+          {hasActiveInvoice && (
+            <button onClick={() => setShowInvoiceEmail(true)} disabled={!previewed}
+              title={!previewed ? "Preview the invoice before sending" : ""}
+              style={{ height: 38, padding: "0 16px", borderRadius: 7,
+                background: !previewed ? T.surface : T.accent,
+                color: !previewed ? T.faint : "#fff",
+                border: "none", fontSize: 12, fontWeight: 700, fontFamily: font,
+                cursor: !previewed ? "default" : "pointer",
+                opacity: !previewed ? 0.5 : 1,
                 display: "flex", alignItems: "center", gap: 6 }}>
               Email Invoice
             </button>
@@ -306,6 +328,15 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
           )}
         </div>
       </div>
+
+      {showPreview && (
+        <PdfPreviewModal
+          src={`/api/pdf/invoice/${job.id}`}
+          title="Invoice Preview"
+          downloadHref={`/api/pdf/invoice/${job.id}?download=1`}
+          onClose={() => setShowPreview(false)}
+        />
+      )}
 
       {showInvoiceEmail && (() => {
         const isRevised = !!job.type_meta?.invoice_sent_at;
