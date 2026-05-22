@@ -1551,6 +1551,24 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {tab==="quote"&&(
         <>
         <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:12,alignItems:"flex-start",maxWidth:1080,margin:"0 auto"}}>
+        {/* Step 1: Quote details + Send Quote — comes first since you
+            send to the client before they can approve. */}
+        <div style={{flex:isMobile?"0 0 auto":"2 1 460px",minWidth:0,width:isMobile?"100%":undefined}}>
+        <CostingTabWrapper
+          key={"quote-"+items.map(i=>i.id).join(',')}
+          project={job}
+          buyItems={items}
+          contacts={contacts}
+          onUpdateBuyItems={setItems}
+          onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
+          onSaveStatus={(s: string) => handleSaveStatus(s)}
+          onSaved={(data: any) => setJob(j => j ? {...j, ...data} : j)}
+          initialTab="quote"
+          hideSubTabs={true}
+        />
+        </div>
+        {/* Step 2: Approve Quote — internal confirmation once the
+            client signs off on the sent quote. */}
         <div style={{flex:isMobile?"0 0 auto":"1 1 380px",minWidth:0,width:isMobile?"100%":undefined}}>
           {(job as any).quote_approved ? (
             <div style={{background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,padding:"10px 14px"}}>
@@ -1594,20 +1612,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <span>Quote emailed {new Date((job as any).type_meta.quote_sent_at).toLocaleDateString("en-US",{month:"short",day:"numeric"})} at {new Date((job as any).type_meta.quote_sent_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span>
             </div>
           )}
-        </div>
-        <div style={{flex:isMobile?"0 0 auto":"2 1 460px",minWidth:0,width:isMobile?"100%":undefined}}>
-        <CostingTabWrapper
-          key={"quote-"+items.map(i=>i.id).join(',')}
-          project={job}
-          buyItems={items}
-          contacts={contacts}
-          onUpdateBuyItems={setItems}
-          onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
-          onSaveStatus={(s: string) => handleSaveStatus(s)}
-          onSaved={(data: any) => setJob(j => j ? {...j, ...data} : j)}
-          initialTab="quote"
-          hideSubTabs={true}
-        />
         </div>
         </div>
         </>
