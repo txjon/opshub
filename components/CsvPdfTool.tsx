@@ -21,12 +21,18 @@ type Props = {
   sortOptions?: SortOption[];
   /** Default sort value (must match one of sortOptions[].value). */
   defaultSort?: string;
+  /** Optional format menu — when provided, a Format selector renders
+   *  and the chosen value is sent as ?format=... to the endpoint. */
+  formatOptions?: SortOption[];
+  /** Default format value (must match one of formatOptions[].value). */
+  defaultFormat?: string;
 };
 
-export default function CsvPdfTool({ title, subtitle, endpoint, defaultStatus = "draft", sortOptions, defaultSort }: Props) {
+export default function CsvPdfTool({ title, subtitle, endpoint, defaultStatus = "draft", sortOptions, defaultSort, formatOptions, defaultFormat }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<Status>(defaultStatus);
   const [sort, setSort] = useState<string>(defaultSort || sortOptions?.[0]?.value || "");
+  const [format, setFormat] = useState<string>(defaultFormat || formatOptions?.[0]?.value || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragover, setDragover] = useState(false);
@@ -51,6 +57,7 @@ export default function CsvPdfTool({ title, subtitle, endpoint, defaultStatus = 
       fd.append("file", file);
       const params = new URLSearchParams({ status });
       if (sort) params.set("sort", sort);
+      if (format) params.set("format", format);
       const sep = endpoint.includes("?") ? "&" : "?";
       const res = await fetch(`${endpoint}${sep}${params.toString()}`, {
         method: "POST",
@@ -252,6 +259,45 @@ export default function CsvPdfTool({ title, subtitle, endpoint, defaultStatus = 
             {radio("active", "Active Only")}
             {radio("all", "All Products")}
           </div>
+
+          {formatOptions && formatOptions.length > 0 && (
+            <>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: T.muted,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  marginBottom: 6,
+                }}
+              >
+                Format
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <select
+                  value={format}
+                  onChange={(e) => setFormat(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "7px 10px",
+                    borderRadius: 6,
+                    border: `1px solid ${T.border}`,
+                    background: T.card,
+                    color: T.text,
+                    fontSize: 12,
+                    fontFamily: font,
+                    outline: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  {formatOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
 
           {sortOptions && sortOptions.length > 0 && (
             <>
