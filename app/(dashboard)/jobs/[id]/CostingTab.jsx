@@ -8,6 +8,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { DecorationPanel } from "./DecorationPanel";
 import { SettingsModal } from "./SettingsModal";
 import { DriveThumb } from "@/components/DriveThumb";
+import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
 import { calcCostProduct as sharedCalcCostProduct, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, buildPrintersMap } from "@/lib/pricing";
 import { useClientBranding } from "@/lib/branding-client";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -1201,12 +1202,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       />
                     </div>
                   </div>
-                  <div style={{flex:1,background:T.surface,overflow:"hidden",minHeight:isMobile?280:0}}>
-                    <iframe
-                      src={`/api/pdf/quote/${project.id}#toolbar=0&navpanes=0`}
-                      title="Quote preview"
-                      style={{width:"100%",height:"100%",border:"none",display:"block"}}
-                    />
+                  <div style={{flex:1,background:T.surface,overflow:"hidden",minHeight:isMobile?280:0,display:"flex"}}>
+                    <PdfCanvasPreview src={`/api/pdf/quote/${project.id}`} />
                   </div>
                 </div>
               </div>

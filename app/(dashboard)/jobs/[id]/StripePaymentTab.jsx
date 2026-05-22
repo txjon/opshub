@@ -5,6 +5,7 @@ import { T, font, mono } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
 
 // Stripe-backed invoice tab. Used by IHM (and any other tenant with
 // companies.default_payment_provider = 'stripe'). Two-step flow:
@@ -381,12 +382,8 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
                   />
                 </div>
               </div>
-              <div style={{ flex: 1, background: T.surface, overflow: "hidden", minHeight: isMobile ? 280 : 0 }}>
-                <iframe
-                  src={`/api/pdf/invoice/${job.id}#toolbar=0&navpanes=0`}
-                  title="Invoice preview"
-                  style={{ width: "100%", height: "100%", border: "none", display: "block" }}
-                />
+              <div style={{ flex: 1, background: T.surface, overflow: "hidden", minHeight: isMobile ? 280 : 0, display: "flex" }}>
+                <PdfCanvasPreview src={`/api/pdf/invoice/${job.id}`} />
               </div>
             </div>
           </div>
