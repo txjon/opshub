@@ -103,7 +103,8 @@ export async function POST(req: NextRequest) {
       const isRevisedInvoice = !!(jobData as any)?.type_meta?.invoice_sent_at;
       const invoiceLabel = isRevisedInvoice ? "Revised invoice" : "Invoice";
       defaultSubject = subject || [
-        `${invoiceLabel}${qbInvNum ? ` ${qbInvNum}` : ""} — ${clientName}`,
+        `${invoiceLabel}${qbInvNum || jobNum ? ` ${qbInvNum || jobNum}` : ""}`,
+        clientName,
         projectTitle,
       ].filter(Boolean).join(" · ").trim();
       filename = `invoice-${qbInvNum || jobId.slice(0, 8)}${isRevisedInvoice ? "-revised" : ""}.pdf`;

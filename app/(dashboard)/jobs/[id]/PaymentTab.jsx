@@ -573,9 +573,10 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
             contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
             defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
             defaultSubject={[
-              `${invoiceLabel}${job.type_meta?.qb_invoice_number ? ` ${job.type_meta.qb_invoice_number}` : ""} — ${job.clients?.name || ""}`,
+              `${invoiceLabel}${(job.type_meta?.qb_invoice_number || job.job_number) ? ` ${job.type_meta?.qb_invoice_number || job.job_number}` : ""}`,
+              job.clients?.name,
               job.title,
-            ].filter(Boolean).join(" · ")}
+            ].filter(Boolean).join(" · ").trim()}
             onClose={() => setShowInvoiceEmail(false)}
             onSent={() => { logJobActivity(job.id, `${invoiceLabel} sent to client`); setShowInvoiceEmail(false); }}
           />

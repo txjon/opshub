@@ -316,7 +316,11 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
             jobId={job.id}
             contacts={(contacts || []).map(c => ({ name: c.name, email: c.email || "" }))}
             defaultEmail={(contacts || []).find(c => c.role_on_job === "billing")?.email || (contacts || []).find(c => c.role_on_job === "primary")?.email || ""}
-            defaultSubject={`${invoiceLabel} — ${job.clients?.name || ""}${stripeInvoiceNumber ? ` · Invoice ${stripeInvoiceNumber}` : ""} · ${job.title}`}
+            defaultSubject={[
+              `${invoiceLabel}${stripeInvoiceNumber || job.job_number ? ` ${stripeInvoiceNumber || job.job_number}` : ""}`,
+              job.clients?.name,
+              job.title,
+            ].filter(Boolean).join(" · ").trim()}
             onClose={() => setShowInvoiceEmail(false)}
             onSent={() => {
               logJobActivity(job.id, `${invoiceLabel} sent to client`);
