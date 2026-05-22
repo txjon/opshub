@@ -795,7 +795,7 @@ export default function ProductionPage() {
   const activeProjects = visible;
 
   const getDaysToShip = (d: string | null) => {
-    if (!d) return null;
+    if (!d || d === "ASAP") return null;
     return Math.ceil((new Date(d).getTime() - now.getTime()) / 86400000);
   };
 
@@ -806,6 +806,9 @@ export default function ProductionPage() {
   };
 
   const shipDatePill = (d: string | null) => {
+    // ASAP sentinel — no calendar date, treat as urgent. Set on the
+    // PO tab when the team wants the decorator to ship immediately.
+    if (d === "ASAP") return { color: T.red, bg: T.redDim, label: "ASAP", dateStr: "ASAP" };
     const days = getDaysToShip(d);
     if (days === null) return null;
     // Healthy/comfortable ship dates render as plain T.text — color is

@@ -358,12 +358,19 @@ export default async function DashboardPage() {
     // 14. Ships soon — use earliest vendor ship date, fall back to in-hands date
     {
       const poShipDates = Object.values((j as any).type_meta?.po_ship_dates || {}).filter(Boolean) as string[];
-      const earliestShipDate = poShipDates.length > 0 ? poShipDates.sort()[0] : j.target_ship_date;
+      const hasAsap = poShipDates.includes("ASAP");
+      const calendarDates = poShipDates.filter(d => d !== "ASAP");
+      const earliestShipDate = hasAsap ? "ASAP" : (calendarDates.length > 0 ? calendarDates.sort()[0] : j.target_ship_date);
       if (earliestShipDate && !["receiving","shipping","fulfillment","complete","cancelled"].includes(j.phase)) {
-        const daysToShip = Math.ceil((new Date(earliestShipDate).getTime() - now.getTime()) / 86400000);
-        if (daysToShip >= 0 && daysToShip <= 3) {
+        if (earliestShipDate === "ASAP") {
           alerts.push({ ...base, priority: 2, type: "shipping_soon", color: T.amber,
-            action: `Ships in ${daysToShip}d — verify status`, href: `/jobs/${j.id}`, column: "production" });
+            action: `Ships ASAP — verify status`, href: `/jobs/${j.id}`, column: "production" });
+        } else {
+          const daysToShip = Math.ceil((new Date(earliestShipDate).getTime() - now.getTime()) / 86400000);
+          if (daysToShip >= 0 && daysToShip <= 3) {
+            alerts.push({ ...base, priority: 2, type: "shipping_soon", color: T.amber,
+              action: `Ships in ${daysToShip}d — verify status`, href: `/jobs/${j.id}`, column: "production" });
+          }
         }
       }
     }
