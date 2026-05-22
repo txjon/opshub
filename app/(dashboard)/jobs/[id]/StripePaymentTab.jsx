@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
-import { PdfPreviewModal } from "@/components/PdfPreviewModal";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 // Stripe-backed invoice tab. Used by IHM (and any other tenant with
 // companies.default_payment_provider = 'stripe'). Two-step flow:
@@ -24,6 +24,7 @@ import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 
 export function StripePaymentTab({ job, items = [], contacts, payments, onReload, onRecalcPhase, onUpdateJob }) {
   const supabase = createClient();
+  const isMobile = useIsMobile();
   const [pushing, setPushing] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -33,11 +34,6 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
   const [pmInvoice, setPmInvoice] = useState("");
   const [pmDue, setPmDue] = useState(new Date().toISOString().split("T")[0]);
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  // "Already previewed" gates the Email Invoice button so the team
-  // can't ship a Stripe invoice they haven't eyeballed. Mirrors the
-  // QB-side flow in PaymentTab.jsx.
-  const [previewed, setPreviewed] = useState(false);
 
   const stripeInvoiceId = job.type_meta?.stripe_invoice_id;
   const stripeInvoiceNumber = job.type_meta?.stripe_invoice_number;
@@ -155,27 +151,11 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
               : "Create Stripe Invoice"}
           </button>
           {hasActiveInvoice && (
-            <button onClick={() => { setShowPreview(true); setPreviewed(true); }}
-              style={{ height: 38, padding: "0 16px", borderRadius: 7,
-                background: previewed ? T.accentDim : T.accent,
-                color: previewed ? T.accent : "#fff",
-                border: previewed ? `1.5px solid ${T.accent}` : "none",
-                fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer",
+            <button onClick={() => setShowInvoiceEmail(true)}
+              style={{ height: 38, padding: "0 16px", borderRadius: 7, background: T.accent, color: "#fff",
+                border: "none", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer",
                 display: "flex", alignItems: "center", gap: 6 }}>
-              {previewed ? "✓ Preview" : "Preview"}
-            </button>
-          )}
-          {hasActiveInvoice && (
-            <button onClick={() => setShowInvoiceEmail(true)} disabled={!previewed}
-              title={!previewed ? "Preview the invoice before sending" : ""}
-              style={{ height: 38, padding: "0 16px", borderRadius: 7,
-                background: !previewed ? T.surface : T.accent,
-                color: !previewed ? T.faint : "#fff",
-                border: "none", fontSize: 12, fontWeight: 700, fontFamily: font,
-                cursor: !previewed ? "default" : "pointer",
-                opacity: !previewed ? 0.5 : 1,
-                display: "flex", alignItems: "center", gap: 6 }}>
-              Email Invoice
+              Send Invoice
             </button>
           )}
         </div>
@@ -329,39 +309,58 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
         </div>
       </div>
 
-      {showPreview && (
-        <PdfPreviewModal
-          src={`/api/pdf/invoice/${job.id}`}
-          title="Invoice Preview"
-          downloadHref={`/api/pdf/invoice/${job.id}?download=1`}
-          onClose={() => setShowPreview(false)}
-        />
-      )}
-
       {showInvoiceEmail && (() => {
         const isRevised = !!job.type_meta?.invoice_sent_at;
         const invoiceLabel = isRevised ? "Revised Invoice" : "Invoice";
+        const refNum = stripeInvoiceNumber || job.job_number || "";
         return (
-          <SendEmailDialog
-            type="invoice"
-            jobId={job.id}
-            contacts={(contacts || []).map(c => ({ name: c.name, email: c.email || "" }))}
-            defaultEmail={(contacts || []).find(c => c.role_on_job === "billing")?.email || (contacts || []).find(c => c.role_on_job === "primary")?.email || ""}
-            defaultSubject={[
-              `${invoiceLabel}${stripeInvoiceNumber || job.job_number ? ` ${stripeInvoiceNumber || job.job_number}` : ""}`,
-              job.clients?.name,
-              job.title,
-            ].filter(Boolean).join(" · ").trim()}
-            onClose={() => setShowInvoiceEmail(false)}
-            onSent={() => {
-              logJobActivity(job.id, `${invoiceLabel} sent to client`);
-              setShowInvoiceEmail(false);
-              if (onUpdateJob) onUpdateJob({
-                type_meta: { ...(job.type_meta || {}), invoice_sent_at: new Date().toISOString() },
-              });
-              if (onReload) onReload();
-            }}
-          />
+          <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 100, display: "flex", flexDirection: "column", fontFamily: font }}>
+            {/* Header */}
+            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>
+                  Send {invoiceLabel}{refNum ? ` · #${refNum}` : ""}
+                </span>
+                <span style={{ fontSize: 11, color: T.muted }}>{job.clients?.name || job.title || ""}</span>
+              </div>
+              <button onClick={() => setShowInvoiceEmail(false)} aria-label="Close" style={{ background: "none", border: "none", color: T.muted, fontSize: 20, cursor: "pointer", padding: "4px 8px", lineHeight: 1 }}>×</button>
+            </div>
+            {/* Body: send form left (380px rail), PDF preview right.
+                Mobile stacks: form on top, preview below. */}
+            <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden", minHeight: 0 }}>
+              <div style={{ width: isMobile ? "auto" : 380, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden", borderRight: isMobile ? "none" : `1px solid ${T.border}`, borderBottom: isMobile ? `1px solid ${T.border}` : "none" }}>
+                <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px" }}>
+                  <SendEmailDialog
+                    type="invoice"
+                    jobId={job.id}
+                    contacts={(contacts || []).map(c => ({ name: c.name, email: c.email || "" }))}
+                    defaultEmail={(contacts || []).find(c => c.role_on_job === "billing")?.email || (contacts || []).find(c => c.role_on_job === "primary")?.email || ""}
+                    defaultSubject={[
+                      `${invoiceLabel}${refNum ? ` ${refNum}` : ""}`,
+                      job.clients?.name,
+                      job.title,
+                    ].filter(Boolean).join(" · ").trim()}
+                    onClose={() => setShowInvoiceEmail(false)}
+                    onSent={() => {
+                      logJobActivity(job.id, `${invoiceLabel} sent to client`);
+                      setShowInvoiceEmail(false);
+                      if (onUpdateJob) onUpdateJob({
+                        type_meta: { ...(job.type_meta || {}), invoice_sent_at: new Date().toISOString() },
+                      });
+                      if (onReload) onReload();
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ flex: 1, background: T.surface, overflow: "hidden", minHeight: isMobile ? 280 : 0 }}>
+                <iframe
+                  src={`/api/pdf/invoice/${job.id}#toolbar=0&navpanes=0`}
+                  title="Invoice preview"
+                  style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+                />
+              </div>
+            </div>
+          </div>
         );
       })()}
     </div>
