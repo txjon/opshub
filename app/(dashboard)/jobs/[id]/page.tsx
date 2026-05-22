@@ -1550,7 +1550,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
       {tab==="quote"&&(
         <>
-        <div style={{marginBottom:12}}>
+        <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:12,alignItems:"flex-start",maxWidth:1080,margin:"0 auto"}}>
+        <div style={{flex:isMobile?"0 0 auto":"1 1 380px",minWidth:0,width:isMobile?"auto":undefined}}>
           {(job as any).quote_approved ? (
             <div style={{background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,padding:"10px 14px"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
@@ -1571,7 +1572,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </div>
             </div>
           ) : (
-            <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
               <div>
                 <div style={{fontSize:13,fontWeight:600,color:T.text}}>Quote pending approval</div>
                 <div style={{fontSize:10,color:T.muted,marginTop:2}}>Approve to advance project to pre-production</div>
@@ -1583,7 +1584,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 logJobActivity(job.id, "Quote approved");
                 notifyTeam(`Quote approved — ${(job.clients as any)?.name || ""} · ${job.title}`, "approval", job.id, "job");
                 recalcPhase();
-              }} style={{fontSize:12,fontWeight:600,color:"#fff",background:T.green,border:"none",borderRadius:7,padding:"7px 20px",cursor:"pointer"}}>Approve Quote</button>
+              }} style={{fontSize:12,fontWeight:600,color:"#fff",background:T.green,border:"none",borderRadius:7,padding:"8px 18px",cursor:"pointer",alignSelf:"flex-start"}}>Approve Quote</button>
             </div>
           )}
           {/* Quote sent log */}
@@ -1594,6 +1595,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
+        <div style={{flex:isMobile?"0 0 auto":"2 1 460px",minWidth:0,width:isMobile?"auto":undefined}}>
         <CostingTabWrapper
           key={"quote-"+items.map(i=>i.id).join(',')}
           project={job}
@@ -1606,6 +1608,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           initialTab="quote"
           hideSubTabs={true}
         />
+        </div>
+        </div>
         </>
       )}
       {tab==="blanks"&&(
