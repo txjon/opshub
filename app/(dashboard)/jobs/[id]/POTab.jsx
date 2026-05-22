@@ -4,8 +4,8 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
-import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { useClientBranding } from "@/lib/branding-client";
+import { useIsMobile } from "@/lib/useIsMobile";
 // dates — milestones removed, ship date is set manually
 
 function fmtD(n) {
@@ -136,6 +136,7 @@ const SHIP_METHODS = ["UPS Ground","UPS 2-Day","UPS Next Day","FedEx Ground","Fe
 export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selectedItemId}) {
   const supabase = createClient();
   const branding = useClientBranding();
+  const isMobile = useIsMobile();
   // Derive "HPD" / "IHM" from the company name initials so PO subjects
   // match the tenant the user is acting on. Falls back to HPD until the
   // companies row finishes loading.
@@ -172,7 +173,6 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const [itemRoutes,setItemRoutes] = useState({}); // local mirror of items.shipping_route for instant UI on select change
   const [saving,setSaving] = useState({});
   const [showPreview,setShowPreview] = useState(false); // unused legacy, kept to minimize diff
-  const [previewingPO, setPreviewingPO] = useState(false); // opens PdfPreviewModal for the active vendor's PO
   const [showSendEmail,setShowSendEmail] = useState(false);
 
   useEffect(()=>{
@@ -400,28 +400,34 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               </div>
             )}
             <div style={{display:"flex",flexDirection:"column",gap:6,width:170}}>
-              <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready} style={{background:ready?T.blue:T.surface,border:"1px solid "+(ready?T.blue:T.border),borderRadius:8,color:ready?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
+              <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready}
+                title={!ready ? "Fill in packing notes on all vendor items first" : "Preview + send to decorator in one screen"}
+                style={{background:ready?T.blue:T.surface,border:"1px solid "+(ready?T.blue:T.border),borderRadius:8,color:ready?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
                 Send to Decorator
-              </button>
-              <button onClick={()=>setPreviewingPO(true)}
-                style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,fontFamily:font,fontSize:12,fontWeight:600,padding:"8px 16px",cursor:"pointer",width:"100%"}}>
-                Preview PDF
               </button>
             </div>
           </div>
         </div>
       </div>
-      {previewingPO && (
-        <PdfPreviewModal
-          src={`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`}
-          title={`PO${active?` · ${active}`:""}`}
-          downloadHref={`/api/pdf/po/${project.id}?download=1${active?`&vendor=${encodeURIComponent(active)}`:""}`}
-          onClose={()=>setPreviewingPO(false)}
-        />
-      )}
       {showSendEmail&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowSendEmail(false)}>
-        <div style={{background:T.card,borderRadius:12,width:"95vw",maxWidth:600,maxHeight:"90vh",overflow:"auto",padding:0}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:"fixed",inset:0,background:"#fff",zIndex:100,display:"flex",flexDirection:"column",fontFamily:font}}>
+          {/* Header */}
+          <div style={{padding:"14px 18px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:14,fontWeight:700,color:T.text}}>
+                Send PO{active?` · ${active}`:""}
+              </span>
+              <span style={{fontSize:11,color:T.muted}}>
+                {project.clients?.name||project.title||""}{vItems.length?` · ${vItems.length} item${vItems.length!==1?"s":""}`:""}
+              </span>
+            </div>
+            <button onClick={()=>setShowSendEmail(false)} aria-label="Close" style={{background:"none",border:"none",color:T.muted,fontSize:20,cursor:"pointer",padding:"4px 8px",lineHeight:1}}>×</button>
+          </div>
+          {/* Body: send form left (380px rail), PDF preview right.
+              Mobile stacks: form on top, preview below. */}
+          <div style={{flex:1,display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden",minHeight:0}}>
+            <div style={{width:isMobile?"auto":380,flexShrink:0,display:"flex",flexDirection:"column",overflow:"hidden",borderRight:isMobile?"none":`1px solid ${T.border}`,borderBottom:isMobile?`1px solid ${T.border}`:"none"}}>
+              <div style={{flex:1,overflowY:"auto",padding:"14px 18px"}}>
         <SendEmailDialog
           type="po"
           jobId={project.id}
@@ -464,7 +470,16 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             if(onRecalcPhase) setTimeout(onRecalcPhase, 300);
           }}
         />
-        </div>
+              </div>
+            </div>
+            <div style={{flex:1,background:T.surface,overflow:"hidden",minHeight:isMobile?280:0}}>
+              <iframe
+                src={`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}#toolbar=0&navpanes=0`}
+                title="PO preview"
+                style={{width:"100%",height:"100%",border:"none",display:"block"}}
+              />
+            </div>
+          </div>
         </div>
       )}
 
