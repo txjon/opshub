@@ -24,12 +24,15 @@ export function PdfCanvasPreview({ src, pageGap = 16 }: Props) {
     (async () => {
       try {
         setError(null);
-        const pdfjsLib: any = await import("pdfjs-dist");
-        // Pin worker to the matching version via CDN. Avoids the Next.js
-        // worker-bundling dance and keeps the code self-contained.
+        // Legacy build is transpiled to ES2020-compatible code that
+        // iOS Safari/Chrome can actually run — the default modern
+        // build uses Map.prototype.getOrInsertComputed which Safari
+        // doesn't ship yet (TC39 stage 4 in 2024, browser landing
+        // staggered through 2025).
+        const pdfjsLib: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
         if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
           pdfjsLib.GlobalWorkerOptions.workerSrc =
-            `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+            `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/legacy/build/pdf.worker.min.mjs`;
         }
 
         const loadingTask = pdfjsLib.getDocument(src);
