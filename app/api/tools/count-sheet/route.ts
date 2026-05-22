@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
 
     const url = new URL(req.url);
     const statusFilter = (url.searchParams.get("status") || "all").toLowerCase();
+    const sortBy = (url.searchParams.get("sort") || "title").toLowerCase();
 
     const form = await req.formData();
     const file = form.get("file");
@@ -41,9 +42,30 @@ export async function POST(req: NextRequest) {
     const text = await (file as File).text();
     const parsed = parseShopifyProductCsv(text, { statusFilter });
 
+    // Comparator dispatch — each maps to a sort the warehouse user
+    // picked in the tool. Title is the default (alphabetical for
+    // sequential lookup); SKU works when shelving is keyed by SKU;
+    // qty descending highlights big-volume items first; qty ascending
+    // surfaces the empties / low-stock products.
+    const firstSku = (p: typeof parsed[number]) => p.variants[0]?.sku || "";
+    const totalQty = (p: typeof parsed[number]) => p.variants.reduce((n, v) => n + (v.qty || 0), 0);
+    const comparator: (a: typeof parsed[number], b: typeof parsed[number]) => number = (() => {
+      switch (sortBy) {
+        case "sku":
+          return (a, b) => firstSku(a).localeCompare(firstSku(b));
+        case "qty_desc":
+          return (a, b) => totalQty(b) - totalQty(a);
+        case "qty_asc":
+          return (a, b) => totalQty(a) - totalQty(b);
+        case "title":
+        default:
+          return (a, b) => sortKey(a.title).localeCompare(sortKey(b.title));
+      }
+    })();
+
     const products: CountSheetProduct[] = parsed
       .slice()
-      .sort((a, b) => sortKey(a.title).localeCompare(sortKey(b.title)))
+      .sort(comparator)
       .map((p) => ({
         title: p.title,
         variants: p.variants.map((v) => ({

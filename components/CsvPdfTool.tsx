@@ -4,6 +4,8 @@ import { T, font } from "@/lib/theme";
 
 type Status = "draft" | "active" | "all";
 
+type SortOption = { value: string; label: string };
+
 type Props = {
   /** Card section label, e.g. "Inventory Count Sheet" */
   title: string;
@@ -14,11 +16,17 @@ type Props = {
   endpoint: string;
   /** Default status filter (matches Shopify status values). */
   defaultStatus?: Status;
+  /** Optional sort menu — when provided, a Sort selector renders and
+   *  the chosen value is sent as ?sort=... to the endpoint. */
+  sortOptions?: SortOption[];
+  /** Default sort value (must match one of sortOptions[].value). */
+  defaultSort?: string;
 };
 
-export default function CsvPdfTool({ title, subtitle, endpoint, defaultStatus = "draft" }: Props) {
+export default function CsvPdfTool({ title, subtitle, endpoint, defaultStatus = "draft", sortOptions, defaultSort }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<Status>(defaultStatus);
+  const [sort, setSort] = useState<string>(defaultSort || sortOptions?.[0]?.value || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragover, setDragover] = useState(false);
@@ -41,8 +49,10 @@ export default function CsvPdfTool({ title, subtitle, endpoint, defaultStatus = 
     try {
       const fd = new FormData();
       fd.append("file", file);
+      const params = new URLSearchParams({ status });
+      if (sort) params.set("sort", sort);
       const sep = endpoint.includes("?") ? "&" : "?";
-      const res = await fetch(`${endpoint}${sep}status=${status}`, {
+      const res = await fetch(`${endpoint}${sep}${params.toString()}`, {
         method: "POST",
         body: fd,
       });
@@ -242,6 +252,45 @@ export default function CsvPdfTool({ title, subtitle, endpoint, defaultStatus = 
             {radio("active", "Active Only")}
             {radio("all", "All Products")}
           </div>
+
+          {sortOptions && sortOptions.length > 0 && (
+            <>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: T.muted,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  marginBottom: 6,
+                }}
+              >
+                Sort By
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "7px 10px",
+                    borderRadius: 6,
+                    border: `1px solid ${T.border}`,
+                    background: T.card,
+                    color: T.text,
+                    fontSize: 12,
+                    fontFamily: font,
+                    outline: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  {sortOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
 
           <div style={{ display: "flex", gap: 8 }}>
             <button
