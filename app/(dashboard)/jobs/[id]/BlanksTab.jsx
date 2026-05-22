@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
@@ -18,6 +19,7 @@ const NON_GARMENT = new Set([
 ]);
 
 export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick, onRegisterSave, selectedItemId }) {
+  const isMobile = useIsMobile();
   const items = useMemo(() => allItems.filter(it => !NON_GARMENT.has(it.garment_type)), [allItems]);
   // Letter designators are canonical across surfaces (ProductBuilder,
   // PO, Blanks) — they must reflect the item's position in the FULL
@@ -354,14 +356,17 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           combined with no individual labels, sizes inline, order total
           input on the right with variance pill. */}
       <div style={{ ...card }}>
-        {/* Column headers */}
-        <div style={{ display: "grid", gridTemplateColumns: "32px 90px 1fr 150px 160px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-          <div></div>
-          <div>QB Invoice</div>
-          <div>Brand · Style · Color · Sizes</div>
-          <div>Order total</div>
-          <div style={{ textAlign: "right" }}>Status</div>
-        </div>
+        {/* Column headers — desktop only. Mobile uses inline labels per
+            card-row since the 5-col grid doesn't survive narrow widths. */}
+        {!isMobile && (
+          <div style={{ display: "grid", gridTemplateColumns: "32px 90px 1fr 150px 160px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            <div></div>
+            <div>QB Invoice</div>
+            <div>Brand · Style · Color · Sizes</div>
+            <div>Order total</div>
+            <div style={{ textAlign: "right" }}>Status</div>
+          </div>
+        )}
         {items.map((item, i) => {
           if (selectedItemId && item.id !== selectedItemId) return null;
           const f = localFields[item.id] || {};
@@ -378,6 +383,65 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           const fallbackRef = `${job?.job_number || ""}${itemLetter}`;
           const blankInfo = [item.blank_vendor, item.blank_sku, item.color || item.blank_color].filter(Boolean).join(" · ");
           const isLast = i === items.length - 1;
+
+          // Mobile: stacked card layout — letter+ref+status on row 1,
+          // blank info on row 2, sizes wrap on row 3, order total + variance
+          // on row 4. Each section gets enough breathing room to be tappable.
+          if (isMobile) {
+            return (
+              <div key={item.id} style={{
+                padding: "12px 14px",
+                borderBottom: isLast ? "none" : `1px solid ${T.border}`,
+                display: "flex", flexDirection: "column", gap: 10,
+              }}>
+                {/* Row 1: letter + invoice ref + status */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ width: 28, height: 28, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
+                    {itemLetter}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: qbInvNum ? T.text : T.faint, fontFamily: mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {qbRef || <span title="Push to QB to get an invoice #" style={{ fontSize: 11 }}>{fallbackRef}</span>}
+                  </div>
+                  {hasOrder && <span style={{ fontSize: 9, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap", flexShrink: 0 }}>✓ Ordered</span>}
+                </div>
+
+                {/* Row 2: blank info */}
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, paddingLeft: 38 }}>{blankInfo || "—"}</div>
+
+                {/* Row 3: sizes wrap */}
+                <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap", paddingLeft: 38 }}>
+                  {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
+                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
+                      <span style={{ fontSize: 11, color: T.muted, fontFamily: mono, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>{sz}</span>
+                      <span style={{ fontSize: 14, color: T.text, fontWeight: 700, fontFamily: mono }}>{(item.qtys || {})[sz].toLocaleString()}</span>
+                    </div>
+                  ))}
+                  <span style={{ fontSize: 12, color: T.muted, fontFamily: mono, fontWeight: 600, paddingBottom: 1 }}>· {totalUnits.toLocaleString()} units</span>
+                </div>
+
+                {/* Row 4: order total input + variance */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", paddingLeft: 38, marginTop: 2 }}>
+                  <div style={{ fontSize: 11, color: T.muted, fontFamily: font }}>
+                    Order total
+                    {calcCost !== null && <span style={{ fontFamily: mono, marginLeft: 6, color: T.faint }}>· calc ${calcCost.toFixed(2)}</span>}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {calcCost !== null && actualCost !== null && actualCost > 0 && (
+                      <span style={{ fontSize: 11, fontFamily: mono, fontWeight: 700, color: costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.muted }}>
+                        {costDiff === 0 ? "match" : (costDiff > 0 ? "+" : "") + "$" + Math.abs(costDiff).toFixed(2)}
+                      </span>
+                    )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                      <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>$</span>
+                      <input style={{ width: 100, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 600, outline: "none", textAlign: "right" }} type="text" inputMode="decimal" value={f.blanks_order_cost || ""} placeholder="0.00"
+                        onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
+                        onFocus={e => e.target.select()} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
 
           return (
             <div key={item.id} style={{
