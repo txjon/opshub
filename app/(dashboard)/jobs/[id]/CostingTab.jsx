@@ -1170,7 +1170,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 <CInput label="Valid until" type="date" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))}/>
               </div>
               <button onClick={()=>setShowSendEmail(true)}
-                style={{background:T.green,color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",fontSize:13,fontWeight:700,fontFamily:font,cursor:"pointer",width:"100%",boxShadow:"0 1px 2px rgba(0,0,0,0.06)"}}>
+                style={{display:"block",background:T.blue,color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",fontSize:13,fontWeight:700,fontFamily:font,cursor:"pointer",width:"100%",boxSizing:"border-box",boxShadow:"0 1px 2px rgba(0,0,0,0.06)"}}>
                 Send Quote →
               </button>
             </div>
