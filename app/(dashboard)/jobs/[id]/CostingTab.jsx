@@ -1131,7 +1131,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
           logJobActivity(project.id, "Quote feedback marked as handled");
         };
         return(
-          <div style={{maxWidth:760,margin:"0 auto"}}>
+          <div style={{width:"100%"}}>
             {/* Client feedback banner — appears when the client rejected
                 the quote with notes via the portal. Dashboard "Quote
                 feedback" alert deep-links here. Cleared automatically
