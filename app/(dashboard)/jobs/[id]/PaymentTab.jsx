@@ -453,10 +453,7 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
                 <input type="text" inputMode="decimal" placeholder="0.00" value={pmAmount} onChange={e => setPmAmount(e.target.value)} style={{ ...ic, paddingLeft: 22, fontFamily: mono }} />
               </div>
               <input placeholder="Invoice #" value={pmInvoice} onChange={e => setPmInvoice(e.target.value)} style={ic} />
-              <div style={{position:"relative"}}>
-                <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:10,fontWeight:600,color:T.faint,letterSpacing:"0.06em",textTransform:"uppercase",pointerEvents:"none"}}>Paid</span>
-                <input type="date" value={pmPaid} onChange={e => setPmPaid(e.target.value)} style={{...ic,paddingLeft:46}} />
-              </div>
+              <input type="date" value={pmPaid} onChange={e => setPmPaid(e.target.value)} title="Paid date" style={ic} />
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={async () => {
