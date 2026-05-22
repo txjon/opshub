@@ -8,6 +8,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { DecorationPanel } from "./DecorationPanel";
 import { SettingsModal } from "./SettingsModal";
 import { DriveThumb } from "@/components/DriveThumb";
+import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { calcCostProduct as sharedCalcCostProduct, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, buildPrintersMap } from "@/lib/pricing";
 import { useClientBranding } from "@/lib/branding-client";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -257,6 +258,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
     return () => cancelAnimationFrame(raf);
   }, []);
   const [showSendEmail,setShowSendEmail]=useState(false);
+  const [previewingQuote,setPreviewingQuote]=useState(false);
   const [showRfqModal,setShowRfqModal]=useState(false);
   const [rfqVendor,setRfqVendor]=useState("");
   const [rfqSelected,setRfqSelected]=useState({});         // { itemId: bool }
@@ -441,7 +443,6 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
   const totProfit=totGross - results.reduce((a,r)=>a+r.totalCost,0);
   const netMarg=totGross>0?totProfit/totGross:0;
   const mc=netMarg>=0.30?T.green:netMarg>=0.20?T.amber:T.red;
-  const today=new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
 
   const updateProd=(i,d)=>setCostProds(p=>p.map((x,j)=>j===i?d:x));
   const focusNext=(e,reverse=false)=>{
@@ -1162,7 +1163,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             )}
 
             {/* Quote details */}
-            <div style={{display:"flex",gap:12,marginBottom:14,alignItems:"flex-start"}}>
+            <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:12,marginBottom:14,alignItems:isMobile?"stretch":"flex-start"}}>
               <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",flex:1}}>
                 <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Quote details</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
@@ -1170,8 +1171,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                   <CInput label="Valid until" type="date" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))}/>
                 </div>
               </div>
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                <button onClick={()=>setShowSendEmail(!showSendEmail)} style={{background:T.blue,color:"#fff",border:"none",borderRadius:8,padding:"10px 16px",fontSize:13,fontWeight:700,fontFamily:font,cursor:"pointer",width:"100%"}}>Send to Client</button>
+              <div style={{display:"flex",flexDirection:isMobile?"row":"column",gap:6}}>
+                <button onClick={()=>setPreviewingQuote(true)} style={{background:"transparent",color:T.text,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 16px",fontSize:13,fontWeight:600,fontFamily:font,cursor:"pointer",flex:isMobile?1:"none",whiteSpace:"nowrap"}}>Preview PDF</button>
+                <button onClick={()=>setShowSendEmail(!showSendEmail)} style={{background:T.blue,color:"#fff",border:"none",borderRadius:8,padding:"10px 16px",fontSize:13,fontWeight:700,fontFamily:font,cursor:"pointer",flex:isMobile?1:"none",whiteSpace:"nowrap"}}>Send to Client</button>
               </div>
             </div>
             <div style={{fontSize:12,color:T.muted,fontFamily:font,marginBottom:10}}>Preview — this is what your client sees</div>
@@ -1190,128 +1192,27 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               </div>
               </div>
             )}
-            <div style={{background:"#fff",borderRadius:12,border:"1px solid #e5e7eb",overflow:"hidden",fontFamily:"Georgia, serif",color:"#111"}}>
-              <div style={{padding:"32px 36px 24px",borderBottom:"3px solid #111"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                  <div>
-                    <div style={{marginBottom:10}} dangerouslySetInnerHTML={{__html:branding.logoSvg}} />
-                    <div style={{fontSize:11,color:"#666",lineHeight:1.7,fontFamily:"system-ui, sans-serif"}} dangerouslySetInnerHTML={{__html:`${branding.addressHtml}${branding.fromEmail?"<br/>"+branding.fromEmail:""}`}} />
-                  </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:18,fontWeight:700,letterSpacing:"-0.01em",fontFamily:"system-ui, sans-serif",marginBottom:8}}>
-                      {orderInfo.invoiceNum?"QUOTE #"+orderInfo.invoiceNum:"QUOTE #—"}
-                    </div>
-                    <div style={{fontSize:11,color:"#666",lineHeight:1.8,fontFamily:"system-ui, sans-serif"}}>
-                      <div><span style={{fontWeight:600}}>Date:</span> {today}</div>
-                      {orderInfo.validUntil&&<div><span style={{fontWeight:600}}>Valid until:</span> {orderInfo.validUntil}</div>}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {/* Meta strip */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",borderBottom:"0.5px solid #e5e7eb",fontFamily:"system-ui, sans-serif"}}>
-                {[
-                  ["Date", today],
-                  ["Valid until", orderInfo.validUntil||"30 days from issue"],
-                  ["Est. ship date", project?.target_ship_date ? new Date(project.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "TBD"],
-                  ["Prepared for", project?.clients?.name||"—"],
-                ].map(([k,v],i,arr)=>(
-                  <div key={k} style={{padding:"8px 12px",borderRight:i<arr.length-1?"0.5px solid #e5e7eb":"none"}}>
-                    <div style={{fontSize:8,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#aaa",marginBottom:2}}>{k}</div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#1a1a1a"}}>{v}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Items table */}
-              <div style={{padding:"24px 36px"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"system-ui, sans-serif"}}>
-                  <thead>
-                    <tr style={{borderBottom:"1.5px solid #1a1a1a"}}>
-                      <th style={{fontSize:9,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.1em",textAlign:"left",padding:"6px 0 10px",width:"38%"}}>Item</th>
-                      <th style={{fontSize:9,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.1em",textAlign:"left",padding:"6px 0 10px"}}>Sizes</th>
-                      <th style={{fontSize:9,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.1em",textAlign:"right",padding:"6px 0 10px",width:60}}>Qty</th>
-                      <th style={{fontSize:9,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.1em",textAlign:"right",padding:"6px 0 10px",width:80}}>Unit price</th>
-                      <th style={{fontSize:9,fontWeight:700,color:"#999",textTransform:"uppercase",letterSpacing:"0.1em",textAlign:"right",padding:"6px 0 10px",width:90}}>Subtotal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {quoteProds.map((p,pi)=>{
-                      const r2=calcCostProduct(p,costMargin,inclShip,inclCC,costProds);
-                      const unitPrice=r2?Math.round(r2.sellPerUnit*100)/100:0;
-                      const lineTotal=r2?Math.round(unitPrice*r2.qty*100)/100:0;
-                      return(
-                        <tr key={pi} style={{borderBottom:"0.5px solid #eeeeee"}}>
-                          <td style={{padding:"12px 12px 12px 0",verticalAlign:"top"}}>
-                            <div style={{display:"flex",alignItems:"baseline",gap:7}}>
-                              <span style={{fontSize:10,fontWeight:700,color:"#bbb",fontFamily:"monospace",flexShrink:0}}>{String.fromCharCode(65+pi)}</span>
-                              <span style={{fontSize:13,fontWeight:700,color:"#1a1a1a"}}>{p.name||("Item "+(pi+1))}</span>
-                            </div>
-                            {(p.style||p.blankCostPerUnit!==undefined)&&(
-                              <div style={{fontSize:10,color:"#555",marginTop:2,paddingLeft:17}}>{[p.style].filter(Boolean).join("")}</div>
-                            )}
-                            {p.color&&<div style={{fontSize:10,color:"#888",paddingLeft:17}}>{p.color}</div>}
-                          </td>
-                          <td style={{padding:"12px 8px",verticalAlign:"top"}}>
-                            <div style={{display:"grid",gridTemplateColumns:"repeat(3, minmax(52px, 1fr))",gap:"3px 6px"}}>
-                              {(p.sizes||[]).filter(sz=>(p.qtys?.[sz]||0)>0).map(sz=>(
-                                <div key={sz} style={{fontSize:10,color:"#444",fontFamily:"monospace",whiteSpace:"nowrap"}}>
-                                  <span style={{color:"#999",marginRight:3}}>{sz}</span>{p.qtys[sz].toLocaleString()}
-                                </div>
-                              ))}
-                            </div>
-                          </td>
-                          <td style={{padding:"12px 8px",textAlign:"right",fontFamily:"monospace",fontSize:12,verticalAlign:"top",fontWeight:600,color:"#1a1a1a"}}>{(p.totalQty||0).toLocaleString()}</td>
-                          <td style={{padding:"12px 8px",textAlign:"right",fontFamily:"monospace",fontSize:12,verticalAlign:"top",color:"#666"}}>{unitPrice>0?fmtD(unitPrice):"—"}</td>
-                          <td style={{padding:"12px 0 12px 8px",textAlign:"right",fontFamily:"monospace",fontSize:12,verticalAlign:"top",fontWeight:700,color:"#1a1a1a"}}>{lineTotal>0?fmtD(lineTotal):"—"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-
-                {/* Order total */}
-                <div style={{display:"flex",justifyContent:"flex-end",paddingTop:14,borderTop:"1.5px solid #1a1a1a",marginTop:4}}>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.12em",color:"#aaa",marginBottom:4,fontFamily:"system-ui, sans-serif"}}>Order total</div>
-                    <div style={{fontSize:26,fontWeight:800,letterSpacing:"-0.03em",fontFamily:"system-ui, sans-serif",color:"#1a1a1a"}}>{fmtD(quoteTotal)}</div>
-                  </div>
-                </div>
-
-                {/* Notes */}
-                {project?.notes&&(
-                  <div style={{marginTop:20,padding:"12px 16px",background:"#f9f9f9",borderRadius:6,fontSize:11,color:"#555",lineHeight:1.7,fontFamily:"system-ui, sans-serif",whiteSpace:"pre-line"}}>
-                    <div style={{fontSize:8,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#aaa",marginBottom:6}}>Notes</div>
-                    {project.notes}
-                  </div>
-                )}
-              </div>
-
-              {/* Footer */}
-              <div style={{padding:"20px 36px",borderTop:"0.5px solid #e5e7eb",display:"flex",justifyContent:"space-between",alignItems:"flex-end",fontFamily:"system-ui, sans-serif"}}>
-                <div>
-                  <div style={{fontSize:8,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#aaa",marginBottom:6}}>{branding.name}</div>
-                  <div style={{fontSize:10,color:"#666",lineHeight:1.8}} dangerouslySetInnerHTML={{__html:`${branding.fromEmail?branding.fromEmail+"<br/>":""}${branding.addressHtml}`}} />
-                </div>
-                {approved?(
-                  <div style={{textAlign:"center",padding:"10px 20px",background:"#f0fdf4",borderRadius:8,border:"1px solid #bbf7d0"}}>
-                    <div style={{fontSize:13,fontWeight:700,color:"#16a34a",marginBottom:2}}>✓ Quote Approved</div>
-                    <div style={{fontSize:11,color:"#555"}}>Status: {project.prodStatus}</div>
-                  </div>
-                ):(
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <button
-                      onClick={()=>{if(window.confirm("Approve this quote and proceed to deposit?")){onSave&&onSave({...project,prodStatus:"Awaiting Deposit"});}}}
-                      style={{background:"#1a1a1a",color:"#fff",border:"none",borderRadius:5,padding:"9px 22px",fontSize:12,fontFamily:"system-ui, sans-serif",fontWeight:700,cursor:"pointer",letterSpacing:"0.04em"}}>
-                      Approve quote
-                    </button>
-                    <button style={{background:"transparent",color:"#555",border:"1px solid #ccc",borderRadius:5,padding:"9px 16px",fontSize:12,fontFamily:"system-ui, sans-serif",cursor:"pointer"}}>
-                      Request changes
-                    </button>
-                  </div>
-                )}
-              </div>
+            {/* Inline PDF preview — renders the real /api/pdf/quote
+                output the client will receive, so the preview can't
+                drift from the deliverable. Desktop shows it inline at
+                full height; mobile gets a shorter iframe with the
+                Preview PDF button as the primary affordance for full
+                screen. Replaces the legacy HTML mockup. */}
+            <div style={{background:"#fff",borderRadius:12,border:"1px solid #e5e7eb",overflow:"hidden",height:isMobile?420:900}}>
+              <iframe
+                src={`/api/pdf/quote/${project.id}#toolbar=0&navpanes=0`}
+                title="Quote preview"
+                style={{width:"100%",height:"100%",border:"none",display:"block"}}
+              />
             </div>
+            {previewingQuote && (
+              <PdfPreviewModal
+                src={`/api/pdf/quote/${project.id}`}
+                title={`Quote${orderInfo.invoiceNum?" · #"+orderInfo.invoiceNum:""}`}
+                downloadHref={`/api/pdf/quote/${project.id}?download=1`}
+                onClose={()=>setPreviewingQuote(false)}
+              />
+            )}
           </div>
         );
       })()}
