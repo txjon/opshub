@@ -5,9 +5,11 @@ import { T, font, mono } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { ProofModal } from "./ArtTab";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, onRecalcPhase }) {
   const supabase = createClient();
+  const isMobile = useIsMobile();
   const [showProofEmail, setShowProofEmail] = useState(false);
   const [proofModalItem, setProofModalItem] = useState(null);
   const [itemFiles, setItemFiles] = useState({});
@@ -160,101 +162,115 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
               fontWeight: 500,
             };
 
+            const statusSpan = (
+              <span style={{
+                fontSize: 11, fontWeight: 700,
+                color: pillColor, letterSpacing: "0.06em", textTransform: "uppercase",
+                whiteSpace: "nowrap", flexShrink: 0,
+                display: "inline-flex", alignItems: "center", gap: 4,
+              }}>
+                {fileApproved || internalOnly ? <span style={{ fontSize: 10 }}>✓</span> : null}
+                {revisionRequested ? <span style={{ fontSize: 10 }}>⚠</span> : null}
+                {pillText}
+              </span>
+            );
+            const primaryAction = hasProof ? (
+              <button onClick={() => setPreviewProofItem(proofFiles[0])}
+                style={{
+                  padding: "7px 14px", borderRadius: 7, fontSize: 11, fontWeight: 600,
+                  border: `1px solid ${T.border}`, cursor: "pointer",
+                  background: T.card, color: T.text, flexShrink: 0,
+                  fontFamily: font, transition: "all 0.15s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.card; e.currentTarget.style.color = T.text; }}>
+                View proof
+              </button>
+            ) : mockupFile ? (
+              <button onClick={() => setProofModalItem(item)}
+                style={{
+                  padding: "7px 14px", borderRadius: 7, fontSize: 11, fontWeight: 600,
+                  border: "none", cursor: "pointer",
+                  background: T.amber, color: "#fff", flexShrink: 0,
+                  fontFamily: font,
+                }}>
+                Generate
+              </button>
+            ) : (
+              <span style={{ fontSize: 10, color: T.faint, padding: "6px 10px", flexShrink: 0, whiteSpace: "nowrap" }}>Needs mockup</span>
+            );
+
             return (
               <div key={item.id}
                 style={{
-                  display: "flex", alignItems: "center", gap: 12,
+                  display: "flex",
+                  flexDirection: isMobile ? "column" : "row",
+                  alignItems: isMobile ? "stretch" : "center",
+                  gap: isMobile ? 8 : 12,
                   padding: "10px 14px",
                   background: T.card,
                   borderRadius: 8,
                   border: `1px solid ${isApproved ? T.green + "33" : T.border}`,
                   boxShadow: isApproved ? "none" : "0 1px 2px rgba(0,0,0,0.02)",
                 }}>
-                {/* Letter badge — small circle */}
-                <span style={{
-                  width: 24, height: 24, borderRadius: "50%",
-                  background: isApproved ? T.greenDim : T.surface,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 10, fontWeight: 700,
-                  color: isApproved ? T.green : T.muted,
-                  fontFamily: mono, flexShrink: 0,
-                }}>
-                  {String.fromCharCode(65 + i)}
-                </span>
+                {/* Row 1 (mobile) / left side (desktop): letter + name + meta */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, flex: isMobile ? "0 0 auto" : 1, minWidth: 0 }}>
+                  {/* Letter badge — small circle */}
+                  <span style={{
+                    width: 24, height: 24, borderRadius: "50%",
+                    background: isApproved ? T.greenDim : T.surface,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 10, fontWeight: 700,
+                    color: isApproved ? T.green : T.muted,
+                    fontFamily: mono, flexShrink: 0,
+                  }}>
+                    {String.fromCharCode(65 + i)}
+                  </span>
 
-                {/* Name + inline meta actions */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{
-                    fontSize: 12, fontWeight: 600, color: T.text,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    letterSpacing: "-0.01em",
-                  }} title={item.name}>
-                    {item.name}
-                  </div>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
-                    {hasProof && mockupFile && (
-                      <button
-                        onClick={() => setProofModalItem(item)}
-                        style={metaLink}
-                        onMouseEnter={e => (e.currentTarget.style.color = T.accent)}
-                        onMouseLeave={e => (e.currentTarget.style.color = T.faint)}
-                      >↻ Regenerate</button>
-                    )}
-                    {!fileApproved && (
-                      <button
-                        onClick={async () => {
-                          const newStatus = manualApproved ? "not_started" : "approved";
-                          await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
-                          if (onUpdateItem) onUpdateItem(item.id, { artwork_status: newStatus });
-                          if (newStatus === "approved") logJobActivity(job.id, `${item.name} approved internally`);
-                          if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
-                        }}
-                        style={metaLink}
-                        onMouseEnter={e => (e.currentTarget.style.color = manualApproved ? T.red : T.green)}
-                        onMouseLeave={e => (e.currentTarget.style.color = T.faint)}
-                      >{manualApproved ? "Unmark internal" : "Mark internal"}</button>
-                    )}
+                  {/* Name + inline meta actions */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 12, fontWeight: 600, color: T.text,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      letterSpacing: "-0.01em",
+                    }} title={item.name}>
+                      {item.name}
+                    </div>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
+                      {hasProof && mockupFile && (
+                        <button
+                          onClick={() => setProofModalItem(item)}
+                          style={metaLink}
+                          onMouseEnter={e => (e.currentTarget.style.color = T.accent)}
+                          onMouseLeave={e => (e.currentTarget.style.color = T.faint)}
+                        >↻ Regenerate</button>
+                      )}
+                      {!fileApproved && (
+                        <button
+                          onClick={async () => {
+                            const newStatus = manualApproved ? "not_started" : "approved";
+                            await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
+                            if (onUpdateItem) onUpdateItem(item.id, { artwork_status: newStatus });
+                            if (newStatus === "approved") logJobActivity(job.id, `${item.name} approved internally`);
+                            if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
+                          }}
+                          style={metaLink}
+                          onMouseEnter={e => (e.currentTarget.style.color = manualApproved ? T.red : T.green)}
+                          onMouseLeave={e => (e.currentTarget.style.color = T.faint)}
+                        >{manualApproved ? "Unmark internal" : "Mark internal"}</button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Status — bold uppercase text, no pill */}
-                <span style={{
-                  fontSize: 11, fontWeight: 700,
-                  color: pillColor, letterSpacing: "0.06em", textTransform: "uppercase",
-                  whiteSpace: "nowrap", flexShrink: 0,
-                  display: "inline-flex", alignItems: "center", gap: 4,
-                }}>
-                  {fileApproved || internalOnly ? <span style={{ fontSize: 10 }}>✓</span> : null}
-                  {revisionRequested ? <span style={{ fontSize: 10 }}>⚠</span> : null}
-                  {pillText}
-                </span>
-
-                {/* Primary action */}
-                {hasProof ? (
-                  <button onClick={() => setPreviewProofItem(proofFiles[0])}
-                    style={{
-                      padding: "7px 14px", borderRadius: 7, fontSize: 11, fontWeight: 600,
-                      border: `1px solid ${T.border}`, cursor: "pointer",
-                      background: T.card, color: T.text, flexShrink: 0,
-                      fontFamily: font, transition: "all 0.15s",
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.card; e.currentTarget.style.color = T.text; }}>
-                    View proof
-                  </button>
-                ) : mockupFile ? (
-                  <button onClick={() => setProofModalItem(item)}
-                    style={{
-                      padding: "7px 14px", borderRadius: 7, fontSize: 11, fontWeight: 600,
-                      border: "none", cursor: "pointer",
-                      background: T.amber, color: "#fff", flexShrink: 0,
-                      fontFamily: font,
-                    }}>
-                    Generate
-                  </button>
-                ) : (
-                  <span style={{ fontSize: 10, color: T.faint, padding: "6px 10px", flexShrink: 0, whiteSpace: "nowrap" }}>Needs mockup</span>
-                )}
+                {/* Row 2 (mobile) / right side (desktop): status + action.
+                    Mobile distributes them with space-between so the
+                    status sits left and the action button sits right
+                    aligned under the name. */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: isMobile ? "space-between" : "flex-end", paddingLeft: isMobile ? 36 : 0 }}>
+                  {statusSpan}
+                  {primaryAction}
+                </div>
               </div>
             );
           })}
@@ -296,7 +312,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                 fontSize: 12, fontWeight: 700, fontFamily: font,
                 opacity: sendingProofEmail ? 0.6 : 1,
                 transition: "opacity 0.15s" }}>
-              {sendingProofEmail ? "Sending…" : proofEmailSent ? "✓ Sent to client" : "Send proofs to client for review"}
+              {sendingProofEmail ? "Sending…" : proofEmailSent ? "✓ Sent to client" : (isMobile ? "Send for review" : "Send proofs to client for review")}
             </button>
           );
         })()}
