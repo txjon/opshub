@@ -9,6 +9,7 @@ import { useClientBranding } from "@/lib/branding-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { ArtBriefPanel } from "./ArtBriefPanel";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { DriveThumb } from "@/components/DriveThumb";
 import { DriveFileLink } from "@/components/DriveFileLink";
 
@@ -156,6 +157,7 @@ const PROOF_DEFAULTS_BY_TYPE = {
 };
 
 export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved, generateAllCounter }) {
+  const isMobile = useIsMobile();
   const METHODS = ["Screen Print", "DTF", "Embroidery"];
   const INSTRUCTIONS = ["Bulk Fold", "Piece Package", "Back Design Facing Out", "Smooth Plastisol Ink"];
 
@@ -443,8 +445,8 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
           <button onClick={handleClose} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 18 }}>×</button>
         </div>
 
-        <div style={{ flex: 1, overflow: "auto", display: "flex" }}>
-          <div style={{ width: 320, flexShrink: 0, padding: "14px 18px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: isMobile ? "column" : "row" }}>
+          <div style={{ width: isMobile ? "100%" : 320, flexShrink: 0, padding: "14px 18px", overflowY: isMobile ? "visible" : "auto", display: "flex", flexDirection: "column", gap: 14 }}>
             {/* Method toggle buttons */}
             <div>
               <label style={{ fontSize: 11, color: T.muted, marginBottom: 6, display: "block" }}>Print Method</label>
@@ -560,9 +562,16 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
             </div>
           </div>
 
-          <div style={{ flex: 1, borderLeft: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{
+            flex: 1,
+            borderLeft: isMobile ? "none" : `1px solid ${T.border}`,
+            borderTop: isMobile ? `1px solid ${T.border}` : "none",
+            background: T.surface,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            minHeight: isMobile ? 480 : "auto",
+          }}>
             {previewUrl ? (
-              <iframe src={previewUrl} style={{ width: "100%", height: "100%", border: "none", minHeight: 500 }} />
+              <iframe src={previewUrl} style={{ width: "100%", height: "100%", border: "none", minHeight: isMobile ? 480 : 500 }} />
             ) : (
               <div style={{ fontSize: 11, color: T.faint }}>Loading preview...</div>
             )}
