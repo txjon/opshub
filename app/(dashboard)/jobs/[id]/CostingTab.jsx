@@ -1169,15 +1169,10 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 <CInput label="Quote #" value={orderInfo.invoiceNum} onChange={v=>setOrderInfo(o=>({...o,invoiceNum:v}))}/>
                 <CInput label="Valid until" type="date" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))}/>
               </div>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
-                <div style={{fontSize:11,color:T.muted,fontFamily:font,lineHeight:1.4}}>
-                  Opens the PDF preview + recipient picker in one screen.
-                </div>
-                <button onClick={()=>setShowSendEmail(true)}
-                  style={{background:T.blue,color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",fontSize:13,fontWeight:700,fontFamily:font,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,boxShadow:"0 1px 2px rgba(0,0,0,0.06)"}}>
-                  Send Quote →
-                </button>
-              </div>
+              <button onClick={()=>setShowSendEmail(true)}
+                style={{background:T.green,color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",fontSize:13,fontWeight:700,fontFamily:font,cursor:"pointer",width:"100%",boxShadow:"0 1px 2px rgba(0,0,0,0.06)"}}>
+                Send Quote →
+              </button>
             </div>
             {showSendEmail && (
               <div style={{position:"fixed",inset:0,background:"#fff",zIndex:100,display:"flex",flexDirection:"column",fontFamily:font}}>
