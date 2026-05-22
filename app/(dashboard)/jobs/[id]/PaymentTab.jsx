@@ -5,7 +5,7 @@ import { T, font, mono } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewModal";
-import { PdfPreviewModal } from "@/components/PdfPreviewModal";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { StripePaymentTab } from "./StripePaymentTab";
@@ -37,6 +37,7 @@ export function PaymentTab(props) {
 
 function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcPhase, onUpdateJob }) {
   const supabase = createClient();
+  const isMobile = useIsMobile();
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
   const [showReminderEmail, setShowReminderEmail] = useState(false);
   const [showInvoiceProofsEmail, setShowInvoiceProofsEmail] = useState(false);
@@ -47,7 +48,6 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
   const [chooserOpen, setChooserOpen] = useState(false);
   const [chooserCandidates, setChooserCandidates] = useState(undefined);
   const [chooserCurrent, setChooserCurrent] = useState(undefined);
-  const [showPreview, setShowPreview] = useState(false);
   const [showVarianceModal, setShowVarianceModal] = useState(false);
   const [refreshingLink, setRefreshingLink] = useState(false);
   const [linkError, setLinkError] = useState("");
@@ -66,7 +66,6 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
 
   const qbInvoiceNumber = job.type_meta?.qb_invoice_number;
   const qbPaymentLink = job.type_meta?.qb_payment_link;
-  const [previewed, setPreviewed] = useState(false);
 
   // Detect stale QB invoice — current pricing doesn't match QB total.
   // Suppressed once variance was pushed, because the QB total then reflects
@@ -280,26 +279,15 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
               : qbInvoiceNumber ? `✓ QB #${qbInvoiceNumber}`
               : "Create QB Invoice"}
           </button>
-          <button onClick={() => { setShowPreview(true); setPreviewed(true); }} disabled={!qbInvoiceNumber}
-            style={{ flex: 1, height: 38, borderRadius: 7,
-              border: previewed ? `1.5px solid ${T.accent}` : "none",
+          <button onClick={handleSendInvoiceClick} disabled={!qbInvoiceNumber}
+            title={!qbInvoiceNumber ? "Create the QB invoice first" : "Preview + send to client in one screen"}
+            style={{ flex: 1, height: 38, borderRadius: 7, border: "none",
               cursor: !qbInvoiceNumber ? "default" : "pointer",
-              background: !qbInvoiceNumber ? T.surface : previewed ? T.accentDim : T.accent,
-              color: !qbInvoiceNumber ? T.faint : previewed ? T.accent : "#fff",
+              background: !qbInvoiceNumber ? T.surface : T.accent, color: !qbInvoiceNumber ? T.faint : "#fff",
               fontSize: 12, fontWeight: 700, fontFamily: font,
               opacity: !qbInvoiceNumber ? 0.4 : 1, transition: "opacity 0.15s", padding: "0 12px" }}
             onMouseEnter={e => { if (qbInvoiceNumber) e.currentTarget.style.opacity = "0.85"; }}
             onMouseLeave={e => { e.currentTarget.style.opacity = !qbInvoiceNumber ? "0.4" : "1"; }}>
-            {previewed ? "✓ Preview" : "Preview"}
-          </button>
-          <button onClick={handleSendInvoiceClick} disabled={!previewed}
-            style={{ flex: 1, height: 38, borderRadius: 7, border: "none",
-              cursor: !previewed ? "default" : "pointer",
-              background: !previewed ? T.surface : T.accent, color: !previewed ? T.faint : "#fff",
-              fontSize: 12, fontWeight: 700, fontFamily: font,
-              opacity: !previewed ? 0.4 : 1, transition: "opacity 0.15s", padding: "0 12px" }}
-            onMouseEnter={e => { if (previewed) e.currentTarget.style.opacity = "0.85"; }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = !previewed ? "0.4" : "1"; }}>
             Send Invoice
           </button>
         </div>
@@ -570,15 +558,6 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
       {/* ── End Invoicing card ── */}
 
       {/* Modals — outside the card */}
-      {showPreview && (
-        <PdfPreviewModal
-          src={`/api/pdf/invoice/${job.id}`}
-          title="Invoice Preview"
-          downloadHref={`/api/pdf/invoice/${job.id}?download=1`}
-          onClose={() => setShowPreview(false)}
-        />
-      )}
-
       {showVarianceModal && (
         <InvoiceVarianceReviewModal
           jobId={job.id}
@@ -596,20 +575,48 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
       {showInvoiceEmail && (() => {
         const isRevised = !!job.type_meta?.invoice_sent_at;
         const invoiceLabel = isRevised ? "Revised Invoice" : "Invoice";
+        const refNum = job.type_meta?.qb_invoice_number || job.job_number || "";
         return (
-          <SendEmailDialog
-            type="invoice"
-            jobId={job.id}
-            contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
-            defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
-            defaultSubject={[
-              `${invoiceLabel}${(job.type_meta?.qb_invoice_number || job.job_number) ? ` ${job.type_meta?.qb_invoice_number || job.job_number}` : ""}`,
-              job.clients?.name,
-              job.title,
-            ].filter(Boolean).join(" · ").trim()}
-            onClose={() => setShowInvoiceEmail(false)}
-            onSent={() => { logJobActivity(job.id, `${invoiceLabel} sent to client`); setShowInvoiceEmail(false); }}
-          />
+          <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 100, display: "flex", flexDirection: "column", fontFamily: font }}>
+            {/* Header */}
+            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>
+                  Send {invoiceLabel}{refNum ? ` · #${refNum}` : ""}
+                </span>
+                <span style={{ fontSize: 11, color: T.muted }}>{job.clients?.name || job.title || ""}</span>
+              </div>
+              <button onClick={() => setShowInvoiceEmail(false)} aria-label="Close" style={{ background: "none", border: "none", color: T.muted, fontSize: 20, cursor: "pointer", padding: "4px 8px", lineHeight: 1 }}>×</button>
+            </div>
+            {/* Body: send form left (380px rail), PDF preview right.
+                Mobile stacks: form on top, preview below. */}
+            <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden", minHeight: 0 }}>
+              <div style={{ width: isMobile ? "auto" : 380, flexShrink: 0, display: "flex", flexDirection: "column", overflow: "hidden", borderRight: isMobile ? "none" : `1px solid ${T.border}`, borderBottom: isMobile ? `1px solid ${T.border}` : "none" }}>
+                <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px" }}>
+                  <SendEmailDialog
+                    type="invoice"
+                    jobId={job.id}
+                    contacts={contacts.map(c => ({ name: c.name, email: c.email || "" }))}
+                    defaultEmail={contacts.find(c => c.role_on_job === "billing")?.email || contacts.find(c => c.role_on_job === "primary")?.email || ""}
+                    defaultSubject={[
+                      `${invoiceLabel}${refNum ? ` ${refNum}` : ""}`,
+                      job.clients?.name,
+                      job.title,
+                    ].filter(Boolean).join(" · ").trim()}
+                    onClose={() => setShowInvoiceEmail(false)}
+                    onSent={() => { logJobActivity(job.id, `${invoiceLabel} sent to client`); setShowInvoiceEmail(false); }}
+                  />
+                </div>
+              </div>
+              <div style={{ flex: 1, background: T.surface, overflow: "hidden", minHeight: isMobile ? 280 : 0 }}>
+                <iframe
+                  src={`/api/pdf/invoice/${job.id}#toolbar=0&navpanes=0`}
+                  title="Invoice preview"
+                  style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+                />
+              </div>
+            </div>
+          </div>
         );
       })()}
 
