@@ -82,9 +82,11 @@ export async function POST(req: NextRequest) {
     // Wrap the bare email in "Company Name <addr>" so client inboxes
     // show the friendly name instead of just the local part.
     const namedFrom = (addr: string) => `${companyName} <${addr}>`;
-    // PO# prefix derives from company name initials so HPD prints
-    // "HPD PO#" and IHM prints "IHM PO#" without us hardcoding either.
-    const poPrefix = companyName.split(/\s+/).filter(Boolean).map(w => w[0]?.toUpperCase() || "").join("") + " PO";
+    // Tenant initials (HPD / IHM) derived from company name. Used
+    // both as the "PO# {prefix} {number}" tenant tag and to strip a
+    // redundant leading prefix from job_number-style refs so the
+    // tenant tag only appears once.
+    const tenantPrefix = companyName.split(/\s+/).filter(Boolean).map(w => w[0]?.toUpperCase() || "").join("");
 
     if (type === "quote") {
       pdfUrl = `${baseUrl}/api/pdf/quote/${jobId}`;
@@ -94,7 +96,11 @@ export async function POST(req: NextRequest) {
     } else if (type === "po") {
       pdfUrl = `${baseUrl}/api/pdf/po/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}`;
       fromAddress = namedFrom(fromProduction);
-      defaultSubject = subject || `${poPrefix}# ${qbInvNum || jobNum || ""} — ${companyName}`.trim();
+      const rawPoNum = qbInvNum || jobNum || "";
+      const poNumCore = tenantPrefix && rawPoNum.startsWith(tenantPrefix + "-")
+        ? rawPoNum.slice(tenantPrefix.length + 1)
+        : rawPoNum;
+      defaultSubject = subject || `PO# ${tenantPrefix} ${poNumCore} — ${companyName}${vendor ? ` — ${vendor}` : ""}`.trim();
       filename = `po-${qbInvNum || jobNum || jobId.slice(0, 8)}.pdf`;
     } else if (type === "invoice") {
       pdfUrl = `${baseUrl}/api/pdf/invoice/${jobId}?download=1`;

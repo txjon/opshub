@@ -434,7 +434,19 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
           vendor={active}
           contacts={getDec(active)?.contacts_list||[]}
           defaultEmail={getDec(active)?.contact_email||""}
-          defaultSubject={`${poPrefix} PO# ${project.type_meta?.qb_invoice_number || project.job_number || ""}${vItems.map(it=>String.fromCharCode(65+(it.sort_order||0))).join("")} — ${(project.clients?.name||project.title||"")} — ${active}`}
+          defaultSubject={(() => {
+            const rawNum = project.type_meta?.qb_invoice_number || project.job_number || "";
+            // Strip the tenant prefix from job_number-style refs
+            // (HPD-2605-002 → 2605-002) so the prefix only appears once
+            // in the subject: "PO# IHM 2605-002ABC". QB-style invoice
+            // numbers (e.g. 4283) pass through unchanged.
+            const numCore = poPrefix && rawNum.startsWith(poPrefix + "-")
+              ? rawNum.slice(poPrefix.length + 1)
+              : rawNum;
+            const letters = vItems.map(it => String.fromCharCode(65 + (it.sort_order || 0))).join("");
+            const clientName = (project.clients?.name || project.title || "");
+            return `PO# ${poPrefix} ${numCore}${letters} — ${clientName} — ${active}`;
+          })()}
           onClose={()=>setShowSendEmail(false)}
           onSent={async()=>{
             logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`);
