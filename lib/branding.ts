@@ -44,6 +44,12 @@ export type PdfBranding = {
   fromEmailQuotes: string;
   fromEmailProduction: string;
   fromEmailBilling: string;
+  /** Carrier account numbers keyed by lowercased carrier name
+   *  (e.g. "ups", "fedex"). Stored on companies.branding.shipping_accounts
+   *  so each tenant prints its own UPS/FedEx account on POs without
+   *  cross-tenant leaks. Empty object means no account on file → the
+   *  account field is omitted from the PO. */
+  shippingAccounts: Record<string, string>;
 };
 
 // Convert "Line 1\nLine 2" or "Line 1, City, State Zip" → "Line 1<br/>City, State Zip"
@@ -73,5 +79,6 @@ export async function getPdfBranding(): Promise<PdfBranding> {
     fromEmailQuotes: c.from_email_quotes || "",
     fromEmailProduction: c.from_email_production || "",
     fromEmailBilling: c.from_email_billing || "",
+    shippingAccounts: ((c.branding as any)?.shipping_accounts || {}) as Record<string, string>,
   };
 }

@@ -498,10 +498,17 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       payment_terms: (job.payment_terms || "").replace(/_/g, " "),
       ship_method: (job.type_meta as any)?.po_ship_methods?.[vendorName] || orderInfo.shipMethod || "",
       shipping_account: (() => {
+        // Per-job override wins (rare — set on type_meta.shipping_account).
+        // Otherwise look up the carrier's account on the active tenant's
+        // companies.branding.shipping_accounts. No more hardcoded HPD
+        // UPS number leaking onto IHM PDFs.
         const manual = (job.type_meta as any)?.shipping_account;
         if (manual) return manual;
         const method = ((job.type_meta as any)?.po_ship_methods?.[vendorName] || orderInfo.shipMethod || "").toLowerCase();
-        return method.includes("ups") ? "W28Y51" : "";
+        const accounts = branding.shippingAccounts || {};
+        if (method.includes("ups")) return accounts.ups || "";
+        if (method.includes("fedex")) return accounts.fedex || "";
+        return "";
       })(),
       ship_to_address: (job.type_meta as any)?.po_ship_to?.[vendorName]
         || ((job as any).shipping_route === "drop_ship"
