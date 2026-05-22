@@ -522,7 +522,11 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       items: vendorItems,
       branding: {
         ...branding,
-        poNumberPrefix: branding.name.split(" ").map((w: string) => w[0] || "").join("").toUpperCase() + " PO",
+        // PDF header reads "PO# {job_number}". The tenant prefix
+        // (HPD / IHM) is already embedded in the job_number, so we
+        // don't repeat it before "PO#" — that doubled it on IHM POs
+        // ("IHM PO# IHM-2605-002ABC").
+        poNumberPrefix: "PO",
       },
     };
 
