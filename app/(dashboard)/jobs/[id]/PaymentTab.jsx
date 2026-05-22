@@ -6,6 +6,7 @@ import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewModal";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { StripePaymentTab } from "./StripePaymentTab";
@@ -608,12 +609,8 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
                   />
                 </div>
               </div>
-              <div style={{ flex: 1, background: T.surface, overflow: "hidden", minHeight: isMobile ? 280 : 0 }}>
-                <iframe
-                  src={`/api/pdf/invoice/${job.id}#toolbar=0&navpanes=0`}
-                  title="Invoice preview"
-                  style={{ width: "100%", height: "100%", border: "none", display: "block" }}
-                />
+              <div style={{ flex: 1, background: T.surface, overflow: "hidden", minHeight: isMobile ? 280 : 0, display: "flex" }}>
+                <PdfCanvasPreview src={`/api/pdf/invoice/${job.id}`} />
               </div>
             </div>
           </div>

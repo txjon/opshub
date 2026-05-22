@@ -6,6 +6,7 @@ import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { useClientBranding } from "@/lib/branding-client";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
 // dates — milestones removed, ship date is set manually
 
 function fmtD(n) {
@@ -484,12 +485,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
         />
               </div>
             </div>
-            <div style={{flex:1,background:T.surface,overflow:"hidden",minHeight:isMobile?280:0}}>
-              <iframe
-                src={`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}#toolbar=0&navpanes=0`}
-                title="PO preview"
-                style={{width:"100%",height:"100%",border:"none",display:"block"}}
-              />
+            <div style={{flex:1,background:T.surface,overflow:"hidden",minHeight:isMobile?280:0,display:"flex"}}>
+              <PdfCanvasPreview src={`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`} />
             </div>
           </div>
         </div>
