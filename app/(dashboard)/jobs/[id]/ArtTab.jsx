@@ -571,7 +571,10 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
             minHeight: isMobile ? 480 : "auto",
           }}>
             {previewUrl ? (
-              <iframe src={previewUrl} style={{ width: "100%", height: "100%", border: "none", minHeight: isMobile ? 480 : 500 }} />
+              <iframe
+                src={`${previewUrl}#view=FitH&zoom=page-width&toolbar=0&navpanes=0`}
+                style={{ width: "100%", height: "100%", border: "none", minHeight: isMobile ? 480 : 500 }}
+              />
             ) : (
               <div style={{ fontSize: 11, color: T.faint }}>Loading preview...</div>
             )}
