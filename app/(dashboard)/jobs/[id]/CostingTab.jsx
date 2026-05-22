@@ -1131,7 +1131,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
           logJobActivity(project.id, "Quote feedback marked as handled");
         };
         return(
-          <div style={{maxWidth:680,margin:"0 auto"}}>
+          <div style={{maxWidth:760,margin:"0 auto"}}>
             {/* Client feedback banner — appears when the client rejected
                 the quote with notes via the portal. Dashboard "Quote
                 feedback" alert deep-links here. Cleared automatically
@@ -1160,20 +1160,24 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               </div>
             )}
 
-            {/* Quote details + single Send Quote action. Everything
-                else (PDF preview + recipient picker + send) lives
-                inside the modal that opens from this button. */}
-            <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:12,marginBottom:14,alignItems:isMobile?"stretch":"flex-start"}}>
-              <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",flex:1}}>
-                <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Quote details</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                  <CInput label="Quote #" value={orderInfo.invoiceNum} onChange={v=>setOrderInfo(o=>({...o,invoiceNum:v}))}/>
-                  <CInput label="Valid until" type="date" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))}/>
-                </div>
+            {/* Quote details card with the Send Quote action pinned
+                inside as the card's primary footer button. Single
+                place for everything quote-related on this tab. */}
+            <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"14px 16px",marginBottom:14}}>
+              <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Quote details</div>
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,marginBottom:14}}>
+                <CInput label="Quote #" value={orderInfo.invoiceNum} onChange={v=>setOrderInfo(o=>({...o,invoiceNum:v}))}/>
+                <CInput label="Valid until" type="date" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))}/>
               </div>
-              <button onClick={()=>setShowSendEmail(true)} style={{background:T.blue,color:"#fff",border:"none",borderRadius:8,padding:"12px 20px",fontSize:14,fontWeight:700,fontFamily:font,cursor:"pointer",whiteSpace:"nowrap",alignSelf:isMobile?"stretch":"stretch",minHeight:isMobile?44:undefined}}>
-                Send Quote
-              </button>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
+                <div style={{fontSize:11,color:T.muted,fontFamily:font,lineHeight:1.4}}>
+                  Opens the PDF preview + recipient picker in one screen.
+                </div>
+                <button onClick={()=>setShowSendEmail(true)}
+                  style={{background:T.blue,color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",fontSize:13,fontWeight:700,fontFamily:font,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,boxShadow:"0 1px 2px rgba(0,0,0,0.06)"}}>
+                  Send Quote →
+                </button>
+              </div>
             </div>
             {showSendEmail && (
               <div style={{position:"fixed",inset:0,background:"#fff",zIndex:100,display:"flex",flexDirection:"column",fontFamily:font}}>
