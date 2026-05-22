@@ -205,13 +205,20 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       return ai - bi;
     });
 
-    // Invoice date — pin to the date the invoice was originally sent
-    // so re-opening the portal later doesn't shift the issue date to
-    // today. Falls back to today only when the invoice hasn't been
-    // sent yet (HPD-side preview / draft view).
+    // Invoice date resolution (in order of precedence):
+    // 1. type_meta.invoice_date_override — manual override the team
+    //    sets in the Payment tab. Stored as YYYY-MM-DD.
+    // 2. type_meta.invoice_sent_at — pinned at send time so re-opening
+    //    the portal later doesn't shift the issue date.
+    // 3. Today — fallback for previews / drafts before send.
+    // QB/Stripe records keep their own dates; this only affects the
+    // OpsHub-generated PDF.
+    const dateOverride = (job.type_meta as any)?.invoice_date_override;
     const invoiceSentAt = (job.type_meta as any)?.invoice_sent_at;
-    const today = (invoiceSentAt ? new Date(invoiceSentAt) : new Date())
-      .toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const resolvedDate = dateOverride
+      ? new Date(`${dateOverride}T12:00:00`)
+      : (invoiceSentAt ? new Date(invoiceSentAt) : new Date());
+    const today = resolvedDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     const clientName = (job.clients as any)?.name || "—";
     const termsRaw = job.payment_terms || "";
     const terms = TERMS_LABELS[termsRaw] || termsRaw.replace(/_/g, " ") || "—";
