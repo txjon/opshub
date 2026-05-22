@@ -1584,7 +1584,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 logJobActivity(job.id, "Quote approved");
                 notifyTeam(`Quote approved — ${(job.clients as any)?.name || ""} · ${job.title}`, "approval", job.id, "job");
                 recalcPhase();
-              }} style={{fontSize:12,fontWeight:600,color:"#fff",background:T.green,border:"none",borderRadius:7,padding:"8px 18px",cursor:"pointer",alignSelf:"flex-start"}}>Approve Quote</button>
+              }} style={{fontSize:13,fontWeight:700,color:"#fff",background:T.green,border:"none",borderRadius:8,padding:"10px 22px",cursor:"pointer",width:"100%",boxShadow:"0 1px 2px rgba(0,0,0,0.06)"}}>Approve Quote</button>
             </div>
           )}
           {/* Quote sent log */}
