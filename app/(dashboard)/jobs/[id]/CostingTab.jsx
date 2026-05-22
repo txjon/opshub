@@ -1185,17 +1185,11 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                   </div>
                   <button onClick={()=>setShowSendEmail(false)} aria-label="Close" style={{background:"none",border:"none",color:T.muted,fontSize:20,cursor:"pointer",padding:"4px 8px",lineHeight:1}}>×</button>
                 </div>
-                {/* Body: PDF on the left, send form on the right (stacks
-                    on mobile — preview shorter so the form is reachable). */}
+                {/* Body: send form on the left (380px rail), PDF preview
+                    on the right. Mobile stacks: form on top, preview
+                    below. */}
                 <div style={{flex:1,display:"flex",flexDirection:isMobile?"column":"row",overflow:"hidden",minHeight:0}}>
-                  <div style={{flex:1,background:T.surface,borderRight:isMobile?"none":`1px solid ${T.border}`,borderBottom:isMobile?`1px solid ${T.border}`:"none",overflow:"hidden",minHeight:isMobile?280:0}}>
-                    <iframe
-                      src={`/api/pdf/quote/${project.id}#toolbar=0&navpanes=0`}
-                      title="Quote preview"
-                      style={{width:"100%",height:"100%",border:"none",display:"block"}}
-                    />
-                  </div>
-                  <div style={{width:isMobile?"auto":380,flexShrink:0,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+                  <div style={{width:isMobile?"auto":380,flexShrink:0,display:"flex",flexDirection:"column",overflow:"hidden",borderRight:isMobile?"none":`1px solid ${T.border}`,borderBottom:isMobile?`1px solid ${T.border}`:"none"}}>
                     <div style={{flex:1,overflowY:"auto",padding:"14px 18px"}}>
                       <SendEmailDialog
                         type="quote"
@@ -1207,6 +1201,13 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         onSent={()=>logJobActivity(project.id, "Quote sent to client")}
                       />
                     </div>
+                  </div>
+                  <div style={{flex:1,background:T.surface,overflow:"hidden",minHeight:isMobile?280:0}}>
+                    <iframe
+                      src={`/api/pdf/quote/${project.id}#toolbar=0&navpanes=0`}
+                      title="Quote preview"
+                      style={{width:"100%",height:"100%",border:"none",display:"block"}}
+                    />
                   </div>
                 </div>
               </div>
