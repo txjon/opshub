@@ -21,14 +21,41 @@ export function JobActivityPanel({ jobId, currentUserId, profiles }: {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  // Scroll the INNER feed container, never the document. scrollIntoView
+  // bubbles to the nearest scrollable ancestor — on Overview that's the
+  // AppShell main scroll, so every 8s poll yanked the whole page down
+  // to this panel. Setting scrollTop on feedRef keeps it local.
+  const feedRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Stick-to-bottom only when the user is already at the bottom; if
+  // they've scrolled up to read older entries we leave them put.
+  const stickToBottomRef = useRef(true);
 
   useEffect(() => {
     loadActivity();
     pollRef.current = setInterval(loadActivity, 8000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [jobId]);
+
+  // After every render, snap to bottom if the user was already there
+  // (or this is the first load). Uses requestAnimationFrame so the
+  // scrollHeight has been recomputed for the new rows.
+  useEffect(() => {
+    if (!feedRef.current) return;
+    if (stickToBottomRef.current) {
+      requestAnimationFrame(() => {
+        if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
+      });
+    }
+  }, [activities]);
+
+  function onFeedScroll() {
+    const el = feedRef.current;
+    if (!el) return;
+    // Within 24px of the bottom counts as "at the bottom" — leaves
+    // a little slack for fractional scroll positions.
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  }
 
   async function loadActivity() {
     const { data } = await supabase
@@ -38,7 +65,6 @@ export function JobActivityPanel({ jobId, currentUserId, profiles }: {
       .order("created_at", { ascending: true })
       .limit(200);
     setActivities(data || []);
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   }
 
   async function send() {
@@ -102,7 +128,7 @@ export function JobActivityPanel({ jobId, currentUserId, profiles }: {
       </div>
 
       {/* Feed */}
-      <div style={{
+      <div ref={feedRef} onScroll={onFeedScroll} style={{
         flex: 1, overflowY: "auto", padding: "8px 10px",
         display: "flex", flexDirection: "column", gap: 6,
       }}>
@@ -133,7 +159,6 @@ export function JobActivityPanel({ jobId, currentUserId, profiles }: {
             </div>
           );
         })}
-        <div ref={bottomRef} />
       </div>
 
       {/* Comment input */}

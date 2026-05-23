@@ -127,7 +127,7 @@ export default function ProductionPage() {
   // Escape closes the full-page project modal.
   useEffect(() => {
     if (!modalProject) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setModalProject(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeModalRespectReturn(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [modalProject]);
@@ -158,7 +158,13 @@ export default function ProductionPage() {
   // modal focused on a specific vendor. We fire once after projects
   // load, then strip the query params via history.replaceState so a
   // refresh doesn't re-trigger and Back behavior stays clean.
+  //
+  // returnTo=overview tells closeModal() to navigate back to the source
+  // /jobs/[id] instead of leaving the user stranded on /production.
+  // Stored in a ref because it survives across renders without
+  // re-triggering the auto-open effect.
   const autoOpenedRef = useRef(false);
+  const returnToRef = useRef<{ kind: string; jobId: string } | null>(null);
   useEffect(() => {
     if (autoOpenedRef.current || projects.length === 0) return;
     if (typeof window === "undefined") return;
@@ -186,11 +192,27 @@ export default function ProductionPage() {
       setModalDecoratorKey(canonical);
       setExpandedDecorators(new Set([canonical]));
     }
+    const returnTo = url.searchParams.get("returnTo");
+    if (returnTo === "overview") returnToRef.current = { kind: "overview", jobId: target };
     setModalProject(project);
     url.searchParams.delete("openProject");
     url.searchParams.delete("decorator");
+    url.searchParams.delete("returnTo");
     window.history.replaceState(null, "", url.pathname + (url.search ? url.search : "") + url.hash);
   }, [projects]);
+
+  // Close path that honors the returnTo marker. Used by the X button
+  // and Esc; "View Project →" already navigates to /jobs/[id] so it
+  // doesn't need this. After firing, the ref clears so subsequent
+  // organic modal opens on the same /production session stay put.
+  function closeModalRespectReturn() {
+    const ret = returnToRef.current;
+    setModalProject(null);
+    if (ret?.kind === "overview" && ret.jobId) {
+      returnToRef.current = null;
+      router.push(`/jobs/${ret.jobId}`);
+    }
+  }
 
   function toggleItemSelected(itemId: string) {
     setSelectedItemIds(prev => {
@@ -1036,7 +1058,7 @@ export default function ProductionPage() {
                         onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>
                         View Project →
                       </button>
-                      <button onClick={() => setModalProject(null)} title="Close (Esc)"
+                      <button onClick={closeModalRespectReturn} title="Close (Esc)"
                         style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
                     </div>
                   </div>
@@ -1198,7 +1220,7 @@ export default function ProductionPage() {
                         return (
                           <div key={item.id} style={{
                             padding: "10px 12px", borderRadius: 6, marginBottom: 6,
-                            background: isShipped ? T.greenDim + "44" : "transparent",
+                            background: isShipped ? T.greenDim + "44" : T.card,
                             border: `1px solid ${isShipped ? T.green + "33" : T.border}`,
                           }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -1216,45 +1238,59 @@ export default function ProductionPage() {
                                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                                   {item.blank_vendor || "—"} · {item.total_units} units
                                 </div>
-                                {/* Client ETA — same field as the Production
-                                    tab. Edit here when you want to set/update
-                                    delivery estimates without bouncing into
-                                    the project. Blank = falls back to the
-                                    job target ship date on the portal. */}
-                                <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center", flexWrap: "wrap" }}>
-                                  <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>ETA</span>
-                                  <input type="date"
-                                    value={item.client_eta || ""}
-                                    onClick={e => e.stopPropagation()}
-                                    onChange={e => { e.stopPropagation(); updateField(item.id, "client_eta", e.target.value); }}
-                                    onBlur={e => flushField(item.id, "client_eta", e.target.value)}
-                                    style={{ ...ic, width: 140, padding: "3px 6px", fontSize: 11, fontFamily: mono }} />
-                                  <input type="text"
+                                {/* Two-column edit row: ETA + TRK stacked
+                                    on the left, the (taller) note textarea
+                                    parallel on the right. Wraps below on
+                                    very narrow widths. */}
+                                <div style={{ display: "flex", gap: 14, marginTop: 6, flexWrap: "wrap", alignItems: "stretch" }}>
+                                  {/* Left sub-col: TRK + ETA (tracking sits
+                                      above the ETA — tracking is the more
+                                      action-oriented field; ETA is the
+                                      follow-up client-facing detail). */}
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                    {/* Tracking — paste inline. Saving doesn't
+                                        mark shipped; that still requires the Ship
+                                        modal. Hidden once shipped. */}
+                                    {!isShipped && (
+                                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                        <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", width: 26 }}>TRK</span>
+                                        <input type="text"
+                                          value={item.ship_tracking || ""}
+                                          placeholder="paste tracking #"
+                                          onClick={e => e.stopPropagation()}
+                                          onChange={e => { e.stopPropagation(); updateField(item.id, "ship_tracking", e.target.value); }}
+                                          onBlur={e => flushField(item.id, "ship_tracking", e.target.value)}
+                                          style={{ ...ic, width: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
+                                      </div>
+                                    )}
+                                    {/* ETA — same field as the Production tab. Blank
+                                        falls back to the job target ship date on the
+                                        portal. */}
+                                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                      <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", width: 26 }}>ETA</span>
+                                      <input type="date"
+                                        value={item.client_eta || ""}
+                                        onClick={e => e.stopPropagation()}
+                                        onChange={e => { e.stopPropagation(); updateField(item.id, "client_eta", e.target.value); }}
+                                        onBlur={e => flushField(item.id, "client_eta", e.target.value)}
+                                        style={{ ...ic, width: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
+                                    </div>
+                                  </div>
+                                  {/* Right sub-col: note textarea. alignSelf:
+                                      stretch + minHeight matching the TRK+ETA
+                                      stack so the block visually balances.
+                                      alignItems:stretch on the parent alone
+                                      didn't take because <textarea> has its
+                                      own intrinsic rows height — alignSelf
+                                      forces the flex item to ignore that. */}
+                                  <textarea
                                     value={item.client_eta_note || ""}
                                     placeholder="note (shown to client)"
                                     onClick={e => e.stopPropagation()}
                                     onChange={e => { e.stopPropagation(); updateField(item.id, "client_eta_note", e.target.value); }}
                                     onBlur={e => flushField(item.id, "client_eta_note", e.target.value)}
-                                    style={{ ...ic, flex: 1, minWidth: 120, padding: "3px 6px", fontSize: 11 }} />
+                                    style={{ ...ic, width: 320, minHeight: !isShipped ? 52 : 24, alignSelf: "stretch", padding: "4px 6px", fontSize: 11, lineHeight: 1.35, resize: "vertical", boxSizing: "border-box" }} />
                                 </div>
-                                {/* Tracking — inline so you can paste without
-                                    opening the Ship modal. Saving alone does
-                                    NOT mark the item shipped (qty + packing
-                                    slip live in the modal); click Ship → Mark
-                                    Shipped to confirm. Hidden once shipped —
-                                    the row's status badge already shows it. */}
-                                {!isShipped && (
-                                  <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>
-                                    <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>TRK</span>
-                                    <input type="text"
-                                      value={item.ship_tracking || ""}
-                                      placeholder="paste tracking #"
-                                      onClick={e => e.stopPropagation()}
-                                      onChange={e => { e.stopPropagation(); updateField(item.id, "ship_tracking", e.target.value); }}
-                                      onBlur={e => flushField(item.id, "ship_tracking", e.target.value)}
-                                      style={{ ...ic, flex: 1, minWidth: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono }} />
-                                  </div>
-                                )}
                               </div>
                               {/* Per-size ship qty grid — inline with title */}
                               {!isShipped && item.sizes.length > 0 && (

@@ -310,11 +310,16 @@ export function MobileBlankPicker({
     const blankCosts = {}; for (const sz of sizes) blankCosts[sz] = currentColor.prices[sz] || 0;
 
     const supplier = picked._supplier || "ss";
+    // blank_vendor mirrors the desktop picker's "{brand} {style}" shape
+    // (e.g. "Comfort Colors 1717"). Falling back to style/part number
+    // alone if brand metadata is missing.
+    const vendorLabel = [picked.brandName, picked.styleName || picked.partNumber || ""]
+      .filter(Boolean).join(" ").trim();
     onAdd({
       name: itemName || picked.title || picked.styleName || "",
-      blank_vendor: picked.styleName || picked.partNumber || "",
+      blank_vendor: vendorLabel || picked.styleName || picked.partNumber || "",
       blank_sku: selColor,
-      style: picked.styleName || picked.partNumber || "",
+      style: vendorLabel || picked.styleName || picked.partNumber || "",
       color: selColor,
       sizes,
       qtys: qtyMap,

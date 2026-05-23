@@ -269,9 +269,18 @@ function renderPOHTML(data: any): string {
       ? `<span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#9a6400;background:#fff4d6;padding:2px 7px;border-radius:3px;margin-left:8px">→ ${routeLabel}</span>`
       : "";
 
-    return `<div style="border-left:3px solid #1a1a1a;padding-left:16px;margin-bottom:16px;page-break-inside:avoid">
+    // "NEW" chip — only on revised POs, only for items that don't yet
+    // have a sent_to_decorator_date. That stamp is set the first time
+    // an item is included in a sent PO, so a null value here means the
+    // item was added after the original PO went out.
+    const isNew = data.is_revision && !item.sent_to_decorator_date;
+    const newChip = isNew
+      ? `<span style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:#fff;background:#dc2626;padding:2px 8px;border-radius:3px;margin-left:10px;vertical-align:middle">NEW</span>`
+      : "";
+
+    return `<div style="border-left:3px solid ${isNew ? "#dc2626" : "#1a1a1a"};padding-left:16px;margin-bottom:16px;page-break-inside:avoid">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}${routeBadge}</div>
+        <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}${newChip}${routeBadge}</div>
         <div style="font-size:10px;color:#888">${item.totalQty.toLocaleString()} units</div>
       </div>
       <div style="display:flex;gap:12px;margin-bottom:4px;font-size:9px;color:#555">
@@ -318,6 +327,21 @@ function renderPOHTML(data: any): string {
         : new Date(data.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }))
     : "—";
 
+  // Revision banner — only on resends. The original PO is implicitly
+  // superseded; we tell the decorator with a loud red strip + the
+  // original send date so they know which PDF in their inbox is current.
+  const originalSentLabel = data.original_sent_date
+    ? new Date(data.original_sent_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+    : null;
+  const revisionBanner = data.is_revision ? `
+    <div style="background:#dc2626;color:#fff;padding:10px 14px;border-radius:4px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+      <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em">⚠ Revised PO</div>
+      <div style="flex:1;font-size:10.5px;line-height:1.5">
+        This PO supersedes the prior version${originalSentLabel ? ` sent on <strong>${originalSentLabel}</strong>` : ""}.
+        Items marked <strong style="background:#fff;color:#dc2626;padding:0 5px;border-radius:2px;font-size:9px">NEW</strong> were added since the original send — please process accordingly.
+      </div>
+    </div>` : "";
+
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
 <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { font-family: ${font}; font-size: 11px; color: #1a1a1a; background: white; }</style>
 </head><body>
@@ -331,10 +355,12 @@ function renderPOHTML(data: any): string {
       </div>
     </div>
     <div style="text-align:right">
-      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#1a1a1a">${data.branding.poNumberPrefix || "PO"}# ${data.job_number || "—"}</div>
+      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#1a1a1a">${data.branding.poNumberPrefix || "PO"}# ${data.job_number || "—"}${data.is_revision ? ` <span style="font-size:11px;color:#dc2626;font-weight:700">REVISED</span>` : ""}</div>
       <div style="font-size:10px;color:#888;margin-top:4px">${data.client_name} · ${data.vendor_name}</div>
     </div>
   </div>
+
+  ${revisionBanner}
 
   <div style="display:flex;gap:0;border:0.5px solid #ccc;margin-bottom:16px">
     ${[["Date",dateLabel],["Ship date",shipDate],["Vendor ID",data.vendor_short_code||data.vendor_name],["Ship method",data.ship_method||"—"],["Ship acct #",data.shipping_account||"—"]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
@@ -386,6 +412,11 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
   try {
     const { jobId } = params;
     const vendorFilter = req.nextUrl.searchParams.get("vendor") ?? null;
+    // Revision marker — set when POTab detects this vendor was already
+    // sent a PO. Drives the REVISED banner in the header, the per-item
+    // NEW chip (any item without a stamped sent_to_decorator_date),
+    // and the filename suffix so resends don't overwrite the original PDF.
+    const isRevised = req.nextUrl.searchParams.get("revised") === "1";
 
     // Load decorator pricing from DB
     await loadPrinters(supabase);
@@ -400,7 +431,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const { data: items, error: itemsError } = await supabase
       .from("items")
-      .select("*, buy_sheet_lines(size, qty_ordered), decorator_assignments(decoration_type, decorators(name))")
+      .select("*, buy_sheet_lines(size, qty_ordered), decorator_assignments(decoration_type, sent_to_decorator_date, decorators(name))")
       .eq("job_id", jobId)
       .order("sort_order");
 
@@ -457,6 +488,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         // a different path than the rest of the PO (e.g. drop_ship
         // straight to client, or a non-standard handoff).
         shipping_route: it.shipping_route || null,
+        // Null when this item has never been included in a sent PO.
+        // Used together with the top-level isRevised flag to decide
+        // whether the item gets a "NEW" chip in the revised PDF.
+        sent_to_decorator_date: assignment?.sent_to_decorator_date || null,
         letter: String.fromCharCode(65 + sortedIdx), // letter based on full sorted list
       };
     });
@@ -520,6 +555,13 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
           // remains branding.name so the decorator routes correctly.
           : `${branding.name}\n${((branding.fulfillmentAddressHtml || branding.headerAddressHtml) || "").replace(/<br\/>/g, "\n")}`),
       items: vendorItems,
+      // Revision metadata — drives the REVISED banner and the per-item
+      // NEW chip. is_revision is set when the caller passes ?revised=1
+      // AND the vendor has a stored po_sent_dates entry (i.e. there
+      // really is a prior PO to supersede). Without the date we fall
+      // back to a plain PO so a stale ?revised=1 doesn't lie.
+      is_revision: isRevised && !!(job.type_meta as any)?.po_sent_dates?.[vendorName],
+      original_sent_date: (job.type_meta as any)?.po_sent_dates?.[vendorName] || null,
       branding: {
         ...branding,
         // PDF header reads "PO# {job_number}". The tenant prefix
@@ -536,7 +578,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const slug = (job.title || jobId).replace(/\s+/g, "-");
     const vendorSlug = vendorName.replace(/\s+/g, "-");
     const displayNum = (job.type_meta as any)?.qb_invoice_number || job.job_number;
-    const filename = `HPD-PO-${displayNum}${itemLetters}-${vendorSlug}-${slug}.pdf`;
+    const filename = `HPD-PO-${displayNum}${itemLetters}-${vendorSlug}${isRevised ? "-revised" : ""}-${slug}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
     return new NextResponse(pdfBuffer, {

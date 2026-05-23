@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { type, jobId, vendor, recipientEmail, ccEmails, recipientName, subject, customBody, rfqItemIds } = await req.json();
+    const { type, jobId, vendor, recipientEmail, ccEmails, recipientName, subject, customBody, rfqItemIds, revised } = await req.json();
 
     // Pull the active tenant's branding (name + from-addresses) so emails
     // ship as "In House Merchandise <info@inhousemerchandise.com>" on
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
       defaultSubject = subject || `Quote ${jobNum || ""} — ${companyName}`.trim();
       filename = `quote-${jobNum || jobId.slice(0, 8)}.pdf`;
     } else if (type === "po") {
-      pdfUrl = `${baseUrl}/api/pdf/po/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}`;
+      pdfUrl = `${baseUrl}/api/pdf/po/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}${revised ? `&revised=1` : ""}`;
       fromAddress = namedFrom(fromProduction);
       const rawPoNum = qbInvNum || jobNum || "";
       const poNumCore = tenantPrefix && rawPoNum.startsWith(tenantPrefix + "-")

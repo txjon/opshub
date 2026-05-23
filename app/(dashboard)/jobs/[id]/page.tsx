@@ -130,6 +130,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [saveOk, setSaveOk] = useState(false);
   const [portalCopied, setPortalCopied] = useState(false);
   const [portalOpen, setPortalOpen] = useState(false);
+  // Back-button + tab-switch UX guard. Promise.all on the four
+  // tab-flush refs has no upper bound — if any one save stalls,
+  // navigation never fires. We race against a 1.5s timeout so the
+  // user always gets out; stragglers continue in the background.
+  const [navigating, setNavigating] = useState(false);
   const saveErrorTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
   const saveOkTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
   const handleSaveStatus = useCallback((s: string) => {
@@ -381,19 +386,26 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   }
 
   // Centralized tab switch — flushes ALL pending saves before navigating
+  // Flush every registered pending save (job + buy sheet + costing +
+  // blanks) but bound the wait at 1.5s. If any save hangs (Supabase
+  // round-trip stalls, registered fn returns a promise that never
+  // resolves), we still navigate — autosave debounces already covered
+  // most blur/typing events and the beforeunload guard catches what
+  // didn't. Without this bound the back button + tab switches feel
+  // broken on a flaky network.
+  async function flushAllSavesWithTimeout(ms = 1500) {
+    const flushAll = Promise.all([
+      flushJobSave(),
+      saveBuySheetRef.current?.(),
+      saveCostingRef.current?.(),
+      saveBlanksRef.current?.(),
+    ]).catch(e => { console.error("Save flush failed:", e); });
+    const timeout = new Promise<void>(resolve => setTimeout(resolve, ms));
+    await Promise.race([flushAll, timeout]);
+  }
+
   async function switchTab(t: string) {
-    try {
-      // Flush all pending saves in parallel
-      await Promise.all([
-        flushJobSave(),
-        saveBuySheetRef.current?.(),
-        saveCostingRef.current?.(),
-        saveBlanksRef.current?.(),
-      ]);
-    } catch (e) {
-      console.error("Save flush failed on tab switch:", e);
-      // Still switch — data is in local state and will retry
-    }
+    await flushAllSavesWithTimeout();
     // Refresh data for tabs that read from DB
     if (["quote","overview","proofs"].includes(t)) {
       const { data: fresh } = await supabase.from("jobs").select("quote_approved, quote_approved_at, type_meta").eq("id", job!.id).single();
@@ -557,12 +569,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         gap: 12, marginBottom: 6, flexWrap: "wrap",
       }}>
         <button onClick={async ()=>{
-          try { await Promise.all([flushJobSave(), saveBuySheetRef.current?.(), saveCostingRef.current?.(), saveBlanksRef.current?.()]); } catch(e) {}
+          if (navigating) return;
+          setNavigating(true);
+          await flushAllSavesWithTimeout();
           router.push("/jobs");
-        }} style={{background:"transparent",border:"none",color:T.accent,fontSize:14,fontWeight:600,cursor:"pointer",padding:"4px 8px 4px 0",fontFamily:font,display:"inline-flex",alignItems:"center",gap:2,minHeight:36,marginLeft:-4}}
-          onMouseEnter={(e:any)=>{e.currentTarget.style.opacity="0.75";}}
-          onMouseLeave={(e:any)=>{e.currentTarget.style.opacity="1";}}>
-          <span style={{fontSize:20,lineHeight:1,marginRight:2}}>‹</span> Projects
+        }} disabled={navigating}
+          style={{background:"transparent",border:"none",color:T.accent,fontSize:14,fontWeight:600,cursor:navigating?"default":"pointer",padding:"4px 8px 4px 0",fontFamily:font,display:"inline-flex",alignItems:"center",gap:2,minHeight:36,marginLeft:-4,opacity:navigating?0.55:1,transition:"opacity 0.12s"}}
+          onMouseEnter={(e:any)=>{ if (!navigating) e.currentTarget.style.opacity="0.75";}}
+          onMouseLeave={(e:any)=>{ if (!navigating) e.currentTarget.style.opacity="1";}}>
+          <span style={{fontSize:20,lineHeight:1,marginRight:2}}>‹</span> {navigating ? "Saving…" : "Projects"}
         </button>
         {(() => {
           const isComplete = job.phase === "complete";
@@ -823,15 +838,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
         {/* ── Content area ── */}
         <div style={{flex:1,minWidth:0,overflowY:"auto",padding:"0 20px 40px"}}>
-      {/* Mobile editing-notice banner — only on tabs that genuinely
-          aren't mobile-friendly yet. Builder (Product Builder) was
-          reworked for mobile with iOS-style list → detail, so it
-          doesn't need the warning anymore. */}
-      {isMobile && ["po"].includes(tab) && (
-        <div style={{background:T.amberDim,color:T.amber,border:`1px solid ${T.amber}44`,borderRadius:8,padding:"8px 12px",fontSize:11,fontWeight:600,marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-          <span>Use a laptop to edit — this tab is designed for a larger screen.</span>
-        </div>
-      )}
+      {/* Mobile editing-notice banner — every tab now has a mobile
+          treatment, so the warning has nothing to gate on. Kept the
+          dead branch as a comment so the next "this tab isn't mobile-
+          friendly yet" case has an obvious place to land. */}
       {/* OVERVIEW */}
                   {tab==="overview"&&(
         <div style={{fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
@@ -909,9 +919,32 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                   {groups.map(g => {
                     const decKey = g.decoratorId || g.decoratorName;
+                    // A fully-shipped vendor has nothing actionable on
+                    // the production page — clicking would land on a
+                    // blank list (items filtered out). Render it as a
+                    // muted, non-clickable chip; the data is still
+                    // visible (item / shipped counts) for context.
+                    const fullyShipped = g.inProduction === 0 && g.shipped > 0;
+                    if (fullyShipped) {
+                      return (
+                        <div key={decKey}
+                          title="All items shipped from this vendor"
+                          style={{
+                            display: "flex", alignItems: "center", gap: 6,
+                            padding: "7px 14px", borderRadius: 6, background: T.surface,
+                            fontSize: 11, border: `1px solid ${T.border}`, cursor: "default",
+                            fontFamily: font, opacity: 0.65,
+                          }}>
+                          <span style={{ fontWeight: 600, color: T.text }}>{g.shortCode || g.decoratorName}</span>
+                          <span style={{ color: T.muted }}>{g.items.length} item{g.items.length !== 1 ? "s" : ""}</span>
+                          <span style={{ color: T.faint }}>·</span>
+                          <span style={{ color: T.green }}>{g.shipped} shipped</span>
+                        </div>
+                      );
+                    }
                     return (
                       <button key={decKey}
-                        onClick={() => router.push(`/production?openProject=${job.id}&decorator=${encodeURIComponent(decKey)}`)}
+                        onClick={() => router.push(`/production?openProject=${job.id}&decorator=${encodeURIComponent(decKey)}&returnTo=overview`)}
                         style={{
                           display: "flex", alignItems: "center", gap: 6,
                           padding: "7px 14px", borderRadius: 6, background: T.surface,
@@ -1022,13 +1055,144 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             );
           })()}
 
-          {/* Shipping + Contacts — 3 equal columns. Contacts on the
-              left (who); small shipping fields middle; address +
-              notes textareas right. */}
+          {/* Shipping + Project info — 3 equal columns. Project info
+              on the left (what + who); From-client middle; HPD plan
+              right. Contacts swapped out to its own card below the
+              Documents row so it sits next to Payments. */}
           <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
             <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:14,alignItems:"start"}}>
-              {/* Col 1: Contacts */}
-              <div>
+              {/* Col 1: Project info (stacked — Client, Memo, Notes) */}
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Project info</div>
+                <div style={{position:"relative"}} ref={clientDropdownRef}>
+                  <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client</label>
+                  <input style={ic} value={clientQuery} onChange={e=>{setClientQuery(e.target.value);setShowClientDropdown(true);}}
+                    onFocus={()=>setShowClientDropdown(true)} placeholder="Search or assign client..."/>
+                  {showClientDropdown&&clientQuery.trim().length>0&&(
+                    <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,maxHeight:200,overflowY:"auto",marginTop:4}}>
+                      {clientResults.map(c=>(
+                        <div key={c.id} onClick={async()=>{
+                          await supabase.from("jobs").update({client_id:c.id}).eq("id",job.id);
+                          await swapJobContactsForClient(c.id);
+                          setJob(j=>j?{...j,client_id:c.id,clients:{name:c.name}} as any:j);
+                          setClientQuery(c.name);
+                          setShowClientDropdown(false);
+                        }} style={{padding:"8px 12px",fontSize:12,cursor:"pointer",borderBottom:`1px solid ${T.border}`}}
+                          onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
+                          onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                          {c.name}
+                        </div>
+                      ))}
+                      {clientResults.length===0&&<div style={{padding:"8px 12px",fontSize:11,color:T.faint}}>No matching clients</div>}
+                      <div onClick={async()=>{
+                        const name=clientQuery.trim();
+                        if(!name) return;
+                        const {data:newClient}=await supabase.from("clients").insert({name}).select("id,name").single();
+                        if(newClient){
+                          await supabase.from("jobs").update({client_id:newClient.id}).eq("id",job.id);
+                          await swapJobContactsForClient(newClient.id);
+                          setJob(j=>j?{...j,client_id:newClient.id,clients:{name:newClient.name}} as any:j);
+                          setAllClients(prev=>[...prev,newClient].sort((a,b)=>a.name.localeCompare(b.name)));
+                          setClientQuery(newClient.name);
+                          setShowClientDropdown(false);
+                        }
+                      }} style={{padding:"8px 12px",fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",borderTop:`1px solid ${T.border}`}}
+                        onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
+                        onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                        + Create "{clientQuery.trim()}"
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project memo <span style={{color:T.faint,fontWeight:400}}>(Client PO, etc)</span></label>
+                  <input style={ic} value={job.title} placeholder="Optional description..." onChange={e=>upd("title",e.target.value)}/>
+                </div>
+                <div>
+                  <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
+                  <textarea style={{...ic,minHeight:54,resize:"vertical",lineHeight:1.4}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
+                </div>
+              </div>
+
+              {/* Col 2: Client-provided info — When + Where */}
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>From client</div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date <span style={{color:T.faint,fontWeight:400}}>(internal)</span></label><input style={{...ic,height:34,cursor:"pointer",colorScheme:"dark",display:"block",WebkitAppearance:"none",MozAppearance:"none",appearance:"none"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
+                  const ship = e.target.value;
+                  const updates: any = { target_ship_date: ship };
+                  if (ship) updates.priority = calculatePriority(ship);
+                  setJob(j => j ? {...j, ...updates} : j);
+                  saveJob(updates);
+                }}/></div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client delivery address</label>
+                  <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/>
+                </div>
+              </div>
+
+              {/* Col 3: HPD-side decisions — How + Extras */}
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>HPD plan</div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
+                  <select style={{...ic,height:34}} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
+                    <option value="drop_ship">Drop ship (direct to client)</option>
+                    <option value="ship_through">Ship-through (forward from HPD)</option>
+                    <option value="stage">Stage (fulfillment from HPD)</option>
+                  </select>
+                </div>
+                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
+                  <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Documents — full-width action bar, no longer nested
+              inside Project info. Treated as actions, not setup data. */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Documents</div>
+            {(()=>{
+              const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
+              const qbInvNum = (job as any).type_meta?.qb_invoice_number;
+              const hasItems = items.length > 0;
+              const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
+              const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
+                <button key={label}
+                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
+                  disabled={!available}
+                  title={available?undefined:"Not available yet"}
+                  style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap"}}
+                  onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                  {label}
+                </button>
+              );
+              return (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
+                  {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
+                  {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
+                  {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
+                  {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
+                  {docVendors.length === 0 && docBtn("PO", null, false)}
+                  {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
+                  {(job as any).portal_token && (
+                    <button onClick={()=>setPortalOpen(true)}
+                      style={{marginLeft:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+                      Client Portal
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"stretch"}}>
+            {/* Left column: Contacts (moved from the top 3-col block
+                so it sits next to Payments — Project info now lives
+                above with the From-client + HPD-plan group). */}
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",flex:1}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:6}}>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
                   <div style={{display:"flex",gap:6}}>
@@ -1105,139 +1269,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                         onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>
                     </div>
                   ))}
-                </div>
-              </div>
-
-              {/* Col 2: Client-provided info — When + Where */}
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>From client</div>
-                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Requested in-hands date</label><input style={{...ic,height:34,cursor:"pointer",colorScheme:"dark",display:"block",WebkitAppearance:"none",MozAppearance:"none",appearance:"none"}} type="date" value={job.target_ship_date||""} onClick={e=>(e.target as HTMLInputElement).showPicker?.()} onChange={e=>{
-                  const ship = e.target.value;
-                  const updates: any = { target_ship_date: ship };
-                  if (ship) updates.priority = calculatePriority(ship);
-                  setJob(j => j ? {...j, ...updates} : j);
-                  saveJob(updates);
-                }}/></div>
-                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client delivery address</label>
-                  <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.venue_address||""} onChange={e=>upd("type_meta",{...job.type_meta,venue_address:e.target.value})}/>
-                </div>
-              </div>
-
-              {/* Col 3: HPD-side decisions — How + Extras */}
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>HPD plan</div>
-                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
-                  <select style={{...ic,height:34}} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
-                    <option value="drop_ship">Drop ship (direct to client)</option>
-                    <option value="ship_through">Ship-through (forward from HPD)</option>
-                    <option value="stage">Stage (fulfillment from HPD)</option>
-                  </select>
-                </div>
-                <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
-                  <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Documents — full-width action bar, no longer nested
-              inside Project info. Treated as actions, not setup data. */}
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
-            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Documents</div>
-            {(()=>{
-              const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
-              const qbInvNum = (job as any).type_meta?.qb_invoice_number;
-              const hasItems = items.length > 0;
-              const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
-              const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
-                <button key={label}
-                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
-                  disabled={!available}
-                  title={available?undefined:"Not available yet"}
-                  style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap"}}
-                  onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
-                  onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
-                  {label}
-                </button>
-              );
-              return (
-                <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
-                  {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
-                  {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
-                  {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
-                  {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
-                  {docVendors.length === 0 && docBtn("PO", null, false)}
-                  {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
-                  {(job as any).portal_token && (
-                    <button onClick={()=>setPortalOpen(true)}
-                      style={{marginLeft:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
-                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-                      Client Portal
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-
-          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"stretch"}}>
-            {/* Left column: Project info + Shipping details */}
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div style={{background:T.card,border:"1px solid ${T.border}",borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",flex:1}}>
-                <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Project info</div>
-                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"stretch",flex:1}}>
-                  {/* Left: Client (typeahead) + Memo stacked */}
-                  <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                    <div style={{position:"relative"}} ref={clientDropdownRef}><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Client</label>
-                      <input style={ic} value={clientQuery} onChange={e=>{setClientQuery(e.target.value);setShowClientDropdown(true);}}
-                        onFocus={()=>setShowClientDropdown(true)} placeholder="Search or assign client..."/>
-                      {showClientDropdown&&clientQuery.trim().length>0&&(
-                        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:T.card,border:`1px solid ${T.border}`,borderRadius:8,maxHeight:200,overflowY:"auto",marginTop:4}}>
-                          {clientResults.map(c=>(
-                            <div key={c.id} onClick={async()=>{
-                              await supabase.from("jobs").update({client_id:c.id}).eq("id",job.id);
-                              await swapJobContactsForClient(c.id);
-                              setJob(j=>j?{...j,client_id:c.id,clients:{name:c.name}} as any:j);
-                              setClientQuery(c.name);
-                              setShowClientDropdown(false);
-                            }} style={{padding:"8px 12px",fontSize:12,cursor:"pointer",borderBottom:`1px solid ${T.border}`}}
-                              onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
-                              onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                              {c.name}
-                            </div>
-                          ))}
-                          {clientResults.length===0&&<div style={{padding:"8px 12px",fontSize:11,color:T.faint}}>No matching clients</div>}
-                          <div onClick={async()=>{
-                            const name=clientQuery.trim();
-                            if(!name) return;
-                            const {data:newClient}=await supabase.from("clients").insert({name}).select("id,name").single();
-                            if(newClient){
-                              await supabase.from("jobs").update({client_id:newClient.id}).eq("id",job.id);
-                              await swapJobContactsForClient(newClient.id);
-                              setJob(j=>j?{...j,client_id:newClient.id,clients:{name:newClient.name}} as any:j);
-                              setAllClients(prev=>[...prev,newClient].sort((a,b)=>a.name.localeCompare(b.name)));
-                              setClientQuery(newClient.name);
-                              setShowClientDropdown(false);
-                            }
-                          }} style={{padding:"8px 12px",fontSize:11,fontWeight:600,color:T.accent,cursor:"pointer",borderTop:`1px solid ${T.border}`}}
-                            onMouseEnter={e=>(e.currentTarget.style.background=T.surface)}
-                            onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
-                            + Create "{clientQuery.trim()}"
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project memo</label>
-                      <input style={ic} value={job.title} placeholder="Optional description..." onChange={e=>upd("title",e.target.value)}/>
-                    </div>
-                  </div>
-
-                  {/* Right: Notes textarea grows to match Payments card height */}
-                  <div style={{display:"flex",flexDirection:"column",minHeight:0}}>
-                    <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Project notes</label>
-                    <textarea style={{...ic,minHeight:96,resize:"vertical",lineHeight:1.4,flex:1}} value={job.notes||""} onChange={e=>upd("notes",e.target.value)}/>
-                  </div>
                 </div>
               </div>
 
@@ -1376,11 +1407,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             </button>
           </div>
 
-          {/* Email history — outbound only. Inbound routing via a shared
-               reply-to is unreliable (replies get tagged to the wrong job),
-               so we suppress inbound here until per-job reply addressing is
-               rebuilt. Replies still land in Gmail as today. */}
-          <div style={{ marginTop: 18 }}>
+          {/* Project activity (left) + outbound emails (right).
+              Activity feed reads job_activity rows (auto entries + team
+              comments). EmailThread covers what's been sent. They sit
+              side-by-side on desktop, stack on mobile.
+              Inbound routing via a shared reply-to is unreliable
+              (replies get tagged to the wrong job), so we suppress
+              inbound here until per-job reply addressing is rebuilt. */}
+          <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
+            <JobActivityPanel jobId={job.id} currentUserId={currentUserId} profiles={teamProfiles} />
             <EmailThread jobId={job.id} title="Emails sent from OpsHub" outboundOnly />
           </div>
 
