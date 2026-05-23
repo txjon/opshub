@@ -18,7 +18,7 @@ const NON_GARMENT = new Set([
   "pens","napkins","balloons","stencils",
 ]);
 
-export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick, onRegisterSave, selectedItemId }) {
+export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick, onRegisterSave, onItemsChanged, selectedItemId }) {
   const isMobile = useIsMobile();
   const items = useMemo(() => allItems.filter(it => !NON_GARMENT.has(it.garment_type)), [allItems]);
   // Letter designators are canonical across surfaces (ProductBuilder,
@@ -93,16 +93,34 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
     });
   }, [items]);
 
-  // Initialize fields — only for items not already in localFields
+  // Sync local fields from items prop. Initializes on mount, AND
+  // pulls fresh values when the prop changes (e.g. after bulk apply,
+  // page-level reloadItems, or a tab-switch remount). Without the
+  // "or local-is-empty-but-prop-has-value" path, a remount could see
+  // localFields populated from a prior tick but missing the latest
+  // saved value, and the UI would display blank.
   useEffect(() => {
     setLocalFields(prev => {
       const next = { ...prev };
       let changed = false;
       items.forEach(it => {
-        if (!next[it.id]) {
+        const cur = next[it.id];
+        const localCostEmpty = !cur || cur.blanks_order_cost === "" || cur.blanks_order_cost == null;
+        const localNumEmpty = !cur || cur.blanks_order_number === "" || cur.blanks_order_number == null;
+        const propCost = it.blanks_order_cost;
+        const propNum = it.blanks_order_number;
+        const needsCost = localCostEmpty && propCost != null && propCost !== "";
+        const needsNum = localNumEmpty && propNum != null && propNum !== "";
+        if (!cur) {
           next[it.id] = {
-            blanks_order_number: it.blanks_order_number || "",
-            blanks_order_cost: it.blanks_order_cost || "",
+            blanks_order_number: propNum || "",
+            blanks_order_cost: propCost == null ? "" : propCost,
+          };
+          changed = true;
+        } else if (needsCost || needsNum) {
+          next[it.id] = {
+            blanks_order_number: needsNum ? propNum : cur.blanks_order_number,
+            blanks_order_cost: needsCost ? propCost : cur.blanks_order_cost,
           };
           changed = true;
         }
@@ -184,22 +202,37 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
     const drift = cents - shares.reduce((a, v) => a + v, 0);
     shares[shares.length - 1] += drift;
 
-    // Apply each share. Bypasses the debounced updateField path since
-    // these are all firing together — single round-trip per item.
+    // Apply local + DB updates in parallel. Each item gets its own
+    // setLocalFields, supabase.update, and onUpdateItem call. We
+    // await all writes via Promise.all so we know the DB is committed
+    // before clearing selection — fixes the case where a mid-loop
+    // unmount could leave some items unsaved.
     const itemSummaries = [];
-    for (let i = 0; i < targets.length; i++) {
-      const it = targets[i];
+    const writes = targets.map(async (it, i) => {
       const dollars = shares[i] / 100;
       setLocalFields(p => ({ ...p, [it.id]: { ...p[it.id], blanks_order_cost: dollars.toFixed(2) } }));
-      await supabase.from("items").update({ blanks_order_cost: dollars }).eq("id", it.id);
+      const { error } = await supabase.from("items").update({ blanks_order_cost: dollars }).eq("id", it.id);
+      if (error) {
+        console.error("[blanks bulk] update failed for", it.name, error);
+        return { it, dollars, ok: false };
+      }
       if (onUpdateItem) onUpdateItem(it.id, { blanks_order_cost: dollars });
       itemSummaries.push(`${letterByItemId[it.id] || ""} ${it.name} · $${dollars.toFixed(2)}`);
-    }
+      return { it, dollars, ok: true };
+    });
+    await Promise.all(writes);
+
     try {
       logJobActivity(job.id, `Bulk blanks order: $${total.toFixed(2)} across ${targets.length} item${targets.length !== 1 ? "s" : ""} — ${itemSummaries.join(", ")}`);
     } catch {}
 
     if (onRecalcPhase) onRecalcPhase();
+    // Force the parent to re-fetch items from the DB so any subscriber
+    // (PO tab's blanks-pending check, lifecycle gates, etc.) sees the
+    // new values immediately. Belt-and-suspenders alongside onUpdateItem.
+    if (onItemsChanged) {
+      try { await onItemsChanged(); } catch {}
+    }
     clearSelection();
   }
 
@@ -506,7 +539,13 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           const f = localFields[item.id] || {};
           const totalUnits = tQty(item.qtys || {});
           const calcCost = item.cost_per_unit != null ? (item.cost_per_unit * totalUnits) : null;
-          const actualCost = f.blanks_order_cost ? parseFloat(String(f.blanks_order_cost).replace(/[^0-9.\-]/g, "")) : null;
+          // Prefer localFields (in-progress edits), fall back to the
+          // items prop so a remount or stale local state still shows
+          // the persisted value from DB.
+          const effectiveOrderCost = (f.blanks_order_cost != null && f.blanks_order_cost !== "")
+            ? f.blanks_order_cost
+            : (item.blanks_order_cost != null ? item.blanks_order_cost : "");
+          const actualCost = effectiveOrderCost ? parseFloat(String(effectiveOrderCost).replace(/[^0-9.\-]/g, "")) : null;
           const costDiff = calcCost !== null && actualCost !== null ? actualCost - calcCost : null;
           const hasOrder = (actualCost ?? 0) > 0;
           const itemLetter = letterByItemId[item.id] || String.fromCharCode(65 + i);
@@ -572,7 +611,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                     )}
                     <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
                       <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>$</span>
-                      <input style={{ width: 100, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 600, outline: "none", textAlign: "right" }} type="text" inputMode="decimal" value={f.blanks_order_cost || ""} placeholder="0.00"
+                      <input style={{ width: 100, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 600, outline: "none", textAlign: "right" }} type="text" inputMode="decimal" value={effectiveOrderCost || ""} placeholder="0.00"
                         onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
                         onFocus={e => e.target.select()} />
                     </div>
@@ -619,7 +658,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>$</span>
-                  <input style={{ width: 110, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 600, outline: "none", textAlign: "right" }} type="text" inputMode="decimal" value={f.blanks_order_cost || ""} placeholder="0.00"
+                  <input style={{ width: 110, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 600, outline: "none", textAlign: "right" }} type="text" inputMode="decimal" value={effectiveOrderCost || ""} placeholder="0.00"
                     onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
                     onFocus={e => e.target.select()} />
                 </div>
