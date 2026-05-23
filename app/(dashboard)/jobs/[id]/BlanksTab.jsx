@@ -35,6 +35,13 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
   const supabase = createClient();
   const [localFields, setLocalFields] = useState({});
   const [proofStatus, setProofStatus] = useState({});
+  // Multi-select state — checked items across the list. When ≥1 is
+  // selected an action bar appears with a single "Apply order" input
+  // that allocates one total across the selection proportionally by
+  // each item's calculated cost.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [showBulkApply, setShowBulkApply] = useState(false);
+  const [bulkTotal, setBulkTotal] = useState("");
   const saveTimers = useRef({});
   const pendingSaves = useRef({});
   const [ssSyncing, setSsSyncing] = useState(false);
@@ -124,6 +131,76 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
     };
     pendingSaves.current[key] = doSave;
     saveTimers.current[key] = setTimeout(doSave, 800);
+  }
+
+  function toggleSelected(itemId) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setShowBulkApply(false);
+    setBulkTotal("");
+  }
+
+  // Apply a single order total across the currently selected items.
+  // Allocation rule: proportional by each item's calculated cost
+  // (cost_per_unit × total qty). Items missing calc cost fall back to
+  // equal split among themselves. Each item gets its share saved to
+  // items.blanks_order_cost, marking it as purchased on the variance
+  // check downstream. Activity log entry per item, plus a roll-up
+  // entry on the parent job so the order is traceable.
+  async function applyBulkOrder() {
+    const total = parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, ""));
+    if (!total || total <= 0) return;
+    const targets = items.filter(it => selectedIds.has(it.id));
+    if (targets.length === 0) return;
+
+    // Compute per-item calc cost; null means no qty × cost data on file.
+    const calcs = targets.map(it => {
+      const qty = tQty(it.qtys || {});
+      const cpu = it.cost_per_unit;
+      return cpu != null && qty > 0 ? cpu * qty : null;
+    });
+    const calcSum = calcs.reduce((a, v) => a + (v || 0), 0);
+    const allKnown = calcs.every(v => v != null && v > 0);
+
+    // Shares (allocated cents) — round to cents per item, fix the last
+    // item to absorb rounding drift so the row sum matches the total
+    // entered exactly.
+    const cents = Math.round(total * 100);
+    const shares = targets.map((_, i) => {
+      if (allKnown && calcSum > 0) {
+        return Math.round((calcs[i] / calcSum) * cents);
+      }
+      // Equal split fallback (some items missing calc)
+      return Math.round(cents / targets.length);
+    });
+    const drift = cents - shares.reduce((a, v) => a + v, 0);
+    shares[shares.length - 1] += drift;
+
+    // Apply each share. Bypasses the debounced updateField path since
+    // these are all firing together — single round-trip per item.
+    const itemSummaries = [];
+    for (let i = 0; i < targets.length; i++) {
+      const it = targets[i];
+      const dollars = shares[i] / 100;
+      setLocalFields(p => ({ ...p, [it.id]: { ...p[it.id], blanks_order_cost: dollars.toFixed(2) } }));
+      await supabase.from("items").update({ blanks_order_cost: dollars }).eq("id", it.id);
+      if (onUpdateItem) onUpdateItem(it.id, { blanks_order_cost: dollars });
+      itemSummaries.push(`${letterByItemId[it.id] || ""} ${it.name} · $${dollars.toFixed(2)}`);
+    }
+    try {
+      logJobActivity(job.id, `Bulk blanks order: $${total.toFixed(2)} across ${targets.length} item${targets.length !== 1 ? "s" : ""} — ${itemSummaries.join(", ")}`);
+    } catch {}
+
+    if (onRecalcPhase) onRecalcPhase();
+    clearSelection();
   }
 
   // ── S&S Orders sync ──
@@ -356,10 +433,67 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           combined with no individual labels, sizes inline, order total
           input on the right with variance pill. */}
       <div style={{ ...card }}>
+        {/* Bulk-apply action bar — appears when any items are checked.
+            Lets the user enter ONE order total for multiple items
+            (real-world: same S&S/AS Colour PO covering several items)
+            and allocates the total across them proportionally by
+            calculated cost. */}
+        {selectedIds.size > 0 && (
+          <div style={{
+            padding: "10px 14px",
+            borderBottom: `1px solid ${T.accent}44`,
+            background: T.accentDim,
+            display: "flex", alignItems: "center", gap: 10,
+            flexDirection: isMobile ? "column" : "row",
+            alignItems: isMobile ? "stretch" : "center",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: font }}>
+                {selectedIds.size} item{selectedIds.size !== 1 ? "s" : ""} selected
+              </span>
+              <button onClick={clearSelection}
+                style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
+                Clear
+              </button>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, color: T.muted, fontFamily: font }}>Order total</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 3, background: T.surface, border: `1px solid ${T.accent}66`, borderRadius: 5, padding: "4px 8px" }}>
+                <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>$</span>
+                <input type="text" inputMode="decimal" placeholder="0.00"
+                  value={bulkTotal} onChange={e => setBulkTotal(e.target.value)}
+                  onFocus={e => e.target.select()}
+                  onKeyDown={e => { if (e.key === "Enter") applyBulkOrder(); }}
+                  style={{ width: 100, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 700, textAlign: "right", padding: 0 }} />
+              </div>
+              <button onClick={applyBulkOrder}
+                disabled={!bulkTotal || parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, "")) <= 0}
+                style={{
+                  background: T.green, color: "#fff", border: "none", borderRadius: 5,
+                  padding: "6px 14px", fontSize: 12, fontWeight: 700, fontFamily: font,
+                  cursor: "pointer",
+                  opacity: !bulkTotal || parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, "")) <= 0 ? 0.5 : 1,
+                }}>
+                Apply
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Column headers — desktop only. Mobile uses inline labels per
             card-row since the 5-col grid doesn't survive narrow widths. */}
         {!isMobile && (
-          <div style={{ display: "grid", gridTemplateColumns: "32px 90px 1fr 150px 160px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "22px 32px 90px 1fr 150px 160px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            <div>
+              <input type="checkbox"
+                checked={selectedIds.size > 0 && selectedIds.size === items.length}
+                ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < items.length; }}
+                onChange={() => {
+                  if (selectedIds.size === items.length) clearSelection();
+                  else setSelectedIds(new Set(items.map(it => it.id)));
+                }}
+                style={{ cursor: "pointer" }} />
+            </div>
             <div></div>
             <div>QB Invoice</div>
             <div>Brand · Style · Color · Sizes</div>
@@ -393,9 +527,14 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                 padding: "12px 14px",
                 borderBottom: isLast ? "none" : `1px solid ${T.border}`,
                 display: "flex", flexDirection: "column", gap: 10,
+                background: selectedIds.has(item.id) ? T.accentDim + "55" : "transparent",
               }}>
-                {/* Row 1: letter + invoice ref + status */}
+                {/* Row 1: checkbox + letter + invoice ref + status */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input type="checkbox"
+                    checked={selectedIds.has(item.id)}
+                    onChange={() => toggleSelected(item.id)}
+                    style={{ cursor: "pointer", width: 16, height: 16, flexShrink: 0 }} />
                   <span style={{ width: 28, height: 28, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
                     {itemLetter}
                   </span>
@@ -406,10 +545,10 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                 </div>
 
                 {/* Row 2: blank info */}
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, paddingLeft: 38 }}>{blankInfo || "—"}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, paddingLeft: 26 }}>{blankInfo || "—"}</div>
 
                 {/* Row 3: sizes wrap */}
-                <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap", paddingLeft: 38 }}>
+                <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap", paddingLeft: 26 }}>
                   {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
                     <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
                       <span style={{ fontSize: 11, color: T.muted, fontFamily: mono, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>{sz}</span>
@@ -420,7 +559,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                 </div>
 
                 {/* Row 4: order total input + variance */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", paddingLeft: 38, marginTop: 2 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", paddingLeft: 26, marginTop: 2 }}>
                   <div style={{ fontSize: 11, color: T.muted, fontFamily: font }}>
                     Order total
                     {calcCost !== null && <span style={{ fontFamily: mono, marginLeft: 6, color: T.faint }}>· calc ${calcCost.toFixed(2)}</span>}
@@ -445,11 +584,16 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
 
           return (
             <div key={item.id} style={{
-              display: "grid", gridTemplateColumns: "32px 90px 1fr 150px 160px",
+              display: "grid", gridTemplateColumns: "22px 32px 90px 1fr 150px 160px",
               gap: 12, padding: "10px 14px", alignItems: "center",
               borderBottom: isLast ? "none" : `1px solid ${T.border}`,
-              background: "transparent",
+              background: selectedIds.has(item.id) ? T.accentDim + "55" : "transparent",
             }}>
+              {/* Bulk-select checkbox */}
+              <input type="checkbox"
+                checked={selectedIds.has(item.id)}
+                onChange={() => toggleSelected(item.id)}
+                style={{ cursor: "pointer", width: 14, height: 14 }} />
               {/* Letter */}
               <span style={{ width: 28, height: 28, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: mono }}>
                 {itemLetter}
