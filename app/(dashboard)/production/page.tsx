@@ -1436,9 +1436,43 @@ export default function ProductionPage() {
             <div onClick={e => e.stopPropagation()}
               style={{ background: T.card, borderRadius: 12, width: "90vw", maxWidth: 480, padding: 24, fontFamily: font }}>
               <h3 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, marginBottom: 4 }}>Ship · {item.name}</h3>
-              <div style={{ fontSize: 12, color: T.muted, marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>
                 {item.blank_vendor || "—"} · {item.total_units} units
               </div>
+              {/* Route badge — surfaces the project's shipping route in the
+                  ship modal so the operator catches mismatches BEFORE flipping
+                  the item to shipped. (Drop-ship items go decorator→client and
+                  never appear in /receiving — easy to miss until the item has
+                  "disappeared" past production.) Links back to the project's
+                  Overview tab where the route can be changed. */}
+              {(() => {
+                const route = project.shippingRoute || "ship_through";
+                const routeLabel = route === "drop_ship" ? "DROP SHIP · direct to customer"
+                  : route === "stage" ? "STAGE · fulfill from HPD"
+                  : "SHIP-THROUGH · forward from HPD";
+                const routeColor = route === "drop_ship" ? T.amber : route === "stage" ? T.purple : T.accent;
+                const routeBg = route === "drop_ship" ? T.amberDim : route === "stage" ? T.purpleDim : T.accentDim;
+                return (
+                  <div style={{
+                    marginBottom: 18,
+                    padding: "8px 12px",
+                    borderRadius: 6,
+                    background: routeBg,
+                    border: `1px solid ${routeColor}55`,
+                    display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                  }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: routeColor, letterSpacing: "0.08em" }}>
+                      {routeLabel}
+                    </span>
+                    <span style={{ flex: 1 }} />
+                    <a href={`/jobs/${project.jobId}#overview`}
+                      onClick={e => e.stopPropagation()}
+                      style={{ fontSize: 10, fontWeight: 600, color: T.muted, textDecoration: "underline", fontFamily: font }}>
+                      Change route
+                    </a>
+                  </div>
+                );
+              })()}
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Tracking #</label>
@@ -1588,9 +1622,41 @@ export default function ProductionPage() {
               <h3 style={{ fontSize: 18, fontWeight: 700, color: T.text, margin: 0, marginBottom: 4 }}>
                 Ship {liveItems.length} {liveItems.length === 1 ? "item" : "items"} · {dg.decoratorName}
               </h3>
-              <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>
                 {totalUnits.toLocaleString()} total units
               </div>
+              {/* Route badge — same intent as the single-item Ship modal:
+                  surface the route up front so drop-ship items aren't shipped
+                  by accident when the project is actually stage / ship-through.
+                  Mirrors the badge in the single-item Ship modal above. */}
+              {(() => {
+                const route = project.shippingRoute || "ship_through";
+                const routeLabel = route === "drop_ship" ? "DROP SHIP · direct to customer"
+                  : route === "stage" ? "STAGE · fulfill from HPD"
+                  : "SHIP-THROUGH · forward from HPD";
+                const routeColor = route === "drop_ship" ? T.amber : route === "stage" ? T.purple : T.accent;
+                const routeBg = route === "drop_ship" ? T.amberDim : route === "stage" ? T.purpleDim : T.accentDim;
+                return (
+                  <div style={{
+                    marginBottom: 16,
+                    padding: "8px 12px",
+                    borderRadius: 6,
+                    background: routeBg,
+                    border: `1px solid ${routeColor}55`,
+                    display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+                  }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: routeColor, letterSpacing: "0.08em" }}>
+                      {routeLabel}
+                    </span>
+                    <span style={{ flex: 1 }} />
+                    <a href={`/jobs/${project.jobId}#overview`}
+                      onClick={e => e.stopPropagation()}
+                      style={{ fontSize: 10, fontWeight: 600, color: T.muted, textDecoration: "underline", fontFamily: font }}>
+                      Change route
+                    </a>
+                  </div>
+                );
+              })()}
               {/* Item list — confirm what's being shipped */}
               <div style={{ marginBottom: 18, padding: "10px 12px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, maxHeight: 160, overflowY: "auto" }}>
                 {liveItems.map(it => (

@@ -60,6 +60,13 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [workingTab, setWorkingTab] = useState<"setup"|"in_production"|"shipped"|"in_stock"|"archived">("in_production");
   const [workingRowExpanded, setWorkingRowExpanded] = useState<string|null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  // Worksheet multi-select. Cleared on tab change / worksheet close.
+  // Bulk apply runs parallel writes through persistItemField so the
+  // existing save-error / state-sync paths still cover it.
+  const [selectedWsIds, setSelectedWsIds] = useState<Set<string>>(new Set());
+  const [bulkRetail, setBulkRetail] = useState<string>("");
+  const [bulkEta, setBulkEta] = useState<string>("");
+  const [bulkBusy, setBulkBusy] = useState<null | "retail" | "eta" | "archive">(null);
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   // Direction the project-row hover popover should open. Flipped to
   // "up" when the row sits near the bottom of the viewport so the
@@ -110,6 +117,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [workingRowExpanded]);
+
+  // Drop the worksheet selection whenever the user switches buckets
+  // or closes the worksheet — a selection from "In Production" must
+  // not silently carry into "Shipped" and apply to the wrong rows.
+  useEffect(() => {
+    setSelectedWsIds(new Set());
+    setBulkRetail("");
+    setBulkEta("");
+  }, [workingTab, worksheetOpen]);
 
   useEffect(() => {
     (async () => {
@@ -532,6 +548,107 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   function logWorksheet(jobId: string, message: string) {
     if (!jobId) return;
     logJobActivity(jobId, `${message} (worksheet)`);
+  }
+
+  // Bulk apply helpers — fire one write per selected item in parallel,
+  // updating local state optimistically and logging per-job activity.
+  // Reuses persistItemField so save-error banners and the same DB path
+  // cover the bulk path. Returns once every write resolves so the UI
+  // can clear selection / show "Applied" feedback.
+  function selectedWorksheetItems(): { id: string; name: string; jobId: string }[] {
+    const sel = selectedWsIds;
+    if (sel.size === 0) return [];
+    const out: { id: string; name: string; jobId: string }[] = [];
+    for (const j of jobs) {
+      for (const it of (j.items || []) as any[]) {
+        if (sel.has(it.id)) out.push({ id: it.id, name: it.name, jobId: j.id });
+      }
+    }
+    return out;
+  }
+
+  async function applyBulkRetail() {
+    const raw = bulkRetail.trim();
+    const v = raw === "" ? null : Number(raw.replace(/[^0-9.\-]/g, ""));
+    if (v != null && (!Number.isFinite(v) || v < 0)) return;
+    const targets = selectedWorksheetItems();
+    if (targets.length === 0) return;
+    setBulkBusy("retail");
+    try {
+      setJobs(prev => prev.map(j => ({
+        ...j,
+        items: (j.items || []).map((it: any) =>
+          selectedWsIds.has(it.id) ? { ...it, client_retail_per_unit: v } : it),
+      } as Job)));
+      const label = v == null ? "—" : "$" + v.toFixed(2);
+      await Promise.all(targets.map(t => persistItemField(t.id, "client_retail_per_unit", v)));
+      const byJob = new Map<string, string[]>();
+      for (const t of targets) {
+        if (!byJob.has(t.jobId)) byJob.set(t.jobId, []);
+        byJob.get(t.jobId)!.push(t.name);
+      }
+      for (const [jobId, names] of Array.from(byJob.entries())) {
+        logWorksheet(jobId, `Retail set to ${label} on ${names.length} item${names.length === 1 ? "" : "s"} (${names.join(", ")}) (bulk)`);
+      }
+      setBulkRetail("");
+      setSelectedWsIds(new Set());
+    } finally {
+      setBulkBusy(null);
+    }
+  }
+
+  async function applyBulkEta() {
+    const v = bulkEta || null;
+    const targets = selectedWorksheetItems();
+    if (targets.length === 0) return;
+    setBulkBusy("eta");
+    try {
+      setJobs(prev => prev.map(j => ({
+        ...j,
+        items: (j.items || []).map((it: any) =>
+          selectedWsIds.has(it.id) ? { ...it, client_eta: v } : it),
+      } as Job)));
+      const label = v == null ? "—" : new Date(v + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      await Promise.all(targets.map(t => persistItemField(t.id, "client_eta", v)));
+      const byJob = new Map<string, string[]>();
+      for (const t of targets) {
+        if (!byJob.has(t.jobId)) byJob.set(t.jobId, []);
+        byJob.get(t.jobId)!.push(t.name);
+      }
+      for (const [jobId, names] of Array.from(byJob.entries())) {
+        logWorksheet(jobId, `ETA set to ${label} on ${names.length} item${names.length === 1 ? "" : "s"} (${names.join(", ")}) (bulk)`);
+      }
+      setBulkEta("");
+      setSelectedWsIds(new Set());
+    } finally {
+      setBulkBusy(null);
+    }
+  }
+
+  async function applyBulkArchive(archive: boolean) {
+    const targets = selectedWorksheetItems();
+    if (targets.length === 0) return;
+    setBulkBusy("archive");
+    try {
+      const v = archive ? new Date().toISOString() : null;
+      setJobs(prev => prev.map(j => ({
+        ...j,
+        items: (j.items || []).map((it: any) =>
+          selectedWsIds.has(it.id) ? { ...it, archived_at: v } : it),
+      } as Job)));
+      await Promise.all(targets.map(t => persistItemField(t.id, "archived_at", v)));
+      const byJob = new Map<string, string[]>();
+      for (const t of targets) {
+        if (!byJob.has(t.jobId)) byJob.set(t.jobId, []);
+        byJob.get(t.jobId)!.push(t.name);
+      }
+      for (const [jobId, names] of Array.from(byJob.entries())) {
+        logWorksheet(jobId, `${archive ? "Archived" : "Unarchived"} ${names.length} item${names.length === 1 ? "" : "s"} (${names.join(", ")}) (bulk)`);
+      }
+      setSelectedWsIds(new Set());
+    } finally {
+      setBulkBusy(null);
+    }
   }
 
   async function reorderItem(item: any) {
@@ -1373,6 +1490,98 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 </button>
               </div>
 
+              {/* Bulk action bar — visible when ≥1 worksheet row is
+                  selected. Sticky at the top of the body scroll
+                  container so it stays in view while scrolling a long
+                  item list. Three actions: Retail / ETA / Archive. */}
+              {(() => {
+                const selectedCount = Array.from(selectedWsIds).filter(id => currentItems.some((it: any) => it.id === id)).length;
+                if (selectedCount === 0) return null;
+                // Are all selected items in the archived bucket? Drives
+                // the button label (Archive vs Unarchive).
+                const allArchived = currentItems
+                  .filter((it: any) => selectedWsIds.has(it.id))
+                  .every((it: any) => it.archived_at != null || it._ws === "archived" || it._ws === "cancelled");
+                return (
+                  <div style={{
+                    position:"sticky", top:0, zIndex:5,
+                    background:T.card, border:`1px solid ${T.accent}`,
+                    borderRadius:8, padding:"10px 14px",
+                    display:"flex", flexWrap:"wrap", alignItems:"center", gap:10,
+                    boxShadow:"0 4px 14px rgba(0,0,0,0.18)",
+                  }}>
+                    <div style={{fontSize:11, fontWeight:700, color:T.text, whiteSpace:"nowrap"}}>
+                      {selectedCount} selected
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedWsIds(new Set())}
+                      style={{fontSize:10, color:T.muted, background:"transparent", border:"none", cursor:"pointer", padding:"2px 6px", fontFamily:font, textDecoration:"underline"}}>
+                      Clear
+                    </button>
+                    <div style={{flex:1, minWidth:8}}/>
+                    {/* Retail bulk apply */}
+                    <div style={{display:"flex", alignItems:"center", gap:6}}>
+                      <span style={{fontSize:10, fontWeight:700, color:T.faint, textTransform:"uppercase", letterSpacing:"0.06em"}}>Retail $</span>
+                      <input
+                        type="text" inputMode="decimal" placeholder="0.00"
+                        value={bulkRetail}
+                        onChange={e => setBulkRetail(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") applyBulkRetail(); }}
+                        style={{...ic, width:80, padding:"5px 8px"}}/>
+                      <button
+                        type="button"
+                        onClick={applyBulkRetail}
+                        disabled={bulkBusy != null || bulkRetail.trim() === ""}
+                        style={{
+                          fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:5,
+                          background:bulkRetail.trim() === "" ? T.surface : T.accent,
+                          color:bulkRetail.trim() === "" ? T.faint : "#fff",
+                          border:"none", cursor:bulkBusy != null || bulkRetail.trim() === "" ? "not-allowed" : "pointer",
+                          fontFamily:font, opacity: bulkBusy === "retail" ? 0.6 : 1,
+                        }}>
+                        {bulkBusy === "retail" ? "..." : "Apply"}
+                      </button>
+                    </div>
+                    {/* ETA bulk apply */}
+                    <div style={{display:"flex", alignItems:"center", gap:6}}>
+                      <span style={{fontSize:10, fontWeight:700, color:T.faint, textTransform:"uppercase", letterSpacing:"0.06em"}}>ETA</span>
+                      <input
+                        type="date"
+                        value={bulkEta}
+                        onChange={e => setBulkEta(e.target.value)}
+                        style={{...ic, width:140, padding:"5px 8px", fontFamily:mono}}/>
+                      <button
+                        type="button"
+                        onClick={applyBulkEta}
+                        disabled={bulkBusy != null || bulkEta === ""}
+                        style={{
+                          fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:5,
+                          background:bulkEta === "" ? T.surface : T.accent,
+                          color:bulkEta === "" ? T.faint : "#fff",
+                          border:"none", cursor:bulkBusy != null || bulkEta === "" ? "not-allowed" : "pointer",
+                          fontFamily:font, opacity: bulkBusy === "eta" ? 0.6 : 1,
+                        }}>
+                        {bulkBusy === "eta" ? "..." : "Apply"}
+                      </button>
+                    </div>
+                    {/* Archive bulk apply */}
+                    <button
+                      type="button"
+                      onClick={() => applyBulkArchive(!allArchived)}
+                      disabled={bulkBusy != null}
+                      style={{
+                        fontSize:11, fontWeight:700, padding:"6px 12px", borderRadius:5,
+                        background:"transparent", color:T.muted,
+                        border:`1px solid ${T.border}`, cursor:bulkBusy != null ? "not-allowed" : "pointer",
+                        fontFamily:font, opacity: bulkBusy === "archive" ? 0.6 : 1,
+                      }}>
+                      {bulkBusy === "archive" ? "..." : (allArchived ? "Unarchive" : "Archive")}
+                    </button>
+                  </div>
+                );
+              })()}
+
               {/* Item list */}
               {currentItems.length === 0 ? (
                 <div style={{fontSize:12,color:T.faint,padding:"20px",textAlign:"center",background:T.surface,borderRadius:8}}>
@@ -1381,7 +1590,31 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               ) : (
                 <div style={{display:"flex",flexDirection:"column",gap:4}}>
                   {/* Column header — gridTemplateColumns also used on each row below */}
-                  <div style={{display:"grid",gridTemplateColumns:"minmax(0, 1fr) 60px 76px 76px 80px 110px 78px 44px",gap:8,padding:"4px 10px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"28px minmax(0, 1fr) 60px 76px 76px 80px 110px 78px 44px",gap:8,padding:"4px 10px",fontSize:9,fontWeight:700,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em",alignItems:"center"}}>
+                    {(() => {
+                      const visibleIds = currentItems.map((it: any) => it.id);
+                      const allChecked = visibleIds.length > 0 && visibleIds.every((id: string) => selectedWsIds.has(id));
+                      const someChecked = visibleIds.some((id: string) => selectedWsIds.has(id));
+                      return (
+                        <input
+                          type="checkbox"
+                          checked={allChecked}
+                          ref={el => { if (el) el.indeterminate = !allChecked && someChecked; }}
+                          onChange={() => {
+                            setSelectedWsIds(prev => {
+                              const next = new Set(prev);
+                              if (allChecked) {
+                                for (const id of visibleIds) next.delete(id);
+                              } else {
+                                for (const id of visibleIds) next.add(id);
+                              }
+                              return next;
+                            });
+                          }}
+                          aria-label="Select all visible items"
+                          style={{cursor:"pointer", width:14, height:14, accentColor: T.accent}}/>
+                      );
+                    })()}
                     <div>Item</div>
                     <div style={{textAlign:"right"}}>Qty</div>
                     <div style={{textAlign:"right"}}>Cost</div>
@@ -1409,18 +1642,45 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                     const isPaid = paidJobIds.has(it.jobId);
                     const stateLabel = STATE_LABELS[it._ws as ItemState] || "—";
                     const stateColor = STATE_COLORS[it._ws as ItemState] || T.muted;
+                    const isSelected = selectedWsIds.has(it.id);
+                    const toggle = () => {
+                      setSelectedWsIds(prev => {
+                        const next = new Set(prev);
+                        if (next.has(it.id)) next.delete(it.id);
+                        else next.add(it.id);
+                        return next;
+                      });
+                    };
                     return (
-                      <div key={it.id} style={{background:T.surface,borderRadius:8,overflow:"hidden"}}>
-                        <button
-                          type="button"
+                      <div key={it.id} style={{
+                        background: isSelected ? T.accentDim : T.surface,
+                        borderRadius:8,
+                        overflow:"hidden",
+                        outline: isSelected ? `1px solid ${T.accent}` : "none",
+                        outlineOffset: -1,
+                      }}>
+                        <div
+                          role="button"
+                          tabIndex={0}
                           onClick={() => setWorkingRowExpanded(it.id)}
+                          onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setWorkingRowExpanded(it.id); } }}
                           style={{
                             width:"100%",display:"grid",
-                            gridTemplateColumns:"minmax(0, 1fr) 60px 76px 76px 80px 110px 78px 44px",
+                            gridTemplateColumns:"28px minmax(0, 1fr) 60px 76px 76px 80px 110px 78px 44px",
                             gap:8,padding:"10px",alignItems:"center",
-                            background:"transparent",border:"none",cursor:"pointer",textAlign:"left",fontFamily:font,color:T.text,
+                            background:"transparent",cursor:"pointer",textAlign:"left",fontFamily:font,color:T.text,
                           }}
                         >
+                          <div onClick={e => { e.stopPropagation(); toggle(); }}
+                               style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={toggle}
+                              onClick={e => e.stopPropagation()}
+                              aria-label={`Select ${it.name}`}
+                              style={{cursor:"pointer", width:14, height:14, accentColor: T.accent}}/>
+                          </div>
                           <div style={{minWidth:0,display:"flex",alignItems:"center",gap:10}}>
                             <div style={{
                               width:36,height:36,flexShrink:0,
@@ -1465,7 +1725,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                           <div style={{textAlign:"center",fontSize:14,color:isPaid ? T.green : T.faint}}>
                             {isPaid ? "✓" : "—"}
                           </div>
-                        </button>
+                        </div>
                       </div>
                     );
                   });
