@@ -82,20 +82,8 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
         ...workingSteps,
       ];
 
-  const completedCount = steps.filter(s => s.done).length;
-  const denom = Math.max(1, steps.length - 1); // exclude Overview from progress calc
-  const pct = isArchived ? 100 : Math.round(((completedCount - 1) / denom) * 100);
-
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>
-      {/* Progress bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-        <div style={{ flex: 1, height: 4, background: T.surface, borderRadius: 2 }}>
-          <div style={{ height: "100%", width: pct + "%", background: pct === 100 ? T.green : T.accent, borderRadius: 2, transition: "width 0.3s" }} />
-        </div>
-        <span style={{ fontSize: 10, fontFamily: mono, color: pct === 100 ? T.green : T.muted, fontWeight: 600 }}>{pct}%</span>
-      </div>
-
       {/* Nav steps — flat tabs with bottom border for current; no pill chrome */}
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${T.border}`, paddingBottom: 6 }}>
         {steps.map((step, i) => {

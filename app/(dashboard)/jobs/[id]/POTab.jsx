@@ -7,6 +7,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { useClientBranding } from "@/lib/branding-client";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
+import { addBusinessDays } from "@/lib/dates";
 // dates — milestones removed, ship date is set manually
 
 function fmtD(n) {
@@ -132,7 +133,7 @@ function buildLineItems(cp, allProds) {
   return { printLines, finLines, specLines, setupLines };
 }
 
-const SHIP_METHODS = ["UPS Ground","UPS 2-Day","UPS Next Day","FedEx Ground","FedEx Express","USPS Priority","Freight / LTL","Will Call","Decorator Drop Ship"];
+const SHIP_METHODS = ["UPS Ground","UPS 2-Day","UPS Next Day","UPS Next Day Air Saver","Freight / LTL","Pick Up","Vendor's Choice"];
 
 export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selectedItemId}) {
   const supabase = createClient();
@@ -281,6 +282,95 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const isPoSent = poSentVendors.includes(active);
   const allVendorsPoSent = vendors.length > 0 && vendors.every(v => poSentVendors.includes(v));
 
+  // Revision detection — a "revised" send happens when this vendor has
+  // already received a PO. Drives the button label, the email subject
+  // suffix, the (Revised) banner on the PDF, and the per-item NEW chips
+  // for items added since the original send (those have no
+  // decorator_assignments.sent_to_decorator_date yet).
+  const isRevised = isPoSent;
+  const originalSentDate = project?.type_meta?.po_sent_dates?.[active] || null;
+
+  // Active decorator's saved lead time (business days). Powers the
+  // "Apply default" suggestion next to the empty Ship-by date input.
+  const activeDecorator = getDec(active);
+  const activeLeadDays = Number(activeDecorator?.lead_time_days) || 0;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  // Common quick-set offsets exposed as small buttons under the date
+  // input. Business-day math via addBusinessDays so they skip
+  // weekends; matches the in-hands → priority calc used elsewhere.
+  const QUICK_OFFSETS = [10, 30, 60, 90];
+  function fmtShortDate(iso) {
+    return new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+  // Central writer for po_ship_dates[active]. Anything that changes
+  // the ship-by date (typed input, ASAP toggle, quick-offset buttons,
+  // decorator default) routes through here so the revision log fires
+  // consistently. newVal: ISO date string, "ASAP", or "" (cleared).
+  function setShipDateForVendor(newVal) {
+    if (!active) return;
+    const prev = poShipDates[active] || "";
+    const next = newVal || "";
+    const updated = { ...poShipDates, [active]: next };
+    setPoShipDates(updated);
+    saveTypeMeta({ po_ship_dates: updated });
+    // Audit trail — only fires when the PO has already been sent to
+    // this vendor AND the value actually changed. Pre-send tweaks are
+    // setup noise; post-send changes are real revisions worth logging.
+    if (isPoSent && prev !== next) {
+      const fmt = (v) => !v ? "—" : v === "ASAP" ? "ASAP" : fmtShortDate(v);
+      logJobActivity(project.id, `Ship date for ${active} revised — ${fmt(prev)} → ${fmt(next)}`);
+    }
+  }
+  function applyDateOffset(days) {
+    setShipDateForVendor(addBusinessDays(todayIso, days));
+  }
+  // Mirror the date helper for ship method + ship-to. Same gate: only
+  // log when the PO has been sent AND the value actually changed.
+  // ShipTo is multi-line; we collapse to a single line for the log
+  // entry so the activity feed doesn't get blown out.
+  function setShipMethodForVendor(newVal) {
+    if (!active) return;
+    const prev = shipMethods[active] || "";
+    const next = newVal || "";
+    if (prev === next) return;
+    const updated = { ...shipMethods, [active]: next };
+    setShipMethods(updated);
+    saveTypeMeta({ po_ship_methods: updated });
+    if (isPoSent) {
+      const fmt = (v) => v || "—";
+      logJobActivity(project.id, `Ship method for ${active} revised — ${fmt(prev)} → ${fmt(next)}`);
+    }
+  }
+  // Ship-to is a textarea so onChange fires per keystroke. We split
+  // the write (every keystroke, for autosave) from the audit log
+  // (commit only) so the activity feed gets one entry per real change,
+  // not one per character. shipToBaseline holds the value at the last
+  // commit boundary so blur knows whether anything actually changed.
+  function setShipToForVendor(newVal) {
+    if (!active) return;
+    const updated = { ...poShipTo, [active]: newVal || "" };
+    setPoShipTo(updated);
+    saveTypeMeta({ po_ship_to: updated });
+  }
+  const shipToBaseline = useRef({});
+  useEffect(() => {
+    // Seed baseline whenever the active vendor changes — captures the
+    // value Drake landed on, not the value typed mid-edit.
+    if (active && !(active in shipToBaseline.current)) {
+      shipToBaseline.current[active] = poShipTo[active] || "";
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+  function commitShipToRevision() {
+    if (!active || !isPoSent) return;
+    const prev = (shipToBaseline.current[active] || "").trim();
+    const next = (poShipTo[active] || "").trim();
+    if (prev === next) return;
+    const oneLine = (v) => v ? v.split("\n").map(l => l.trim()).filter(Boolean).join(", ") : "default";
+    logJobActivity(project.id, `Ship-to for ${active} revised — ${oneLine(prev)} → ${oneLine(next)}`);
+    shipToBaseline.current[active] = poShipTo[active] || "";
+  }
+
   return (
     <div style={{fontFamily:font,color:T.text,display:"flex",flexDirection:"column",gap:12}}>
 
@@ -293,12 +383,14 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
       )}
 
       <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-        {/* Single row: Vendor | Ship Method | Ship Date | Ship To | Actions */}
-        <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
+        {/* Single row: Vendor | Ship Method | Ship Date | Ship To | Actions
+            On mobile the row stacks — Ship To and the Send button get
+            full width so they're tappable + don't horizontal-scroll. */}
+        <div style={{display:"flex",gap:isMobile?12:16,alignItems:"flex-start",flexDirection:isMobile?"column":"row"}}>
           {/* Vendor */}
-          <div style={{display:"flex",flexDirection:"column",gap:4,alignSelf:"center"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:4,alignSelf:isMobile?"stretch":"center",width:isMobile?"100%":undefined}}>
             <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Vendor</div>
-            <div style={{display:"flex",gap:12}}>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               {vendors.length===0&&<div style={{fontSize:11,color:T.faint,padding:"6px 0"}}>No vendors assigned</div>}
               {vendors.map(v=>(
                 <button key={v} onClick={()=>setSelectedVendor(v)}
@@ -309,9 +401,10 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             </div>
           </div>
           {/* Ship by date + Ship method — stacked next to Ship To.
-              Both inputs explicit width:200 so the column sizes uniformly
-              and sits flush against Ship To. */}
-          <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:"flex-start",flexShrink:0}}>
+              Desktop: fixed 200px width so the column sizes uniformly
+              and sits flush against Ship To. Mobile: full-width inputs
+              and the stack itself stretches. */}
+          <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:isMobile?"stretch":"flex-start",flexShrink:0,width:isMobile?"100%":undefined}}>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
               {/* ASAP and a date are mutually exclusive — both write to the
@@ -319,42 +412,56 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                   "ASAP" sentinel and renders it as-is instead of parsing
                   it as a date. */}
               {poShipDates[active] === "ASAP" ? (
-                <div style={{display:"flex",alignItems:"center",gap:6,width:200,height:32,background:T.amberDim,border:`1px solid ${T.amber}66`,borderRadius:6,padding:"0 10px",boxSizing:"border-box"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,width:isMobile?"100%":200,height:32,background:T.amberDim,border:`1px solid ${T.amber}66`,borderRadius:6,padding:"0 10px",boxSizing:"border-box"}}>
                   <span style={{flex:1,fontSize:11,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>ASAP</span>
-                  <button onClick={()=>{
-                    const updated={...poShipDates,[active]:""};
-                    setPoShipDates(updated);
-                    saveTypeMeta({ po_ship_dates: updated });
-                  }} title="Clear" style={{background:"transparent",border:"none",color:T.amber,cursor:"pointer",fontSize:14,lineHeight:1,padding:"0 2px"}}>×</button>
+                  <button onClick={()=>setShipDateForVendor("")} title="Clear"
+                    style={{background:"transparent",border:"none",color:T.amber,cursor:"pointer",fontSize:14,lineHeight:1,padding:"0 2px"}}>×</button>
                 </div>
               ) : (
-                <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <>
+                <div style={{display:"flex",gap:4,alignItems:"center",width:isMobile?"100%":undefined}}>
                   <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
-                    onChange={e=>{
-                      const val=e.target.value;
-                      const updated={...poShipDates,[active]:val};
-                      setPoShipDates(updated);
-                      saveTypeMeta({ po_ship_dates: updated });
-                    }}
-                    style={{flex:1,background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:152,boxSizing:"border-box"}} />
-                  <button onClick={()=>{
-                    const updated={...poShipDates,[active]:"ASAP"};
-                    setPoShipDates(updated);
-                    saveTypeMeta({ po_ship_dates: updated });
-                  }} title="Ship as soon as possible"
-                    style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.amber,fontFamily:font,fontSize:10,fontWeight:700,letterSpacing:"0.05em",padding:"0 8px",height:32,cursor:"pointer",boxSizing:"border-box"}}>ASAP</button>
+                    onChange={e=>setShipDateForVendor(e.target.value)}
+                    style={{flex:1,background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:isMobile?"auto":152,boxSizing:"border-box"}} />
+                  <button onClick={()=>setShipDateForVendor("ASAP")} title="Ship as soon as possible"
+                    style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.amber,fontFamily:font,fontSize:10,fontWeight:700,letterSpacing:"0.05em",padding:"0 8px",height:32,cursor:"pointer",boxSizing:"border-box",flexShrink:0}}>ASAP</button>
                 </div>
+                {/* Decorator-default suggestion — only when the field
+                    is empty AND the active decorator has a saved lead
+                    time. One tap applies (today + leadDays business
+                    days). Hidden once the date is set so it stops
+                    nagging. */}
+                {!poShipDates[active] && activeLeadDays > 0 && (() => {
+                  const suggested = addBusinessDays(todayIso, activeLeadDays);
+                  return (
+                    <button onClick={()=>applyDateOffset(activeLeadDays)}
+                      title={`${active}'s saved lead time is ${activeLeadDays} business days`}
+                      style={{alignSelf:"flex-start",background:T.accentDim,border:`1px solid ${T.accent}66`,borderRadius:5,color:T.accent,fontFamily:font,fontSize:10,fontWeight:600,padding:"3px 8px",cursor:"pointer",marginTop:2}}>
+                      Use {active} default · +{activeLeadDays}d → {fmtShortDate(suggested)}
+                    </button>
+                  );
+                })()}
+                {/* Quick-set offsets — visible only when the date is
+                    empty so they don't crowd the row once it's filled.
+                    Business-day math so weekends are skipped. */}
+                {!poShipDates[active] && (
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:2}}>
+                    {QUICK_OFFSETS.map(d => (
+                      <button key={d} onClick={()=>applyDateOffset(d)}
+                        title={`${d} business days from today → ${fmtShortDate(addBusinessDays(todayIso, d))}`}
+                        style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontFamily:font,fontSize:10,fontWeight:600,padding:"3px 8px",cursor:"pointer"}}>
+                        +{d}d
+                      </button>
+                    ))}
+                  </div>
+                )}
+                </>
               )}
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
-              <select value={shipMethods[active]||""} onChange={e=>{
-              const val=e.target.value;
-              const updated={...shipMethods,[active]:val};
-              setShipMethods(updated);
-              saveTypeMeta({ po_ship_methods: updated });
-            }}
-              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:200,boxSizing:"border-box"}}>
+              <select value={shipMethods[active]||""} onChange={e=>setShipMethodForVendor(e.target.value)}
+              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:isMobile?"100%":200,boxSizing:"border-box"}}>
               <option value="">— select —</option>
               {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
@@ -365,7 +472,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               field is editable for one-off addresses (e.g. an item
               going from decorator A to decorator B). The PO PDF
               renderer applies the same fallback. */}
-          <div style={{display:"flex",flexDirection:"column",gap:4,flex:1}}>
+          <div style={{display:"flex",flexDirection:"column",gap:4,flex:1,width:isMobile?"100%":undefined,alignSelf:isMobile?"stretch":undefined}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship to</span>
               <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:(poShipTo[active]||"").trim()?T.amber:(shippingRoute==="drop_ship"?T.green:T.accent)}}>
@@ -373,10 +480,19 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               </span>
               {(poShipTo[active]||"").trim()&&(
                 <button onClick={()=>{
-                  const updated={...poShipTo};
-                  delete updated[active];
-                  setPoShipTo(updated);
-                  saveTypeMeta({ po_ship_to: updated });
+                  // Reset = explicit commit to "default". Log directly
+                  // here so we don't fight React's state-update batching
+                  // — commitShipToRevision reads from state, which the
+                  // setShipToForVendor call above hasn't applied yet.
+                  if (isPoSent) {
+                    const prev = (shipToBaseline.current[active] || "").trim();
+                    if (prev) {
+                      const oneLine = (v) => v ? v.split("\n").map(l => l.trim()).filter(Boolean).join(", ") : "default";
+                      logJobActivity(project.id, `Ship-to for ${active} revised — ${oneLine(prev)} → default`);
+                    }
+                  }
+                  shipToBaseline.current[active] = "";
+                  setShipToForVendor("");
                 }}
                   style={{fontSize:9,color:T.faint,fontFamily:font,background:"none",border:"none",cursor:"pointer",padding:0,textDecoration:"underline"}}
                   title="Clear override — fall back to the job-route default">
@@ -385,26 +501,22 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               )}
             </div>
             <textarea value={poShipTo[active]||""} placeholder={defaultShipTo + "\n\n(default — type to override)"}
-              onChange={e=>{
-                const val=e.target.value;
-                const updated={...poShipTo,[active]:val};
-                setPoShipTo(updated);
-                saveTypeMeta({ po_ship_to: updated });
-              }}
+              onChange={e=>setShipToForVendor(e.target.value)}
+              onBlur={commitShipToRevision}
               style={{background:T.surface,border:"1px solid "+((poShipTo[active]||"").trim()?T.amber+"66":T.border),borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"8px 10px",outline:"none",resize:"vertical",minHeight:110,lineHeight:1.4}}/>
           </div>
           {/* Items ready + buttons */}
-          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8,flexShrink:0}}>
+          <div style={{display:"flex",flexDirection:"column",alignItems:isMobile?"stretch":"flex-end",gap:8,flexShrink:0,width:isMobile?"100%":undefined}}>
             {ready&&(
-              <div style={{fontSize:14,fontWeight:600,color:allFilled?T.green:T.amber}}>
+              <div style={{fontSize:14,fontWeight:600,color:allFilled?T.green:T.amber,textAlign:isMobile?"left":"right"}}>
                 {vItems.filter(it=>itemFields[it.id]?.packing_notes?.trim()).length}/{vItems.length} items ready
               </div>
             )}
-            <div style={{display:"flex",flexDirection:"column",gap:6,width:170}}>
+            <div style={{display:"flex",flexDirection:"column",gap:6,width:isMobile?"100%":170}}>
               <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready}
-                title={!ready ? "Fill in packing notes on all vendor items first" : "Preview + send to decorator in one screen"}
-                style={{background:ready?T.blue:T.surface,border:"1px solid "+(ready?T.blue:T.border),borderRadius:8,color:ready?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
-                Send to Decorator
+                title={!ready ? "Fill in packing notes on all vendor items first" : (isRevised ? "Send a revised PO that supersedes the original" : "Preview + send to decorator in one screen")}
+                style={{background:ready?(isRevised?T.amber:T.blue):T.surface,border:"1px solid "+(ready?(isRevised?T.amber:T.blue):T.border),borderRadius:8,color:ready?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
+                {isRevised ? "Send Revised PO" : "Send to Decorator"}
               </button>
             </div>
           </div>
@@ -435,6 +547,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
           vendor={active}
           contacts={getDec(active)?.contacts_list||[]}
           defaultEmail={getDec(active)?.contact_email||""}
+          extraPayload={isRevised ? { revised: true } : undefined}
           defaultSubject={(() => {
             const rawNum = project.type_meta?.qb_invoice_number || project.job_number || "";
             // Strip the tenant prefix from job_number-style refs
@@ -446,11 +559,35 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               : rawNum;
             const letters = vItems.map(it => String.fromCharCode(65 + (it.sort_order || 0))).join("");
             const clientName = (project.clients?.name || project.title || "");
-            return `PO# ${poPrefix} ${numCore}${letters} — ${clientName} — ${active}`;
+            const base = `PO# ${poPrefix} ${numCore}${letters} — ${clientName} — ${active}`;
+            return isRevised ? `${base} (Revised)` : base;
           })()}
           onClose={()=>setShowSendEmail(false)}
           onSent={async()=>{
-            logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`);
+            // Determine the item delta BEFORE stamping dates, so the
+            // activity log can name which items are new on a revision.
+            // sent_to_decorator_date is the marker — null = never sent.
+            let newItemNames = [];
+            if (isRevised) {
+              const itemIds = vItems.map(it => it.id);
+              const { data: existingAssignments } = await supabase
+                .from("decorator_assignments")
+                .select("item_id, sent_to_decorator_date")
+                .in("item_id", itemIds);
+              const sentMap = Object.fromEntries((existingAssignments || []).map(a => [a.item_id, a.sent_to_decorator_date]));
+              newItemNames = vItems
+                .filter(it => !sentMap[it.id])
+                .map(it => it.name);
+            }
+            if (isRevised) {
+              const addedCount = newItemNames.length;
+              logJobActivity(project.id,
+                addedCount > 0
+                  ? `Revised PO sent to ${active} — ${vItems.length} items total, ${addedCount} new (${newItemNames.join(", ")})`
+                  : `Revised PO re-sent to ${active} (${vItems.length} items)`);
+            } else {
+              logJobActivity(project.id, `PO sent to ${active} (${vItems.length} items)`);
+            }
             // Track which vendors have received POs + when. po_sent_dates
             // preserves the ORIGINAL send date — resending the same PO
             // (e.g., follow-up email) doesn't overwrite the first send.
@@ -462,11 +599,15 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             const meta = {...(project.type_meta||{}), po_sent_vendors: updatedVendors, po_sent_dates: poSentDates, po_ship_methods: shipMethods, po_ship_dates: poShipDates};
             await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
             if(onUpdateJob) onUpdateJob({type_meta:meta});
-            // Also set decorator_assignments.sent_to_decorator_date so it's queryable
+            // Stamp decorator_assignments.sent_to_decorator_date ONLY for
+            // items that have never been sent. Preserving the first-send
+            // date is what powers the NEW chip on future revised POs.
             for (const it of vItems) {
               try {
-                const { data: da } = await supabase.from("decorator_assignments").select("id").eq("item_id", it.id).limit(1).single();
-                if (da) await supabase.from("decorator_assignments").update({ sent_to_decorator_date: new Date().toISOString().slice(0, 10) }).eq("id", da.id);
+                const { data: da } = await supabase.from("decorator_assignments").select("id, sent_to_decorator_date").eq("item_id", it.id).limit(1).single();
+                if (da && !da.sent_to_decorator_date) {
+                  await supabase.from("decorator_assignments").update({ sent_to_decorator_date: new Date().toISOString().slice(0, 10) }).eq("id", da.id);
+                }
               } catch {}
             }
             // Advance items for this vendor to in_production
@@ -486,7 +627,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               </div>
             </div>
             <div style={{flex:1,background:T.surface,overflow:"hidden",minHeight:isMobile?280:0,display:"flex"}}>
-              <PdfCanvasPreview src={`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}`:""}`} />
+              <PdfCanvasPreview src={`/api/pdf/po/${project.id}${active?`?vendor=${encodeURIComponent(active)}${isRevised?"&revised=1":""}`:""}`} />
             </div>
           </div>
         </div>
@@ -615,12 +756,16 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             const routeLabel = (r) => r === "drop_ship" ? "Drop ship" : r === "ship_through" ? "Ship through HPD" : r === "stage" ? "Stage at HPD" : "";
             return (
               <div key={item.id} style={{borderBottom:i<vItems.length-1?"1px solid "+T.border:"none",padding:"12px 14px"}}>
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                {/* Header row — letter + name (left) and route + vendor
+                    (right). On mobile the secondary chips wrap below the
+                    name so the route select doesn't get crushed against
+                    the item title. */}
+                <div style={{display:"flex",alignItems:isMobile?"flex-start":"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
                   <span style={{width:22,height:22,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>
                     {String.fromCharCode(65+idx)}
                   </span>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:13,fontWeight:600,color:T.text}}>{item.name}</div>
+                  <div style={{flex:1,minWidth:isMobile?"60%":"auto"}}>
+                    <div style={{fontSize:13,fontWeight:600,color:T.text,wordBreak:"break-word"}}>{item.name}</div>
                     <div style={{fontSize:10,color:T.muted,marginTop:1}}>{[item.blank_vendor,item.style,item.color].filter(Boolean).join(" · ")} · {totalQty(item.buy_sheet_lines||[])} units</div>
                   </div>
                   {/* Per-item route override — rare. Default = use the
@@ -629,25 +774,27 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                       decorator A → decorator B handoff). Drives the
                       canonical status resolver: drop_ship auto-completes
                       on shipped; ship_through/stage expects HPD receive. */}
-                  <select value={itemRoute}
-                    onChange={async e=>{
-                      const v = e.target.value || null;
-                      setItemRoutes(prev => ({ ...prev, [item.id]: v || "" }));
-                      const { error } = await supabase.from("items").update({ shipping_route: v }).eq("id", item.id);
-                      if (error) console.error("Save shipping_route error:", error);
-                      if (onRecalcPhase) onRecalcPhase();
-                    }}
-                    title={itemRoute ? `Override: ${routeLabel(itemRoute)}` : `Default: ${routeLabel(shippingRoute) || "—"}`}
-                    style={{background:itemRoute?T.amber+"22":T.surface,border:`1px solid ${itemRoute?T.amber+"66":T.border}`,borderRadius:5,color:itemRoute?T.amber:T.muted,fontFamily:font,fontSize:10,padding:"3px 6px",outline:"none",cursor:"pointer"}}>
-                    <option value="">Route: job default</option>
-                    <option value="drop_ship">Drop ship</option>
-                    <option value="ship_through">Ship through HPD</option>
-                    <option value="stage">Stage at HPD</option>
-                  </select>
-                  <div style={{fontSize:11,color:T.muted,fontFamily:mono}}>{getCostProd(item.id)?.printVendor||"—"}</div>
-                  {isSaving&&<div style={{fontSize:9,color:T.amber}}>saving…</div>}
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",flexShrink:0,width:isMobile?"100%":undefined}}>
+                    <select value={itemRoute}
+                      onChange={async e=>{
+                        const v = e.target.value || null;
+                        setItemRoutes(prev => ({ ...prev, [item.id]: v || "" }));
+                        const { error } = await supabase.from("items").update({ shipping_route: v }).eq("id", item.id);
+                        if (error) console.error("Save shipping_route error:", error);
+                        if (onRecalcPhase) onRecalcPhase();
+                      }}
+                      title={itemRoute ? `Override: ${routeLabel(itemRoute)}` : `Default: ${routeLabel(shippingRoute) || "—"}`}
+                      style={{background:itemRoute?T.amber+"22":T.surface,border:`1px solid ${itemRoute?T.amber+"66":T.border}`,borderRadius:5,color:itemRoute?T.amber:T.muted,fontFamily:font,fontSize:10,padding:"3px 6px",outline:"none",cursor:"pointer",flex:isMobile?1:"none",minWidth:0}}>
+                      <option value="">Route: job default</option>
+                      <option value="drop_ship">Drop ship</option>
+                      <option value="ship_through">Ship through HPD</option>
+                      <option value="stage">Stage at HPD</option>
+                    </select>
+                    <div style={{fontSize:11,color:T.muted,fontFamily:mono}}>{getCostProd(item.id)?.printVendor||"—"}</div>
+                    {isSaving&&<div style={{fontSize:9,color:T.amber}}>saving…</div>}
+                  </div>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:8}}>
                   {fieldInput("drive_link","https://drive.google.com/...",{label:"Production files link",mono:true})}
                   {fieldInput("incoming_goods","e.g. Blanks from S&S — PO #12345",{label:"Incoming goods"})}
                   {fieldInput("production_notes_po","Special instructions for decorator",{label:"Production notes",multiline:true})}

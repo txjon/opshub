@@ -249,7 +249,7 @@ export default function NewJobPage() {
           <span style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: font, display: "block", marginBottom: 10 }}>Project Details</span>
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
             <div>
-              <label style={s.label}>Project memo</label>
+              <label style={s.label}>Project memo <span style={{color:T.faint,fontWeight:400}}>(Client PO, etc)</span></label>
               <input value={form.title} onChange={e => set("title", e.target.value)} style={s.input} />
             </div>
             <div>
