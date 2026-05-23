@@ -1351,58 +1351,16 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </button>
             )}
             <button onClick={async()=>{
-                if(!window.confirm(`Duplicate "${job.title}" with all items and costing?`)) return;
-                const {data:newJob}=await supabase.from("jobs").insert({
-                  title:job.title+" (Copy)",job_type:job.job_type,phase:"intake",priority:job.priority,
-                  payment_terms:job.payment_terms,target_ship_date:null,
-                  type_meta:(()=>{const m={...(job.type_meta||{})}; delete m.qb_invoice_id; delete m.qb_invoice_number; delete m.qb_payment_link; delete m.qb_tax_amount; delete m.qb_total_with_tax; delete m.po_sent_vendors; return m;})(),
-                  notes:job.notes,client_id:job.client_id,job_number:"",
-                  costing_data:job.costing_data||null,costing_summary:null,
-                  quote_approved:false,quote_approved_at:null,
-                }).select("id").single();
-                if(!newJob) return;
-                // Copy items + buy sheet lines
-                const idMap:Record<string,string>={};
-                for(const item of items){
-                  const {data:ni}=await supabase.from("items").insert({
-                    job_id:newJob.id,name:item.name,blank_vendor:item.blank_vendor,blank_sku:item.blank_sku,
-                    cost_per_unit:item.cost_per_unit,sell_per_unit:item.sell_per_unit,status:"tbd",
-                    artwork_status:"not_started",sort_order:item.sort_order,
-                    blank_costs:(item as any).blank_costs||null,
-                    garment_type:(item as any).garment_type||null,
-                    drive_link:(item as any).drive_link||null,
-                  }).select("id").single();
-                  if(ni){
-                    idMap[item.id]=ni.id;
-                    if(item.sizes?.length){
-                      await supabase.from("buy_sheet_lines").insert(
-                        item.sizes.map((sz:string)=>({item_id:ni.id,size:sz,qty_ordered:item.qtys?.[sz]||0,qty_shipped_from_vendor:0,qty_received_at_hpd:0,qty_shipped_to_customer:0}))
-                      );
-                    }
-                    // Copy artwork/mockups/proofs (same Drive files, new item IDs)
-                    const {data:files}=await supabase.from("item_files").select("*").eq("item_id",item.id);
-                    if(files?.length){
-                      await supabase.from("item_files").insert(
-                        files.map((f:any)=>({
-                          item_id:ni.id,file_name:f.file_name,stage:f.stage,
-                          drive_file_id:f.drive_file_id,drive_link:f.drive_link,
-                          approval:f.stage==="proof"?"pending":f.approval,
-                          approved_at:null,
-                        }))
-                      );
-                    }
-                  }
+                if(!window.confirm(`Duplicate "${job.title}" as a re-order? Items, costing, contacts, art, and approved proofs carry over.`)) return;
+                try {
+                  const res = await fetch(`/api/jobs/${job.id}/duplicate`, { method: "POST" });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data?.error || "Duplication failed");
+                  if (!data?.jobId) throw new Error("No new job id returned");
+                  router.push(`/jobs/${data.jobId}`);
+                } catch (e: any) {
+                  alert(`Duplicate failed: ${e?.message || "Unknown error"}`);
                 }
-                // Remap costing_data item IDs
-                if(newJob && job.costing_data?.costProds){
-                  const remapped=job.costing_data.costProds.map((cp:any)=>({...cp,id:idMap[cp.id]||cp.id}));
-                  await supabase.from("jobs").update({costing_data:{...job.costing_data,costProds:remapped}}).eq("id",newJob.id);
-                }
-                // Copy contacts
-                for(const c of contacts){
-                  await supabase.from("job_contacts").insert({job_id:newJob.id,contact_id:c.id,role_on_job:c.role_on_job});
-                }
-                router.push(`/jobs/${newJob.id}`);
               }}
               style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}

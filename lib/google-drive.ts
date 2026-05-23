@@ -123,6 +123,34 @@ export async function deleteFile(fileId: string): Promise<void> {
   await drive.files.delete({ fileId });
 }
 
+// Create a shortcut (alias) pointing at an existing file. Shortcuts
+// are zero-storage Drive objects whose `shortcutDetails.targetId`
+// points at the real file. Used by job duplication so re-order
+// projects see the original art/proofs in their Drive folder without
+// physically copying the files. If the target file is moved or
+// deleted, the shortcut breaks — caller is responsible for not
+// cleaning up source projects that have downstream re-orders.
+export async function createShortcut(
+  targetFileId: string,
+  name: string,
+  parentFolderId: string
+): Promise<{ fileId: string; webViewLink: string }> {
+  const drive = getDrive();
+  const res = await drive.files.create({
+    requestBody: {
+      name,
+      mimeType: "application/vnd.google-apps.shortcut",
+      parents: [parentFolderId],
+      shortcutDetails: { targetId: targetFileId },
+    },
+    fields: "id,webViewLink",
+  });
+  return {
+    fileId: res.data.id!,
+    webViewLink: res.data.webViewLink || "",
+  };
+}
+
 // Get a thumbnail/preview link for a file
 export function getThumbnailUrl(fileId: string): string {
   return `https://drive.google.com/thumbnail?id=${fileId}&sz=w200`;
