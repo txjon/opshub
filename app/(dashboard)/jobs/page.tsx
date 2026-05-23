@@ -152,6 +152,10 @@ export default function JobsPage() {
     const activeDates = Object.entries(poDates)
       .filter(([v, d]) => d && activeVendors.has(v))
       .map(([, d]) => d as string);
+    // ASAP is a sentinel set on the PO tab — beats any calendar date
+    // for urgency. Returning the string as-is so render/sort can
+    // special-case it (calendar parsing would yield NaN/Invalid Date).
+    if (activeDates.includes("ASAP")) return "ASAP";
     if (activeDates.length > 0) return activeDates.sort()[0];
     // No active vendors with dates. If items exist and everything has
     // shipped, hide the date entirely (no remaining commitment). If no
@@ -240,8 +244,11 @@ export default function JobsPage() {
     if (sortKey === "target_ship_date") {
       const aDate = getInHandsDate(a);
       const bDate = getInHandsDate(b);
-      av = aDate ? new Date(aDate).getTime() : Infinity;
-      bv = bDate ? new Date(bDate).getTime() : Infinity;
+      // ASAP sorts first (0); missing dates last (Infinity); calendar
+      // dates in the middle. Without the ASAP guard, new Date("ASAP")
+      // returns NaN and the comparator becomes non-deterministic.
+      av = aDate === "ASAP" ? 0 : aDate ? new Date(aDate).getTime() : Infinity;
+      bv = bDate === "ASAP" ? 0 : bDate ? new Date(bDate).getTime() : Infinity;
     } else if (sortKey === "client") {
       av = (a.clients?.name || "").toLowerCase();
       bv = (b.clients?.name || "").toLowerCase();
@@ -369,7 +376,11 @@ export default function JobsPage() {
         {sorted.map(job => {
           const phaseLabel = PHASE_LABELS[job.phase] || "—";
           const ih = getInHandsDate(job);
-          const daysLeft = ih ? Math.ceil((new Date(ih).getTime() - now.getTime()) / (1000*60*60*24)) : null;
+          const isAsap = ih === "ASAP";
+          // ASAP can't be a count of days — leave daysLeft null so the
+          // numeric branches below skip it and the render special-cases
+          // the ASAP label/color instead.
+          const daysLeft = ih && !isAsap ? Math.ceil((new Date(ih).getTime() - now.getTime()) / (1000*60*60*24)) : null;
           const totalUnits = (job.items||[]).reduce((a:number,it:any) =>
             a + (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0), 0);
 
@@ -409,15 +420,17 @@ export default function JobsPage() {
           // (intake / pending / ready / production) jobs still get the
           // urgency coloring + the "Xd over" wording.
           const isClosed = ["complete","cancelled","receiving","shipping","fulfillment"].includes(job.phase);
-          const dateColor = daysLeft === null
-            ? T.muted
-            : isClosed
+          const dateColor = isAsap && !isClosed
+            ? T.red
+            : daysLeft === null
               ? T.muted
-              : daysLeft < 0
-                ? T.red
-                : daysLeft <= 3
-                  ? T.amber
-                  : T.muted;
+              : isClosed
+                ? T.muted
+                : daysLeft < 0
+                  ? T.red
+                  : daysLeft <= 3
+                    ? T.amber
+                    : T.muted;
 
           if (isMobile) {
             return (
@@ -455,18 +468,19 @@ export default function JobsPage() {
                     </span>
                   )}
                 </div>
-                {daysLeft !== null && (
+                {(daysLeft !== null || isAsap) && (
                   <div style={{ display:"flex", alignItems:"baseline", gap:6, fontFamily:mono }}>
                     <span style={{ fontSize:12, fontWeight:700, color:dateColor }}>
                       {job.phase === "complete" ? "Complete"
                         : job.phase === "cancelled" ? "Cancelled"
                         : ["receiving","shipping","fulfillment"].includes(job.phase) ? "At HPD"
-                        : daysLeft < 0 ? Math.abs(daysLeft)+"d over"
+                        : isAsap ? "ASAP"
+                        : daysLeft! < 0 ? Math.abs(daysLeft!)+"d over"
                         : daysLeft === 0 ? "Ships today"
                         : daysLeft+"d to ship"}
                     </span>
                     <span style={{ fontSize:10, color:T.faint }}>
-                      {ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
+                      {isAsap ? "—" : ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
                     </span>
                   </div>
                 )}
@@ -572,15 +586,15 @@ export default function JobsPage() {
                     {pri.label}
                   </span>
                 )}
-                {daysLeft !== null ? (
+                {(daysLeft !== null || isAsap) ? (
                   <>
                     {!isClosed && (
                       <div style={{ fontSize:13, fontWeight:700, color:dateColor, fontFamily:mono, whiteSpace:"nowrap" }}>
-                        {daysLeft<0?Math.abs(daysLeft)+"d over":daysLeft===0?"Today":daysLeft+"d"}
+                        {isAsap ? "ASAP" : daysLeft!<0?Math.abs(daysLeft!)+"d over":daysLeft===0?"Today":daysLeft+"d"}
                       </div>
                     )}
                     <div style={{ fontSize:isClosed?12:10, fontWeight:isClosed?600:400, color:isClosed?T.muted:T.faint, whiteSpace:"nowrap", fontFamily:isClosed?mono:undefined }}>
-                      {ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
+                      {isAsap ? "—" : ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
                     </div>
                   </>
                 ) : !pri && <span style={{ fontSize:10, color:T.faint }}>No date</span>}
