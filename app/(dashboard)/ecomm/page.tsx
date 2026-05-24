@@ -1,8 +1,12 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { T, font, mono } from "@/lib/theme";
+import { useWarehouse, type WarehouseItem } from "@/lib/use-warehouse";
+import { useShipments, type Shipment } from "@/lib/use-shipments";
+
+type PreorderStatus = "planning" | "building" | "open" | "closed" | "producing" | "fulfilling" | "complete";
 
 type EcommProject = {
   id: string;
@@ -22,6 +26,32 @@ type EcommProject = {
   notes: string | null;
   created_at: string;
   line_count: number;
+  // Pre-order-specific workflow status (migration 079). Null for non-
+  // preorder modes; required for preorders.
+  preorder_status: PreorderStatus | null;
+  product_count: number;
+  products_built: number;
+  source_job_id: string | null;
+};
+
+const PREORDER_STATUS_LABELS: Record<PreorderStatus, string> = {
+  planning: "Planning",
+  building: "Building in Shopify",
+  open: "Open · live",
+  closed: "Closed · pending push",
+  producing: "Producing",
+  fulfilling: "Fulfilling",
+  complete: "Complete",
+};
+
+const PREORDER_STATUS_COLORS: Record<PreorderStatus, string> = {
+  planning: "var(--muted)",      // resolved below via T at render time
+  building: "var(--accent)",
+  open: "var(--green)",
+  closed: "var(--amber)",
+  producing: "var(--accent)",
+  fulfilling: "var(--purple)",
+  complete: "var(--faint)",
 };
 
 type Client = { id: string; name: string };
@@ -39,13 +69,54 @@ const PLATFORM_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+type EcommTab = "intake" | EcommProject["mode"];
+
 export default function EcommPage() {
   const supabase = createClient();
+  const { jobs: warehouseJobs, bulkMarkWebstoreEntered } = useWarehouse();
+  const shipments = useShipments(warehouseJobs);
   const [projects, setProjects] = useState<EcommProject[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<EcommProject["mode"]>("preorder");
+  const [tab, setTab] = useState<EcommTab>("intake");
   const [showNew, setShowNew] = useState(false);
+  // Intake modal — opens on row click; shows items awaiting Shopify
+  // entry with bulk "Mark entered" action.
+  const [intakeShipmentKey, setIntakeShipmentKey] = useState<string | null>(null);
+  const [intakeSelected, setIntakeSelected] = useState<Set<string>>(new Set());
+
+  // Intake queue — shipments on stage-route jobs that have received
+  // items not yet keyed into Shopify. Front office's daily work surface.
+  const intakeShipments = useMemo(() => {
+    return shipments.filter(s => {
+      const isStage = s.jobs.some(j => j.shipping_route === "stage");
+      if (!isStage) return false;
+      const receivedNotEntered = s.items.filter(it => it.received_at_hpd && !it.webstore_entered_at);
+      return receivedNotEntered.length > 0;
+    });
+  }, [shipments]);
+
+  const intakeShipment = useMemo(
+    () => intakeShipmentKey ? intakeShipments.find(s => s.key === intakeShipmentKey) || shipments.find(s => s.key === intakeShipmentKey) || null : null,
+    [intakeShipmentKey, intakeShipments, shipments],
+  );
+
+  // Reset selection on open + initialize to all-eligible
+  useEffect(() => {
+    if (intakeShipment) {
+      const eligible = intakeShipment.items.filter(it => it.received_at_hpd && !it.webstore_entered_at);
+      setIntakeSelected(new Set(eligible.map(it => it.id)));
+    } else {
+      setIntakeSelected(new Set());
+    }
+  }, [intakeShipmentKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!intakeShipmentKey) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setIntakeShipmentKey(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [intakeShipmentKey]);
   const [newForm, setNewForm] = useState({
     name: "",
     client_id: "",
@@ -64,7 +135,7 @@ export default function EcommPage() {
 
   async function loadAll() {
     setLoading(true);
-    const [projRes, clientRes, invCounts] = await Promise.all([
+    const [projRes, clientRes, invCounts, productsRes] = await Promise.all([
       supabase
         .from("fulfillment_projects")
         .select("*, clients(name)")
@@ -72,17 +143,30 @@ export default function EcommPage() {
         .order("created_at", { ascending: false }),
       supabase.from("clients").select("id, name").order("name"),
       supabase.from("fulfillment_inventory").select("project_id"),
+      // Preorder products — used to roll up Built-in-Shopify progress
+      // per pre-order on the list view. Cheap join client-side.
+      supabase.from("preorder_products").select("preorder_id, is_built_in_shopify"),
     ]);
 
     const lineCountByProject: Record<string, number> = {};
     for (const row of (invCounts.data || [])) {
       lineCountByProject[(row as any).project_id] = (lineCountByProject[(row as any).project_id] || 0) + 1;
     }
+    const productCountByPreorder: Record<string, { total: number; built: number }> = {};
+    for (const row of (productsRes.data || []) as any[]) {
+      const k = row.preorder_id;
+      if (!productCountByPreorder[k]) productCountByPreorder[k] = { total: 0, built: 0 };
+      productCountByPreorder[k].total++;
+      if (row.is_built_in_shopify) productCountByPreorder[k].built++;
+    }
 
     setProjects(((projRes.data || []) as any[]).map(p => ({
       ...p,
       client_name: p.clients?.name || "—",
       line_count: lineCountByProject[p.id] || 0,
+      product_count: productCountByPreorder[p.id]?.total || 0,
+      products_built: productCountByPreorder[p.id]?.built || 0,
+      preorder_status: p.preorder_status || (p.mode === "preorder" ? "planning" : null),
     })));
     setClients(clientRes.data || []);
     setLoading(false);
@@ -104,6 +188,10 @@ export default function EcommPage() {
       listed_by: newForm.listed_by || null,
       notes: newForm.notes.trim() || null,
       status: "staging",
+      // Pre-orders start in 'planning' so they show up on the new
+      // workflow-aware list. Other modes (drop / always_on) skip this
+      // field; they keep using the legacy fulfillment_projects flow.
+      preorder_status: newForm.mode === "preorder" ? "planning" : null,
     };
     await supabase.from("fulfillment_projects").insert(insert);
     setNewForm({
@@ -116,7 +204,7 @@ export default function EcommPage() {
     loadAll();
   }
 
-  const tabProjects = projects.filter(p => p.mode === tab);
+  const tabProjects = tab === "intake" ? [] : projects.filter(p => p.mode === tab);
   const counts = {
     preorder: projects.filter(p => p.mode === "preorder").length,
     drop: projects.filter(p => p.mode === "drop").length,
@@ -153,9 +241,11 @@ export default function EcommPage() {
         ))}
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — Intake first (daily working list for front office),
+          then the project-management tabs. */}
       <div style={{ display: "flex", gap: 4, padding: 4, background: T.surface, borderRadius: 8 }}>
         {([
+          { id: "intake" as const, label: "Intake", count: intakeShipments.length },
           { id: "preorder" as const, label: "Pre-orders", count: counts.preorder },
           { id: "drop" as const, label: "In-stock drops", count: counts.drop },
           { id: "always_on" as const, label: "Always-on stores", count: counts.always_on },
@@ -168,11 +258,83 @@ export default function EcommPage() {
         ))}
       </div>
 
-      {/* + New */}
+      {/* ── INTAKE TAB — Shopify entry queue ── */}
+      {tab === "intake" && (
+        <>
+          {intakeShipments.length === 0 ? (
+            <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.faint, lineHeight: 1.6 }}>
+              No items waiting for Shopify entry.<br />
+              Stage-route shipments appear here once the warehouse marks them received.
+            </div>
+          ) : (
+            intakeShipments.map(s => {
+              const primary = s.jobs[0];
+              const eligible = s.items.filter(it => it.received_at_hpd && !it.webstore_entered_at);
+              const eligibleUnits = eligible.reduce((a, it) => {
+                const r = it.received_qtys || {};
+                const sq = it.ship_qtys || {};
+                const o = it.qtys || {};
+                let total = 0;
+                for (const sz of it.sizes) total += (r as any)[sz] ?? (sq as any)[sz] ?? (o as any)[sz] ?? 0;
+                return a + total;
+              }, 0);
+              const receivedDays = s.received_at ? Math.floor((Date.now() - new Date(s.received_at).getTime()) / 86400000) : 0;
+              const isAged = receivedDays >= 3;
+              return (
+                <div key={s.key}
+                  onClick={() => setIntakeShipmentKey(s.key)}
+                  style={{
+                    ...card, padding: "14px 18px", display: "flex", gap: 16,
+                    alignItems: "flex-start", cursor: "pointer",
+                    transition: "border-color 0.12s",
+                    borderLeft: `3px solid ${isAged ? T.amber : T.accent}`,
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>
+                        {primary?.client_name || "No client"}
+                      </span>
+                      {primary && (
+                        <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>{primary.display_number}</span>
+                      )}
+                    </div>
+                    {primary?.title && (
+                      <div style={{ fontSize: 12, color: T.muted, marginTop: 2, wordBreak: "break-word" }}>{primary.title}</div>
+                    )}
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 6, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      <span>from <strong style={{ color: T.text, fontWeight: 600 }}>{s.short_code || s.decorator_name}</strong></span>
+                      {s.received_at && (
+                        <span style={{ color: isAged ? T.amber : T.faint }}>
+                          received {new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          {receivedDays >= 1 && ` · ${receivedDays}d ago`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 110 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.amber, fontFamily: mono }}>
+                      {eligible.length} item{eligible.length === 1 ? "" : "s"}
+                    </div>
+                    <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                      {eligibleUnits.toLocaleString()} units
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </>
+      )}
+
+      {/* + New — only shown on project-management tabs */}
+      {tab !== "intake" && (
       <button onClick={() => setShowNew(!showNew)}
         style={{ alignSelf: "flex-start", padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: font }}>
         + New Ecomm Project
       </button>
+      )}
 
       {/* New project form */}
       {showNew && (
@@ -261,66 +423,257 @@ export default function EcommPage() {
         </div>
       )}
 
-      {/* Project list for active tab */}
-      {tabProjects.length === 0 ? (
+      {/* Project list for active tab — only on project-management tabs */}
+      {tab !== "intake" && tabProjects.length === 0 ? (
         <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.faint }}>
-          No {MODE_LABELS[tab].toLowerCase()} projects yet. Click "+ New Ecomm Project" to start.
+          No {MODE_LABELS[tab as EcommProject["mode"]].toLowerCase()} projects yet. Click "+ New Ecomm Project" to start.
         </div>
-      ) : (
+      ) : tab === "intake" ? null : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {tabProjects.map(proj => (
-            <Link key={proj.id} href={`/ecomm/${proj.id}`} style={{ textDecoration: "none", color: T.text }}>
-              <div style={{ ...card, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600 }}>{proj.name}</span>
-                    <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: proj.status === "active" ? T.greenDim : T.amberDim, color: proj.status === "active" ? T.green : T.amber, fontWeight: 600, textTransform: "capitalize" }}>
-                      {proj.status}
-                    </span>
+          {tabProjects.map(proj => {
+            const isPreorder = proj.mode === "preorder";
+            // Status-driven color tone for the left rail. Lets the list
+            // read like a workflow board: planning is muted, open is
+            // green, closed needs action (amber), etc.
+            const statusToneFor = (s: PreorderStatus | null) => {
+              if (!s) return T.border;
+              const map: Record<PreorderStatus, string> = {
+                planning: T.muted,
+                building: T.accent,
+                open: T.green,
+                closed: T.amber,
+                producing: T.accent,
+                fulfilling: T.purple,
+                complete: T.faint,
+              };
+              return map[s];
+            };
+            const tone = isPreorder ? statusToneFor(proj.preorder_status) : T.border;
+            return (
+              <Link key={proj.id} href={`/ecomm/${proj.id}`} style={{ textDecoration: "none", color: T.text }}>
+                <div style={{ ...card, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, borderLeft: `3px solid ${tone}` }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 14, fontWeight: 700 }}>{proj.name}</span>
+                      {isPreorder && proj.preorder_status && (
+                        <span style={{ fontSize: 10, fontWeight: 800, color: tone, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                          {PREORDER_STATUS_LABELS[proj.preorder_status]}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                      {proj.client_name}
+                      {proj.platform && ` · ${PLATFORM_LABELS[proj.platform] || proj.platform}`}
+                      {proj.store_account && ` · ${proj.store_account}`}
+                    </div>
+                    {/* Product build progress — only shows when the
+                        pre-order has products defined. Visible cue for
+                        Abigail's Shopify-build task. */}
+                    {isPreorder && proj.product_count > 0 && (
+                      <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+                        Shopify build:&nbsp;
+                        <strong style={{ color: proj.products_built === proj.product_count ? T.green : T.text, fontFamily: mono }}>
+                          {proj.products_built}/{proj.product_count}
+                        </strong>
+                      </div>
+                    )}
                   </div>
-                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                    {proj.client_name}
-                    {proj.platform && ` · ${PLATFORM_LABELS[proj.platform] || proj.platform}`}
-                    {proj.store_account && ` · ${proj.store_account}`}
+                  {/* Dates */}
+                  <div style={{ display: "flex", gap: 14, fontSize: 10, color: T.muted, flexShrink: 0 }}>
+                    {proj.mode === "preorder" && proj.open_date && (
+                      <div>
+                        <div style={{ color: T.faint, fontSize: 9 }}>Opens</div>
+                        <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{new Date(proj.open_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                      </div>
+                    )}
+                    {proj.mode === "preorder" && proj.close_date && (
+                      <div>
+                        <div style={{ color: T.faint, fontSize: 9 }}>Closes</div>
+                        <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{new Date(proj.close_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                      </div>
+                    )}
+                    {proj.target_ship_date && (
+                      <div>
+                        <div style={{ color: T.faint, fontSize: 9 }}>Ship</div>
+                        <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{new Date(proj.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                      </div>
+                    )}
+                    {!isPreorder && (
+                      <div>
+                        <div style={{ color: T.faint, fontSize: 9 }}>Lines</div>
+                        <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{proj.line_count}</div>
+                      </div>
+                    )}
                   </div>
+                  <span style={{ fontSize: 14, color: T.faint }}>›</span>
                 </div>
-                {/* Dates */}
-                <div style={{ display: "flex", gap: 14, fontSize: 10, color: T.muted, flexShrink: 0 }}>
-                  {proj.mode === "preorder" && proj.open_date && (
-                    <div>
-                      <div style={{ color: T.faint, fontSize: 9 }}>Opens</div>
-                      <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{new Date(proj.open_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-                    </div>
-                  )}
-                  {proj.mode === "preorder" && proj.close_date && (
-                    <div>
-                      <div style={{ color: T.faint, fontSize: 9 }}>Closes</div>
-                      <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{new Date(proj.close_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-                    </div>
-                  )}
-                  {proj.target_ship_date && (
-                    <div>
-                      <div style={{ color: T.faint, fontSize: 9 }}>Ship</div>
-                      <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{new Date(proj.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-                    </div>
-                  )}
-                  <div>
-                    <div style={{ color: T.faint, fontSize: 9 }}>Lines</div>
-                    <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{proj.line_count}</div>
-                  </div>
-                </div>
-                <span style={{ fontSize: 14, color: T.faint }}>›</span>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
         </div>
       )}
 
-      {/* Footer hint about what's coming */}
-      <div style={{ marginTop: 12, padding: "12px 14px", background: T.surface, border: `1px dashed ${T.border}`, borderRadius: 8, fontSize: 11, color: T.muted, lineHeight: 1.5 }}>
-        <div style={{ fontWeight: 600, color: T.text, marginBottom: 4 }}>Foundation in place — what's next:</div>
-        Phase B will add Shopify polling for inventory + order velocity, replenishment alerts when SKUs run low, and the "Close pre-order" tally that auto-fills a Buy Sheet on the linked Labs job.
-      </div>
+      {/* Footer hint about what's coming — hidden on intake tab to keep
+          the working list uncluttered. */}
+      {tab !== "intake" && (
+        <div style={{ marginTop: 12, padding: "12px 14px", background: T.surface, border: `1px dashed ${T.border}`, borderRadius: 8, fontSize: 11, color: T.muted, lineHeight: 1.5 }}>
+          <div style={{ fontWeight: 600, color: T.text, marginBottom: 4 }}>Foundation in place — what's next:</div>
+          Phase B will add Shopify polling for inventory + order velocity, replenishment alerts when SKUs run low, and the "Close pre-order" tally that auto-fills a Buy Sheet on the linked Labs job.
+        </div>
+      )}
+
+      {/* Intake modal — Shopify-entry workflow. Front office picks items
+          they've keyed into Shopify and marks them entered. Items still
+          pending get checkboxes + bulk action; already-entered items
+          render greyed so the modal still works as an audit view if
+          revisited later. */}
+      {intakeShipment && (() => {
+        const eligible = intakeShipment.items.filter(it => it.received_at_hpd && !it.webstore_entered_at);
+        const alreadyEntered = intakeShipment.items.filter(it => !!it.webstore_entered_at);
+        const selectedEligible = eligible.filter(it => intakeSelected.has(it.id));
+        const allSelected = eligible.length > 0 && eligible.every(it => intakeSelected.has(it.id));
+        const primary = intakeShipment.jobs[0];
+        return (
+          <div onClick={() => setIntakeShipmentKey(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)" }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.card, borderRadius: 14, width: "min(720px, 100%)", maxHeight: "94vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${T.border}` }}>
+              <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{primary?.client_name || "No client"}</div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 2, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {primary?.title && <span>{primary.title}</span>}
+                    <span style={{ fontFamily: mono, color: T.faint }}>{primary?.display_number || ""}</span>
+                    <span style={{ color: T.faint }}>from {intakeShipment.short_code || intakeShipment.decorator_name}</span>
+                  </div>
+                </div>
+                <button onClick={() => setIntakeShipmentKey(null)}
+                  style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
+              </div>
+
+              <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+                {/* Selection header */}
+                {eligible.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <button onClick={() => {
+                      setIntakeSelected(prev => {
+                        const next = new Set(prev);
+                        if (allSelected) for (const it of eligible) next.delete(it.id);
+                        else for (const it of eligible) next.add(it.id);
+                        return next;
+                      });
+                    }}
+                      style={{
+                        fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
+                        background: allSelected ? T.text : "transparent",
+                        border: `1px solid ${allSelected ? T.text : T.border}`,
+                        color: allSelected ? "#fff" : T.text,
+                        cursor: "pointer", fontFamily: font,
+                      }}>
+                      {allSelected ? "Unselect all" : "Select all"}
+                    </button>
+                    <span style={{ fontSize: 11, color: T.muted }}>
+                      {selectedEligible.length} of {eligible.length} selected
+                    </span>
+                  </div>
+                )}
+
+                {/* Eligible items — checkboxes for picking */}
+                {eligible.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {eligible.map(it => {
+                      const isSelected = intakeSelected.has(it.id);
+                      const r = it.received_qtys || {};
+                      const sq = it.ship_qtys || {};
+                      const o = it.qtys || {};
+                      let units = 0;
+                      for (const sz of it.sizes) units += (r as any)[sz] ?? (sq as any)[sz] ?? (o as any)[sz] ?? 0;
+                      return (
+                        <label key={it.id}
+                          style={{
+                            padding: "10px 12px", borderRadius: 8,
+                            background: isSelected ? T.card : T.surface,
+                            border: `1px solid ${isSelected ? T.accent + "55" : T.border}`,
+                            display: "flex", alignItems: "center", gap: 12, cursor: "pointer",
+                          }}>
+                          <input type="checkbox" checked={isSelected}
+                            onChange={() => {
+                              setIntakeSelected(prev => {
+                                const next = new Set(prev);
+                                if (next.has(it.id)) next.delete(it.id);
+                                else next.add(it.id);
+                                return next;
+                              });
+                            }}
+                            style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }} />
+                          <span style={{ fontSize: 11, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{it.letter}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{it.name}</div>
+                            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                              {it.blank_vendor || "—"}
+                              {it.blank_sku && <span style={{ marginLeft: 8 }}>{it.blank_sku}</span>}
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 12, color: T.muted, fontFamily: mono, whiteSpace: "nowrap" }}>
+                            {units} units
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Already-entered items — muted, audit-only */}
+                {alreadyEntered.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>
+                      Already entered in Shopify ({alreadyEntered.length})
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {alreadyEntered.map(it => (
+                        <div key={it.id} style={{ padding: "6px 10px", fontSize: 12, color: T.faint, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                          <span>
+                            <span style={{ fontFamily: mono, marginRight: 6 }}>{it.letter}</span>
+                            {it.name}
+                          </span>
+                          {it.webstore_entered_at && (
+                            <span style={{ fontSize: 10, fontFamily: mono }}>
+                              {new Date(it.webstore_entered_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer — bulk action */}
+              <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
+                <button onClick={() => setIntakeShipmentKey(null)}
+                  style={{ padding: "8px 16px", background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                  Cancel
+                </button>
+                <button onClick={async () => {
+                  if (selectedEligible.length === 0) return;
+                  await bulkMarkWebstoreEntered(selectedEligible);
+                  setIntakeShipmentKey(null);
+                }}
+                  disabled={selectedEligible.length === 0}
+                  style={{
+                    padding: "8px 18px", background: selectedEligible.length === 0 ? T.surface : T.green,
+                    color: selectedEligible.length === 0 ? T.faint : "#fff",
+                    borderRadius: 8, fontSize: 12, fontWeight: 700,
+                    cursor: selectedEligible.length === 0 ? "not-allowed" : "pointer",
+                    border: "none", fontFamily: font,
+                  }}>
+                  Mark entered in Shopify · {selectedEligible.length}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
