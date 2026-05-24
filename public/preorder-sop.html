@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pre-order SOP — OpsHub</title>
+<style>
+  :root {
+    --bg: #f6f6f8;
+    --card: #fff;
+    --text: #1a1a24;
+    --muted: #6b7080;
+    --faint: #a0a4b0;
+    --border: #e4e6ec;
+    --accent: #d83b6f;
+    --green: #1aa462;
+    --amber: #e8a020;
+    --purple: #9b4ed1;
+    --blue: #2b6cd0;
+    --red: #d24545;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans','Helvetica Neue',Arial,sans-serif; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 8px; }
+  h2 { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 12px; }
+  h3 { font-size: 14px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+  p { line-height: 1.6; margin: 0 0 12px; color: var(--text); }
+  .lead { font-size: 15px; color: var(--muted); margin: 0 0 28px; line-height: 1.55; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px; margin-bottom: 14px; }
+  .card.tight { padding: 14px 18px; }
+  .pill { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; padding: 3px 10px; border-radius: 99px; }
+  .label { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+  .meta { font-size: 12px; color: var(--muted); }
+  .mono { font-family: 'IBM Plex Mono', 'SF Mono', Menlo, monospace; }
+  .row { display: flex; gap: 16px; }
+  .col { flex: 1; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table th { text-align: left; padding: 10px 12px; background: var(--bg); font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid var(--border); }
+  table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.5; }
+  table tr:last-child td { border-bottom: none; }
+  ul, ol { padding-left: 22px; margin: 8px 0 0; }
+  li { margin-bottom: 6px; line-height: 1.55; }
+  code { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .phase { display: flex; align-items: stretch; gap: 0; margin-bottom: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .phase .rail { width: 4px; flex-shrink: 0; }
+  .phase .body { flex: 1; padding: 18px 22px; }
+  .phase-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
+  .phase-num { font-size: 10px; font-weight: 800; color: var(--faint); letter-spacing: 0.12em; }
+  .phase-title { font-size: 17px; font-weight: 800; }
+  .phase-status { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+  .phase-owner { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+  .phase-owner strong { color: var(--text); }
+  .phase-section { margin-top: 14px; }
+  .phase-section h4 { font-size: 9px; font-weight: 800; color: var(--faint); text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 6px; }
+  .arrow { text-align: center; font-size: 20px; color: var(--faint); padding: 0; margin: -4px 0 -4px; }
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .gray { color: var(--muted); }
+  .strong { font-weight: 700; color: var(--text); }
+  .badge-planning { background: rgba(107, 112, 128, 0.12); color: var(--muted); }
+  .badge-building { background: rgba(43, 108, 208, 0.1); color: var(--blue); }
+  .badge-open { background: rgba(26, 164, 98, 0.1); color: var(--green); }
+  .badge-closed { background: rgba(232, 160, 32, 0.12); color: var(--amber); }
+  .badge-producing { background: rgba(216, 59, 111, 0.1); color: var(--accent); }
+  .badge-fulfilling { background: rgba(155, 78, 209, 0.1); color: var(--purple); }
+  .badge-complete { background: rgba(160, 164, 176, 0.15); color: var(--faint); }
+  .rail-planning { background: var(--muted); }
+  .rail-building { background: var(--blue); }
+  .rail-open { background: var(--green); }
+  .rail-closed { background: var(--amber); }
+  .rail-producing { background: var(--accent); }
+  .rail-fulfilling { background: var(--purple); }
+  .rail-complete { background: var(--faint); }
+  .role-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  .role-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .role-card .role { font-size: 14px; font-weight: 800; margin-bottom: 4px; }
+  .role-card .scope { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--border); font-size: 11px; color: var(--faint); }
+  @media print {
+    body { background: white; }
+    .wrap { padding: 24px 0; max-width: none; }
+    .card, .phase, .role-card { box-shadow: none; }
+    .phase { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Pre-order SOP</h1>
+  <p class="lead">
+    How pre-orders move through OpsHub from idea to fulfillment.
+    Each phase has one owner — when a phase ends, ownership hands off to the next person.
+    The page you act in is on the right.
+  </p>
+
+  <h3>Who does what</h3>
+  <div class="role-grid">
+    <div class="role-card">
+      <div class="role">Taylor</div>
+      <div class="scope">Scopes the pre-order with the client. Owns Planning. Sets up products, dates, target ship.</div>
+    </div>
+    <div class="role-card">
+      <div class="role">Abigail</div>
+      <div class="scope">Owns Shopify. Builds product listings, marks them ready, fields customer service. Also handles Shopify inventory entry on Intake.</div>
+    </div>
+    <div class="role-card">
+      <div class="role">Drake / Labs</div>
+      <div class="scope">Owns production. Receives the Labs job once the pre-order is pushed, manages costing, POs, decorator handoff.</div>
+    </div>
+    <div class="role-card">
+      <div class="role">Warehouse + ShipStation</div>
+      <div class="scope">Warehouse receives goods at HPD and confirms qtys. ShipStation handles daily fulfillment of customer orders.</div>
+    </div>
+  </div>
+
+  <h2 style="margin-top: 36px;">Lifecycle at a glance</h2>
+  <p class="lead" style="margin-bottom: 18px;">
+    Seven phases, end to end. Each has a status chip in OpsHub.
+  </p>
+
+  <div class="flow">
+
+    <!-- Phase 1 -->
+    <div class="phase">
+      <div class="rail rail-planning"></div>
+      <div class="body">
+        <div class="phase-header">
+          <span class="phase-num">PHASE 1</span>
+          <span class="phase-title">Planning</span>
+          <span class="phase-status badge-planning pill">Planning</span>
+        </div>
+        <div class="phase-owner">Owner: <strong>Taylor</strong> · with Drake + client</div>
+
+        <div class="phase-section">
+          <h4>Trigger</h4>
+          <p>Client agrees to do a pre-order. Initial scoping conversation has happened.</p>
+        </div>
+        <div class="phase-section">
+          <h4>What Taylor does in OpsHub</h4>
+          <ol>
+            <li>Go to <code>/ecomm</code> → <strong>Pre-orders</strong> tab → <strong>+ New Ecomm Project</strong></li>
+            <li>Fill in: <span class="mono">Project name</span> (e.g. "FOG May Pre-order"), <span class="mono">Client</span>, <span class="mono">Mode = Pre-order</span>, platform (Shopify), and the store URL if known.</li>
+            <li>Open the new pre-order. On the detail page:
+              <ul>
+                <li>Set <strong>Opens</strong> + <strong>Closes</strong> dates from the client agreement.</li>
+                <li>Set <strong>Target ship date</strong> using the quick buttons (3w / 4w / 5w / 6w from close).</li>
+                <li>Set <strong>Buffer %</strong> (typically 5–7 — covers damage and sample pulls).</li>
+                <li>Add each <strong>Product</strong>: name, blank vendor/SKU, sizes, retail price.</li>
+              </ul>
+            </li>
+            <li>When all products + dates are entered, click <strong>"Hand off to Abigail (Build in Shopify)"</strong> at the top of the page.</li>
+          </ol>
+        </div>
+        <div class="phase-section">
+          <h4>Status moves to</h4>
+          <p><span class="badge-building pill">Building in Shopify</span> — Abigail picks up.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <!-- Phase 2 -->
+    <div class="phase">
+      <div class="rail rail-building"></div>
+      <div class="body">
+        <div class="phase-header">
+          <span class="phase-num">PHASE 2</span>
+          <span class="phase-title">Building in Shopify</span>
+          <span class="phase-status badge-building pill">Building in Shopify</span>
+        </div>
+        <div class="phase-owner">Owner: <strong>Abigail</strong></div>
+
+        <div class="phase-section">
+          <h4>Trigger</h4>
+          <p>Taylor flipped the pre-order to Building.</p>
+        </div>
+        <div class="phase-section">
+          <h4>What Abigail does</h4>
+          <ol>
+            <li>Open the pre-order on <code>/ecomm</code> → click into it.</li>
+            <li>For each product listed, build the matching product in the client's Shopify store using the name, blank info, sizes, and retail price from OpsHub.</li>
+            <li>When a Shopify product is live, <strong>tick the checkbox</strong> next to that product in OpsHub. It marks built with a timestamp.</li>
+            <li>When all products are built (the page shows <span class="strong">N/N · Shopify build</span> in green), click <strong>"Mark pre-order open"</strong>.</li>
+          </ol>
+        </div>
+        <div class="phase-section">
+          <h4>Status moves to</h4>
+          <p><span class="badge-open pill">Open · live</span> — customers can buy.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <!-- Phase 3 -->
+    <div class="phase">
+      <div class="rail rail-open"></div>
+      <div class="body">
+        <div class="phase-header">
+          <span class="phase-num">PHASE 3</span>
+          <span class="phase-title">Open · live</span>
+          <span class="phase-status badge-open pill">Open · live</span>
+        </div>
+        <div class="phase-owner">Owner: <strong>Abigail</strong> (customer service) · automatic countdown to close</div>
+
+        <div class="phase-section">
+          <h4>What's happening</h4>
+          <p>The pre-order is selling in Shopify. Customers are placing orders. Nobody touches OpsHub other than Abigail answering questions ("When does it close?", "When will it ship?").</p>
+        </div>
+        <div class="phase-section">
+          <h4>Customer-facing answers come from OpsHub</h4>
+          <ul>
+            <li>"When does the pre-order close?" → the <strong>Closes</strong> date on the pre-order.</li>
+            <li>"When will my order ship?" → the <strong>Target ship date</strong> until production reveals per-item ETAs.</li>
+            <li>For deeper status (after the order is in production), <strong>per-item ETAs</strong> show up on the linked Labs job once Drake pushes it.</li>
+          </ul>
+        </div>
+        <div class="phase-section">
+          <h4>Status moves to</h4>
+          <p><span class="badge-closed pill">Closed · pending push</span> when the close date passes and the pre-order is closed in Shopify. Click <strong>"Close pre-order"</strong> in OpsHub.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <!-- Phase 4 -->
+    <div class="phase">
+      <div class="rail rail-closed"></div>
+      <div class="body">
+        <div class="phase-header">
+          <span class="phase-num">PHASE 4</span>
+          <span class="phase-title">Closed · pending push</span>
+          <span class="phase-status badge-closed pill">Closed · pending push</span>
+        </div>
+        <div class="phase-owner">Owner: <strong>Abigail</strong> (with Drake reviewing)</div>
+
+        <div class="phase-section">
+          <h4>Trigger</h4>
+          <p>Pre-order closed in Shopify. Sold qtys are ready to pull.</p>
+        </div>
+        <div class="phase-section">
+          <h4>What Abigail does</h4>
+          <ol>
+            <li>Pull the Shopify <strong>sold-qty report</strong> per variant.</li>
+            <li>In OpsHub, on the pre-order detail page, click <strong>"Push to production"</strong>.</li>
+            <li>The wizard opens. For each product:
+              <ul>
+                <li>Type the <strong>sold qty</strong> per size into the grid.</li>
+                <li>Buffer % is pre-filled from the pre-order. The wizard shows the calculated <strong>total to print</strong> per variant ( <code>ceil(sold × (1 + buffer/100))</code> ).</li>
+              </ul>
+            </li>
+            <li>Confirm total at the bottom. Click <strong>"Create Labs job · N units"</strong>.</li>
+            <li>OpsHub spawns the Labs project, pre-loaded with items + buy sheet lines, and opens it in a new tab for Drake.</li>
+          </ol>
+        </div>
+        <div class="phase-section">
+          <h4>Status moves to</h4>
+          <p><span class="badge-producing pill">Producing</span> — Drake takes over.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <!-- Phase 5 -->
+    <div class="phase">
+      <div class="rail rail-producing"></div>
+      <div class="body">
+        <div class="phase-header">
+          <span class="phase-num">PHASE 5</span>
+          <span class="phase-title">Producing</span>
+          <span class="phase-status badge-producing pill">Producing</span>
+        </div>
+        <div class="phase-owner">Owner: <strong>Drake + Labs</strong> · standard production flow</div>
+
+        <div class="phase-section">
+          <h4>What happens</h4>
+          <p>The Labs job created from the push runs through the normal production pipeline:</p>
+          <ul>
+            <li>Costing → Quote → Blanks ordered → POs to decorators → Items in production → Shipped from decorator → Received at HPD.</li>
+            <li>Drake sets per-item <strong>client ETAs</strong> on the Production tab as info firms up. These flow back to Abigail's customer-service answers automatically.</li>
+            <li>Throughout, the pre-order on <code>/ecomm</code> shows the linked Labs job so anyone can jump over.</li>
+          </ul>
+        </div>
+        <div class="phase-section">
+          <h4>Status moves to</h4>
+          <p><span class="badge-fulfilling pill">Fulfilling</span> when items hit HPD and Abigail has keyed inventory into Shopify (the Intake tab on <code>/ecomm</code>).</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <!-- Phase 6 -->
+    <div class="phase">
+      <div class="rail rail-fulfilling"></div>
+      <div class="body">
+        <div class="phase-header">
+          <span class="phase-num">PHASE 6</span>
+          <span class="phase-title">Fulfilling</span>
+          <span class="phase-status badge-fulfilling pill">Fulfilling</span>
+        </div>
+        <div class="phase-owner">Owner: <strong>ShipStation</strong> · warehouse picks/packs · OpsHub is read-only</div>
+
+        <div class="phase-section">
+          <h4>What happens</h4>
+          <p>ShipStation pulls Shopify orders and the warehouse picks/packs daily. OpsHub does <em>not</em> manage daily fulfillment — it just shows what landed and when.</p>
+        </div>
+        <div class="phase-section">
+          <h4>Where the team works</h4>
+          <ul>
+            <li><strong>Warehouse:</strong> ShipStation for daily picks. The <code>/receiving</code> tab in OpsHub shows fresh inventory marked <strong>"✓ Live in Shopify — shelve"</strong> for 48 hours after Abigail's entry, so they know what just arrived.</li>
+            <li><strong>Abigail:</strong> Customer service. Per-item ETAs from the Labs job answer "where's my order?" until tracking exists in ShipStation.</li>
+          </ul>
+        </div>
+        <div class="phase-section">
+          <h4>Status moves to</h4>
+          <p><span class="badge-complete pill">Complete</span> when all customer orders have shipped (manual mark once the pre-order is wrapped).</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow">↓</div>
+
+    <!-- Phase 7 -->
+    <div class="phase">
+      <div class="rail rail-complete"></div>
+      <div class="body">
+        <div class="phase-header">
+          <span class="phase-num">PHASE 7</span>
+          <span class="phase-title">Complete</span>
+          <span class="phase-status badge-complete pill">Complete</span>
+        </div>
+        <div class="phase-owner">Owner: <strong>Manager review</strong></div>
+
+        <div class="phase-section">
+          <h4>Reconciliation (coming soon as a built-in view)</h4>
+          <p>At end-of-fulfillment, the pre-order should reconcile:</p>
+          <ul>
+            <li><strong>Printed N</strong> (from the Labs job)</li>
+            <li><strong>Sold X</strong> (from Shopify report)</li>
+            <li><strong>Shipped X</strong> (from ShipStation)</li>
+            <li><strong>Expected leftover Y</strong> = <code>N − X</code> (the buffer is the cushion)</li>
+          </ul>
+          <p>Warehouse compares actual count to expected leftover. Variance flags are investigated.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Quick reference -->
+  <h2 style="margin-top: 36px;">Quick reference</h2>
+  <div class="card tight">
+    <table>
+      <thead>
+        <tr>
+          <th>Phase</th>
+          <th>Owner</th>
+          <th>Where in OpsHub</th>
+          <th>Action that moves it forward</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="badge-planning pill">Planning</span></td><td>Taylor</td><td><code>/ecomm/[id]</code></td><td>Add products + dates → "Hand off to Abigail"</td></tr>
+        <tr><td><span class="badge-building pill">Building</span></td><td>Abigail</td><td><code>/ecomm/[id]</code></td><td>Tick each product built → "Mark pre-order open"</td></tr>
+        <tr><td><span class="badge-open pill">Open · live</span></td><td>—</td><td><code>/ecomm/[id]</code></td><td>"Close pre-order" once Shopify closes</td></tr>
+        <tr><td><span class="badge-closed pill">Closed</span></td><td>Abigail</td><td><code>/ecomm/[id]</code></td><td>Push wizard → enter sold qtys → "Create Labs job"</td></tr>
+        <tr><td><span class="badge-producing pill">Producing</span></td><td>Drake / Labs</td><td><code>/jobs/[id]</code></td><td>Normal production pipeline → receive at HPD</td></tr>
+        <tr><td><span class="badge-fulfilling pill">Fulfilling</span></td><td>ShipStation</td><td>External</td><td>"Mark complete" once all customer orders shipped</td></tr>
+        <tr><td><span class="badge-complete pill">Complete</span></td><td>Manager</td><td><code>/ecomm/[id]</code></td><td>Reconcile printed vs sold vs leftover</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Common questions -->
+  <h2 style="margin-top: 36px;">Common questions</h2>
+
+  <div class="card">
+    <p><strong>What if the pre-order opens before all products are built?</strong></p>
+    <p class="gray">The "Mark pre-order open" button is locked until every product is ticked as Built in Shopify. Hover the disabled button to see what's missing.</p>
+  </div>
+
+  <div class="card">
+    <p><strong>What if a customer asks "where's my order" while production is still running?</strong></p>
+    <p class="gray">Abigail's answer comes from the <strong>per-item ETA</strong> on the Labs job (set on the Production tab) — not the original Target ship date. Per-item ETAs update as production firms up.</p>
+  </div>
+
+  <div class="card">
+    <p><strong>What if the Shopify report has a variant we didn't plan for?</strong></p>
+    <p class="gray">The push wizard only knows about products listed on the pre-order. If a surprise variant shows up, add the product back on the pre-order detail page first, then re-open the push wizard.</p>
+  </div>
+
+  <div class="card">
+    <p><strong>What if zero units sold for a particular product?</strong></p>
+    <p class="gray">The push wizard skips products with zero total qty. The Labs job won't have that item — saves the production team from chasing phantom inventory.</p>
+  </div>
+
+  <div class="card">
+    <p><strong>Can a pre-order be edited after it's been pushed to production?</strong></p>
+    <p class="gray">Pre-order metadata (dates, notes) can still be edited. Products are locked once the Labs job is spawned — production-side changes happen on the Labs job, not the pre-order.</p>
+  </div>
+
+  <div class="footer">
+    Version 1 · OpsHub pre-order workflow · Updates to this SOP belong with the OpsHub codebase under <code>docs/preorder-sop.html</code>.
+  </div>
+
+</div>
+</body>
+</html>

@@ -215,6 +215,18 @@ export async function POST(req: NextRequest) {
       if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
       if (!clientEmail) return NextResponse.json({ success: true, skipped: "no email" });
 
+      // Skip ship_through entirely. Those clients are getting a single
+      // outbound-shipped email from /shipping once HPD forwards the box
+      // (with tracking + carrier). Sending "production complete" first
+      // is redundant and slightly mistitled — the goods aren't being
+      // "fulfilled" at HPD, they're just passing through. Stage route
+      // still gets this email because it's the only client-facing
+      // signal between "items at decorator" and "first webstore drop."
+      const route = (job as any).shipping_route || "ship_through";
+      if (route === "ship_through") {
+        return NextResponse.json({ success: true, skipped: "ship_through_uses_outbound_email" });
+      }
+
       const typeMeta = ((job as any).type_meta || {}) as any;
       const existing: ShipNotificationRecord[] = Array.isArray(typeMeta.shipping_notifications)
         ? typeMeta.shipping_notifications
@@ -224,20 +236,23 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, skipped: "already_sent" });
       }
 
-      // Server-side guard — verify ALL items on the job are actually
-      // received before sending. Callers (useWarehouse, warehouse page)
-      // check against an in-memory items list that's pre-filtered to
-      // only-shipped-or-received items, so they can fire this when
-      // items are still in production. Re-check against the full set.
+      // Server-side guard — verify ALL to-HPD items on the job are
+      // actually received before sending. Items with shipping_route =
+      // "drop_ship" (either job-level or per-item override) never return
+      // to HPD; ignoring them lets a mixed-route stage job satisfy the
+      // gate. Without this filter, even one drop_ship-overridden item
+      // would block the email forever because its received_at_hpd never
+      // flips. Callers (useWarehouse, warehouse page) check against an
+      // in-memory items list that's pre-filtered to only-shipped-or-
+      // received items, so we re-check against the full set here.
       const { data: allJobItems } = await sb
         .from("items")
-        .select("id, pipeline_stage, received_at_hpd, garment_type")
+        .select("id, pipeline_stage, received_at_hpd, garment_type, shipping_route")
         .eq("job_id", jobId);
+      const jobRoute = route;
       const jobItemsToReceive = (allJobItems || []).filter((it: any) => {
-        // Drop_ship items don't come back to HPD; skip them.
-        // (This route is gated to stage by callers but defending here
-        // doesn't hurt.)
-        return true;
+        const effective = it.shipping_route || jobRoute;
+        return effective !== "drop_ship";
       });
       const everyReceived = jobItemsToReceive.length > 0 && jobItemsToReceive.every((it: any) => it.received_at_hpd === true);
       if (!everyReceived) {

@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsHub Role Guide — Abigail (Ecomm)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; color: #1a1a1a; background: #f8f8f9; }
+  .container { max-width: 820px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 28px; font-weight: 900; margin-bottom: 4px; }
+  .role-pill { display: inline-block; background: #fee8f4; color: #c2317e; font-size: 11px; font-weight: 800; padding: 4px 12px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .subtitle { font-size: 14px; color: #6b6b78; margin-bottom: 8px; }
+  .version { font-size: 11px; color: #a0a0ad; margin-bottom: 32px; }
+  h2 { font-size: 18px; font-weight: 800; margin: 40px 0 16px; padding-top: 24px; border-top: 2px solid #c2317e; }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 24px; }
+  h3 { font-size: 14px; font-weight: 700; margin: 22px 0 10px; }
+  .route { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; color: #c2317e; background: #fee8f4; padding: 2px 8px; border-radius: 4px; margin-left: 8px; vertical-align: middle; font-weight: 600; }
+  .card { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 18px 20px; margin-bottom: 12px; }
+  .card-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .card-desc { font-size: 13px; color: #4a4a55; line-height: 1.65; }
+  .card-desc b { color: #1a1a1a; }
+  .step-list { list-style: none; counter-reset: step; }
+  .step-list li { counter-increment: step; padding: 10px 0; border-bottom: 1px solid #e0e0e4; font-size: 13px; line-height: 1.6; display: flex; gap: 12px; }
+  .step-list li:last-child { border-bottom: none; }
+  .step-list li::before { content: counter(step); background: #c2317e; color: #fff; width: 22px; height: 22px; border-radius: 99px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 2px; }
+  .tip { background: #fee8f4; border: 1px solid #fbc3df; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #8a2a5d; margin: 12px 0; line-height: 1.5; }
+  .warn { background: #fef9ee; border: 1px solid #f5dfa8; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #92400e; margin: 12px 0; line-height: 1.5; }
+  .nav-toc { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 20px; margin-bottom: 32px; }
+  .nav-toc a { display: block; padding: 6px 0; font-size: 13px; color: #1a1a1a; text-decoration: none; font-weight: 500; border-bottom: 1px solid #f0f0f2; }
+  .nav-toc a:last-child { border-bottom: none; }
+  .nav-toc a:hover { color: #c2317e; }
+  .nav-toc .section-label { font-size: 9px; font-weight: 700; color: #a0a0ad; text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; }
+  th { text-align: left; padding: 8px 10px; font-size: 10px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; background: #f3f3f5; }
+  td { padding: 9px 10px; border-bottom: 1px solid #f0f0f2; vertical-align: top; line-height: 1.5; }
+  .key { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; background: #f3f3f5; padding: 1px 6px; border-radius: 3px; }
+  .phase-grid { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 12px 0; }
+  .phase-row { display: grid; grid-template-columns: 180px 1fr; gap: 12px; padding: 10px 12px; background: #fff; border: 1px solid #e0e0e4; border-radius: 6px; font-size: 12px; line-height: 1.5; }
+  .phase-name { font-weight: 700; color: #c2317e; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="role-pill">Abigail — Ecomm</div>
+<h1>Role Guide</h1>
+<div class="subtitle">E-commerce, Shopify product building, customer service — your daily playbook</div>
+<div class="version">Last updated May 23, 2026</div>
+
+<div class="nav-toc">
+  <div class="section-label">What you do</div>
+  <a href="#summary">Your role at a glance</a>
+  <a href="#preorder-lifecycle">Pre-order lifecycle (your view)</a>
+  <a href="#building">Building products in Shopify</a>
+  <a href="#closing">Closing a pre-order</a>
+  <a href="#push">Pushing to production (handoff)</a>
+  <a href="#shopify-entry">Entering inventory in Shopify</a>
+  <a href="#customer-service">Customer service lookups</a>
+  <a href="#checklist">Pre-order checklist</a>
+</div>
+
+<h2 id="summary">Your role at a glance</h2>
+<div class="card">
+  <div class="card-desc">
+    You're the bridge between OpsHub and Shopify. Taylor scopes the pre-order. You build it in Shopify, manage it through the sale window, hand it to Drake for production, then handle inventory entry once it lands at the warehouse.
+    <br><br>
+    You also handle <b>customer service</b> — when a customer asks about their order, you look it up here.
+    <br><br>
+    <b>Your pages:</b>
+    <table>
+      <tr><th>Page</th><th>What you do there</th></tr>
+      <tr><td><b>Ecomm Dashboard</b> <span class="route">/ecomm</span></td><td>Pre-order list, intake queue, project status</td></tr>
+      <tr><td><b>Pre-order Detail</b> <span class="route">/ecomm/[id]</span></td><td>Build products, mark as built, close, push to production</td></tr>
+      <tr><td><b>Ecomm Intake tab</b></td><td>Mark received items as entered in Shopify</td></tr>
+      <tr><td><b>Client Worksheet</b> <span class="route">/clients/[id]</span></td><td>Look up items + ETAs for customer service questions</td></tr>
+      <tr><td><b>Receiving</b> <span class="route">/receiving</span></td><td>Reference — see what's coming in</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2 id="preorder-lifecycle">Pre-order lifecycle (your view)</h2>
+<div class="card">
+  <div class="card-desc">
+    Each pre-order moves through phases. Each phase has an owner. You own <b>Building in Shopify</b>, you trigger <b>Closed</b>, and you handle <b>Shopify entry</b> during Fulfilling.
+    <br><br>
+    <div class="phase-grid">
+      <div class="phase-row"><div class="phase-name">Planning</div><div>Taylor scopes products + lifecycle dates. You wait.</div></div>
+      <div class="phase-row"><div class="phase-name">Building in Shopify</div><div><b>Your turn.</b> Create each product in Shopify. Mark "Built in Shopify" per product as you finish.</div></div>
+      <div class="phase-row"><div class="phase-name">Open · live</div><div>Pre-order is live. Customers buy. You monitor and answer questions.</div></div>
+      <div class="phase-row"><div class="phase-name">Closed · pending push</div><div><b>Your turn.</b> Pull the Shopify sold qtys report. Push to production.</div></div>
+      <div class="phase-row"><div class="phase-name">Producing</div><div>Drake runs production in the linked Labs job. You wait.</div></div>
+      <div class="phase-row"><div class="phase-name">Fulfilling</div><div><b>Your turn (with warehouse).</b> Items arrive at HPD → you enter into Shopify → warehouse fulfills from ShipStation.</div></div>
+      <div class="phase-row"><div class="phase-name">Complete</div><div>Done. Everything shipped.</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="tip"><b>See the Pre-order SOP</b> on /references for the full role map across the team.</div>
+
+<h2 id="building">Building products in Shopify <span class="route">Pre-order Detail · Building phase</span></h2>
+
+<div class="card">
+  <div class="card-title">Get the pre-order details from OpsHub</div>
+  <div class="card-desc">
+    Open the pre-order (Ecomm → Pre-orders → click the project). You see:
+    <br><br>
+    <b>Lifecycle dates</b> — open date, close date, target ship date.
+    <br>
+    <b>Products list</b> — each product Taylor scoped: name, blank vendor, blank SKU, sizes, retail price, mockup file ID, notes.
+    <br>
+    <b>Buffer %</b> — the cushion that'll be applied at push time.
+    <br>
+    <b>Notes</b> — anything Taylor / Drake left for you.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Build each product in Shopify</div>
+  <ol class="step-list">
+    <li><div>Go to the Shopify store for this client.</div></li>
+    <li><div>Create a new product matching the OpsHub product. Use the mockup file as the product image (download from the product row).</div></li>
+    <li><div>Set variants for each size. Use the retail price from OpsHub.</div></li>
+    <li><div>For pre-orders, set Shopify to <b>continue selling when out of stock</b> (or use a pre-order app — depends on the client's store setup).</div></li>
+    <li><div>Schedule the product to go live on the pre-order open date.</div></li>
+    <li><div>Back in OpsHub, paste the <b>Shopify product URL</b> into the product row and <b>check the "Built in Shopify" box</b>. Timestamp records who and when.</div></li>
+    <li><div>Repeat for every product.</div></li>
+  </ol>
+</div>
+
+<div class="tip"><b>Building progress</b> shows as <span class="key">X/Y</span> on the pre-order row in the Ecomm list. Once you've built everything, the list shows the pre-order is ready to go live.</div>
+
+<h2 id="closing">Closing a pre-order <span class="route">Pre-order Detail · Open phase</span></h2>
+
+<div class="card">
+  <div class="card-desc">
+    When the sale window ends:
+    <br><br>
+    <ol class="step-list">
+      <li><div>Disable / unpublish the products in Shopify so no more orders come in.</div></li>
+      <li><div>Pull the <b>Sold by variant report</b> from Shopify — qty per size per product.</div></li>
+      <li><div>Back in OpsHub, on the pre-order detail page, click <b>Close pre-order</b>. Status moves to "Closed · pending push".</div></li>
+    </ol>
+    Drake will pick it up from there.
+  </div>
+</div>
+
+<h2 id="push">Pushing to production (handoff)</h2>
+<div class="card">
+  <div class="card-desc">
+    Drake runs the push-to-production wizard. It uses the buffer % from the pre-order. If you want to override the buffer for this specific run, you can edit it on the pre-order detail page before Drake pushes.
+    <br><br>
+    After push, the pre-order shows a <b>linked Labs job</b> in the Linked Job section. You can click through to see how production is going.
+  </div>
+</div>
+
+<h2 id="shopify-entry">Entering inventory in Shopify <span class="route">/ecomm Intake tab</span></h2>
+
+<div class="card">
+  <div class="card-title">When inventory arrives at HPD</div>
+  <div class="card-desc">
+    Warehouse receives the items. As soon as they Mark Received, the shipment appears on your Intake tab in /ecomm.
+    <br><br>
+    Each row = one shipment that contains stage-route items (i.e. inventory you need to enter into Shopify).
+    <br><br>
+    Click the row → modal opens with all eligible items, each as a checkbox. Items already entered into Shopify (or not eligible) are muted.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Enter the inventory in Shopify</div>
+  <ol class="step-list">
+    <li><div>Go to the relevant Shopify store.</div></li>
+    <li><div>For each product, update the inventory count to reflect what arrived (received qty minus samples).</div></li>
+    <li><div>Back in OpsHub on the Intake modal, select the items you just entered (default = all selected).</div></li>
+    <li><div>Click <b>"Mark entered in Shopify"</b>. The bulk action logs activity, fires a phase recalc, and writes a timestamp.</div></li>
+  </ol>
+</div>
+
+<div class="tip"><b>Why this matters:</b> The warehouse sees a green "Live in Shopify — shelve" section on /receiving for 48h after you mark items entered. That's their cue to physically organize the boxes onto shelves so ShipStation can pick from them.</div>
+
+<h2 id="customer-service">Customer service lookups</h2>
+
+<div class="card">
+  <div class="card-title">When a customer asks "Where's my order?"</div>
+  <div class="card-desc">
+    Most customer service questions come down to: <b>where is this item, and when will it ship?</b>
+    <br><br>
+    Two places to look:
+    <br><br>
+    <b>1. Client Worksheet</b> — Contacts → Clients → click the client → Worksheet tab. Filter by item status. Each row shows ETA, status, qty, retail price. Search by item name.
+    <br><br>
+    <b>2. Pre-order Detail page</b> — for pre-order customers, the pre-order's status tells you most of what you need. Open the linked Labs job for production details.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Customer service answer cheat sheet</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Status</th><th>What to tell the customer</th></tr>
+      <tr><td><b>Setup / Planning</b></td><td>"We're still finalizing the design — expect updates soon."</td></tr>
+      <tr><td><b>Building in Shopify</b></td><td>"Products go live [open date]."</td></tr>
+      <tr><td><b>In Production</b></td><td>"At the printer — estimated delivery [client_eta]."</td></tr>
+      <tr><td><b>Shipped (drop ship)</b></td><td>"Shipped — tracking [number]."</td></tr>
+      <tr><td><b>Shipped (ship through)</b></td><td>"Arrived at our warehouse — we'll ship to you within [X] days. Estimated delivery [client_eta]."</td></tr>
+      <tr><td><b>Stage (in stock)</b></td><td>"Live in store inventory — ships in [X] business days from order."</td></tr>
+      <tr><td><b>Complete</b></td><td>"Delivered — see tracking [number] for proof of delivery."</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2 id="checklist">Pre-order checklist</h2>
+
+<div class="card">
+  <div class="card-title">Before "Mark open"</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Check</th><th>Where</th></tr>
+      <tr><td>Every product built in Shopify</td><td>Pre-order detail · products section</td></tr>
+      <tr><td>Every product has Shopify URL pasted in OpsHub</td><td>Pre-order detail</td></tr>
+      <tr><td>Products scheduled for the open date</td><td>Shopify</td></tr>
+      <tr><td>Open / Close / Target ship dates set in OpsHub</td><td>Pre-order detail</td></tr>
+      <tr><td>Buffer % set</td><td>Pre-order detail</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Before "Push to production" handoff</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Check</th><th>Where</th></tr>
+      <tr><td>Products disabled in Shopify</td><td>Shopify</td></tr>
+      <tr><td>Sold-by-variant report exported</td><td>Shopify</td></tr>
+      <tr><td>Pre-order status moved to "Closed · pending push"</td><td>OpsHub pre-order detail</td></tr>
+    </table>
+  </div>
+</div>
+
+<div style="text-align: center; padding: 40px 0; color: #a0a0ad; font-size: 11px;">
+  OpsHub Role Guide — Abigail · House Party Distro<br>
+  Other role guides: Taylor / Drake / Warehouse / Manager — find them on /references
+</div>
+
+</div>
+</body>
+</html>

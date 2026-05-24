@@ -1,8 +1,8 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { T, font, mono } from "@/lib/theme";
-import { useWarehouse, tQty } from "@/lib/use-warehouse";
+import { useWarehouse, tQty, type WarehouseJob, type WarehouseItem } from "@/lib/use-warehouse";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { createClient } from "@/lib/supabase/client";
 import { deductSamples } from "@/lib/qty";
@@ -24,14 +24,56 @@ export default function ShippingPage() {
   const { loading, shipThrough, undoReceived, updateFulfillment, debounceFulfillmentTracking, supabase, setJobs } = useWarehouse();
   const [outsideShipments, setOutsideShipments] = useState<any[]>([]);
   const [tab, setTab] = useState<"ready" | "shipped">("ready");
+  // Silent mode — suppresses the Notify Recipient dialog on Mark Shipped.
+  // Used when backfilling historical ships ("we already emailed the
+  // client manually"). DB state still advances (fulfillment_status =
+  // shipped, phase = complete, activity log). localStorage-persisted
+  // so a page nav doesn't accidentally re-enable emails.
+  const [silentMode, setSilentMode] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setSilentMode(window.localStorage.getItem("shippingSilentMode") === "1");
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("shippingSilentMode", silentMode ? "1" : "0");
+  }, [silentMode]);
   const [shippedHistory, setShippedHistory] = useState<ShippedHistoryEntry[]>([]);
   const [shippedLoading, setShippedLoading] = useState(false);
   const db = createClient();
 
-  // Notify Recipient dialog — opens after Mark Shipped flips state. Mirrors
-  // the production page pattern: ship the goods, then a confirmation dialog
-  // picks contacts + edits subject/message before firing the email.
-  // Spec: memory/project_notify_recipient_on_ship.md
+  // List → modal pattern (mirrors /production + /receiving). Each
+  // ship-ready project surfaces as a compact row; clicking opens the
+  // full ship modal with the item picker + tracking input. Stored
+  // by job id since we re-derive the live job from shipThrough on
+  // each render.
+  const [modalJobId, setModalJobId] = useState<string | null>(null);
+  const modalJob = useMemo(
+    () => modalJobId ? shipThrough.find(j => j.id === modalJobId) || null : null,
+    [modalJobId, shipThrough],
+  );
+  // Item-picker state — default to "all selected" on modal open so the
+  // common "one box, one tracking" flow doesn't require any checkboxes.
+  // When the user explicitly deselects some, we honor that for partial-
+  // ship UI (per-item outbound tracking is a follow-up; for now this
+  // is the affordance + the future hook).
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (modalJob) setSelectedItemIds(new Set(modalJob.items.map(it => it.id)));
+    else setSelectedItemIds(new Set());
+  }, [modalJobId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!modalJobId) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setModalJobId(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modalJobId]);
+
+  // Notify Recipient dialog — opens after Mark Shipped flips state.
+  // Mirrors the production page pattern: ship the goods, then a
+  // confirmation dialog picks contacts + edits subject/message before
+  // firing the email. Spec: memory/project_notify_recipient_on_ship.md
   const [notifyState, setNotifyState] = useState<{
     jobId: string;
     decoratorId: string | null;
@@ -42,7 +84,6 @@ export default function ShippingPage() {
     jobTitle: string;
     contacts: Array<{ name: string; email: string; role: string }>;
   } | null>(null);
-  // Cached contacts per job — lazy load on dialog open.
   const [contactsByJob, setContactsByJob] = useState<Record<string, Array<{ name: string; email: string; role: string }>>>({});
 
   useEffect(() => {
@@ -50,9 +91,6 @@ export default function ShippingPage() {
   }, []);
 
   // Load completed ship-through jobs for the Shipped history tab.
-  // Window: last 30 days. Sorted newest first. Refetch when the user
-  // switches to the tab so a freshly-shipped order shows up without
-  // a page reload.
   async function loadShippedHistory() {
     setShippedLoading(true);
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -76,13 +114,6 @@ export default function ShippingPage() {
         const continuing = deductSamples(delivered, it.sample_qtys);
         return sum + Object.values(continuing).reduce((a: number, v) => a + (v || 0), 0);
       }, 0);
-      // Tracking fallback chain: column → most recent outbound shipping
-      // notification's tracking. The column can be empty in some test or
-      // legacy paths; the notifications array preserves what was emailed
-      // out. Filter to outbound types ("drop_ship_vendor" — set by the
-      // shipping page forcing drop_ship for customer email; "ship_through"
-      // — legacy /warehouse outbound) so an earlier inbound-from-decorator
-      // record doesn't get surfaced as the ship-out tracking.
       const notifs: any[] = Array.isArray((j.type_meta as any)?.shipping_notifications)
         ? (j.type_meta as any).shipping_notifications
         : [];
@@ -92,8 +123,6 @@ export default function ShippingPage() {
       return {
         id: j.id,
         jobNumber: j.job_number,
-        // Provider-agnostic — IHM uses Stripe, HPD uses QB. Whichever
-        // is set is treated as "the invoice has been pushed".
         invoiceNumber: (j.type_meta as any)?.qb_invoice_number || (j.type_meta as any)?.stripe_invoice_number || null,
         title: j.title || "",
         clientName: j.clients?.name || "",
@@ -108,6 +137,46 @@ export default function ShippingPage() {
   }
 
   useEffect(() => { if (tab === "shipped") loadShippedHistory(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab]);
+
+  // Bucket shipped history by date for the same visual rhythm the
+  // /receiving Received tab uses. Today / This week / Last 30 / Older
+  // (older collapsed by default).
+  const [showAllShipped, setShowAllShipped] = useState(false);
+  // Shipped-row detail modal — read-only summary for warehouse staff
+  // who shouldn't navigate to the full project overview. Surfaces the
+  // outbound packing slip + tracking + units; everything they need
+  // for a "what shipped on what day" lookup.
+  const [shippedDetailId, setShippedDetailId] = useState<string | null>(null);
+  const shippedDetail = useMemo(
+    () => shippedDetailId ? shippedHistory.find(s => s.id === shippedDetailId) || null : null,
+    [shippedDetailId, shippedHistory],
+  );
+  useEffect(() => {
+    if (!shippedDetailId) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setShippedDetailId(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [shippedDetailId]);
+  const shippedBuckets = useMemo(() => {
+    if (tab !== "shipped") return null;
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const weekStart = new Date(todayStart); weekStart.setDate(weekStart.getDate() - 7);
+    const monthStart = new Date(todayStart); monthStart.setDate(monthStart.getDate() - 30);
+    const today: ShippedHistoryEntry[] = [];
+    const thisWeek: ShippedHistoryEntry[] = [];
+    const last30: ShippedHistoryEntry[] = [];
+    const older: ShippedHistoryEntry[] = [];
+    const sorted = [...shippedHistory].sort((a, b) =>
+      new Date(b.shippedAt).getTime() - new Date(a.shippedAt).getTime());
+    for (const s of sorted) {
+      const ts = new Date(s.shippedAt).getTime();
+      if (ts >= todayStart.getTime()) today.push(s);
+      else if (ts >= weekStart.getTime()) thisWeek.push(s);
+      else if (ts >= monthStart.getTime()) last30.push(s);
+      else older.push(s);
+    }
+    return { today, thisWeek, last30, older };
+  }, [shippedHistory, tab]);
 
   async function loadJobContacts(jobId: string): Promise<Array<{ name: string; email: string; role: string }>> {
     if (contactsByJob[jobId]) return contactsByJob[jobId];
@@ -128,27 +197,31 @@ export default function ShippingPage() {
 
   // Mark Shipped flow:
   // 1. Flip state (fulfillment_status = shipped, phase = complete)
-  // 2. Open notify dialog with route="drop_ship" so the customer-style
-  //    email + contact picker render. Even though the job's actual
-  //    shipping_route is ship_through, at this step (HPD outbound to
-  //    customer) the email semantics are identical to drop_ship —
-  //    "Your order has shipped" with packing slip attached.
-  // 3. Job removed from local list when dialog closes (sent or cancelled).
-  async function markShipped(job: any) {
-    if (!job.fulfillment_tracking) return;
-    // Pass tracking through updateFulfillment so it lands in the same
-    // write as the status flip — flushes any in-flight 800ms debounce
-    // and guarantees the column matches what the user just typed.
-    await updateFulfillment(job.id, "shipped", job.fulfillment_tracking);
-    logJobActivity(job.id, `Ship-through complete — forwarded to client (${job.fulfillment_tracking})`);
+  // 2. Open notify dialog so the dispatcher reviews contacts + subject
+  //    before firing the customer email.
+  // 3. Close modal + remove job from local list.
+  async function markShipped(job: WarehouseJob & { invoiceNumber?: string }) {
+    if (!(job as any).fulfillment_tracking) return;
+    await updateFulfillment(job.id, "shipped", (job as any).fulfillment_tracking);
+    logJobActivity(job.id,
+      silentMode
+        ? `Ship-through complete (silent — no client email) — forwarded to client (${(job as any).fulfillment_tracking})`
+        : `Ship-through complete — forwarded to client (${(job as any).fulfillment_tracking})`);
     await supabase.from("jobs").update({ phase: "complete" }).eq("id", job.id);
+    setModalJobId(null);
+    if (silentMode) {
+      // Silent: drop the job from local state directly. No notify dialog,
+      // no client email. DB state already advanced above.
+      setJobs(prev => prev.filter(j => j.id !== job.id));
+      return;
+    }
     const contacts = await loadJobContacts(job.id);
     setNotifyState({
       jobId: job.id,
       decoratorId: null,
       decoratorName: "",
-      tracking: job.fulfillment_tracking,
-      qbInvoiceNumber: job.invoiceNumber || "",
+      tracking: (job as any).fulfillment_tracking,
+      qbInvoiceNumber: (job as any).invoiceNumber || (job as any).display_number || "",
       clientName: job.client_name || "",
       jobTitle: job.title || "",
       contacts,
@@ -160,20 +233,56 @@ export default function ShippingPage() {
 
   if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading...</div>;
 
+  // Helper to compute continuing-qty + total-units for a job. Used by
+  // both the list row and the modal so the numbers always agree.
+  function computeJobMeta(job: WarehouseJob) {
+    const continuingByItem: Record<string, Record<string, number>> = {};
+    for (const it of job.items) {
+      const delivered: Record<string, number> = {};
+      const r = it.received_qtys || {};
+      const s = it.ship_qtys || {};
+      const o = it.qtys || {};
+      for (const sz of it.sizes) delivered[sz] = r[sz] ?? s[sz] ?? o[sz] ?? 0;
+      continuingByItem[it.id] = deductSamples(delivered, it.sample_qtys);
+    }
+    const totalUnits = job.items.reduce((a, it) =>
+      a + Object.values(continuingByItem[it.id]).reduce((x, q) => x + (q || 0), 0), 0);
+    return { continuingByItem, totalUnits };
+  }
+
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Shipping</h1>
-        {tab === "ready" && shipThrough.length > 0 && <span style={{ fontSize: 12, color: T.muted }}>{shipThrough.length} orders ready to ship</span>}
+        {tab === "ready" && shipThrough.length > 0 && <span style={{ fontSize: 12, color: T.muted }}>{shipThrough.length} order{shipThrough.length === 1 ? "" : "s"} ready to ship</span>}
         {tab === "shipped" && <span style={{ fontSize: 12, color: T.muted }}>last 30 days</span>}
+        <span style={{ flex: 1 }} />
+        {/* Silent mode toggle — suppresses Notify Recipient dialog on
+            Mark Shipped. Discoverable here; banner below makes the
+            active state impossible to miss. */}
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600, color: silentMode ? T.amber : T.muted, cursor: "pointer", fontFamily: font, padding: "6px 10px", borderRadius: 8, border: `1px solid ${silentMode ? T.amber : T.border}`, background: silentMode ? T.amberDim : "transparent" }}>
+          <input type="checkbox" checked={silentMode} onChange={e => setSilentMode(e.target.checked)}
+            style={{ width: 14, height: 14, accentColor: T.amber, cursor: "pointer" }} />
+          Silent mode
+        </label>
       </div>
 
-      {/* Tab bar — Ready (active) / Shipped (history). Read-only history
-          gives Goose a way to look up tracking, qty shipped, and dates
-          for client callbacks without crossing into the production side. */}
+      {silentMode && (
+        <div style={{ background: T.amberDim, border: `1px solid ${T.amber}`, borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+          <span style={{ fontSize: 10, fontWeight: 800, color: T.amber, letterSpacing: "0.08em", textTransform: "uppercase" }}>Silent mode</span>
+          <span style={{ color: T.text }}>Mark Shipped will NOT fire client emails. Use for backfilling historical ship-outs.</span>
+          <span style={{ flex: 1 }} />
+          <button onClick={() => setSilentMode(false)}
+            style={{ background: T.amber, border: "none", color: "#fff", fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontFamily: font }}>
+            Turn off
+          </button>
+        </div>
+      )}
+
+      {/* Tab bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${T.border}`, paddingBottom: 6 }}>
         {([
-          ["ready", "Ready", shipThrough.length, T.text],
+          ["ready", "Ready to Ship", shipThrough.length, T.text],
           ["shipped", "Shipped", shippedHistory.length, T.green],
         ] as const).map(([k, l, count, tone]) => {
           const active = tab === k;
@@ -196,6 +305,7 @@ export default function ShippingPage() {
         })}
       </div>
 
+      {/* ── Ready tab — compact row list ── */}
       {tab === "ready" && (<>
       {shipThrough.length === 0 ? (
         <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.faint }}>
@@ -203,152 +313,61 @@ export default function ShippingPage() {
         </div>
       ) : (
         shipThrough.map(job => {
-          // Continuing qty per item = (received_qtys || ship_qtys || qtys) − samples.
-          // This is what physically ships out the door — drives the per-size
-          // display and the header units total.
-          const continuingByItem: Record<string, Record<string, number>> = {};
-          for (const it of job.items) {
-            const delivered: Record<string, number> = {};
-            const r = it.received_qtys || {};
-            const s = it.ship_qtys || {};
-            const o = it.qtys || {};
-            for (const sz of it.sizes) delivered[sz] = r[sz] ?? s[sz] ?? o[sz] ?? 0;
-            continuingByItem[it.id] = deductSamples(delivered, it.sample_qtys);
-          }
-          const totalUnits = job.items.reduce((a, it) =>
-            a + Object.values(continuingByItem[it.id]).reduce((x, q) => x + (q || 0), 0), 0);
-          // Provider-agnostic — IHM reads stripe_invoice_number, HPD reads
-          // qb_invoice_number, both surface as job.invoiceNumber after the
-          // load-time mapping above.
-          const invoiceMissing = !job.invoiceNumber;
-          const trackingMissing = !job.fulfillment_tracking;
-          const canShip = !invoiceMissing && !trackingMissing;
+          const { totalUnits } = computeJobMeta(job);
+          const invoiceMissing = !(job as any).invoiceNumber && !(job as any).qb_invoice_number;
+          const trackingMissing = !(job as any).fulfillment_tracking;
+          const displayInv = (job as any).qb_invoice_number || (job as any).display_number || job.job_number;
           return (
-            <div key={job.id} style={card}>
-              {/* Header */}
-              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-                <Link href={`/jobs/${job.id}`} style={{ fontSize: 13, fontWeight: 600, color: T.text, textDecoration: "none" }}>{job.client_name}</Link>
-                <span style={{ fontSize: 11, color: T.muted }}>— {job.title}</span>
-                <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>#{job.display_number}</span>
-                <span style={{ marginLeft: "auto", fontSize: 11, color: T.green, fontWeight: 600 }}>{job.items.length} items · {totalUnits.toLocaleString()} units</span>
+            <div key={job.id}
+              onClick={() => setModalJobId(job.id)}
+              style={{
+                ...card, padding: "14px 18px", display: "flex", gap: 16,
+                alignItems: "flex-start", cursor: "pointer",
+                transition: "border-color 0.12s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}>
+              {/* Left: client + title + invoice */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{job.client_name || "No client"}</span>
+                  <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>{displayInv}</span>
+                </div>
+                {job.title && (
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 2, wordBreak: "break-word" }}>{job.title}</div>
+                )}
+                <div style={{ display: "flex", gap: 12, marginTop: 6, flexWrap: "wrap", alignItems: "baseline" }}>
+                  {job.ship_method && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                      {job.ship_method}
+                    </span>
+                  )}
+                  {invoiceMissing && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                      Invoice missing
+                    </span>
+                  )}
+                  {trackingMissing && !invoiceMissing && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                      Needs tracking
+                    </span>
+                  )}
+                </div>
               </div>
-
-              <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
-                {/* Ship-to + contact */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Ship To</div>
-                    {job.ship_to_address ? (
-                      <div style={{ fontSize: 12, color: T.text, whiteSpace: "pre-line", lineHeight: 1.4 }}>{job.ship_to_address}</div>
-                    ) : (
-                      <div style={{ fontSize: 12, color: T.red }}>No address on file</div>
-                    )}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Contact</div>
-                    {job.contact_name ? (
-                      <div>
-                        <div style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{job.contact_name}</div>
-                        {job.contact_phone && <div style={{ fontSize: 11, color: T.muted }}>{job.contact_phone}</div>}
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 12, color: T.faint }}>No contact</div>
-                    )}
-                    {job.ship_method && (
-                      <div style={{ marginTop: 6 }}>
-                        <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: T.accentDim, color: T.accent }}>{job.ship_method}</span>
-                      </div>
-                    )}
-                  </div>
+              {/* Right: counts */}
+              <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 110 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.green, fontFamily: mono }}>
+                  {job.items.length} item{job.items.length === 1 ? "" : "s"}
                 </div>
-
-                {/* Items */}
-                <div>
-                  <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Items</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {job.items.map(item => {
-                      const continuing = continuingByItem[item.id] || {};
-                      const itemTotal = Object.values(continuing).reduce((a, q) => a + (q || 0), 0);
-                      const orderedTotal = tQty(item.qtys);
-                      const sampleTotal = tQty(item.sample_qtys);
-                      const variance = itemTotal - orderedTotal;
-                      return (
-                      <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: T.surface, borderRadius: 6 }}>
-                        <div>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: T.purple, fontFamily: mono, marginRight: 4 }}>{item.letter}</span><span style={{ fontSize: 12, fontWeight: 500, color: T.text }}>{item.name}</span>
-                          {item.blank_vendor && <span style={{ fontSize: 10, color: T.faint, marginLeft: 6 }}>{item.blank_vendor}</span>}
-                          {(variance !== 0 || sampleTotal > 0) && (
-                            <span style={{ fontSize: 10, color: T.faint, marginLeft: 8 }}>
-                              {variance !== 0 && <span style={{ color: variance < 0 ? T.amber : T.green, fontWeight: 600 }}>{variance > 0 ? "+" : ""}{variance} vs ordered</span>}
-                              {variance !== 0 && sampleTotal > 0 && " · "}
-                              {sampleTotal > 0 && <span style={{ color: T.amber }}>{sampleTotal} sample{sampleTotal === 1 ? "" : "s"} pulled</span>}
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                          {item.sizes.map(sz => {
-                            const cont = continuing[sz] ?? 0;
-                            const ord = item.qtys?.[sz] ?? 0;
-                            const off = cont !== ord;
-                            return (
-                              <span key={sz} title={off ? `Ordered ${ord}, continuing ${cont}` : undefined}
-                                style={{ fontSize: 9, fontFamily: mono, color: off ? (cont < ord ? T.amber : T.green) : T.muted, padding: "1px 4px", background: T.card, borderRadius: 3 }}>
-                                {sz}:{cont}
-                              </span>
-                            );
-                          })}
-                          <span style={{ fontSize: 10, fontWeight: 600, fontFamily: mono, color: T.text, marginLeft: 4 }}>{itemTotal}</span>
-                        </div>
-                      </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Project-level shipping notes */}
-                {job.shipping_notes && (
-                  <div>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Shipping Notes</div>
-                    <div style={{ fontSize: 11, color: T.amber, padding: "6px 10px", background: T.amberDim, borderRadius: 6 }}>{job.shipping_notes}</div>
-                  </div>
-                )}
-
-                {/* Per-item notes from Production */}
-                {job.items.some(it => it.ship_notes) && (
-                  <div>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Production Notes</div>
-                    {job.items.filter(it => it.ship_notes).map(it => (
-                      <div key={it.id} style={{ fontSize: 11, color: T.amber, padding: "6px 10px", background: T.amberDim, borderRadius: 6, marginBottom: 4 }}>
-                        <span style={{ fontWeight: 600 }}>{it.name}:</span> {it.ship_notes}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Tracking + ship */}
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Outbound Tracking #</label>
-                    <input style={{ ...ic, fontFamily: mono }} value={job.fulfillment_tracking || ""} placeholder="Enter tracking number"
-                      onChange={e => debounceFulfillmentTracking(job.id, e.target.value)} />
-                  </div>
-                  <button onClick={() => markShipped(job)}
-                    disabled={!canShip}
-                    title={invoiceMissing ? "Generate invoice first" : (trackingMissing ? "Tracking required" : "")}
-                    style={{ background: canShip ? T.green : T.surface, border: "none", borderRadius: 6, color: canShip ? "#fff" : T.faint, fontSize: 12, fontWeight: 600, padding: "8px 20px", cursor: canShip ? "pointer" : "not-allowed", opacity: canShip ? 1 : 0.5 }}>
-                    Mark Shipped
-                  </button>
-                </div>
-                {invoiceMissing && (
-                  <div style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>
-                    Invoice not yet generated — required before notifying customer.
-                  </div>
-                )}
+                <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                  {totalUnits.toLocaleString()} units
+                </span>
               </div>
             </div>
           );
         })
       )}
+
       {/* Outside shipments routed to ship-through */}
       {outsideShipments.length > 0 && (
         <>
@@ -377,57 +396,368 @@ export default function ShippingPage() {
       )}
       </>)}
 
-      {/* ── Shipped history ── */}
-      {tab === "shipped" && (
-        shippedLoading ? (
-          <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.muted }}>Loading…</div>
-        ) : shippedHistory.length === 0 ? (
-          <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.faint }}>
+      {/* ── Shipped history — date-bucketed (matches /receiving Received) ── */}
+      {tab === "shipped" && (() => {
+        if (shippedLoading) {
+          return <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.muted }}>Loading…</div>;
+        }
+        if (shippedHistory.length === 0) {
+          return <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.faint }}>
             No ship-throughs in the last 30 days.
-          </div>
-        ) : (
-          <div style={{ ...card }}>
-            <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 100px 1fr 90px", padding: "8px 14px", background: T.surface, borderBottom: `1px solid ${T.border}`, gap: 12 }}>
-              {["Order", "Client / Project", "Items", "Tracking", "Shipped"].map(h =>
-                <div key={h} style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>{h}</div>
+          </div>;
+        }
+        if (!shippedBuckets) return null;
+        const row = (entry: ShippedHistoryEntry) => (
+          <div key={entry.id}
+            onClick={() => setShippedDetailId(entry.id)}
+            style={{
+              ...card, padding: "14px 18px", display: "flex", gap: 16,
+              alignItems: "flex-start", cursor: "pointer",
+              transition: "border-color 0.12s",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}>
+            {/* Left: client + title + invoice */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{entry.clientName || "No client"}</span>
+                <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>{entry.invoiceNumber || entry.jobNumber}</span>
+              </div>
+              {entry.title && (
+                <div style={{ fontSize: 12, color: T.muted, marginTop: 2, wordBreak: "break-word" }}>{entry.title}</div>
+              )}
+              {entry.fulfillmentTracking && (
+                <div style={{ fontSize: 11, color: T.faint, fontFamily: mono, marginTop: 4, wordBreak: "break-all" }}>
+                  {entry.fulfillmentTracking}
+                </div>
               )}
             </div>
-            {shippedHistory.map((row, i) => (
-              <Link key={row.id} href={`/jobs/${row.id}`}
-                style={{
-                  display: "grid", gridTemplateColumns: "120px 1fr 100px 1fr 90px", gap: 12,
-                  padding: "10px 14px", alignItems: "center",
-                  borderBottom: i < shippedHistory.length - 1 ? `1px solid ${T.border}` : "none",
-                  textDecoration: "none", color: "inherit",
-                }}>
-                <div style={{ fontSize: 12, fontFamily: mono, fontWeight: 700, color: T.text }}>
-                  {row.invoiceNumber || row.jobNumber}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.clientName || "—"}</div>
-                  <div style={{ fontSize: 11, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.title}</div>
-                </div>
-                <div style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>
-                  {row.itemCount} item{row.itemCount === 1 ? "" : "s"} · <span style={{ color: T.text, fontWeight: 600 }}>{row.totalUnits.toLocaleString()}</span>
-                </div>
-                <div style={{ fontSize: 11, fontFamily: mono, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {row.fulfillmentTracking || "—"}
-                </div>
-                <div style={{ fontSize: 11, color: T.muted }}>
-                  {new Date(row.shippedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                </div>
-              </Link>
-            ))}
+            {/* Right: counts + shipped-on */}
+            <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 110 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.green, fontFamily: mono }}>
+                {entry.itemCount} item{entry.itemCount === 1 ? "" : "s"}
+              </div>
+              <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                {entry.totalUnits.toLocaleString()} units
+              </span>
+              <span style={{ fontSize: 11, color: T.green, marginTop: 2, fontWeight: 600 }}>
+                shipped {new Date(entry.shippedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </span>
+            </div>
           </div>
-        )
+        );
+        const sectionHeader = (label: string, count: number, color: string) => (
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 8 }}>
+            <h2 style={{ fontSize: 12, fontWeight: 800, color, letterSpacing: "0.08em", textTransform: "uppercase", margin: 0 }}>
+              {label}
+            </h2>
+            <span style={{ fontSize: 11, color: T.muted }}>
+              {count} shipment{count === 1 ? "" : "s"}
+            </span>
+          </div>
+        );
+        return (
+          <>
+            {shippedBuckets.today.length > 0 && <>
+              {sectionHeader("Today", shippedBuckets.today.length, T.text)}
+              {shippedBuckets.today.map(row)}
+            </>}
+            {shippedBuckets.thisWeek.length > 0 && <>
+              {sectionHeader("This week", shippedBuckets.thisWeek.length, T.text)}
+              {shippedBuckets.thisWeek.map(row)}
+            </>}
+            {shippedBuckets.last30.length > 0 && <>
+              {sectionHeader("Last 30 days", shippedBuckets.last30.length, T.muted)}
+              {shippedBuckets.last30.map(row)}
+            </>}
+            {shippedBuckets.older.length > 0 && <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 8 }}>
+                <button onClick={() => setShowAllShipped(v => !v)}
+                  style={{ background: "transparent", border: "none", color: T.faint, fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: 0, fontFamily: font }}>
+                  {showAllShipped ? "▾" : "▸"} Older
+                </button>
+                <span style={{ fontSize: 11, color: T.faint }}>
+                  {shippedBuckets.older.length} shipment{shippedBuckets.older.length === 1 ? "" : "s"} hidden
+                </span>
+              </div>
+              {showAllShipped && shippedBuckets.older.map(row)}
+            </>}
+          </>
+        );
+      })()}
+
+      {/* ── Ship modal — mirrors /production modal pattern ── */}
+      {modalJob && (() => {
+        const job = modalJob;
+        const { continuingByItem, totalUnits } = computeJobMeta(job);
+        const invoiceMissing = !(job as any).invoiceNumber && !(job as any).qb_invoice_number;
+        const trackingMissing = !(job as any).fulfillment_tracking;
+        const canShip = !invoiceMissing && !trackingMissing && selectedItemIds.size > 0;
+        const displayInv = (job as any).qb_invoice_number || (job as any).display_number || job.job_number;
+        const allSelected = job.items.length > 0 && job.items.every(it => selectedItemIds.has(it.id));
+        return (
+          <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 1000, display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              {/* Header */}
+              <div style={{ padding: "14px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, background: T.card }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: T.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                    <span>{job.client_name || "No client"}</span>
+                    <span style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>{job.title}</span>
+                    <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500, fontSize: 12 }}>{displayInv}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.faint, marginTop: 2 }}>
+                    {job.items.length} item{job.items.length === 1 ? "" : "s"} · {totalUnits.toLocaleString()} units
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    → Forward to client
+                  </span>
+                  <button onClick={() => setModalJobId(null)} title="Close (Esc)"
+                    style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+                {/* Ship to + contact + ship method — text labels, no pills */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Ship to</div>
+                    {job.ship_to_address ? (
+                      <div style={{ fontSize: 13, color: T.text, whiteSpace: "pre-line", lineHeight: 1.4 }}>{job.ship_to_address}</div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: T.red }}>No address on file</div>
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Contact</div>
+                    {job.contact_name ? (
+                      <>
+                        <div style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{job.contact_name}</div>
+                        {job.contact_phone && <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{job.contact_phone}</div>}
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 12, color: T.faint }}>No contact</div>
+                    )}
+                    {job.ship_method && (
+                      <div style={{ marginTop: 8, fontSize: 10, fontWeight: 700, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                        {job.ship_method}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Project-level shipping notes */}
+                {job.shipping_notes && (
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Shipping notes</div>
+                    <div style={{ fontSize: 12, color: T.amber, padding: "8px 12px", background: T.amberDim, borderRadius: 6 }}>{job.shipping_notes}</div>
+                  </div>
+                )}
+
+                {/* Per-item notes from Production */}
+                {job.items.some(it => it.ship_notes) && (
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Production notes</div>
+                    {job.items.filter(it => it.ship_notes).map(it => (
+                      <div key={it.id} style={{ fontSize: 12, color: T.amber, padding: "6px 10px", background: T.amberDim, borderRadius: 6, marginBottom: 4 }}>
+                        <span style={{ fontWeight: 700 }}>{it.name}:</span> {it.ship_notes}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Items header + select all */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Items</div>
+                  <button onClick={() => {
+                    setSelectedItemIds(prev => {
+                      const next = new Set(prev);
+                      if (allSelected) for (const it of job.items) next.delete(it.id);
+                      else for (const it of job.items) next.add(it.id);
+                      return next;
+                    });
+                  }}
+                    style={{
+                      fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
+                      background: allSelected ? T.text : "transparent",
+                      border: `1px solid ${allSelected ? T.text : T.border}`,
+                      color: allSelected ? "#fff" : T.text,
+                      cursor: "pointer", fontFamily: font,
+                    }}>
+                    {allSelected ? "Unselect all" : "Select all"}
+                  </button>
+                </div>
+
+                {/* Item rows with checkboxes */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {job.items.map(item => {
+                    const continuing = continuingByItem[item.id] || {};
+                    const itemTotal = Object.values(continuing).reduce((a, q) => a + (q || 0), 0);
+                    const orderedTotal = tQty(item.qtys);
+                    const sampleTotal = tQty(item.sample_qtys);
+                    const variance = itemTotal - orderedTotal;
+                    const isSelected = selectedItemIds.has(item.id);
+                    return (
+                      <div key={item.id} style={{
+                        padding: "10px 12px", borderRadius: 6,
+                        background: isSelected ? T.card : T.surface,
+                        border: `1px solid ${isSelected ? T.accent + "44" : T.border}`,
+                        display: "flex", alignItems: "center", gap: 12,
+                      }}>
+                        <input type="checkbox" checked={isSelected}
+                          onChange={() => {
+                            setSelectedItemIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            });
+                          }}
+                          style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.name}</div>
+                          <div style={{ fontSize: 11, color: T.muted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+                            {item.blank_vendor && <span>{item.blank_vendor}</span>}
+                            {variance !== 0 && (
+                              <span style={{ color: variance < 0 ? T.amber : T.green, fontWeight: 600 }}>
+                                {variance > 0 ? "+" : ""}{variance} vs ordered
+                              </span>
+                            )}
+                            {sampleTotal > 0 && (
+                              <span style={{ color: T.amber }}>{sampleTotal} sample{sampleTotal === 1 ? "" : "s"} pulled</span>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          {item.sizes.map(sz => {
+                            const cont = continuing[sz] ?? 0;
+                            const ord = item.qtys?.[sz] ?? 0;
+                            const off = cont !== ord;
+                            return (
+                              <span key={sz} title={off ? `Ordered ${ord}, continuing ${cont}` : undefined}
+                                style={{ fontSize: 10, fontFamily: mono, color: off ? (cont < ord ? T.amber : T.green) : T.muted, padding: "2px 6px", background: T.surface, borderRadius: 3 }}>
+                                {sz}:{cont}
+                              </span>
+                            );
+                          })}
+                          <span style={{ fontSize: 12, fontWeight: 700, fontFamily: mono, color: T.text, marginLeft: 6 }}>{itemTotal}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Footer — tracking input + Mark Shipped */}
+              <div style={{ padding: "12px 22px", borderTop: `1px solid ${T.border}`, background: T.card, flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4, display: "block" }}>Outbound tracking #</label>
+                    <input style={{ ...ic, fontFamily: mono }} value={(job as any).fulfillment_tracking || ""} placeholder="Enter tracking number"
+                      onChange={e => debounceFulfillmentTracking(job.id, e.target.value)} />
+                  </div>
+                  <button onClick={() => markShipped(job as any)}
+                    disabled={!canShip}
+                    title={invoiceMissing ? "Generate invoice first" : (trackingMissing ? "Tracking required" : (selectedItemIds.size === 0 ? "Select at least one item" : ""))}
+                    style={{ background: canShip ? T.green : T.surface, border: "none", borderRadius: 6, color: canShip ? "#fff" : T.faint, fontSize: 13, fontWeight: 700, padding: "10px 22px", cursor: canShip ? "pointer" : "not-allowed", opacity: canShip ? 1 : 0.5, fontFamily: font }}>
+                    Mark Shipped · {selectedItemIds.size} of {job.items.length}
+                  </button>
+                </div>
+                {invoiceMissing && (
+                  <div style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>
+                    Invoice not yet generated — required before notifying customer.
+                  </div>
+                )}
+                {selectedItemIds.size < job.items.length && selectedItemIds.size > 0 && (
+                  <div style={{ fontSize: 11, color: T.muted }}>
+                    Partial shipment — {job.items.length - selectedItemIds.size} item{(job.items.length - selectedItemIds.size) === 1 ? "" : "s"} will stay in Ready for a later shipment.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Shipped detail modal — read-only summary for warehouse staff.
+          Surfaces tracking, units, ship date + a "View packing slip"
+          button that opens the outbound HPD→client packing slip PDF
+          (same artifact emailed to the client at Mark Shipped time).
+          Intentionally does NOT link out to the project overview —
+          warehouse role doesn't need that surface. */}
+      {shippedDetail && (
+        <div onClick={() => setShippedDetailId(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)", fontFamily: font }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: T.card, borderRadius: 14, width: "min(640px, 100%)", maxHeight: "94vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${T.border}` }}>
+            {/* Header */}
+            <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{shippedDetail.clientName || "No client"}</div>
+                <div style={{ fontSize: 12, color: T.muted, marginTop: 2, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {shippedDetail.title && <span>{shippedDetail.title}</span>}
+                  <span style={{ fontFamily: mono, color: T.faint }}>{shippedDetail.invoiceNumber || shippedDetail.jobNumber}</span>
+                </div>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                ✓ Shipped
+              </span>
+              <button onClick={() => setShippedDetailId(null)}
+                style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Shipped</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>
+                    {new Date(shippedDetail.shippedAt).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                    {new Date(shippedDetail.shippedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Units</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>
+                    {shippedDetail.totalUnits.toLocaleString()} across {shippedDetail.itemCount} item{shippedDetail.itemCount === 1 ? "" : "s"}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Tracking</div>
+                {shippedDetail.fulfillmentTracking ? (
+                  <div style={{ fontSize: 13, fontFamily: mono, color: T.text, wordBreak: "break-all" }}>
+                    {shippedDetail.fulfillmentTracking}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: T.faint }}>No tracking recorded</div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer — packing slip CTA */}
+            <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setShippedDetailId(null)}
+                style={{ padding: "8px 16px", background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                Close
+              </button>
+              <a href={`/api/pdf/packing-slip/${shippedDetail.id}`} target="_blank" rel="noopener noreferrer"
+                style={{ padding: "8px 18px", background: T.accent, color: "#fff", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", textDecoration: "none", fontFamily: font }}>
+                View packing slip
+              </a>
+            </div>
+          </div>
+        </div>
       )}
 
-      {/* Notify Recipient dialog — opens after Mark Shipped. Customer
-          contact picker + subject/message editor + BCC + preview, then
-          fires the customer-shipped email with packing slip attached.
-          Job is removed from the local list on dialog close (sent or
-          cancelled — DB state was already advanced when Mark Shipped
-          ran, so the next page load wouldn't show it anyway). */}
+      {/* Notify Recipient dialog */}
       <NotifyShipmentDialog
         open={!!notifyState}
         onClose={() => {

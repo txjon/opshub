@@ -442,7 +442,13 @@ export default function ProductionPage() {
   // for each item in the loop and call loadAll() once at the end.
   async function markShipped(item: ProdItem, opts?: { skipReload?: boolean }) {
     const ts = new Date().toISOString();
-    const timestamps = { ...(item.pipeline_timestamps || {}), shipped: ts };
+    // Only stamp `shipped` on the FIRST transition. Re-running Mark
+    // Shipped (e.g. correcting tracking after the fact) used to bump
+    // the timestamp to "now" which broke shipment grouping when items
+    // were grouped by ship_date as a fallback for empty tracking.
+    // First-set-wins gives us a stable date that survives revisions.
+    const existing = item.pipeline_timestamps || {};
+    const timestamps = { ...existing, shipped: existing.shipped || ts };
     // Flush ALL pending debounces for this item
     for (const key of Object.keys(saveTimers.current).filter(k => k.includes(item.id))) {
       clearTimeout(saveTimers.current[key]);

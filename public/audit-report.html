@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsHub — Training Guide Audit Report</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; color: #1a1a1a; background: #f8f8f9; }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 28px; font-weight: 900; margin-bottom: 4px; }
+  .subtitle { font-size: 14px; color: #6b6b78; margin-bottom: 8px; }
+  .version { font-size: 11px; color: #a0a0ad; margin-bottom: 32px; }
+  h2 { font-size: 18px; font-weight: 800; margin: 40px 0 16px; padding-top: 24px; border-top: 2px solid #1a1a1a; }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 24px; }
+  h3 { font-size: 13px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; margin: 24px 0 10px; }
+  .card { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 20px; margin-bottom: 12px; }
+  .card-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .card-desc { font-size: 13px; color: #6b6b78; line-height: 1.6; }
+  .summary-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0 24px; }
+  .summary-cell { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 14px 16px; }
+  .summary-val { font-size: 24px; font-weight: 900; line-height: 1.1; }
+  .summary-lbl { font-size: 10px; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
+  .tag { display: inline-block; font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 6px; vertical-align: middle; }
+  .tag-stale { background: #fef3e0; color: #b45309; }
+  .tag-missing { background: #ffe8ec; color: #c43030; }
+  .tag-accurate { background: #e6f5ee; color: #1a8c5c; }
+  .tag-new { background: #ede9fe; color: #7c3aed; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; }
+  th { text-align: left; padding: 8px 10px; font-size: 10px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; background: #f3f3f5; border-bottom: 1px solid #e0e0e4; }
+  td { padding: 10px 10px; border-bottom: 1px solid #f0f0f2; vertical-align: top; line-height: 1.5; }
+  td b { color: #1a1a1a; }
+  .diff { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 10px 0; border: 1px solid #e0e0e4; border-radius: 6px; overflow: hidden; }
+  .diff-left, .diff-right { padding: 10px 12px; font-size: 12px; line-height: 1.5; }
+  .diff-left { background: #fef9ee; color: #92400e; border-right: 1px solid #e0e0e4; }
+  .diff-right { background: #edf7f2; color: #166534; }
+  .diff-label { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .key { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; background: #f3f3f5; padding: 1px 6px; border-radius: 3px; }
+  .recommend { background: #f3f0ff; border: 1px solid #d6cdf7; border-radius: 8px; padding: 14px 16px; font-size: 13px; color: #4c2f96; margin: 14px 0; line-height: 1.6; }
+  .recommend b { font-weight: 700; }
+  .nav-toc { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 20px; margin-bottom: 32px; }
+  .nav-toc a { display: block; padding: 6px 0; font-size: 13px; color: #1a1a1a; text-decoration: none; font-weight: 500; border-bottom: 1px solid #f0f0f2; }
+  .nav-toc a:last-child { border-bottom: none; }
+  .nav-toc a:hover { color: #7c3aed; }
+  .nav-toc .section-label { font-size: 9px; font-weight: 700; color: #a0a0ad; text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Training Guide Audit Report</h1>
+<div class="subtitle">Drift analysis: April 9, 2026 guide vs. current OpsHub state</div>
+<div class="version">Generated May 23, 2026</div>
+
+<div class="nav-toc">
+  <div class="section-label">Contents</div>
+  <a href="#summary">Executive Summary</a>
+  <a href="#stale">Stale Content (Needs Update)</a>
+  <a href="#missing">Missing Pages &amp; Features</a>
+  <a href="#labs">Labs Department Audit</a>
+  <a href="#distro">Distro Department Audit</a>
+  <a href="#ecomm">Ecomm Department Audit</a>
+  <a href="#contacts">Contacts Department Audit</a>
+  <a href="#recommendations">Recommendations</a>
+</div>
+
+<!-- EXECUTIVE SUMMARY -->
+<h2 id="summary">Executive Summary</h2>
+<div class="card">
+  <div class="card-desc">
+    The April 9 training guide accurately describes the <b>core project lifecycle</b> (intake → pending → ready → production → receiving → complete) and the basic role split (Taylor / Drake / Receiver / Jon). The phase auto-advance model, the 3-gate blanks checklist, and the QuickBooks payment flow are still correct.
+    <br><br>
+    However, six weeks of build work has significantly extended OpsHub. The guide is missing <b>two entire departments</b> (Ecomm and the Distro split into Receiving/Shipping/Fulfillment as separate surfaces), <b>two major new modules</b> (Art Studio, Pre-order workflow), <b>one new architectural layer</b> (multi-tenant for IHM), and <b>roughly 12 page-level features</b> that have shipped since.
+    <br><br>
+    Bottom line: the guide is structurally sound but materially incomplete. Recommend a full rewrite organized by department (matching the sidebar), keeping the workflow narrative as a cross-cutting section.
+  </div>
+</div>
+
+<div class="summary-strip">
+  <div class="summary-cell"><div class="summary-val">12</div><div class="summary-lbl">Pages Still Accurate</div></div>
+  <div class="summary-cell"><div class="summary-val" style="color: #b45309;">14</div><div class="summary-lbl">Pages Stale</div></div>
+  <div class="summary-cell"><div class="summary-val" style="color: #c43030;">9</div><div class="summary-lbl">Pages Missing Entirely</div></div>
+  <div class="summary-cell"><div class="summary-val" style="color: #7c3aed;">2</div><div class="summary-lbl">New Departments</div></div>
+</div>
+
+<!-- STALE CONTENT -->
+<h2 id="stale">Stale Content — Needs Update</h2>
+
+<div class="card">
+  <div class="card-title">Layout &amp; Navigation</div>
+  <div class="diff">
+    <div class="diff-left">
+      <div class="diff-label">Guide says</div>
+      "Left rail: Hamburger menu (☰) opens the global navigation"
+    </div>
+    <div class="diff-right">
+      <div class="diff-label">Actually</div>
+      Left rail is now a fixed icon column with department buttons (Labs, Distro, Ecomm, Contacts, Settings). The new <b>Refs</b> lightbulb icon was added today.
+    </div>
+  </div>
+  <div class="diff">
+    <div class="diff-left">
+      <div class="diff-label">Guide says</div>
+      Notification bell mentioned implicitly via "handoff notifications"
+    </div>
+    <div class="diff-right">
+      <div class="diff-label">Actually</div>
+      The notification bell was deprecated. Inter-team awareness now lives in the Dashboard Command Center, Job Activity Panel, and email-based handoffs.
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Project Detail Tabs</div>
+  <div class="diff">
+    <div class="diff-left">
+      <div class="diff-label">Guide says</div>
+      8 tabs: Overview · Buy Sheet · Art Files · Costing · Quote · Blanks · PO · Production
+    </div>
+    <div class="diff-right">
+      <div class="diff-label">Actually</div>
+      10 tabs: Overview · <b>Product Builder</b> (renamed from Buy Sheet) · Costing · Quote · <b>Proofs &amp; Invoice</b> (combined) · Blanks · PO · Production · Warehouse · <b>Approvals</b> (new — bulk proof gen)
+    </div>
+  </div>
+  <div class="diff">
+    <div class="diff-left">
+      <div class="diff-label">Guide says</div>
+      Art Files is its own tab covering proof workflow + Drive integration
+    </div>
+    <div class="diff-right">
+      <div class="diff-label">Actually</div>
+      Art file management moved out of project detail entirely. Now lives in <b>Art Studio</b> — a standalone module with brief lifecycle, designer chat, image-first UI, and integrations to client + vendor portals.
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Warehouse Workflow</div>
+  <div class="diff">
+    <div class="diff-left">
+      <div class="diff-label">Guide says</div>
+      "Receiver" role works the Receiving page only
+    </div>
+    <div class="diff-right">
+      <div class="diff-label">Actually</div>
+      The Distro department now has three distinct surfaces — <b>Receiving</b>, <b>Shipping</b>, and <b>Fulfillment</b> — each owned by warehouse but serving different parts of the flow. Plus a <b>Distro Dashboard</b> overview.
+    </div>
+  </div>
+  <div class="diff">
+    <div class="diff-left">
+      <div class="diff-label">Guide says</div>
+      Receiving lists items grouped by project
+    </div>
+    <div class="diff-right">
+      <div class="diff-label">Actually</div>
+      Receiving was rebuilt to be <b>shipment-grouped</b> by (decorator, tracking). Physical boxes are the unit of work. New tabs: <b>Pending / Received / Outside</b>. New section: "Live in Shopify — shelve" 48h window so stage-route inventory is visible to warehouse for organization.
+    </div>
+  </div>
+  <div class="diff">
+    <div class="diff-left">
+      <div class="diff-label">Guide says</div>
+      Shipping happens "on the warehouse tab" with outbound tracking + Mark Shipped
+    </div>
+    <div class="diff-right">
+      <div class="diff-label">Actually</div>
+      Dedicated <b>/shipping</b> page with Ready-to-Ship and Shipped (audit history) tabs. <b>Silent mode toggle</b> suppresses client emails for backfill. Ship modal handles per-item selection + tracking + Notify Recipient dialog.
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Dashboard</div>
+  <div class="diff">
+    <div class="diff-left">
+      <div class="diff-label">Guide says</div>
+      "Two columns — Sales &amp; Production. Each alert is a clear command."
+    </div>
+    <div class="diff-right">
+      <div class="diff-label">Actually</div>
+      Dashboard structure has evolved: KPI strip (active projects, units, prints), phase-based alert buckets, new-client onboarding alerts, multi-tenant aware. Unread-override state lets Jon pin alerts back to unread for team visibility. Sales/Production framing is not how it's organized anymore.
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Quote &amp; Costing</div>
+  <div class="diff">
+    <div class="diff-left">
+      <div class="diff-label">Guide says</div>
+      Lock In Pricing → Quote tab unlocks
+    </div>
+    <div class="diff-right">
+      <div class="diff-label">Actually</div>
+      Still accurate. Quote rejection now stores rejection_notes which surface back on the Quote tab. Tax calculation now supports multi-state.
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">QuickBooks Integration</div>
+  <div class="diff">
+    <div class="diff-left">
+      <div class="diff-label">Guide says</div>
+      Single payment provider: QuickBooks
+    </div>
+    <div class="diff-right">
+      <div class="diff-label">Actually</div>
+      <b>Multi-tenant</b>: HPD uses QuickBooks; IHM uses <b>Stripe</b>. PaymentTab forks based on tenant. New-job form lets the creator pick the payment provider when relevant. Variance review modal flags stale invoices when shipped qty differs from quoted.
+    </div>
+  </div>
+</div>
+
+<!-- MISSING PAGES -->
+<h2 id="missing">Missing Pages &amp; Features</h2>
+
+<table>
+  <tr><th style="width: 22%">Page / Feature</th><th style="width: 20%">Department</th><th>What's missing from the guide</th></tr>
+  <tr>
+    <td><b>Art Studio</b> <span class="tag tag-new">New module</span></td>
+    <td>Labs</td>
+    <td>Entire module not mentioned. Brief lifecycle (Draft → Sent → WIP → Client Review → Revisions → Final Approved → Production Ready → Delivered), per-file chat, image-first UI, designer + client portal mirroring.</td>
+  </tr>
+  <tr>
+    <td><b>/production (cross-project)</b> <span class="tag tag-new">New page</span></td>
+    <td>Labs</td>
+    <td>Vendor-centric pipeline board across projects. Batch ship modal (one tracking for multiple items). Packing slip upload + carousel. Notify Recipient dialog with role-aware contact picker.</td>
+  </tr>
+  <tr>
+    <td><b>Approvals tab</b> <span class="tag tag-new">New tab</span></td>
+    <td>Labs</td>
+    <td>Bulk proof generation across all eligible items in a project. Progress tracker.</td>
+  </tr>
+  <tr>
+    <td><b>Per-item Client ETA</b> <span class="tag tag-new">New feature</span></td>
+    <td>Labs</td>
+    <td>Manual override of estimated delivery date shown to client. Editable on Production tab, Production page, Overview, and client worksheet. Read-only with countdown on client portal. Note field for context.</td>
+  </tr>
+  <tr>
+    <td><b>Per-item shipping route</b> <span class="tag tag-new">New feature</span></td>
+    <td>Labs / Distro</td>
+    <td>Override the job-level shipping route per item — e.g. mixed-route jobs where one item drop-ships and the rest stage.</td>
+  </tr>
+  <tr>
+    <td><b>Distro Dashboard</b> <span class="tag tag-missing">Missing</span></td>
+    <td>Distro</td>
+    <td>3-column work board (Receiving / Shipping / Fulfillment) + KPI strip. Cross-links to detail pages.</td>
+  </tr>
+  <tr>
+    <td><b>Fulfillment</b> <span class="tag tag-missing">Missing</span></td>
+    <td>Distro</td>
+    <td>Chronological intake feed (last 30 days), shipment-grouped, with Shopify-entry status rollups. Read-only — visibility surface, not action surface.</td>
+  </tr>
+  <tr>
+    <td><b>Silent Mode toggle</b> <span class="tag tag-new">New feature</span></td>
+    <td>Distro</td>
+    <td>On Receiving and Shipping pages — suppresses client emails for backfill scenarios. Persists in localStorage.</td>
+  </tr>
+  <tr>
+    <td><b>Ecomm department (entire)</b> <span class="tag tag-missing">Missing</span></td>
+    <td>Ecomm</td>
+    <td>New department for pre-order, in-stock drops, and always-on stores. Pages: /ecomm dashboard + /ecomm/[id] detail.</td>
+  </tr>
+  <tr>
+    <td><b>Pre-order Workflow</b> <span class="tag tag-new">New module</span></td>
+    <td>Ecomm</td>
+    <td>preorder_status lifecycle: Planning → Building → Open → Closed → Producing → Fulfilling → Complete. Push-to-production wizard creates a Labs job. Buffer % logic for variant qty. See separate Pre-order SOP doc.</td>
+  </tr>
+  <tr>
+    <td><b>Webstore-Entered handoff</b> <span class="tag tag-new">New feature</span></td>
+    <td>Ecomm / Distro</td>
+    <td>For stage-route jobs, items track when they hit Shopify. Drives the 48h "Live in Shopify — shelve" window on /receiving and the Fulfillment intake feed.</td>
+  </tr>
+  <tr>
+    <td><b>Client Worksheet bulk-apply</b> <span class="tag tag-new">New feature</span></td>
+    <td>Contacts</td>
+    <td>Multi-tab inventory view per client (setup / in production / shipped / in stock / archived). Multi-select rows + bulk apply Retail Price, ETA, Archive.</td>
+  </tr>
+  <tr>
+    <td><b>Decorator portal links</b> <span class="tag tag-new">New feature</span></td>
+    <td>Contacts</td>
+    <td>Per-decorator portal access via external_token → /portal/vendor/[token]. Copy button on decorator card.</td>
+  </tr>
+  <tr>
+    <td><b>Designer onboarding</b> <span class="tag tag-missing">Missing</span></td>
+    <td>Settings</td>
+    <td>/settings/designers — CRUD page for external designers. Token-based portal access. Active/inactive toggle, regenerate token.</td>
+  </tr>
+  <tr>
+    <td><b>References page</b> <span class="tag tag-new">New page</span></td>
+    <td>Cross-dept</td>
+    <td>/references — central hub for team training docs and SOPs. Lightbulb icon in sidebar. Cards link to /public/*.html files.</td>
+  </tr>
+  <tr>
+    <td><b>Multi-tenant (HPD + IHM)</b> <span class="tag tag-new">New architecture</span></td>
+    <td>All</td>
+    <td>Subdomain routing splits HPD and IHM into separate working contexts. Tenant slug shown under sidebar logo. Payment provider, branding, decorators, and visibility all gated. Recent split.</td>
+  </tr>
+</table>
+
+<!-- LABS AUDIT -->
+<h2 id="labs">Labs Department Audit</h2>
+
+<table>
+  <tr><th>Page</th><th>Status</th><th>Notes</th></tr>
+  <tr><td><b>/dashboard</b></td><td><span class="tag tag-stale">Stale</span></td><td>Sales/Production column framing outdated. KPI strip + phase-bucketed alerts is the current model. Unread-override workflow not documented.</td></tr>
+  <tr><td><b>/jobs (list)</b></td><td><span class="tag tag-stale">Stale</span></td><td>Status bucket rollup (multi-vendor distribution) not mentioned. KPI row (Projects · Items · Units · Prints) is new. ASAP sentinel + tenant-aware invoice column not documented.</td></tr>
+  <tr><td><b>/jobs/new</b></td><td><span class="tag tag-accurate">Accurate</span></td><td>Form structure largely unchanged. Payment provider picker (Stripe vs QB) is new.</td></tr>
+  <tr><td><b>Overview tab</b></td><td><span class="tag tag-stale">Stale</span></td><td>Item list now editable with per-item Client ETA. Client swap action not documented. Stripe-vs-QB PaymentTab fork not documented.</td></tr>
+  <tr><td><b>Product Builder tab</b></td><td><span class="tag tag-stale">Stale</span></td><td>Renamed from "Buy Sheet". File-drop workflow moved to Art Studio. Smart garment-type detection, S&amp;S catalog favorites, sort_order letter designators all new.</td></tr>
+  <tr><td><b>Costing tab</b></td><td><span class="tag tag-accurate">Accurate</span></td><td>Core flow unchanged. Shared screen cost split logic and Request Pricing (RFQ) flow not documented in guide.</td></tr>
+  <tr><td><b>Quote tab</b></td><td><span class="tag tag-accurate">Accurate</span></td><td>Rejection-notes surface and multi-state tax calc are new additions.</td></tr>
+  <tr><td><b>Proofs &amp; Invoice tab</b></td><td><span class="tag tag-stale">Stale</span></td><td>Guide treats Proofs and Invoice separately — they're now one tab. Art brief panel links to Art Studio. Stripe fork. Variance review modal.</td></tr>
+  <tr><td><b>Blanks tab</b></td><td><span class="tag tag-accurate">Accurate</span></td><td>3-gate checklist still correct. Bulk apply cost (distribute across selected items) and S&amp;S sync are new.</td></tr>
+  <tr><td><b>PO tab</b></td><td><span class="tag tag-stale">Stale</span></td><td>Per-vendor ship date override and per-vendor ship-to override not documented. ASAP sentinel logic.</td></tr>
+  <tr><td><b>Production tab</b></td><td><span class="tag tag-stale">Stale</span></td><td>Per-item Client ETA field not documented. Per-size ship_qtys input. Ship notes.</td></tr>
+  <tr><td><b>Warehouse tab</b></td><td><span class="tag tag-stale">Stale</span></td><td>Largely deprecated — warehouse work moved to /receiving + /shipping + /fulfillment.</td></tr>
+  <tr><td><b>Approvals tab</b></td><td><span class="tag tag-missing">Missing</span></td><td>Entirely new — bulk proof generation across project. Progress tracker.</td></tr>
+  <tr><td><b>/art-studio</b></td><td><span class="tag tag-missing">Missing</span></td><td>Entire module. See Missing section above.</td></tr>
+  <tr><td><b>/production (cross-project)</b></td><td><span class="tag tag-missing">Missing</span></td><td>Entire page. Batch ship modal + packing slip upload + Notify Recipient.</td></tr>
+</table>
+
+<!-- DISTRO AUDIT -->
+<h2 id="distro">Distro Department Audit</h2>
+
+<table>
+  <tr><th>Page</th><th>Status</th><th>Notes</th></tr>
+  <tr><td><b>/distro</b></td><td><span class="tag tag-missing">Missing</span></td><td>Distro Dashboard didn't exist. 3-column work board with KPIs.</td></tr>
+  <tr><td><b>/receiving</b></td><td><span class="tag tag-stale">Stale</span></td><td>Rebuilt from project-grouped to shipment-grouped (decorator + tracking). New tabs Pending/Received/Outside. Silent mode. 48h Live-in-Shopify window. Variance flags.</td></tr>
+  <tr><td><b>/shipping</b></td><td><span class="tag tag-missing">Missing</span></td><td>Dedicated page didn't exist. Ready-to-Ship + Shipped audit tabs. Silent mode. Ship modal with item-level select + outbound tracking + Notify Recipient.</td></tr>
+  <tr><td><b>/fulfillment</b></td><td><span class="tag tag-missing">Missing</span></td><td>Page didn't exist. Read-only chronological intake feed (last 30 days) with Shopify-entry status rollups. Click-in detail modal.</td></tr>
+</table>
+
+<!-- ECOMM AUDIT -->
+<h2 id="ecomm">Ecomm Department Audit</h2>
+
+<table>
+  <tr><th>Page</th><th>Status</th><th>Notes</th></tr>
+  <tr><td><b>/ecomm</b></td><td><span class="tag tag-missing">Missing</span></td><td>Entire department didn't exist. Pre-order, in-stock drop, and always-on store modes. Intake tab for Shopify entry. Project list per mode.</td></tr>
+  <tr><td><b>/ecomm/[id]</b></td><td><span class="tag tag-missing">Missing</span></td><td>Pre-order detail page. Lifecycle phases with phase-aware Next Action button. Products table with build-in-Shopify checkboxes. Push-to-production wizard.</td></tr>
+</table>
+
+<div class="recommend">
+  <b>Cross-reference:</b> The Pre-order SOP doc (already created and accessible from /references) covers the lifecycle in depth. The training guide should briefly introduce Ecomm and Pre-orders then defer to the SOP for the full workflow.
+</div>
+
+<!-- CONTACTS AUDIT -->
+<h2 id="contacts">Contacts Department Audit</h2>
+
+<table>
+  <tr><th>Page</th><th>Status</th><th>Notes</th></tr>
+  <tr><td><b>/clients (list)</b></td><td><span class="tag tag-accurate">Accurate</span></td><td>Largely unchanged. Inline new-client form, search, navigation.</td></tr>
+  <tr><td><b>/clients/[id]</b></td><td><span class="tag tag-stale">Stale</span></td><td>Working Sheet is new — multi-tab inventory by status. Bulk-apply Retail / ETA / Archive. QB customer linking workflow. Portal token + copy.</td></tr>
+  <tr><td><b>/decorators</b></td><td><span class="tag tag-stale">Stale</span></td><td>Vendor portal link (external_token + copy) is new. Multi-contact support. Ship-from address toggle.</td></tr>
+  <tr><td><b>/settings/designers</b></td><td><span class="tag tag-missing">Missing</span></td><td>Page didn't exist. CRUD for external designers, portal token generation, active/inactive toggle.</td></tr>
+</table>
+
+<!-- RECOMMENDATIONS -->
+<h2 id="recommendations">Recommendations</h2>
+
+<div class="card">
+  <div class="card-title">1. Full rewrite, organized by department</div>
+  <div class="card-desc">
+    The April 9 guide was organized by workflow stage (Builder → Costing → Quote → ...). With three departments now (Labs / Distro / Ecomm) plus Contacts, the cleaner mental model is <b>department-first</b> — matching the sidebar — then page-by-page within each. Keep a "Project workflow start-to-finish" cross-cutting section as the narrative spine, but make it reference the department pages by name.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">2. Per-role docs as companion artifacts</div>
+  <div class="card-desc">
+    Five per-role HTML docs (Taylor / Drake / Abigail / Warehouse / Manager) deliver the same content from a different angle. Each only covers what that role touches day-to-day. New hires skim their role doc; the training guide is the reference. Both live in /references.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">3. SOPs stay separate</div>
+  <div class="card-desc">
+    The Pre-order SOP already exists as its own doc — referenced from /references. Future SOPs (e.g. Customer Service playbook for Abigail, Decorator Onboarding) should follow the same pattern: one HTML file per SOP, linked from References. Training guide gives the overview; SOPs give the deep workflow.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">4. Update cadence</div>
+  <div class="card-desc">
+    Set a quarterly review: every three months, do this same audit. New features that ship between audits get a one-line note in the version log at the top of the training guide. Stale content gets fixed in place. This keeps drift bounded.
+  </div>
+</div>
+
+<div style="text-align: center; padding: 40px 0; color: #a0a0ad; font-size: 11px;">
+  OpsHub Training Guide Audit — House Party Distro<br>
+  Generated May 23, 2026 · Compares against April 9, 2026 version
+</div>
+
+</div>
+</body>
+</html>

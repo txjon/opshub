@@ -22,14 +22,24 @@ export type WarehouseItem = {
   job_id: string;
   pipeline_stage: string | null;
   ship_tracking: string | null;
+  // First-set-wins timestamp for when the item left the decorator.
+  // Used as fallback grouping key for shipments without tracking.
+  ship_date: string | null;
+  // Per-item route override (migration 076). Null = use job default.
+  shipping_route: string | null;
   received_at_hpd: boolean;
   received_at_hpd_at: string | null;
+  // Stage-route Shopify handoff. Null = received-at-HPD but not yet
+  // keyed into Shopify (still OpsHub's problem). Set = handed off to
+  // Shopify/ShipStation (OpsHub considers it done for stage jobs).
+  webstore_entered_at: string | null;
   sizes: string[];
   qtys: Record<string, number>;
   ship_qtys: Record<string, number>;
   received_qtys: Record<string, number>;
   sample_qtys: Record<string, number>;
   ship_notes: string;
+  decorator_id: string | null;
   decorator_assignment_id: string | null;
   decorator_name: string | null;
   decorator_short_code: string | null;
@@ -65,14 +75,39 @@ export function useWarehouse() {
 
   async function loadData() {
     setLoading(true);
-    const { data: dbJobs } = await supabase
-      .from("jobs")
-      .select("id, title, job_number, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
-      .not("phase", "in", '("complete","cancelled")')
-      .not("shipping_route", "eq", "drop_ship")
-      .order("created_at", { ascending: false });
+    // Drop the job-level shipping_route filter — we filter at the
+    // item level below instead. This lets mixed-route jobs through:
+    // a "drop_ship" job that has one item overridden to "ship_through"
+    // will surface that item in receiving (it IS coming to HPD), and a
+    // "ship_through" job with one drop_ship-overridden item will hide
+    // that single item (it ISN'T). The per-item shipping_route column
+    // (migration 076) is authoritative when set; NULL falls back to
+    // job.shipping_route.
+    //
+    // Two queries:
+    //   1. Active jobs — anything not complete/cancelled
+    //   2. Recently Shopify-entered stage jobs — phase=complete but
+    //      within a 48h window so the warehouse can still see "this is
+    //      live in Shopify, shelve it" on /receiving. Drops out of the
+    //      result set after 48h naturally.
+    const fortyEightHoursAgo = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+    const [activeRes, recentEnteredRes] = await Promise.all([
+      supabase
+        .from("jobs")
+        .select("id, title, job_number, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
+        .not("phase", "in", '("complete","cancelled")')
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("jobs")
+        .select("id, title, job_number, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
+        .eq("shipping_route", "stage")
+        .eq("phase", "complete")
+        .gte("updated_at", fortyEightHoursAgo)
+        .order("updated_at", { ascending: false }),
+    ]);
+    const dbJobs = [...(activeRes.data || []), ...(recentEnteredRes.data || [])];
 
-    if (!dbJobs?.length) { setJobs([]); setLoading(false); return; }
+    if (!dbJobs.length) { setJobs([]); setLoading(false); return; }
 
     const jobIds = dbJobs.map(j => j.id);
     const [itemsRes, contactsRes] = await Promise.all([
@@ -82,16 +117,20 @@ export function useWarehouse() {
     const allItems = itemsRes.data;
     const allContacts = contactsRes.data || [];
     const assignmentMap: Record<string, string> = {};
-    const decoratorMap: Record<string, { name: string; short_code: string | null }> = {};
+    const decoratorMap: Record<string, { id: string | null; name: string; short_code: string | null }> = {};
     if (allItems?.length) {
       const itemIds = allItems.map((it: any) => it.id);
       const { data: assignments } = await supabase.from("decorator_assignments")
-        .select("id, item_id, decorators(name, short_code)")
+        .select("id, item_id, decorator_id, decorators(name, short_code)")
         .in("item_id", itemIds);
       for (const a of (assignments || []) as any[]) {
         assignmentMap[a.item_id] = a.id;
-        if (a.decorators?.name) {
-          decoratorMap[a.item_id] = { name: a.decorators.name, short_code: a.decorators.short_code || null };
+        if (a.decorators?.name || a.decorator_id) {
+          decoratorMap[a.item_id] = {
+            id: a.decorator_id || null,
+            name: a.decorators?.name || "Unassigned",
+            short_code: a.decorators?.short_code || null,
+          };
         }
       }
     }
@@ -99,9 +138,15 @@ export function useWarehouse() {
     const mapped: WarehouseJob[] = [];
     for (const j of dbJobs) {
       const jobItems = (allItems || []).filter((it: any) => it.job_id === j.id);
-      const relevant = jobItems.filter((it: any) =>
-        it.pipeline_stage === "shipped" || it.received_at_hpd
-      );
+      // Resolve per-item shipping_route with fallback to the job's.
+      // Items whose effective route is drop_ship NEVER come to HPD,
+      // so we drop them here regardless of pipeline state.
+      const jobRoute = j.shipping_route || "ship_through";
+      const relevant = jobItems.filter((it: any) => {
+        const effectiveRoute = it.shipping_route || jobRoute;
+        if (effectiveRoute === "drop_ship") return false;
+        return it.pipeline_stage === "shipped" || it.received_at_hpd;
+      });
       if (relevant.length === 0) continue;
 
       const typeMeta = (j as any).type_meta || {};
@@ -127,15 +172,20 @@ export function useWarehouse() {
         contact_phone: contactData.phone || contactData.email || "",
         items: relevant.map((it: any) => {
           const lines = it.buy_sheet_lines || [];
+          const ts = (it.pipeline_timestamps || {}) as Record<string, string>;
           return {
             id: it.id, name: it.name, letter: String.fromCharCode(65 + (it.sort_order ?? 0)), blank_vendor: it.blank_vendor, blank_sku: it.blank_sku,
             job_id: it.job_id, pipeline_stage: it.pipeline_stage, ship_tracking: it.ship_tracking, ship_notes: it.ship_notes || "",
+            ship_date: ts.shipped || null,
+            shipping_route: it.shipping_route || null,
             received_at_hpd: it.received_at_hpd || false, received_at_hpd_at: it.received_at_hpd_at,
+            webstore_entered_at: it.webstore_entered_at || null,
             sizes: sortSizes(lines.map((l: any) => l.size)),
             qtys: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered])),
             ship_qtys: it.ship_qtys || {},
             received_qtys: it.received_qtys || {},
             sample_qtys: it.sample_qtys || {},
+            decorator_id: decoratorMap[it.id]?.id || null,
             decorator_assignment_id: assignmentMap[it.id] || null,
             decorator_name: decoratorMap[it.id]?.name || null,
             decorator_short_code: decoratorMap[it.id]?.short_code || null,
@@ -151,7 +201,7 @@ export function useWarehouse() {
   async function recalcJobPhase(jobId: string) {
     const { data: jobData } = await supabase.from("jobs").select("*, clients(name)").eq("id", jobId).single();
     if (!jobData || jobData.phase === "on_hold" || jobData.phase === "cancelled") return;
-    const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type").eq("job_id", jobId);
+    const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type, shipping_route, webstore_entered_at").eq("job_id", jobId);
     const { data: payments } = await supabase.from("payment_records").select("amount, status").eq("job_id", jobId);
     const { data: proofFiles } = await supabase.from("item_files").select("item_id, approval").eq("stage", "proof").is("superseded_at", null).in("item_id", (jobItems || []).map(it => it.id));
     const proofStatus: Record<string, { allApproved: boolean }> = {};
@@ -162,7 +212,7 @@ export function useWarehouse() {
     }
     const result = calculatePhase({
       job: { job_type: jobData.job_type, shipping_route: jobData.shipping_route || "ship_through", payment_terms: jobData.payment_terms, quote_approved: jobData.quote_approved || false, phase: jobData.phase, fulfillment_status: jobData.fulfillment_status || null },
-      items: (jobItems || []).map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage, blanks_order_number: it.blanks_order_number, blanks_order_cost: (it as any).blanks_order_cost ?? null, ship_tracking: it.ship_tracking, received_at_hpd: it.received_at_hpd || false, artwork_status: it.artwork_status, garment_type: it.garment_type })),
+      items: (jobItems || []).map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage, blanks_order_number: it.blanks_order_number, blanks_order_cost: (it as any).blanks_order_cost ?? null, ship_tracking: it.ship_tracking, received_at_hpd: it.received_at_hpd || false, artwork_status: it.artwork_status, garment_type: it.garment_type, shipping_route: (it as any).shipping_route || null, webstore_entered_at: (it as any).webstore_entered_at || null })),
       payments: (payments || []).map(p => ({ amount: p.amount, status: p.status })),
       proofStatus,
       poSentVendors: jobData.type_meta?.po_sent_vendors || [],
@@ -199,7 +249,7 @@ export function useWarehouse() {
     }, 800);
   }
 
-  async function markReceived(item: WarehouseItem, opts?: { condition?: string; notes?: string }) {
+  async function markReceived(item: WarehouseItem, opts?: { condition?: string; notes?: string; skipSideEffects?: boolean; skipClientEmail?: boolean }) {
     const now = new Date().toISOString();
 
     // Flush any in-flight qty debounces — receive must commit the latest
@@ -266,22 +316,125 @@ export function useWarehouse() {
     const notesTag = opts?.notes ? ` — ${opts.notes}` : "";
     logJobActivity(item.job_id, `${item.name} received at warehouse${conditionTag} — ${parts.join(", ")}${notesTag}`);
 
-    // Check if this completes the job BEFORE updating state — so the side effect
-    // isn't inside the state updater (React may call updaters twice in dev/concurrent).
-    const currentJob = jobs.find(j => j.items.some(it => it.id === item.id));
-    const willAllBeReceived = !!currentJob && currentJob.items.every(it => it.id === item.id ? true : it.received_at_hpd);
-
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now, receiving_data: receivingData as any } : it),
     })));
 
-    if (willAllBeReceived) {
-      fetch("/api/email/notify", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: item.job_id, type: "production_complete" }),
-      }).catch(() => {});
+    // Side effects (production_complete email + phase recalc) intentionally
+    // live in `markReceivedSideEffects` so bulkMarkReceived can fire them
+    // ONCE after the loop instead of N times with stale closure state.
+    // When a single item is received via this path we fan out the same way.
+    if (!opts?.skipSideEffects) {
+      await markReceivedSideEffects([item.job_id], { skipClientEmail: opts?.skipClientEmail });
     }
+  }
 
+  // Bulk-receive wrapper. Use this whenever multiple items in a shipment
+  // are received together — it skips the per-item side effects in the
+  // loop, then queries the DB once per affected job for the
+  // "all received → production_complete email" decision and recalcs
+  // each job's phase exactly once.
+  //
+  // opts can be:
+  //  - a fixed object (same condition/notes applied to every item)
+  //  - a resolver function (called per item — used by /receiving where
+  //    each row carries its own per-item condition + notes inputs)
+  async function bulkMarkReceived(
+    items: WarehouseItem[],
+    opts?:
+      | { condition?: string; notes?: string }
+      | ((it: WarehouseItem) => { condition?: string; notes?: string }),
+    sideEffectOpts?: { skipClientEmail?: boolean },
+  ) {
+    const resolveOpts = (it: WarehouseItem) =>
+      typeof opts === "function" ? opts(it) : (opts || {});
+    for (const it of items) {
+      await markReceived(it, { ...resolveOpts(it), skipSideEffects: true });
+    }
+    const affectedJobIds = Array.from(new Set(items.map(it => it.job_id)));
+    await markReceivedSideEffects(affectedJobIds, sideEffectOpts);
+  }
+
+  // Shared side-effect path: re-queries each job's items from the DB
+  // (avoids closure-stale React state) and decides whether to fire
+  // the production_complete email. Always recalcs phase. Safe to call
+  // with one job or many.
+  async function markReceivedSideEffects(jobIds: string[], opts?: { skipClientEmail?: boolean }) {
+    for (const jobId of jobIds) {
+      // Need shipping_route info to mirror the email route's mixed-
+      // route logic: drop_ship items (per-item or job-level) never come
+      // back to HPD, so they don't gate the production_complete email.
+      const [{ data: jobItems }, { data: jobRow }] = await Promise.all([
+        supabase.from("items").select("received_at_hpd, shipping_route").eq("job_id", jobId),
+        supabase.from("jobs").select("shipping_route").eq("id", jobId).single(),
+      ]);
+      const jobRoute = (jobRow as any)?.shipping_route || "ship_through";
+      const toHpdItems = (jobItems || []).filter((it: any) => (it.shipping_route || jobRoute) !== "drop_ship");
+      const allReceived = toHpdItems.length > 0 && toHpdItems.every((it: any) => it.received_at_hpd);
+      // Silent mode (skipClientEmail) suppresses the client-facing
+      // production_complete email. Used for backfilling historical
+      // receives where we don't want to spam clients about boxes that
+      // arrived weeks ago. Activity log + phase recalc still fire so
+      // OpsHub's internal state stays consistent.
+      if (allReceived && !opts?.skipClientEmail) {
+        fetch("/api/email/notify", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId, type: "production_complete" }),
+        }).catch(() => {});
+      }
+      // Phase recalc — fresh DB read inside recalcJobPhase. Slight
+      // delay so the receive writes finish settling first.
+      setTimeout(() => recalcJobPhase(jobId), 300);
+    }
+  }
+
+  // Stage-route Shopify handoff. Bulk operation by design — the team
+  // typically enters a whole shipment's worth of items into Shopify in
+  // one sitting. Records who keyed it in (webstore_entered_by) for the
+  // audit trail. Recalcs phase once per affected job: a stage job with
+  // all items received + webstore-entered moves to "complete."
+  // No email side-effect — this is an internal handoff, ShipStation
+  // handles client-facing comms downstream.
+  async function bulkMarkWebstoreEntered(items: WarehouseItem[]) {
+    if (items.length === 0) return;
+    const now = new Date().toISOString();
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id || null;
+    await Promise.all(items.map(it =>
+      supabase.from("items").update({
+        webstore_entered_at: now,
+        webstore_entered_by: userId,
+      }).eq("id", it.id)
+    ));
+    setJobs(prev => prev.map(j => ({
+      ...j,
+      items: j.items.map(it => {
+        const hit = items.find(x => x.id === it.id);
+        return hit ? { ...it, webstore_entered_at: now } : it;
+      }),
+    })));
+    // Per-job activity log + phase recalc.
+    const byJob = new Map<string, WarehouseItem[]>();
+    for (const it of items) {
+      if (!byJob.has(it.job_id)) byJob.set(it.job_id, []);
+      byJob.get(it.job_id)!.push(it);
+    }
+    for (const [jobId, jobItems] of Array.from(byJob.entries())) {
+      const names = jobItems.map(it => it.name).join(", ");
+      logJobActivity(jobId, `${jobItems.length} item${jobItems.length === 1 ? "" : "s"} entered into Shopify (${names})`);
+      setTimeout(() => recalcJobPhase(jobId), 300);
+    }
+  }
+
+  async function undoWebstoreEntered(item: WarehouseItem) {
+    await supabase.from("items").update({
+      webstore_entered_at: null,
+      webstore_entered_by: null,
+    }).eq("id", item.id);
+    setJobs(prev => prev.map(j => ({
+      ...j, items: j.items.map(it => it.id === item.id ? { ...it, webstore_entered_at: null } : it),
+    })));
+    logJobActivity(item.job_id, `${item.name} — Shopify entry undone`);
     setTimeout(() => recalcJobPhase(item.job_id), 300);
   }
 
@@ -337,7 +490,8 @@ export function useWarehouse() {
 
   return {
     loading, jobs, setJobs, incoming, shipThrough, fulfillment,
-    updateReceivedQty, updateSampleQty, markReceived, undoReceived, returnToProduction,
+    updateReceivedQty, updateSampleQty, markReceived, bulkMarkReceived, undoReceived, returnToProduction,
+    bulkMarkWebstoreEntered, undoWebstoreEntered,
     updateFulfillment, debounceFulfillmentTracking,
     supabase, logJobActivity,
   };

@@ -3,890 +3,688 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { T, font, mono, sortSizes } from "@/lib/theme";
-import { deductSamples } from "@/lib/qty";
+import { T, font, mono } from "@/lib/theme";
 
-type EcommProject = {
+// Pre-order detail page. Shows the full lifecycle workflow:
+//   planning → building → open → closed → producing → fulfilling → complete
+// Different sections light up at different phases — Taylor lives in
+// Products, Abigail lives in Shopify build, Drake lives in Push-to-
+// production. Each has a clear action for their role.
+//
+// Legacy fulfillment_inventory paths are intentionally absent — the
+// page is rebuilt around the pre-order workflow we defined in
+// migration 079.
+
+type PreorderStatus = "planning" | "building" | "open" | "closed" | "producing" | "fulfilling" | "complete";
+
+type Preorder = {
   id: string;
   name: string;
   client_id: string | null;
   client_name: string;
-  store_name: string | null;
-  store_account: string | null;
-  status: string;
   mode: "preorder" | "drop" | "always_on";
+  preorder_status: PreorderStatus | null;
   platform: string | null;
+  store_account: string | null;
   open_date: string | null;
   close_date: string | null;
   target_ship_date: string | null;
   buffer_pct: number | null;
-  listed_by: string | null;
-  notes: string | null;
-  created_at: string;
-};
-
-type InventoryLine = {
-  id: string;
-  source_type: "labs_item" | "outside_shipment" | "preexisting";
-  source_item_id: string | null;
-  source_shipment_id: string | null;
-  description: string | null;
-  qtys: Record<string, number>;
-  notes: string | null;
-  webstore_entered_at: string | null;
-  sort_order: number;
-  display_name: string;
-  display_meta: string | null;
-  effective_qtys: Record<string, number>;
-  sizes: string[];
-  total: number;
   source_job_id: string | null;
-  item_status: "at_decorator" | "in_transit" | "received" | "unknown" | null;
-  qty_is_expected: boolean;
-};
-
-type LinkedJob = {
-  id: string;
-  title: string;
-  job_number: string | null;
-  phase: string;
+  notes: string | null;
   created_at: string;
 };
 
-type DailyLog = {
+type PreorderProduct = {
   id: string;
-  log_date: string;
-  starting_orders: number;
-  orders_shipped: number;
-  remaining_orders: number;
+  preorder_id: string;
+  name: string;
+  blank_vendor: string | null;
+  blank_sku: string | null;
+  sizes: string[];
+  retail_price: number | null;
+  mockup_drive_file_id: string | null;
+  shopify_product_url: string | null;
+  sort_order: number;
+  is_built_in_shopify: boolean;
+  built_in_shopify_at: string | null;
   notes: string | null;
 };
 
-type AvailableItem = {
-  id: string;
-  name: string;
-  job_id: string;
-  job_title: string;
-  client_id: string | null;
-  client_name: string;
-  total: number;
-  status: "at_decorator" | "in_transit" | "received" | "unknown";
-  qty_is_expected: boolean;
+const STATUS_LABELS: Record<PreorderStatus, string> = {
+  planning: "Planning",
+  building: "Building in Shopify",
+  open: "Open · live",
+  closed: "Closed · pending push",
+  producing: "Producing",
+  fulfilling: "Fulfilling",
+  complete: "Complete",
 };
 
-const MODE_LABELS: Record<EcommProject["mode"], string> = {
-  preorder: "Pre-order",
-  drop: "In-stock drop",
-  always_on: "Always-on",
+const STATUS_OWNERS: Record<PreorderStatus, string> = {
+  planning: "Taylor — scope products + dates",
+  building: "Abigail — build products in Shopify",
+  open: "Live · customers ordering",
+  closed: "Drake — push to production with Shopify report",
+  producing: "Labs — items at decorator",
+  fulfilling: "ShipStation — daily orders",
+  complete: "Done",
 };
 
-const PLATFORM_LABELS: Record<string, string> = {
-  shopify: "Shopify",
-  bigcommerce: "BigCommerce",
-  bigcartel: "BigCartel",
-  other: "Other",
-};
+function toneFor(s: PreorderStatus | null) {
+  if (!s) return T.border;
+  const map: Record<PreorderStatus, string> = {
+    planning: T.muted,
+    building: T.accent,
+    open: T.green,
+    closed: T.amber,
+    producing: T.accent,
+    fulfilling: T.purple,
+    complete: T.faint,
+  };
+  return map[s];
+}
 
-export default function EcommProjectDetail() {
+export default function PreorderDetail() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const supabase = createClient();
-  const projectId = params.id;
+  const preorderId = params.id;
 
-  const [project, setProject] = useState<EcommProject | null>(null);
-  const [lines, setLines] = useState<InventoryLine[]>([]);
-  const [jobs, setJobs] = useState<LinkedJob[]>([]);
-  const [logs, setLogs] = useState<DailyLog[]>([]);
+  const [preorder, setPreorder] = useState<Preorder | null>(null);
+  const [products, setProducts] = useState<PreorderProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [newProduct, setNewProduct] = useState({ name: "", blank_vendor: "", blank_sku: "", sizes: "", retail_price: "" });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // Push-to-production wizard. Opens when Abigail has the Shopify
+  // sold-qty report and is ready to spawn the Labs job. Keyed by
+  // (productId, size) → string for free typing; parsed to int on save.
+  const [pushOpen, setPushOpen] = useState(false);
+  const [soldQtys, setSoldQtys] = useState<Record<string, Record<string, string>>>({});
+  const [pushBuffer, setPushBuffer] = useState<string>("");
+  const [pushing, setPushing] = useState(false);
+  const [pushError, setPushError] = useState<string>("");
 
-  // Inline editing
-  const [editForm, setEditForm] = useState<Partial<EcommProject>>({});
-  const [editing, setEditing] = useState(false);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [preorderId]);
 
-  // Inventory picker
-  const [picker, setPicker] = useState<"labs" | "outside" | "preexisting" | null>(null);
-  const [pickerFilter, setPickerFilter] = useState({ search: "", clientId: "", jobId: "" });
-  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
-  const [availableItems, setAvailableItems] = useState<AvailableItem[]>([]);
-  const [preForm, setPreForm] = useState({ description: "", qtys: "", notes: "" });
-
-  // Daily log entry
-  const [logForm, setLogForm] = useState({ starting: "", remaining: "", notes: "" });
-
-  useEffect(() => { if (projectId) loadAll(); }, [projectId]);
-
-  function hydrateLine(row: any): InventoryLine {
-    let display_name = "";
-    let display_meta: string | null = null;
-    let effective_qtys: Record<string, number> = {};
-    let sizes: string[] = [];
-    let source_job_id: string | null = null;
-    let item_status: InventoryLine["item_status"] = null;
-    let qty_is_expected = false;
-
-    if (row.source_type === "labs_item" && row.items) {
-      source_job_id = row.items.job_id || null;
-      const item = row.items;
-      display_name = item.name;
-      const bsl = item.buy_sheet_lines || [];
-      const orderedSizes = bsl.map((l: any) => l.size);
-      const rq = item.received_qtys || {};
-      const hasReceivedQtys = Object.keys(rq).length > 0;
-      if (item.received_at_hpd) item_status = "received";
-      else if (item.pipeline_stage === "shipped") item_status = "in_transit";
-      else if (item.pipeline_stage === "in_production") item_status = "at_decorator";
-      else item_status = "unknown";
-      qty_is_expected = !hasReceivedQtys;
-      const delivered: Record<string, number> = {};
-      for (const l of bsl) {
-        delivered[l.size] = rq[l.size] ?? l.qty_ordered ?? 0;
-      }
-      effective_qtys = deductSamples(delivered, item.sample_qtys);
-      sizes = sortSizes(orderedSizes);
-    } else if (row.source_type === "outside_shipment" && row.outside_shipments) {
-      const sh = row.outside_shipments;
-      display_name = sh.description || sh.sender || "Outside shipment";
-      display_meta = [sh.sender, sh.carrier, sh.tracking].filter(Boolean).join(" · ") || null;
-      effective_qtys = row.qtys || {};
-      sizes = sortSizes(Object.keys(effective_qtys));
-    } else if (row.source_type === "preexisting") {
-      display_name = row.description || "Pre-existing inventory";
-      display_meta = row.notes;
-      effective_qtys = row.qtys || {};
-      sizes = sortSizes(Object.keys(effective_qtys));
-    } else {
-      display_name = row.description || "(source unavailable)";
-      effective_qtys = row.qtys || {};
-      sizes = sortSizes(Object.keys(effective_qtys));
-    }
-
-    const total = Object.values(effective_qtys).reduce((a, v) => a + (Number(v) || 0), 0);
-    return {
-      id: row.id,
-      source_type: row.source_type,
-      source_item_id: row.source_item_id,
-      source_shipment_id: row.source_shipment_id,
-      description: row.description,
-      qtys: row.qtys || {},
-      notes: row.notes,
-      webstore_entered_at: row.webstore_entered_at,
-      sort_order: row.sort_order || 0,
-      display_name, display_meta, effective_qtys, sizes, total, source_job_id,
-      item_status, qty_is_expected,
-    };
-  }
-
-  async function loadAll() {
+  async function load() {
     setLoading(true);
-    const [projRes, invRes, logRes] = await Promise.all([
-      supabase.from("fulfillment_projects").select("*, clients(name)").eq("id", projectId).single(),
-      supabase.from("fulfillment_inventory")
-        .select("*, items:source_item_id(id, name, job_id, sort_order, pipeline_stage, received_at_hpd, received_qtys, sample_qtys, buy_sheet_lines(size, qty_ordered)), outside_shipments:source_shipment_id(id, description, sender, carrier, tracking)")
-        .eq("project_id", projectId)
-        .order("sort_order"),
-      supabase.from("fulfillment_daily_logs").select("*").eq("project_id", projectId).order("log_date", { ascending: false }),
+    const [pRes, prodRes] = await Promise.all([
+      supabase.from("fulfillment_projects").select("*, clients(name)").eq("id", preorderId).single(),
+      supabase.from("preorder_products").select("*").eq("preorder_id", preorderId).order("sort_order"),
     ]);
-
-    const p = projRes.data as any;
-    if (p) {
-      setProject({ ...p, client_name: p.clients?.name || "—" });
-      setEditForm({
-        name: p.name,
-        store_account: p.store_account,
-        platform: p.platform,
-        open_date: p.open_date,
-        close_date: p.close_date,
-        target_ship_date: p.target_ship_date,
-        buffer_pct: p.buffer_pct,
-        listed_by: p.listed_by,
-        notes: p.notes,
+    if (pRes.data) {
+      const p: any = pRes.data;
+      setPreorder({
+        id: p.id, name: p.name,
+        client_id: p.client_id, client_name: p.clients?.name || "—",
+        mode: p.mode, preorder_status: p.preorder_status || (p.mode === "preorder" ? "planning" : null),
+        platform: p.platform, store_account: p.store_account,
+        open_date: p.open_date, close_date: p.close_date, target_ship_date: p.target_ship_date,
+        buffer_pct: p.buffer_pct, source_job_id: p.source_job_id,
+        notes: p.notes, created_at: p.created_at,
       });
     }
-
-    const lineRows = (invRes.data || []).map(hydrateLine);
-    setLines(lineRows);
-    setLogs((logRes.data || []) as DailyLog[]);
-
-    // Find linked Labs jobs by aggregating from inventory's labs_item lines
-    // OR by jobs.type_meta.ecomm_project_id pointing at this project.
-    const sourceJobIds: string[] = Array.from(new Set(lineRows.filter(l => l.source_job_id).map(l => l.source_job_id!)));
-    const { data: jobsByMeta } = await supabase
-      .from("jobs")
-      .select("id, title, job_number, phase, created_at, type_meta")
-      .filter("type_meta->>ecomm_project_id", "eq", projectId);
-    const metaJobIds: string[] = (jobsByMeta || []).map((j: any) => j.id);
-    const seen = new Set<string>();
-    const allJobIds: string[] = [];
-    for (const id of [...sourceJobIds, ...metaJobIds]) {
-      if (!seen.has(id)) { seen.add(id); allJobIds.push(id); }
-    }
-    if (allJobIds.length > 0) {
-      const { data: jobRows } = await supabase
-        .from("jobs")
-        .select("id, title, job_number, phase, created_at")
-        .in("id", allJobIds)
-        .order("created_at", { ascending: false });
-      setJobs((jobRows || []) as LinkedJob[]);
-    } else {
-      setJobs([]);
-    }
-
+    setProducts(((prodRes.data || []) as any[]).map(r => ({
+      ...r,
+      sizes: Array.isArray(r.sizes) ? r.sizes : [],
+    })));
     setLoading(false);
   }
 
-  async function saveHeader() {
-    if (!project) return;
-    setSaving(true);
-    await supabase.from("fulfillment_projects").update({
-      name: editForm.name?.trim() || project.name,
-      store_account: editForm.store_account || null,
-      platform: editForm.platform || null,
-      open_date: editForm.open_date || null,
-      close_date: editForm.close_date || null,
-      target_ship_date: editForm.target_ship_date || null,
-      buffer_pct: editForm.buffer_pct ?? 5,
-      listed_by: editForm.listed_by || null,
-      notes: editForm.notes || null,
-    }).eq("id", project.id);
-    setEditing(false);
-    setSaving(false);
-    loadAll();
+  async function advanceStatus(next: PreorderStatus) {
+    if (!preorder) return;
+    await supabase.from("fulfillment_projects").update({ preorder_status: next }).eq("id", preorderId);
+    setPreorder(p => p ? { ...p, preorder_status: next } : p);
   }
 
-  async function updateStatus(status: string) {
-    if (!project) return;
-    await supabase.from("fulfillment_projects").update({ status }).eq("id", project.id);
-    setProject(prev => prev ? { ...prev, status } : prev);
+  async function updateField(field: keyof Preorder, value: any) {
+    if (!preorder) return;
+    setPreorder(p => p ? { ...p, [field]: value } as Preorder : p);
+    await supabase.from("fulfillment_projects").update({ [field]: value }).eq("id", preorderId);
   }
 
-  async function spawnLabsJob() {
-    if (!project) return;
-    setSaving(true);
-    const insertPayload: any = {
-      title: project.name,
-      client_id: project.client_id,
-      phase: "intake",
-      shipping_route: "stage",
-      type_meta: {
-        ecomm_project_id: project.id,
-        ecomm_mode: project.mode,
-        store_account: project.store_account,
-        platform: project.platform,
-      },
-    };
-    const { data, error } = await supabase.from("jobs").insert(insertPayload).select("id").single();
-    setSaving(false);
-    if (error || !data) {
-      alert("Failed to spawn Labs job: " + (error?.message || "unknown error"));
-      return;
+  async function addProduct() {
+    if (!newProduct.name.trim()) return;
+    const sizesArr = newProduct.sizes.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+    const retail = newProduct.retail_price ? parseFloat(newProduct.retail_price) : null;
+    const { data } = await (supabase.from("preorder_products") as any).insert({
+      preorder_id: preorderId,
+      name: newProduct.name.trim(),
+      blank_vendor: newProduct.blank_vendor.trim() || null,
+      blank_sku: newProduct.blank_sku.trim() || null,
+      sizes: sizesArr,
+      retail_price: retail,
+      sort_order: products.length,
+    }).select().single();
+    if (data) setProducts(prev => [...prev, { ...(data as any), sizes: (data as any).sizes || [] }]);
+    setNewProduct({ name: "", blank_vendor: "", blank_sku: "", sizes: "", retail_price: "" });
+    setShowAddProduct(false);
+  }
+
+  async function deleteProduct(id: string) {
+    await supabase.from("preorder_products").delete().eq("id", id);
+    setProducts(prev => prev.filter(p => p.id !== id));
+  }
+
+  async function toggleBuilt(p: PreorderProduct) {
+    const next = !p.is_built_in_shopify;
+    setProducts(prev => prev.map(x => x.id === p.id ? { ...x, is_built_in_shopify: next, built_in_shopify_at: next ? new Date().toISOString() : null } : x));
+    await supabase.from("preorder_products").update({
+      is_built_in_shopify: next,
+      built_in_shopify_at: next ? new Date().toISOString() : null,
+    }).eq("id", p.id);
+  }
+
+  async function updateProduct(id: string, patch: Partial<PreorderProduct>) {
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, ...patch } as PreorderProduct : p));
+    await supabase.from("preorder_products").update(patch).eq("id", id);
+  }
+
+  function openPushModal() {
+    // Seed sold qtys with zeros so the inputs are controlled. Buffer
+    // defaults to the pre-order's stored buffer_pct (typically 5-7).
+    const seed: Record<string, Record<string, string>> = {};
+    for (const p of products) {
+      seed[p.id] = {};
+      for (const sz of p.sizes) seed[p.id][sz] = "";
     }
-    router.push(`/jobs/${(data as any).id}`);
+    setSoldQtys(seed);
+    setPushBuffer(String(preorder?.buffer_pct ?? 5));
+    setPushError("");
+    setPushOpen(true);
   }
 
-  async function toggleWebstoreReady(line: InventoryLine) {
-    const newValue = line.webstore_entered_at ? null : new Date().toISOString();
-    await supabase.from("fulfillment_inventory")
-      .update({ webstore_entered_at: newValue })
-      .eq("id", line.id);
-    loadAll();
+  function calcTotal(sold: number, bufferPct: number): number {
+    if (sold <= 0) return 0;
+    return Math.ceil(sold * (1 + bufferPct / 100));
   }
 
-  async function removeLine(lineId: string) {
-    if (!confirm("Remove this inventory line?")) return;
-    await supabase.from("fulfillment_inventory").delete().eq("id", lineId);
-    loadAll();
-  }
-
-  function parseQtys(input: string): Record<string, number> {
-    const out: Record<string, number> = {};
-    for (const chunk of input.split(/[,\n]/)) {
-      const m = chunk.trim().match(/^([A-Za-z0-9.]+)\s*[:=]\s*(\d+)/);
-      if (m) out[m[1].toUpperCase()] = parseInt(m[2]);
+  function pushSummary() {
+    const bufferPct = parseFloat(pushBuffer) || 0;
+    const rows: { product: PreorderProduct; sizes: { size: string; sold: number; total: number }[]; totalUnits: number }[] = [];
+    let grand = 0;
+    for (const p of products) {
+      const sizeRows = p.sizes.map(sz => {
+        const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
+        const total = calcTotal(sold, bufferPct);
+        grand += total;
+        return { size: sz, sold, total };
+      });
+      const totalUnits = sizeRows.reduce((a, r) => a + r.total, 0);
+      rows.push({ product: p, sizes: sizeRows, totalUnits });
     }
-    return out;
+    return { rows, grandTotal: grand, bufferPct };
   }
 
-  async function openPicker(mode: "labs" | "outside" | "preexisting") {
-    setPicker(mode);
-    setPreForm({ description: "", qtys: "", notes: "" });
-    setSelectedItemIds(new Set());
-    setPickerFilter({ search: "", clientId: project?.client_id || "", jobId: "" });
+  async function executePush() {
+    if (!preorder) return;
+    setPushing(true);
+    setPushError("");
+    try {
+      const { rows, bufferPct } = pushSummary();
+      // Skip products with zero qty across all sizes — they didn't sell;
+      // no need to spawn an item for them.
+      const productsToCreate = rows.filter(r => r.totalUnits > 0);
+      if (productsToCreate.length === 0) {
+        setPushError("Enter sold quantities for at least one product before pushing.");
+        setPushing(false);
+        return;
+      }
 
-    if (mode === "labs") {
-      const linkedItemIds = new Set(lines.filter(l => l.source_item_id).map(l => l.source_item_id));
-      const { data } = await supabase
-        .from("items")
-        .select("id, name, job_id, pipeline_stage, received_at_hpd, received_qtys, sample_qtys, buy_sheet_lines(qty_ordered, size), jobs!inner(id, title, phase, client_id, clients(id, name))")
-        .not("jobs.phase", "in", '("cancelled")');
-      const hydrated: AvailableItem[] = (data || [])
-        .filter((it: any) => !linkedItemIds.has(it.id))
-        .map((it: any) => {
-          const lines2 = it.buy_sheet_lines || [];
-          const rq = it.received_qtys || {};
-          const hasReceivedQtys = Object.keys(rq).length > 0;
-          const delivered: Record<string, number> = {};
-          for (const l of lines2) {
-            delivered[l.size] = rq[l.size] ?? l.qty_ordered ?? 0;
-          }
-          const continuing = deductSamples(delivered, it.sample_qtys);
-          const total = Object.values(continuing).reduce((a, v) => a + v, 0);
-          let status: AvailableItem["status"] = "unknown";
-          if (it.received_at_hpd) status = "received";
-          else if (it.pipeline_stage === "shipped") status = "in_transit";
-          else if (it.pipeline_stage === "in_production") status = "at_decorator";
-          return {
-            id: it.id, name: it.name, job_id: it.job_id,
-            job_title: it.jobs?.title || "",
-            client_id: it.jobs?.client_id || null,
-            client_name: it.jobs?.clients?.name || "",
-            total,
-            status,
-            qty_is_expected: !hasReceivedQtys,
-          };
-        });
-      setAvailableItems(hydrated);
+      // 1. Create the Labs job. shipping_route="stage" so it follows
+      //    the same stage pipeline (decorator → HPD → Shopify entry).
+      //    job_number is auto-assigned by the DB trigger.
+      const { data: newJob, error: jobErr } = await (supabase.from("jobs") as any).insert({
+        title: preorder.name,
+        job_type: "tour",
+        phase: "intake",
+        priority: "normal",
+        shipping_route: "stage",
+        client_id: preorder.client_id,
+        job_number: "", // trigger fills HPD-YYMM-NNN
+        target_ship_date: preorder.target_ship_date,
+        type_meta: {
+          source: "preorder_push",
+          preorder_id: preorder.id,
+          buffer_pct: bufferPct,
+        },
+      }).select("id").single();
+      if (jobErr || !newJob) throw new Error(jobErr?.message || "Failed to create Labs job");
+      const newJobId = (newJob as any).id;
+
+      // 2. For each product with units, create an items row + buy_sheet_lines.
+      for (let i = 0; i < productsToCreate.length; i++) {
+        const r = productsToCreate[i];
+        const { data: newItem, error: itemErr } = await (supabase.from("items") as any).insert({
+          job_id: newJobId,
+          name: r.product.name,
+          blank_vendor: r.product.blank_vendor,
+          blank_sku: r.product.blank_sku,
+          status: "tbd",
+          artwork_status: "not_started",
+          sort_order: i,
+        }).select("id").single();
+        if (itemErr || !newItem) throw new Error(itemErr?.message || "Failed to create item");
+        const itemId = (newItem as any).id;
+
+        const lines = r.sizes
+          .filter(s => s.total > 0)
+          .map(s => ({
+            item_id: itemId,
+            size: s.size,
+            qty_ordered: s.total,
+            qty_shipped_from_vendor: 0,
+            qty_received_at_hpd: 0,
+            qty_shipped_to_customer: 0,
+          }));
+        if (lines.length > 0) {
+          await (supabase.from("buy_sheet_lines") as any).insert(lines);
+        }
+      }
+
+      // 3. Link the pre-order to the new Labs job + advance status.
+      await supabase.from("fulfillment_projects").update({
+        source_job_id: newJobId,
+        preorder_status: "producing",
+        buffer_pct: bufferPct,
+      }).eq("id", preorderId);
+
+      setPreorder(p => p ? { ...p, source_job_id: newJobId, preorder_status: "producing", buffer_pct: bufferPct } : p);
+      setPushOpen(false);
+      // Open the new Labs job in a new tab so Drake can review.
+      window.open(`/jobs/${newJobId}`, "_blank");
+    } catch (e: any) {
+      setPushError(e?.message || "Push failed");
+    } finally {
+      setPushing(false);
     }
   }
 
-  function toggleItemSelected(itemId: string) {
-    setSelectedItemIds(prev => {
-      const next = new Set(prev);
-      if (next.has(itemId)) next.delete(itemId);
-      else next.add(itemId);
-      return next;
-    });
-  }
-
-  async function addSelectedLabsItems() {
-    if (selectedItemIds.size === 0) return;
-    const rows = Array.from(selectedItemIds).map((itemId, idx) => ({
-      project_id: projectId,
-      source_type: "labs_item",
-      source_item_id: itemId,
-      qtys: {},
-      sort_order: lines.length + idx,
-    }));
-    await supabase.from("fulfillment_inventory").insert(rows);
-    setPicker(null);
-    setSelectedItemIds(new Set());
-    loadAll();
-  }
-
-  async function addPreexisting() {
-    if (!preForm.description.trim()) return;
-    const qtys = parseQtys(preForm.qtys);
-    await supabase.from("fulfillment_inventory").insert({
-      project_id: projectId,
-      source_type: "preexisting",
-      description: preForm.description.trim(),
-      qtys,
-      notes: preForm.notes.trim() || null,
-      sort_order: lines.length,
-    });
-    setPicker(null);
-    setPreForm({ description: "", qtys: "", notes: "" });
-    loadAll();
-  }
-
-  async function submitLog() {
-    const today = new Date().toISOString().split("T")[0];
-    const starting = parseInt(logForm.starting) || 0;
-    const remaining = parseInt(logForm.remaining) || 0;
-    await supabase.from("fulfillment_daily_logs").upsert({
-      project_id: projectId,
-      log_date: today,
-      starting_orders: starting,
-      orders_shipped: Math.max(0, starting - remaining),
-      remaining_orders: remaining,
-      notes: logForm.notes?.trim() || null,
-    }, { onConflict: "project_id,log_date" });
-    setLogForm({ starting: "", remaining: "", notes: "" });
-    loadAll();
-  }
+  const productCount = products.length;
+  const builtCount = products.filter(p => p.is_built_in_shopify).length;
 
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
   const ic: React.CSSProperties = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box" as const, outline: "none" };
 
-  if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading…</div>;
-  if (!project) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Project not found. <Link href="/ecomm" style={{ color: T.accent }}>← Back to Ecomm</Link></div>;
+  if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading pre-order…</div>;
+  if (!preorder) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Pre-order not found.</div>;
 
-  const totalUnits = lines.reduce((a, l) => a + l.total, 0);
-  const readyUnits = lines.filter(l => l.webstore_entered_at).reduce((a, l) => a + l.total, 0);
-  const todayStr = new Date().toISOString().split("T")[0];
-  const latestLog = logs[0];
-  const hasLogToday = latestLog?.log_date === todayStr;
-  const totalShipped = logs.reduce((a, l) => a + l.orders_shipped, 0);
-  const daysUntilClose = project.close_date ? Math.ceil((new Date(project.close_date + "T12:00:00").getTime() - Date.now()) / 86400000) : null;
+  const tone = toneFor(preorder.preorder_status);
+
+  // Phase-aware next-action button. Each transition has an explicit
+  // owner so the page reads like a workflow board.
+  function NextActionButton() {
+    if (!preorder) return null;
+    const s = preorder.preorder_status;
+    if (s === "planning") {
+      const ready = productCount > 0 && !!preorder.open_date && !!preorder.close_date;
+      return (
+        <button onClick={() => advanceStatus("building")} disabled={!ready}
+          title={ready ? "Hand off to Abigail to build in Shopify" : "Add at least one product and set open/close dates first"}
+          style={{ background: ready ? T.accent : T.surface, border: "none", borderRadius: 8, color: ready ? "#fff" : T.faint, fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: ready ? "pointer" : "not-allowed", fontFamily: font }}>
+          → Hand off to Abigail (Build in Shopify)
+        </button>
+      );
+    }
+    if (s === "building") {
+      const ready = productCount > 0 && builtCount === productCount;
+      return (
+        <button onClick={() => advanceStatus("open")} disabled={!ready}
+          title={ready ? "All products built — mark pre-order open" : `${productCount - builtCount} product(s) still need to be built in Shopify`}
+          style={{ background: ready ? T.green : T.surface, border: "none", borderRadius: 8, color: ready ? "#fff" : T.faint, fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: ready ? "pointer" : "not-allowed", fontFamily: font }}>
+          → Mark pre-order open
+        </button>
+      );
+    }
+    if (s === "open") {
+      return (
+        <button onClick={() => advanceStatus("closed")}
+          style={{ background: T.amber, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>
+          → Close pre-order
+        </button>
+      );
+    }
+    if (s === "closed") {
+      const ready = products.length > 0;
+      return (
+        <button onClick={openPushModal} disabled={!ready}
+          title={ready ? "Import Shopify sold qtys + buffer → spawn Labs job" : "Add products first"}
+          style={{ background: ready ? T.accent : T.surface, border: "none", borderRadius: 8, color: ready ? "#fff" : T.faint, fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: ready ? "pointer" : "not-allowed", fontFamily: font }}>
+          → Push to production
+        </button>
+      );
+    }
+    if (s === "producing") {
+      return (
+        <button onClick={() => advanceStatus("fulfilling")}
+          style={{ background: T.purple, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>
+          → Fulfilling (received + in Shopify)
+        </button>
+      );
+    }
+    if (s === "fulfilling") {
+      return (
+        <button onClick={() => advanceStatus("complete")}
+          style={{ background: T.text, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>
+          → Mark complete
+        </button>
+      );
+    }
+    return null;
+  }
 
   return (
-    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
-      <Link href="/ecomm" style={{ fontSize: 11, color: T.muted, textDecoration: "none" }}>← All ecomm projects</Link>
+    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14, maxWidth: 1000, margin: "0 auto", paddingBottom: "3rem" }}>
+      <button onClick={() => router.push("/ecomm")}
+        style={{ background: "none", border: "none", color: T.muted, fontSize: 12, cursor: "pointer", padding: 0, fontFamily: font, alignSelf: "flex-start" }}>
+        ← Back to E-Commerce
+      </button>
 
       {/* Header */}
-      <div style={{ ...card, padding: "16px 18px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-          <div style={{ flex: 1 }}>
-            {editing ? (
-              <input style={{ ...ic, fontSize: 18, fontWeight: 700, padding: "4px 8px" }} value={editForm.name || ""} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
-            ) : (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{project.name}</h1>
-                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.accentDim, color: T.accent, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  {MODE_LABELS[project.mode]}
-                </span>
-                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: project.status === "active" ? T.greenDim : T.amberDim, color: project.status === "active" ? T.green : T.amber, fontWeight: 600, textTransform: "capitalize" }}>
-                  {project.status}
-                </span>
-              </div>
-            )}
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
-              {project.client_name}
-              {project.platform && ` · ${PLATFORM_LABELS[project.platform] || project.platform}`}
-              {project.store_account && ` · ${project.store_account}`}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            {editing ? (
-              <>
-                <button onClick={saveHeader} disabled={saving}
-                  style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 11, fontWeight: 600 }}>
-                  {saving ? "Saving…" : "Save"}
-                </button>
-                <button onClick={() => { setEditing(false); setEditForm({}); }}
-                  style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.border}`, cursor: "pointer", background: "transparent", color: T.muted, fontSize: 11 }}>
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <button onClick={() => setEditing(true)}
-                style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.border}`, cursor: "pointer", background: "transparent", color: T.muted, fontSize: 11 }}>
-                Edit
-              </button>
-            )}
-          </div>
+      <div style={{ ...card, padding: "16px 20px", borderLeft: `3px solid ${tone}` }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>{preorder.name}</h1>
+          {preorder.preorder_status && (
+            <span style={{ fontSize: 11, fontWeight: 800, color: tone, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              {STATUS_LABELS[preorder.preorder_status]}
+            </span>
+          )}
         </div>
-
-        {/* Editable details */}
-        {editing && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
-            <div>
-              <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Platform</label>
-              <select style={ic} value={editForm.platform || ""} onChange={e => setEditForm(f => ({ ...f, platform: e.target.value }))}>
-                <option value="">—</option>
-                <option value="shopify">Shopify</option>
-                <option value="bigcommerce">BigCommerce</option>
-                <option value="bigcartel">BigCartel</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div style={{ gridColumn: "span 2" }}>
-              <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Store URL</label>
-              <input style={ic} value={editForm.store_account || ""} onChange={e => setEditForm(f => ({ ...f, store_account: e.target.value }))} />
-            </div>
-            <div>
-              <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Listed by</label>
-              <select style={ic} value={editForm.listed_by || ""} onChange={e => setEditForm(f => ({ ...f, listed_by: e.target.value }))}>
-                <option value="">—</option>
-                <option value="client">Client</option>
-                <option value="hpd">HPD</option>
-              </select>
-            </div>
-            {project.mode === "preorder" && (
-              <>
-                <div>
-                  <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Open</label>
-                  <input type="date" style={ic} value={editForm.open_date || ""} onChange={e => setEditForm(f => ({ ...f, open_date: e.target.value }))} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Close</label>
-                  <input type="date" style={ic} value={editForm.close_date || ""} onChange={e => setEditForm(f => ({ ...f, close_date: e.target.value }))} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Buffer %</label>
-                  <input type="number" style={ic} value={editForm.buffer_pct ?? 5} onChange={e => setEditForm(f => ({ ...f, buffer_pct: parseFloat(e.target.value) || 0 }))} />
-                </div>
-              </>
-            )}
-            <div>
-              <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Target ship</label>
-              <input type="date" style={ic} value={editForm.target_ship_date || ""} onChange={e => setEditForm(f => ({ ...f, target_ship_date: e.target.value }))} />
-            </div>
-            <div style={{ gridColumn: "span 4" }}>
-              <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Notes</label>
-              <input style={ic} value={editForm.notes || ""} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} />
-            </div>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <span>{preorder.client_name}</span>
+          {preorder.platform && <span>· {preorder.platform}</span>}
+          {preorder.store_account && (
+            <a href={preorder.store_account.startsWith("http") ? preorder.store_account : `https://${preorder.store_account}`}
+              target="_blank" rel="noopener noreferrer"
+              style={{ color: T.accent, textDecoration: "none" }}>
+              · {preorder.store_account} ↗
+            </a>
+          )}
+        </div>
+        {preorder.preorder_status && (
+          <div style={{ fontSize: 11, color: T.faint, marginTop: 8 }}>
+            <strong style={{ color: T.muted }}>{STATUS_OWNERS[preorder.preorder_status]}</strong>
           </div>
         )}
-
-        {/* Read-only details strip when not editing */}
-        {!editing && (
-          <div style={{ display: "flex", gap: 24, marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
-            {project.mode === "preorder" && project.open_date && (
-              <div>
-                <div style={{ fontSize: 9, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Opens</div>
-                <div style={{ fontSize: 13, fontFamily: mono, color: T.text, fontWeight: 600, marginTop: 2 }}>{new Date(project.open_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-              </div>
-            )}
-            {project.mode === "preorder" && project.close_date && (
-              <div>
-                <div style={{ fontSize: 9, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Closes</div>
-                <div style={{ fontSize: 13, fontFamily: mono, color: T.text, fontWeight: 600, marginTop: 2 }}>
-                  {new Date(project.close_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                  {daysUntilClose !== null && daysUntilClose >= 0 && <span style={{ fontSize: 10, color: daysUntilClose < 2 ? T.amber : T.muted, marginLeft: 4 }}>({daysUntilClose}d)</span>}
-                </div>
-              </div>
-            )}
-            {project.target_ship_date && (
-              <div>
-                <div style={{ fontSize: 9, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Target ship</div>
-                <div style={{ fontSize: 13, fontFamily: mono, color: T.text, fontWeight: 600, marginTop: 2 }}>{new Date(project.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-              </div>
-            )}
-            {project.listed_by && (
-              <div>
-                <div style={{ fontSize: 9, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Listed by</div>
-                <div style={{ fontSize: 13, color: T.text, fontWeight: 600, marginTop: 2, textTransform: "capitalize" }}>{project.listed_by === "hpd" ? "HPD" : "Client"}</div>
-              </div>
-            )}
-            {project.mode === "preorder" && (
-              <div>
-                <div style={{ fontSize: 9, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Buffer</div>
-                <div style={{ fontSize: 13, fontFamily: mono, color: T.text, fontWeight: 600, marginTop: 2 }}>{project.buffer_pct ?? 5}%</div>
-              </div>
-            )}
-            <div style={{ flex: 1 }} />
-            <div style={{ display: "flex", gap: 4 }}>
-              {["staging", "active", "complete"].map(s => (
-                <button key={s} onClick={() => updateStatus(s)}
-                  style={{ padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: "pointer", border: `1px solid ${project.status === s ? T.accent : T.border}`, background: project.status === s ? T.accentDim : "transparent", color: project.status === s ? T.accent : T.muted, textTransform: "capitalize" }}>
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        {project.notes && !editing && <div style={{ fontSize: 11, color: T.muted, padding: "8px 10px", background: T.surface, borderRadius: 6, marginTop: 12 }}>{project.notes}</div>}
+        <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <NextActionButton />
+        </div>
       </div>
 
-      {/* Production handoff: linked Labs jobs + spawn action */}
-      <div style={{ ...card, padding: "14px 16px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+      {/* Lifecycle dates + buffer — editable */}
+      <div style={{ ...card, padding: "14px 18px" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Lifecycle</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
           <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Production</div>
-            <div style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>
-              Phase 2 of the SOP — spawn a Labs job for Drake/Taylor to cost. Items they create can be linked back to this project.
-            </div>
+            <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Opens</label>
+            <input type="date" style={ic} value={preorder.open_date || ""} onChange={e => updateField("open_date", e.target.value || null)} />
           </div>
-          <button onClick={spawnLabsJob} disabled={saving}
-            style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-            {saving ? "Spawning…" : "+ Spawn Labs Job"}
+          <div>
+            <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Closes</label>
+            <input type="date" style={ic} value={preorder.close_date || ""} onChange={e => updateField("close_date", e.target.value || null)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Target ship date</label>
+            <input type="date" style={ic} value={preorder.target_ship_date || ""} onChange={e => updateField("target_ship_date", e.target.value || null)} />
+            <div style={{ fontSize: 9, color: T.faint, marginTop: 3, fontStyle: "italic", lineHeight: 1.3 }}>
+              The date you're promising customers their order will ship by. Shown to them; the answer Abigail gives until production sets per-item ETAs.
+            </div>
+            {/* Quick-set offsets from the close date — standard
+                pre-order promise window is 4-5 weeks. Falls back to
+                today when close isn't set yet so Taylor can still
+                stamp a date during scoping. */}
+            {(() => {
+              const baseIso = preorder.close_date || new Date().toISOString().slice(0, 10);
+              const baseLabel = preorder.close_date ? "from close" : "from today";
+              const offsets = [3, 4, 5, 6];
+              return (
+                <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+                  {offsets.map(weeks => {
+                    const base = new Date(baseIso + "T12:00:00");
+                    base.setDate(base.getDate() + weeks * 7);
+                    const iso = base.toISOString().slice(0, 10);
+                    const short = base.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                    return (
+                      <button key={weeks} onClick={() => updateField("target_ship_date", iso)}
+                        title={`${weeks} weeks ${baseLabel} → ${short}`}
+                        style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 5, color: T.muted, fontFamily: font, fontSize: 10, fontWeight: 600, padding: "3px 8px", cursor: "pointer" }}>
+                        +{weeks}w
+                      </button>
+                    );
+                  })}
+                  <span style={{ fontSize: 9, color: T.faint, alignSelf: "center" }}>{baseLabel}</span>
+                </div>
+              );
+            })()}
+          </div>
+          <div>
+            <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Buffer % per variant</label>
+            <input type="number" step="0.5" min="0" style={ic} value={preorder.buffer_pct ?? ""} onChange={e => updateField("buffer_pct", e.target.value ? parseFloat(e.target.value) : null)} placeholder="5" />
+          </div>
+        </div>
+      </div>
+
+      {/* Products — Taylor scopes here, Abigail marks built */}
+      <div style={{ ...card, padding: "14px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Products</div>
+          <span style={{ fontSize: 11, color: T.muted }}>
+            {productCount > 0 ? `Shopify build: ${builtCount}/${productCount}` : "—"}
+          </span>
+          <span style={{ flex: 1 }} />
+          <button onClick={() => setShowAddProduct(v => !v)}
+            style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", fontFamily: font }}>
+            {showAddProduct ? "Cancel" : "+ Add product"}
           </button>
         </div>
-        {jobs.length === 0 ? (
-          <div style={{ padding: "14px 10px", background: T.surface, borderRadius: 6, fontSize: 11, color: T.faint, textAlign: "center" }}>
-            No Labs jobs linked yet. Spawn one to start costing.
+
+        {showAddProduct && (
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12, marginBottom: 12, display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 80px", gap: 8, alignItems: "end" }}>
+            <div>
+              <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Product name *</label>
+              <input style={ic} value={newProduct.name} onChange={e => setNewProduct(p => ({ ...p, name: e.target.value }))} placeholder="Coat of Arms Tee" />
+            </div>
+            <div>
+              <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Blank vendor</label>
+              <input style={ic} value={newProduct.blank_vendor} onChange={e => setNewProduct(p => ({ ...p, blank_vendor: e.target.value }))} placeholder="Comfort Colors 1717" />
+            </div>
+            <div>
+              <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Sizes (comma-sep)</label>
+              <input style={ic} value={newProduct.sizes} onChange={e => setNewProduct(p => ({ ...p, sizes: e.target.value }))} placeholder="S, M, L, XL, 2XL" />
+            </div>
+            <div>
+              <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 3 }}>Retail $</label>
+              <input style={ic} type="number" step="0.01" value={newProduct.retail_price} onChange={e => setNewProduct(p => ({ ...p, retail_price: e.target.value }))} placeholder="32.00" />
+            </div>
+            <button onClick={addProduct} disabled={!newProduct.name.trim()}
+              style={{ padding: "7px 0", borderRadius: 6, border: "none", background: newProduct.name.trim() ? T.green : T.surface, color: newProduct.name.trim() ? "#fff" : T.faint, fontSize: 12, fontWeight: 700, cursor: newProduct.name.trim() ? "pointer" : "not-allowed", fontFamily: font }}>
+              Add
+            </button>
+          </div>
+        )}
+
+        {products.length === 0 ? (
+          <div style={{ fontSize: 12, color: T.faint, padding: "16px 0", textAlign: "center" }}>
+            No products yet. Add the items this pre-order will sell.
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {jobs.map(j => (
-              <Link key={j.id} href={`/jobs/${j.id}`} style={{ textDecoration: "none", color: T.text }}>
-                <div style={{ display: "flex", alignItems: "center", padding: "8px 10px", background: T.surface, borderRadius: 6, gap: 10 }}>
-                  <span style={{ fontSize: 10, fontFamily: mono, color: T.faint, minWidth: 90 }}>{j.job_number || j.id.slice(0, 8)}</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: T.text, flex: 1 }}>{j.title}</span>
-                  <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.card, color: T.muted, textTransform: "capitalize", letterSpacing: "0.03em" }}>{j.phase}</span>
-                  <span style={{ fontSize: 14, color: T.faint }}>›</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {products.map(p => (
+              <div key={p.id} style={{
+                padding: "10px 12px", borderRadius: 8,
+                background: p.is_built_in_shopify ? T.greenDim + "33" : T.surface,
+                border: `1px solid ${p.is_built_in_shopify ? T.green + "33" : T.border}`,
+                display: "flex", alignItems: "flex-start", gap: 12,
+              }}>
+                <input type="checkbox" checked={p.is_built_in_shopify} onChange={() => toggleBuilt(p)}
+                  title="Mark as built in Shopify"
+                  style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.green, marginTop: 4, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {editingId === p.id ? (
+                    <input style={{ ...ic, fontSize: 13, fontWeight: 600 }} value={p.name}
+                      onChange={e => updateProduct(p.id, { name: e.target.value })}
+                      onBlur={() => setEditingId(null)} autoFocus />
+                  ) : (
+                    <div onClick={() => setEditingId(p.id)} style={{ fontSize: 13, fontWeight: 600, color: T.text, cursor: "text" }}>{p.name}</div>
+                  )}
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {p.blank_vendor && <span>{p.blank_vendor}</span>}
+                    {p.blank_sku && <span style={{ fontFamily: mono }}>{p.blank_sku}</span>}
+                    {p.sizes.length > 0 && <span style={{ fontFamily: mono }}>{p.sizes.join(" · ")}</span>}
+                    {p.retail_price != null && <span style={{ color: T.text, fontWeight: 600 }}>${p.retail_price.toFixed(2)}</span>}
+                  </div>
+                  {p.is_built_in_shopify && p.built_in_shopify_at && (
+                    <div style={{ fontSize: 10, color: T.green, marginTop: 4, fontWeight: 600 }}>
+                      ✓ Built in Shopify · {new Date(p.built_in_shopify_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </div>
+                  )}
                 </div>
-              </Link>
+                <button onClick={() => deleteProduct(p.id)}
+                  title="Remove product"
+                  style={{ background: "none", border: "none", color: T.faint, fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>×</button>
+              </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Inventory */}
-      <div style={{ ...card, padding: "14px 16px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Inventory</div>
-            <div style={{ fontSize: 11, color: T.text, fontWeight: 600, marginTop: 2 }}>
-              {totalUnits.toLocaleString()} units
-              {totalUnits > 0 && readyUnits < totalUnits && <span style={{ color: T.amber, marginLeft: 6, fontWeight: 500 }}>· {(totalUnits - readyUnits).toLocaleString()} not in webstore</span>}
-              {totalUnits > 0 && readyUnits === totalUnits && <span style={{ color: T.green, marginLeft: 6, fontWeight: 500 }}>· all in webstore</span>}
-            </div>
-          </div>
-          <button onClick={() => openPicker("labs")}
-            style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.muted, cursor: "pointer" }}>
-            + Add inventory
-          </button>
+      {/* Notes */}
+      <div style={{ ...card, padding: "14px 18px" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Notes</div>
+        <textarea style={{ ...ic, minHeight: 60, resize: "vertical" }}
+          value={preorder.notes || ""}
+          onChange={e => updateField("notes", e.target.value)}
+          placeholder="Anything specific about this drop — design constraints, packaging notes, client requests…" />
+      </div>
+
+      {/* Linked Labs job — appears once push-to-production happens */}
+      {preorder.source_job_id && (
+        <div style={{ ...card, padding: "14px 18px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Linked Labs job</div>
+          <Link href={`/jobs/${preorder.source_job_id}`}
+            style={{ fontSize: 13, color: T.accent, textDecoration: "none" }}>
+            View production project →
+          </Link>
         </div>
+      )}
 
-        {lines.length === 0 ? (
-          <div style={{ padding: "14px 10px", background: T.surface, borderRadius: 6, fontSize: 11, color: T.faint, textAlign: "center" }}>
-            No inventory yet. Spawn a Labs job and cost items first, then come back to link them here.
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {lines.map(line => {
-              const sourceBadge =
-                line.source_type === "labs_item" ? { label: "Labs", color: T.accent, bg: T.accentDim } :
-                line.source_type === "outside_shipment" ? { label: "Outside", color: T.purple, bg: "rgba(160,90,200,0.15)" } :
-                { label: "Stock", color: T.amber, bg: T.amberDim };
-              const statusBadge = line.source_type === "labs_item" ? (
-                line.item_status === "received" ? { label: "Received", color: T.green, bg: T.greenDim } :
-                line.item_status === "in_transit" ? { label: "In transit", color: T.purple, bg: "rgba(160,90,200,0.15)" } :
-                line.item_status === "at_decorator" ? { label: "At decorator", color: T.accent, bg: T.accentDim } :
-                { label: "Setup", color: T.faint, bg: T.card }
-              ) : null;
-              const ready = !!line.webstore_entered_at;
-              return (
-                <div key={line.id} style={{ display: "flex", alignItems: "center", padding: "6px 8px", background: T.surface, borderRadius: 6, gap: 8 }}>
-                  <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: sourceBadge.bg, color: sourceBadge.color, textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0 }}>
-                    {sourceBadge.label}
-                  </span>
-                  {statusBadge && (
-                    <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: statusBadge.bg, color: statusBadge.color, textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0 }}>
-                      {statusBadge.label}
-                    </span>
-                  )}
-                  {line.source_type === "labs_item" && line.source_job_id ? (
-                    <Link href={`/jobs/${line.source_job_id}`} style={{ fontSize: 12, fontWeight: 500, color: T.text, textDecoration: "none", flexShrink: 0 }}>
-                      {line.display_name}
-                    </Link>
-                  ) : (
-                    <span style={{ fontSize: 12, fontWeight: 500, color: T.text, flexShrink: 0 }}>{line.display_name}</span>
-                  )}
-                  {line.display_meta && <span style={{ fontSize: 10, color: T.faint, flex: 1 }}>{line.display_meta}</span>}
-                  {!line.display_meta && <div style={{ flex: 1 }} />}
-                  <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
-                    {line.sizes.map(sz => (
-                      <span key={sz} style={{ fontSize: 9, fontFamily: mono, color: T.muted, padding: "1px 5px", background: T.card, borderRadius: 3 }}>
-                        {sz}:{line.effective_qtys[sz] || 0}
-                      </span>
-                    ))}
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, fontFamily: mono, color: T.text, minWidth: 40, textAlign: "right" }} title={line.qty_is_expected ? "Expected qty — item not yet received" : undefined}>
-                    {line.total}{line.qty_is_expected && <span style={{ color: T.faint, marginLeft: 1 }}>*</span>}
-                  </span>
-                  <button onClick={() => toggleWebstoreReady(line)}
-                    style={{ fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 4, border: `1px solid ${ready ? T.green : T.border}`, background: ready ? T.greenDim : "transparent", color: ready ? T.green : T.muted, cursor: "pointer", flexShrink: 0 }}
-                    title={ready ? `Marked ${new Date(line.webstore_entered_at!).toLocaleString()}` : "Mark as entered into webstore"}>
-                    {ready ? "✓ In webstore" : "Mark in webstore"}
-                  </button>
-                  <button onClick={() => removeLine(line.id)}
-                    style={{ fontSize: 12, padding: "0 6px", borderRadius: 4, border: "none", background: "transparent", color: T.faint, cursor: "pointer", flexShrink: 0 }}
-                    title="Remove">
-                    ×
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Inline picker */}
-        {picker && (
-          <div style={{ marginTop: 10, padding: 12, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6 }}>
-            <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
-              {([
-                { id: "labs", label: "Labs item" },
-                { id: "preexisting", label: "Pre-existing" },
-              ] as const).map(m => (
-                <button key={m.id} onClick={() => openPicker(m.id)}
-                  style={{ padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer", border: `1px solid ${picker === m.id ? T.accent : T.border}`, background: picker === m.id ? T.accentDim : "transparent", color: picker === m.id ? T.accent : T.muted }}>
-                  {m.label}
-                </button>
-              ))}
-              <div style={{ flex: 1 }} />
-              <button onClick={() => setPicker(null)}
-                style={{ padding: "5px 10px", borderRadius: 6, fontSize: 11, border: "none", background: "transparent", color: T.faint, cursor: "pointer" }}>
-                Cancel
-              </button>
-            </div>
-
-            {picker === "labs" && (() => {
-              const search = pickerFilter.search.trim().toLowerCase();
-              const filteredItems = availableItems.filter(it => {
-                if (pickerFilter.clientId && it.client_id !== pickerFilter.clientId) return false;
-                if (pickerFilter.jobId && it.job_id !== pickerFilter.jobId) return false;
-                if (search && !it.name.toLowerCase().includes(search) && !it.job_title.toLowerCase().includes(search)) return false;
-                return true;
-              });
-              const jobOptions = Array.from(
-                new Map(availableItems.filter(it => !pickerFilter.clientId || it.client_id === pickerFilter.clientId).map(it => [it.job_id, it.job_title])).entries()
-              ).sort((a, b) => a[1].localeCompare(b[1]));
-              const allFilteredSelected = filteredItems.length > 0 && filteredItems.every(it => selectedItemIds.has(it.id));
-              const toggleSelectAll = () => {
-                setSelectedItemIds(prev => {
-                  const next = new Set(prev);
-                  if (allFilteredSelected) filteredItems.forEach(it => next.delete(it.id));
-                  else filteredItems.forEach(it => next.add(it.id));
-                  return next;
-                });
-              };
-              return (
-                <div>
-                  <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                    <input style={{ ...ic, flex: 1 }} placeholder="Search item or project name…"
-                      value={pickerFilter.search}
-                      onChange={e => setPickerFilter(f => ({ ...f, search: e.target.value }))} />
-                    <select style={{ ...ic, width: 220, flexShrink: 0 }} value={pickerFilter.jobId}
-                      onChange={e => setPickerFilter(f => ({ ...f, jobId: e.target.value }))}>
-                      <option value="">All projects</option>
-                      {jobOptions.map(([id, title]) => <option key={id} value={id}>{title}</option>)}
-                    </select>
-                  </div>
-                  {filteredItems.length > 0 && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                      <button onClick={toggleSelectAll}
-                        style={{ fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: "pointer" }}>
-                        {allFilteredSelected ? "Clear visible" : `Select all visible (${filteredItems.length})`}
-                      </button>
-                      {selectedItemIds.size > 0 && <span style={{ fontSize: 10, color: T.muted }}>{selectedItemIds.size} selected</span>}
-                    </div>
-                  )}
-                  {filteredItems.length === 0 ? (
-                    <div style={{ padding: "16px", textAlign: "center", fontSize: 11, color: T.faint }}>
-                      {availableItems.length === 0 ? "No Labs items available — spawn a Labs job and add items first." : "No items match the current filter."}
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 280, overflowY: "auto" }}>
-                      {filteredItems.map(it => {
-                        const statusBadge =
-                          it.status === "received" ? { label: "Received", color: T.green, bg: T.greenDim } :
-                          it.status === "in_transit" ? { label: "In transit", color: T.purple, bg: "rgba(160,90,200,0.15)" } :
-                          it.status === "at_decorator" ? { label: "At decorator", color: T.accent, bg: T.accentDim } :
-                          { label: "Setup", color: T.faint, bg: T.surface };
-                        const checked = selectedItemIds.has(it.id);
-                        return (
-                          <div key={it.id} onClick={() => toggleItemSelected(it.id)}
-                            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: checked ? T.accentDim : T.card, border: `1px solid ${checked ? T.accent : T.border}`, borderRadius: 6, cursor: "pointer", userSelect: "none" }}>
-                            <input type="checkbox" checked={checked} readOnly tabIndex={-1} style={{ accentColor: T.accent, pointerEvents: "none" }} />
-                            <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: statusBadge.bg, color: statusBadge.color, textTransform: "uppercase", letterSpacing: "0.05em", flexShrink: 0, minWidth: 80, textAlign: "center" }}>
-                              {statusBadge.label}
-                            </span>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{it.name}</div>
-                              <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{it.client_name} · {it.job_title}</div>
-                            </div>
-                            <div style={{ textAlign: "right" }}>
-                              <div style={{ fontSize: 12, fontWeight: 700, fontFamily: mono, color: T.text }}>{it.total}</div>
-                              <div style={{ fontSize: 9, color: T.faint, fontStyle: it.qty_is_expected ? "italic" : "normal" }}>
-                                {it.qty_is_expected ? "expected" : "received"}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <div style={{ display: "flex", gap: 6, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
-                    <button onClick={addSelectedLabsItems} disabled={selectedItemIds.size === 0}
-                      style={{ padding: "6px 16px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 11, fontWeight: 600, cursor: selectedItemIds.size === 0 ? "not-allowed" : "pointer", opacity: selectedItemIds.size === 0 ? 0.5 : 1 }}>
-                      Add {selectedItemIds.size > 0 ? `${selectedItemIds.size} ` : ""}selected
-                    </button>
-                    {selectedItemIds.size > 0 && (
-                      <button onClick={() => setSelectedItemIds(new Set())}
-                        style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, fontSize: 11, cursor: "pointer" }}>
-                        Clear
-                      </button>
-                    )}
+      {/* Push-to-production wizard — paste Shopify sold qtys per
+          variant, apply buffer, spawn the Labs job + items. Opens
+          from the "Push to production" action on closed pre-orders. */}
+      {pushOpen && (() => {
+        const summary = pushSummary();
+        return (
+          <div onClick={() => !pushing && setPushOpen(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)" }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.card, borderRadius: 14, width: "min(860px, 100%)", maxHeight: "94vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${T.border}` }}>
+              <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>Push to production</div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
+                    {preorder.name} · {preorder.client_name}
                   </div>
                 </div>
-              );
-            })()}
-
-            {picker === "preexisting" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <div>
-                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Description *</label>
-                  <input style={ic} value={preForm.description} onChange={e => setPreForm(f => ({ ...f, description: e.target.value }))} placeholder="e.g. Existing tour tee — black" />
-                </div>
-                <div>
-                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Qtys</label>
-                  <input style={{ ...ic, fontFamily: mono }} value={preForm.qtys} onChange={e => setPreForm(f => ({ ...f, qtys: e.target.value }))} placeholder="S:24, M:32, L:18, XL:10" />
-                </div>
-                <div>
-                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Notes</label>
-                  <input style={ic} value={preForm.notes} onChange={e => setPreForm(f => ({ ...f, notes: e.target.value }))} />
-                </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={addPreexisting} disabled={!preForm.description.trim()}
-                    style={{ padding: "6px 16px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", opacity: preForm.description.trim() ? 1 : 0.5 }}>
-                    Add to inventory
-                  </button>
-                </div>
+                <button onClick={() => !pushing && setPushOpen(false)}
+                  style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: pushing ? "not-allowed" : "pointer", padding: "0 6px", lineHeight: 1, opacity: pushing ? 0.4 : 1 }}>×</button>
               </div>
-            )}
-          </div>
-        )}
-      </div>
 
-      {/* Daily logs */}
-      <div style={{ ...card, padding: "14px 16px" }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
-          Daily Log — {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-          {!hasLogToday && project.status === "active" && <span style={{ marginLeft: 8, fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.redDim, color: T.red, fontWeight: 600 }}>No log today</span>}
-          {totalShipped > 0 && <span style={{ marginLeft: 8, fontSize: 10, color: T.green, fontFamily: mono }}>· {totalShipped} total shipped</span>}
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 10 }}>
-          <div>
-            <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 2 }}>Starting</label>
-            <input type="number" style={{ ...ic, width: 80, fontFamily: mono, textAlign: "center" }} value={logForm.starting} placeholder="0"
-              onChange={e => setLogForm(f => ({ ...f, starting: e.target.value }))} onFocus={e => e.target.select()} />
-          </div>
-          <div>
-            <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 2 }}>Remaining</label>
-            <input type="number" style={{ ...ic, width: 80, fontFamily: mono, textAlign: "center" }} value={logForm.remaining} placeholder="0"
-              onChange={e => setLogForm(f => ({ ...f, remaining: e.target.value }))} onFocus={e => e.target.select()} />
-          </div>
-          {(parseInt(logForm.starting) || 0) > 0 && (parseInt(logForm.remaining) || 0) >= 0 && (
-            <div style={{ padding: "6px 0" }}>
-              <div style={{ fontSize: 9, color: T.faint, marginBottom: 2 }}>Shipped</div>
-              <div style={{ fontSize: 14, fontWeight: 700, fontFamily: mono, color: T.green }}>{Math.max(0, (parseInt(logForm.starting) || 0) - (parseInt(logForm.remaining) || 0))}</div>
-            </div>
-          )}
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: 9, color: T.faint, display: "block", marginBottom: 2 }}>Notes</label>
-            <input style={ic} value={logForm.notes} placeholder="Issues, delays, etc."
-              onChange={e => setLogForm(f => ({ ...f, notes: e.target.value }))} />
-          </div>
-          <button onClick={submitLog}
-            style={{ padding: "6px 16px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
-            Log
-          </button>
-        </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
+                  Paste sold quantities from the Shopify pre-order report per variant. Buffer % is applied to each row;
+                  totals round up. A new Labs project is created with these qtys, the buy sheet is pre-filled, and the
+                  pre-order is linked to the Labs job.
+                </div>
 
-        {logs.length > 0 && (
-          <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                {["Date", "Starting", "Shipped", "Remaining", "Notes"].map(h =>
-                  <th key={h} style={{ padding: "4px 8px", textAlign: h === "Notes" ? "left" : "center", fontSize: 9, fontWeight: 600, color: T.faint, textTransform: "uppercase" }}>{h}</th>
+                {/* Buffer */}
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "10px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Buffer %</span>
+                  <input type="number" step="0.5" min="0" value={pushBuffer}
+                    onChange={e => setPushBuffer(e.target.value)}
+                    style={{ ...ic, width: 80, padding: "4px 8px" }} />
+                  <span style={{ fontSize: 11, color: T.muted }}>applied per variant; total = sold × (1 + buffer / 100), rounded up</span>
+                </div>
+
+                {/* Per-product size grids */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {products.map(p => (
+                    <div key={p.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                        {p.blank_vendor || "—"}
+                        {p.blank_sku && <span style={{ marginLeft: 8, fontFamily: mono }}>{p.blank_sku}</span>}
+                      </div>
+                      {p.sizes.length === 0 ? (
+                        <div style={{ fontSize: 11, color: T.amber, marginTop: 8 }}>No sizes set on this product — skip or add sizes first.</div>
+                      ) : (
+                        <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: `repeat(${p.sizes.length}, 1fr)`, gap: 6 }}>
+                          {p.sizes.map(sz => {
+                            const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
+                            const bufferPct = parseFloat(pushBuffer) || 0;
+                            const total = calcTotal(sold, bufferPct);
+                            return (
+                              <div key={sz} style={{ display: "flex", flexDirection: "column", gap: 4, padding: 8, background: T.card, borderRadius: 6, border: `1px solid ${T.border}` }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, fontFamily: mono, textAlign: "center" }}>{sz}</div>
+                                <input type="text" inputMode="numeric"
+                                  value={soldQtys[p.id]?.[sz] || ""}
+                                  onChange={e => {
+                                    const v = e.target.value.replace(/[^0-9]/g, "");
+                                    setSoldQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } }));
+                                  }}
+                                  onFocus={e => (e.target as HTMLInputElement).select()}
+                                  placeholder="0"
+                                  style={{ ...ic, padding: "5px 6px", textAlign: "center", fontFamily: mono, fontWeight: 600 }} />
+                                <div style={{ fontSize: 10, color: total > sold ? T.green : T.faint, fontFamily: mono, textAlign: "center", fontWeight: 600 }}>
+                                  → {total}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Summary */}
+                <div style={{ padding: "10px 14px", borderRadius: 8, background: T.accentDim, border: `1px solid ${T.accent}44`, fontSize: 13, color: T.text }}>
+                  <strong>{summary.grandTotal.toLocaleString()}</strong> total units to produce across{" "}
+                  <strong>{summary.rows.filter(r => r.totalUnits > 0).length}</strong> item{summary.rows.filter(r => r.totalUnits > 0).length === 1 ? "" : "s"}
+                  {summary.bufferPct > 0 && (
+                    <span style={{ color: T.muted }}> · includes {summary.bufferPct}% buffer</span>
+                  )}
+                </div>
+
+                {pushError && (
+                  <div style={{ fontSize: 12, color: T.red, fontWeight: 600, padding: "8px 12px", background: T.redDim, borderRadius: 6 }}>
+                    {pushError}
+                  </div>
                 )}
-              </tr>
-            </thead>
-            <tbody>
-              {logs.slice(0, 14).map((log, i) => (
-                <tr key={log.id} style={{ borderBottom: i < logs.length - 1 ? `1px solid ${T.border}22` : "none" }}>
-                  <td style={{ padding: "6px 8px", textAlign: "center", color: T.muted }}>{new Date(log.log_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</td>
-                  <td style={{ padding: "6px 8px", textAlign: "center", fontFamily: mono, color: T.text }}>{log.starting_orders}</td>
-                  <td style={{ padding: "6px 8px", textAlign: "center", fontFamily: mono, color: T.green, fontWeight: 600 }}>{log.orders_shipped}</td>
-                  <td style={{ padding: "6px 8px", textAlign: "center", fontFamily: mono, color: log.remaining_orders > 0 ? T.amber : T.green, fontWeight: 600 }}>{log.remaining_orders}</td>
-                  <td style={{ padding: "6px 8px", color: T.muted }}>{log.notes || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+              </div>
 
-      {/* Phase actions placeholder — these light up in Phase B */}
-      <div style={{ marginTop: 6, padding: "12px 14px", background: T.surface, border: `1px dashed ${T.border}`, borderRadius: 8, fontSize: 11, color: T.muted, lineHeight: 1.5 }}>
-        <div style={{ fontWeight: 600, color: T.text, marginBottom: 4 }}>Coming in Phase B:</div>
-        {project.mode === "preorder" && "“Close pre-order” auto-tally button — pulls Shopify variant deltas + buffer, auto-fills the linked Labs job's Buy Sheet."}
-        {project.mode === "always_on" && "Velocity-driven replenishment alerts + “Send proposal to client” action with approve link."}
-        {project.mode === "drop" && "“List on store” action that pushes inventory to Shopify once production receives."}
-      </div>
+              <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
+                <button onClick={() => setPushOpen(false)} disabled={pushing}
+                  style={{ padding: "8px 16px", background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.muted, fontSize: 12, fontWeight: 600, cursor: pushing ? "not-allowed" : "pointer", fontFamily: font }}>
+                  Cancel
+                </button>
+                <button onClick={executePush} disabled={pushing || summary.grandTotal === 0}
+                  style={{
+                    padding: "8px 18px",
+                    background: pushing || summary.grandTotal === 0 ? T.surface : T.green,
+                    color: pushing || summary.grandTotal === 0 ? T.faint : "#fff",
+                    borderRadius: 8, fontSize: 12, fontWeight: 700,
+                    cursor: pushing || summary.grandTotal === 0 ? "not-allowed" : "pointer",
+                    border: "none", fontFamily: font,
+                  }}>
+                  {pushing ? "Creating Labs job…" : `Create Labs job · ${summary.grandTotal.toLocaleString()} units`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
