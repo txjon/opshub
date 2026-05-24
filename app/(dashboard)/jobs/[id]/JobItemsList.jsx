@@ -3,6 +3,17 @@ import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { resolveItemStatus, STATE_LABELS } from "@/lib/item-status";
+import { etaCountdown } from "@/lib/eta";
+
+// Map the eta countdown semantic band onto the internal T palette.
+// Mirrors the portal's color mapping (which uses C) so the urgency
+// cue reads identically on both surfaces.
+const ETA_BAND_COLORS = {
+  red: T.red,
+  amber: T.amber,
+  muted: T.muted,
+  green: T.green,
+};
 
 // Job Overview items list — worksheet-style row layout.
 // Mirrors the per-item working sheet on /clients/[id] so ETA edits
@@ -165,6 +176,13 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
           const stateLabel = STATE_LABELS[state] || "—";
           const stateColor = ITEM_STATE_COLORS[state] || T.muted;
           const etaValue = localEta[item.id] !== undefined ? localEta[item.id] : (item.client_eta || "");
+          // Countdown — only shown while an ETA is actually set. Once
+          // an item lands (in_stock / complete / archived / cancelled)
+          // the prediction has been satisfied so hide the chip; matches
+          // the portal's resolveItemEta gating.
+          const showCountdown = !!etaValue && !["in_stock","complete","archived","cancelled"].includes(state);
+          const cd = showCountdown ? etaCountdown(etaValue) : null;
+          const cdColor = cd ? ETA_BAND_COLORS[cd.band] : T.muted;
 
           if (isMobile) {
             // Mobile card: vertical stack — name + meta on top, then a
@@ -198,17 +216,24 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
                   <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
                     Client ETA
                   </span>
-                  <input type="date"
-                    value={etaValue}
-                    onChange={e => updateEta(item.id, e.target.value)}
-                    onBlur={() => flushEta(item.id)}
-                    style={{
-                      padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 6,
-                      background: T.card, color: T.text, fontSize: 13, fontFamily: mono,
-                      outline: "none", minHeight: 36, flex: "1 1 0",
-                      display: "block", WebkitAppearance: "none",
-                      MozAppearance: "none", appearance: "none",
-                    }} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 0" }}>
+                    <input type="date"
+                      value={etaValue}
+                      onChange={e => updateEta(item.id, e.target.value)}
+                      onBlur={() => flushEta(item.id)}
+                      style={{
+                        padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 6,
+                        background: T.card, color: T.text, fontSize: 13, fontFamily: mono,
+                        outline: "none", minHeight: 36, flex: "1 1 0",
+                        display: "block", WebkitAppearance: "none",
+                        MozAppearance: "none", appearance: "none",
+                      }} />
+                    {cd && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: cdColor, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
+                        {cd.text}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -234,15 +259,22 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
                 fontSize: 10, fontWeight: 700, color: stateColor,
                 textTransform: "uppercase", letterSpacing: "0.06em",
               }}>{stateLabel}</div>
-              <input type="date"
-                value={etaValue}
-                onChange={e => updateEta(item.id, e.target.value)}
-                onBlur={() => flushEta(item.id)}
-                style={{
-                  padding: "4px 8px", border: `1px solid ${T.border}`, borderRadius: 4,
-                  background: T.card, color: T.text, fontSize: 11, fontFamily: mono,
-                  outline: "none", width: "100%", boxSizing: "border-box",
-                }} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <input type="date"
+                  value={etaValue}
+                  onChange={e => updateEta(item.id, e.target.value)}
+                  onBlur={() => flushEta(item.id)}
+                  style={{
+                    padding: "4px 8px", border: `1px solid ${T.border}`, borderRadius: 4,
+                    background: T.card, color: T.text, fontSize: 11, fontFamily: mono,
+                    outline: "none", width: "100%", boxSizing: "border-box",
+                  }} />
+                {cd && (
+                  <span style={{ fontSize: 9, fontWeight: 700, color: cdColor, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    {cd.text}
+                  </span>
+                )}
+              </div>
             </div>
           );
         })}

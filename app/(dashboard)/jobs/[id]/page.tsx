@@ -475,6 +475,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         received_at_hpd: (it as any).received_at_hpd || false,
         artwork_status: (it as any).artwork_status || null,
         garment_type: (it as any).garment_type || null,
+        shipping_route: (it as any).shipping_route || null,
+        webstore_entered_at: (it as any).webstore_entered_at || null,
       })),
       payments: payments.map(p => ({ amount: p.amount, status: p.status })),
       proofStatus,
