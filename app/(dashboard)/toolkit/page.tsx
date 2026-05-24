@@ -14,6 +14,61 @@ export default function ToolKitPage() {
       <p style={{ fontSize: 12, color: T.faint, marginBottom: 20 }}>Standalone tools for quick tasks. Shopify CSV tools moved to <a href="/integrations/shopify" style={{ color: T.accent, textDecoration: "none" }}>Integrations → Shopify</a>.</p>
 
       <MockupTool />
+
+      <ReferenceLinks />
+    </div>
+  );
+}
+
+// Internal / dev-facing HTML artifacts that aren't ready for the team
+// References page yet. Living here keeps them accessible without
+// cluttering the team-facing /references area.
+// Internal / owner-facing artifacts. Lives here (not /references) so the
+// team-facing References page stays focused on day-to-day training, while
+// owner/admin docs and dev artifacts cluster in the Toolkit.
+function ReferenceLinks() {
+  const sections: { label: string; items: { title: string; description: string; href: string }[] }[] = [
+    {
+      label: "Owner / Admin",
+      items: [
+        { title: "Manager / Owner Role Guide", description: "God Mode, Insights, Reports, payments oversight, team management, multi-tenant.", href: "/role-manager.html" },
+        { title: "Email Flows", description: "Every automated email OpsHub sends — what triggers it, who it goes to, what it says.", href: "/email-flows.html" },
+        { title: "Training Guide Audit Report", description: "Drift analysis comparing the April 9, 2026 training guide to current OpsHub state.", href: "/audit-report.html" },
+      ],
+    },
+    {
+      label: "Dev / Internal",
+      items: [
+        { title: "End-to-End Test Checklist", description: "QA checklist for full-flow regression testing.", href: "/test-checklist.html" },
+        { title: "HPD Mockup", description: "UI design artifact — site/page mockups for House Party Distro.", href: "/hpd-mockup.html" },
+      ],
+    },
+  ];
+  return (
+    <div style={{ marginTop: 20 }}>
+      {sections.map(section => (
+        <div key={section.label} style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
+            {section.label}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {section.items.map(l => (
+              <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer"
+                style={{
+                  display: "block", background: T.card, border: `1px solid ${T.border}`,
+                  borderRadius: 10, padding: "12px 14px", textDecoration: "none", color: T.text,
+                  transition: "border-color 0.15s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 2 }}>{l.title}</div>
+                <div style={{ fontSize: 11, color: T.muted }}>{l.description}</div>
+              </a>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

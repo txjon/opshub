@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsHub Role Guide — Drake (Production)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; color: #1a1a1a; background: #f8f8f9; }
+  .container { max-width: 820px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 28px; font-weight: 900; margin-bottom: 4px; }
+  .role-pill { display: inline-block; background: #fef3e0; color: #b45309; font-size: 11px; font-weight: 800; padding: 4px 12px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .subtitle { font-size: 14px; color: #6b6b78; margin-bottom: 8px; }
+  .version { font-size: 11px; color: #a0a0ad; margin-bottom: 32px; }
+  h2 { font-size: 18px; font-weight: 800; margin: 40px 0 16px; padding-top: 24px; border-top: 2px solid #b45309; }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 24px; }
+  h3 { font-size: 14px; font-weight: 700; margin: 22px 0 10px; }
+  .route { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; color: #b45309; background: #fef3e0; padding: 2px 8px; border-radius: 4px; margin-left: 8px; vertical-align: middle; font-weight: 600; }
+  .card { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 18px 20px; margin-bottom: 12px; }
+  .card-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .card-desc { font-size: 13px; color: #4a4a55; line-height: 1.65; }
+  .card-desc b { color: #1a1a1a; }
+  .step-list { list-style: none; counter-reset: step; }
+  .step-list li { counter-increment: step; padding: 10px 0; border-bottom: 1px solid #e0e0e4; font-size: 13px; line-height: 1.6; display: flex; gap: 12px; }
+  .step-list li:last-child { border-bottom: none; }
+  .step-list li::before { content: counter(step); background: #b45309; color: #fff; width: 22px; height: 22px; border-radius: 99px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 2px; }
+  .tip { background: #fef9ee; border: 1px solid #f5dfa8; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #92400e; margin: 12px 0; line-height: 1.5; }
+  .warn { background: #ffe8ec; border: 1px solid #ffc3cc; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #c43030; margin: 12px 0; line-height: 1.5; }
+  .nav-toc { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 20px; margin-bottom: 32px; }
+  .nav-toc a { display: block; padding: 6px 0; font-size: 13px; color: #1a1a1a; text-decoration: none; font-weight: 500; border-bottom: 1px solid #f0f0f2; }
+  .nav-toc a:last-child { border-bottom: none; }
+  .nav-toc a:hover { color: #b45309; }
+  .nav-toc .section-label { font-size: 9px; font-weight: 700; color: #a0a0ad; text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; }
+  th { text-align: left; padding: 8px 10px; font-size: 10px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; background: #f3f3f5; }
+  td { padding: 9px 10px; border-bottom: 1px solid #f0f0f2; vertical-align: top; line-height: 1.5; }
+  .key { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; background: #f3f3f5; padding: 1px 6px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="role-pill">Drake — Production / Sales</div>
+<h1>Role Guide</h1>
+<div class="subtitle">Costing, ordering, production tracking — your daily playbook</div>
+<div class="version">Last updated May 23, 2026</div>
+
+<div class="nav-toc">
+  <div class="section-label">What you do</div>
+  <a href="#summary">Your role at a glance</a>
+  <a href="#costing">Costing the project</a>
+  <a href="#quote">Sending the quote</a>
+  <a href="#proofs">Proofs &amp; invoice</a>
+  <a href="#blanks">Ordering blanks</a>
+  <a href="#po">Sending POs</a>
+  <a href="#production">Tracking production</a>
+  <a href="#shipped">When items ship</a>
+  <a href="#preorder-push">Pre-order push-to-production</a>
+  <a href="#checklist">Production checklist</a>
+</div>
+
+<h2 id="summary">Your role at a glance</h2>
+<div class="card">
+  <div class="card-desc">
+    You own the <b>money side and the production side</b>. You take a project Taylor scoped, price it, sell it, order it, and track it until it ships.
+    <br><br>
+    <b>Your pages:</b>
+    <table>
+      <tr><th>Page</th><th>What you do there</th></tr>
+      <tr><td><b>Costing tab</b></td><td>Decorator + print locations + margin → sell price</td></tr>
+      <tr><td><b>Quote tab</b></td><td>Send to client, watch for approval</td></tr>
+      <tr><td><b>Proofs &amp; Invoice tab</b></td><td>Send proofs, push invoice to QB/Stripe</td></tr>
+      <tr><td><b>Blanks tab</b></td><td>Order blanks once gates are met</td></tr>
+      <tr><td><b>PO tab</b></td><td>Send POs to decorators</td></tr>
+      <tr><td><b>Production tab</b></td><td>Track per-item shipment from decorator</td></tr>
+      <tr><td><b>Production page</b> <span class="route">/production</span></td><td>Cross-project view, batch ship</td></tr>
+      <tr><td><b>Decorators</b> <span class="route">/decorators</span></td><td>Manage vendor info, pricing, contacts</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2 id="costing">Costing the project <span class="route">Costing tab</span></h2>
+<div class="card">
+  <div class="card-title">Two panels per item</div>
+  <div class="card-desc">
+    <b>Blanks (left):</b> Supplier picker, fleece toggle, per-size cost grid, item notes, item financial summary (Revenue, Blanks Cost, PO Total, Net Profit, Margin, Profit per Piece).
+    <br><br>
+    <b>Decoration (right):</b> Decorator picker, print locations table, tag print row, finishing &amp; packaging, setup fees, specialty options, custom costs.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Print locations</div>
+  <div class="card-desc">
+    Up to 6 print locations per item — typical: Front, Back, Left Sleeve, Right Sleeve, Left Chest, Right Chest, Neck, Hood, Pocket.
+    <br><br>
+    For each location: <b>Position</b>, <b>Color count</b>, <b>Method</b> (defaults to screen_print), <b>Specialty</b> if applicable (puff, glitter, foil, etc.).
+    <br><br>
+    <b>Shared screen toggle</b> — if multiple items use the same artwork at the same position, mark them with the same Share Group name (e.g. "A"). The system:
+    <br>• Combines their qty for the price tier lookup
+    <br>• Charges screen fees only once across the group
+    <br>• Splits the cost across items proportionally
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Margin tier &amp; sell price</div>
+  <div class="card-desc">
+    Pick a margin tier (10 / 15 / 20 / 25 / 30%) in the project totals sidebar. The sell price calculates automatically.
+    <br><br>
+    To override per-item, click <b>"override"</b> next to the sell price. Type the custom price. The override sticks even if you change the margin tier later.
+    <br><br>
+    <b>Pricing source of truth:</b> <span class="key">items.sell_per_unit</span> — set here, read by every other surface (quote, invoice, portal, dashboard). No surface recalculates.
+  </div>
+</div>
+
+<div class="warn"><b>Lock In Pricing</b> is required to unlock the Quote tab. After locking, inputs go read-only. Click <b>Unlock Pricing</b> to make changes — intentional friction so changes are deliberate.</div>
+
+<h2 id="quote">Sending the quote <span class="route">Quote tab</span></h2>
+<div class="card">
+  <div class="card-desc">
+    <ol class="step-list">
+      <li><div>Review the quote preview — items, sizes, pricing, tax, total. Download PDF if you want to inspect.</div></li>
+      <li><div>Click <b>Send Quote</b> → email dialog. Pick the recipient(s) — defaults to primary contact.</div></li>
+      <li><div>Send. The quote PDF attaches. Email body includes the client portal link.</div></li>
+      <li><div><b>Watch for approval.</b> When the client clicks Approve on their portal, the Quote tab updates with "Approved on [date]" and the project advances to Pending or Ready.</div></li>
+      <li><div><b>If rejected:</b> The Dashboard surfaces a red alert with their rejection notes. Address them and re-send.</div></li>
+    </ol>
+  </div>
+</div>
+
+<div class="tip"><b>Tip:</b> If the client wants minor changes ("add tote bags"), unlock pricing → adjust → re-lock → re-send. The Quote tab logs each send.</div>
+
+<h2 id="proofs">Proofs &amp; invoice <span class="route">Proofs &amp; Invoice tab</span></h2>
+
+<div class="card">
+  <div class="card-title">Proofs (top section)</div>
+  <div class="card-desc">
+    Each item has files at different stages: client_art → vector → mockup → proof → print_ready.
+    <br><br>
+    <b>Generate proofs:</b> When an item has a mockup, click Generate Proof on that item → creates a proof PDF using the brand template + item details.
+    <br><br>
+    <b>Send proofs to client:</b> One consolidated email with a portal link to the proof viewer. The client approves or requests revisions on the portal.
+    <br><br>
+    For bulk-generate across all items, use the <b>Approvals tab</b> → Generate All button.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Invoice (bottom section)</div>
+  <div class="card-desc">
+    Click <b>Create QuickBooks Invoice</b> (HPD) or <b>Create Stripe Invoice</b> (IHM). The system:
+    <br>• Matches the client to the QB/Stripe customer (auto-searches by name)
+    <br>• Maps each item's garment_type to a QB Product/Service
+    <br>• Uses sell_per_unit × qty as the line rate
+    <br>• Generates a payment link
+    <br>• Reads back the calculated tax
+    <br><br>
+    <b>Send Invoice</b> emails the client with the PDF + payment link.
+    <br>
+    <b>Send Invoice + Proofs</b> combines both into a single email.
+  </div>
+</div>
+
+<div class="tip"><b>Variance review:</b> If shipped qty differs from quoted qty, OpsHub flags the invoice as stale. Click the variance banner to review and push an updated invoice to QB/Stripe.</div>
+
+<h2 id="blanks">Ordering blanks <span class="route">Blanks tab</span></h2>
+
+<div class="card">
+  <div class="card-title">The 3-gate checklist</div>
+  <div class="card-desc">
+    Before you can order, three gates show at the top:
+    <br><br>
+    ✓ <b>Quote approved</b>
+    <br>✓ <b>Payment received</b> (or N/A for net terms)
+    <br>✓ <b>All proofs approved</b>
+    <br><br>
+    Net 15 / Net 30 terms auto-pass the payment gate. Prepaid and deposit_balance need at least one paid record.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Per-item entry</div>
+  <div class="card-desc">
+    For each garment item (patches/stickers/totes are filtered out):
+    <br>• <b>S&amp;S order number</b>
+    <br>• <b>Total cost</b> (compared against the calculated blank cost in Costing)
+    <br><br>
+    <b>S&amp;S sync</b> button — auto-fills from your connected S&amp;S account when possible.
+    <br>
+    <b>Bulk apply</b> — multi-select items + enter one total cost → distributed proportionally by costing ratio.
+  </div>
+</div>
+
+<h2 id="po">Sending POs <span class="route">PO tab</span></h2>
+
+<div class="card">
+  <div class="card-title">Per-vendor structure</div>
+  <div class="card-desc">
+    POs group by decorator. Each vendor gets its own accordion with the items assigned to them.
+    <br><br>
+    <b>Per-vendor ship date</b> — calendar or ASAP. Drives lead time math.
+    <br>
+    <b>Per-vendor ship-to address</b> — defaults to HPD warehouse (4670 W Silverado Ranch). Override if needed (drop ship → client address, event drop → venue).
+    <br>
+    <b>Shipping method</b> — UPS, FedEx, USPS, Freight, Will Call, Decorator Drop Ship. UPS PO orders auto-use HPD's shipping account.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Per-item fields</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Field</th><th>What it's for</th></tr>
+      <tr><td><b>Production files link</b></td><td>Auto-fills from print-ready file in Art Studio. Decorator clicks to grab files.</td></tr>
+      <tr><td><b>Incoming goods</b></td><td>Notes about blanks arriving ("S&amp;S 123456 expected Tuesday")</td></tr>
+      <tr><td><b>Production notes</b></td><td>Special instructions ("print under collar tag", "wash before print")</td></tr>
+      <tr><td><b>Packing / shipping notes</b></td><td>Pack per box by size, label boxes, etc.</td></tr>
+    </table>
+    Use <b>"↓ Copy to all"</b> next to any field to spread a value across all items for the current vendor.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Sending the PO</div>
+  <ol class="step-list">
+    <li><div><b>Preview PDF</b>. Check bill-to, ship-to, line items, dates, notes.</div></li>
+    <li><div><b>Click Send</b>. Email dialog opens with all decorator contacts checked.</div></li>
+    <li><div>Send. The PO PDF attaches. OpsHub stamps <span class="key">type_meta.po_sent_vendors</span> so the project knows this vendor's PO went out.</div></li>
+    <li><div>The vendor portal link is auto-included so the decorator can confirm receipt + enter tracking later.</div></li>
+  </ol>
+</div>
+
+<h2 id="production">Tracking production <span class="route">/production</span></h2>
+
+<div class="card">
+  <div class="card-title">Production page (cross-project)</div>
+  <div class="card-desc">
+    This is your daily home. Shows every project with items currently at decorators, plus recent shipments.
+    <br><br>
+    <b>Filters:</b> Search, decorator, stalled-only toggle (7+ days at decorator).
+    <br><br>
+    <b>Stats strip:</b> Items needing blanks ordered · waiting on proofs · stalled · shipping this week.
+    <br><br>
+    Click a project → opens a full-page modal. Items grouped by decorator. Each row shows the item, sizes, ordered qty, shipped qty (from vendor), received qty (at HPD), tracking, notes.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">When a decorator ships an item</div>
+  <ol class="step-list">
+    <li><div>Click <b>Ship</b> on the item row in the Production modal.</div></li>
+    <li><div>The Ship modal opens. Enter <b>tracking number</b>. Adjust per-size shipped qtys if different from ordered.</div></li>
+    <li><div>Optionally <b>upload a packing slip</b> (drag-drop PDF or image).</div></li>
+    <li><div>Add ship notes (e.g. "shorted 4 mediums, will follow up").</div></li>
+    <li><div>Click <b>Mark Shipped</b>.</div></li>
+  </ol>
+</div>
+
+<div class="card">
+  <div class="card-title">Batch ship — multiple items, one shipment</div>
+  <div class="card-desc">
+    If a decorator puts multiple items in one box with one tracking number:
+    <br><br>
+    Select items via checkboxes → click <b>"Ship Selected · N"</b> → one tracking, one packing slip applies to all. Saves you N round trips.
+  </div>
+</div>
+
+<h2 id="shipped">When items ship</h2>
+
+<div class="card">
+  <div class="card-title">What happens after Mark Shipped</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Route</th><th>What happens</th></tr>
+      <tr><td><b>Drop ship</b></td><td>Client notified automatically (production_complete email with tracking). Item completes when received.</td></tr>
+      <tr><td><b>Ship through</b></td><td>Goes to /receiving for warehouse. Client is NOT notified yet — warehouse handles client comms when they ship outbound.</td></tr>
+      <tr><td><b>Stage</b></td><td>Goes to /receiving. Eventually entered into Shopify by Abigail, then fulfilled from ShipStation as orders come in.</td></tr>
+    </table>
+    <b>Notify Recipient dialog</b> opens after Mark Shipped. The dialog routes the email correctly based on shipping route — drop_ship goes to client, ship_through skips. Choose contacts and confirm.
+  </div>
+</div>
+
+<h2 id="preorder-push">Pre-order push-to-production</h2>
+<div class="card">
+  <div class="card-desc">
+    When Abigail closes a pre-order in /ecomm, the project moves to <b>"Closed · pending push"</b>. You take over from there.
+    <br><br>
+    Open the pre-order → click <b>Push to Production</b>. The wizard:
+    <br>• Shows each product with per-size inputs
+    <br>• You paste the sold qtys from the Shopify report
+    <br>• Applies the buffer % (default 5-7%, editable per pre-order)
+    <br>• Calculates the total ordered qty per variant (rounds up)
+    <br>• Shows the grand total
+    <br>• On confirm, creates a new Labs job with shipping_route="stage", pre-fills items + buy_sheet_lines, links back to the pre-order
+    <br><br>
+    The new Labs job opens in a new tab. From here it's a normal stage job — cost, blanks (if not already done), PO, production.
+  </div>
+</div>
+
+<div class="tip"><b>See the Pre-order SOP</b> for the full lifecycle and ownership map. Available on /references.</div>
+
+<h2 id="checklist">Production checklist</h2>
+<div class="card">
+  <div class="card-title">Before you click "Lock In Pricing"</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Check</th><th>Where</th></tr>
+      <tr><td>Every item has a decorator assigned</td><td>Costing tab</td></tr>
+      <tr><td>Every item has at least one print location</td><td>Costing tab</td></tr>
+      <tr><td>Color counts are right per location</td><td>Costing tab</td></tr>
+      <tr><td>Shared screens marked where applicable</td><td>Costing tab</td></tr>
+      <tr><td>Margin tier set, sell prices look right</td><td>Project totals sidebar</td></tr>
+      <tr><td>Quote PDF preview reads cleanly</td><td>Quote tab (preview)</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Before you send POs</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Check</th><th>Where</th></tr>
+      <tr><td>All 3 blanks gates green</td><td>Blanks tab</td></tr>
+      <tr><td>S&amp;S order numbers entered per item</td><td>Blanks tab</td></tr>
+      <tr><td>Ship date set per vendor</td><td>PO tab</td></tr>
+      <tr><td>Ship-to address correct per vendor</td><td>PO tab</td></tr>
+      <tr><td>Production files link populated</td><td>PO tab</td></tr>
+      <tr><td>PDF preview looks right</td><td>PO tab (preview)</td></tr>
+    </table>
+  </div>
+</div>
+
+<div style="text-align: center; padding: 40px 0; color: #a0a0ad; font-size: 11px;">
+  OpsHub Role Guide — Drake · House Party Distro<br>
+  Other role guides: Taylor / Abigail / Warehouse / Manager — find them on /references
+</div>
+
+</div>
+</body>
+</html>

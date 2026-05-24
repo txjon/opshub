@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsHub Role Guide — Manager / Owner</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; color: #1a1a1a; background: #f8f8f9; }
+  .container { max-width: 820px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 28px; font-weight: 900; margin-bottom: 4px; }
+  .role-pill { display: inline-block; background: #e8e8ec; color: #1a1a1a; font-size: 11px; font-weight: 800; padding: 4px 12px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .subtitle { font-size: 14px; color: #6b6b78; margin-bottom: 8px; }
+  .version { font-size: 11px; color: #a0a0ad; margin-bottom: 32px; }
+  h2 { font-size: 18px; font-weight: 800; margin: 40px 0 16px; padding-top: 24px; border-top: 2px solid #1a1a1a; }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 24px; }
+  h3 { font-size: 14px; font-weight: 700; margin: 22px 0 10px; }
+  .route { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; color: #1a1a1a; background: #e8e8ec; padding: 2px 8px; border-radius: 4px; margin-left: 8px; vertical-align: middle; font-weight: 600; }
+  .card { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 18px 20px; margin-bottom: 12px; }
+  .card-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .card-desc { font-size: 13px; color: #4a4a55; line-height: 1.65; }
+  .card-desc b { color: #1a1a1a; }
+  .step-list { list-style: none; counter-reset: step; }
+  .step-list li { counter-increment: step; padding: 10px 0; border-bottom: 1px solid #e0e0e4; font-size: 13px; line-height: 1.6; display: flex; gap: 12px; }
+  .step-list li:last-child { border-bottom: none; }
+  .step-list li::before { content: counter(step); background: #1a1a1a; color: #fff; width: 22px; height: 22px; border-radius: 99px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 2px; }
+  .tip { background: #edf7f2; border: 1px solid #b4dfc9; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #166534; margin: 12px 0; line-height: 1.5; }
+  .warn { background: #fef9ee; border: 1px solid #f5dfa8; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #92400e; margin: 12px 0; line-height: 1.5; }
+  .nav-toc { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 20px; margin-bottom: 32px; }
+  .nav-toc a { display: block; padding: 6px 0; font-size: 13px; color: #1a1a1a; text-decoration: none; font-weight: 500; border-bottom: 1px solid #f0f0f2; }
+  .nav-toc a:last-child { border-bottom: none; }
+  .nav-toc a:hover { color: #555; }
+  .nav-toc .section-label { font-size: 9px; font-weight: 700; color: #a0a0ad; text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; }
+  th { text-align: left; padding: 8px 10px; font-size: 10px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; background: #f3f3f5; }
+  td { padding: 9px 10px; border-bottom: 1px solid #f0f0f2; vertical-align: top; line-height: 1.5; }
+  .key { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; background: #f3f3f5; padding: 1px 6px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="role-pill">Manager / Owner</div>
+<h1>Role Guide</h1>
+<div class="subtitle">Oversight, reports, payments, team management — your daily playbook</div>
+<div class="version">Last updated May 23, 2026</div>
+
+<div class="nav-toc">
+  <div class="section-label">What you do</div>
+  <a href="#summary">Your role at a glance</a>
+  <a href="#daily">Daily review loop</a>
+  <a href="#insights">Insights &amp; Reports</a>
+  <a href="#payments">Payments oversight</a>
+  <a href="#integrations">Integrations</a>
+  <a href="#team">Team management</a>
+  <a href="#multitenant">Multi-tenant operations</a>
+  <a href="#escalations">Escalation paths</a>
+</div>
+
+<h2 id="summary">Your role at a glance</h2>
+<div class="card">
+  <div class="card-desc">
+    You see everything. Your job is to spot what the team can't see from their daily seat — financial trends, capacity bottlenecks, drift in margins, stalled clients, integration health.
+    <br><br>
+    <b>Your pages:</b>
+    <table>
+      <tr><th>Page</th><th>What you do there</th></tr>
+      <tr><td><b>Insights</b> <span class="route">/insights</span></td><td>Operational analytics</td></tr>
+      <tr><td><b>Reports</b> <span class="route">/reports</span></td><td>Revenue, margins, turnaround, CSV exports</td></tr>
+      <tr><td><b>Dashboard</b> <span class="route">/dashboard</span></td><td>Active project health (team's daily view, your spot check)</td></tr>
+      <tr><td><b>Settings</b> <span class="route">/settings</span></td><td>Team management, roles, invites</td></tr>
+      <tr><td><b>Designers</b> <span class="route">/settings/designers</span></td><td>External designer access management</td></tr>
+      <tr><td><b>Integrations</b> <span class="route">/integrations</span></td><td>QB / Stripe / Shopify / ShipStation health</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2 id="daily">Daily review loop</h2>
+<div class="card">
+  <div class="card-title">The 5-minute morning</div>
+  <ol class="step-list">
+    <li><div><b>Dashboard</b> — scan KPIs and red alerts. Anything in the red bucket needs eyes today.</div></li>
+    <li><div><b>Stalled production</b> — /production stalled-only toggle. Items 7+ days at a decorator. Follow up with Drake / vendor.</div></li>
+    <li><div><b>Outstanding payments</b> — Dashboard or Reports. Anything overdue triggers a follow-up email.</div></li>
+    <li><div><b>Recent rejections</b> — Quote rejected? Proof revisions requested? Show on the Dashboard. Make sure Drake / Taylor are on it.</div></li>
+    <li><div><b>Capacity check</b> — How many projects in Production phase? Anything pushing the team's bandwidth?</div></li>
+  </ol>
+</div>
+
+<h2 id="insights">Insights &amp; Reports</h2>
+
+<h3>Insights <span class="route">/insights</span></h3>
+<div class="card">
+  <div class="card-desc">
+    Operational analytics — not just financials. Things like: average days from intake to complete, conversion rate quote → project, decorator on-time performance, proof revision rate per designer.
+    <br><br>
+    Use this when you're asking "is the business actually getting better at X?"
+  </div>
+</div>
+
+<h3>Reports <span class="route">/reports</span></h3>
+<div class="card">
+  <div class="card-desc">
+    Financial-focused. Manager-only access.
+    <br><br>
+    <b>KPI strip:</b> Total revenue · Total cost · Avg margin · Total units · Total paid.
+    <br>
+    <b>Revenue by month</b> — bar chart with margin % per month.
+    <br>
+    <b>Units by month</b> — monthly volume.
+    <br>
+    <b>Average turnaround</b> — fastest / slowest / median days intake → complete.
+    <br>
+    <b>Revenue by client</b> — table sorted by revenue.
+    <br>
+    <b>Margins by project</b> — per-project profitability.
+    <br><br>
+    <b>CSV exports:</b> Projects · Clients · Payments. Useful for bookkeeping handoff or board reports.
+  </div>
+</div>
+
+<h2 id="payments">Payments oversight</h2>
+
+<div class="card">
+  <div class="card-title">Two providers, one mental model</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Tenant</th><th>Provider</th><th>Where payments live</th></tr>
+      <tr><td><b>HPD</b></td><td>QuickBooks</td><td>QB invoices, QB payment webhooks → OpsHub</td></tr>
+      <tr><td><b>IHM</b></td><td>Stripe</td><td>Stripe invoices, Stripe webhooks → OpsHub</td></tr>
+    </table>
+    Every paid invoice flows through a webhook that records the payment in OpsHub and updates the project + dashboard automatically.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">When a payment doesn't auto-register</div>
+  <div class="card-desc">
+    Sometimes the webhook misses (provider issue, network blip, signature mismatch). Symptoms:
+    <br>• Invoice is paid in QB / Stripe
+    <br>• Project still shows unpaid
+    <br>• Dashboard alert still says "follow up on payment"
+    <br><br>
+    <b>Fix:</b>
+    <br>1. Go to the project → Proofs &amp; Invoice tab → Payments section
+    <br>2. Click + Add payment record
+    <br>3. Set type (deposit / balance / full), amount, invoice number, status = paid
+    <br>4. Save. Project recalculates, dashboard alert clears.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">QB webhook health</div>
+  <div class="card-desc">
+    QB requires a CloudEvents migration by <b>2026-05-15</b>. Confirm /api/qb/webhook2 is migrated to webhook3 (CloudEvents format) before the deadline. Test via Intuit's switch button before cutover.
+  </div>
+</div>
+
+<h2 id="integrations">Integrations <span class="route">/integrations</span></h2>
+
+<div class="card">
+  <div class="card-desc">
+    Hub for external connections:
+    <table>
+      <tr><th>Integration</th><th>What it does</th></tr>
+      <tr><td><b>QuickBooks</b></td><td>Invoice creation + payment webhooks (HPD)</td></tr>
+      <tr><td><b>Stripe</b></td><td>Invoice creation + payment webhooks (IHM)</td></tr>
+      <tr><td><b>Shopify</b></td><td>Sold-by-variant report imports, store linking</td></tr>
+      <tr><td><b>ShipStation</b></td><td>Fulfillment integration, label printing</td></tr>
+      <tr><td><b>S&amp;S Activewear</b></td><td>Catalog + order data sync</td></tr>
+      <tr><td><b>Google Drive</b></td><td>Art file storage (service account)</td></tr>
+      <tr><td><b>Resend</b></td><td>Outbound email delivery</td></tr>
+    </table>
+    Each has a status indicator. Click into any integration for connection state, recent activity, manual re-sync triggers.
+  </div>
+</div>
+
+<h2 id="team">Team management <span class="route">/settings</span></h2>
+
+<div class="card">
+  <div class="card-title">Inviting team members</div>
+  <ol class="step-list">
+    <li><div>Settings → Team → <b>+ Invite member</b>.</div></li>
+    <li><div>Enter email, name, role (viewer / staff / manager).</div></li>
+    <li><div>Pick department access (Labs / Distro / Ecomm / Contacts / Settings).</div></li>
+    <li><div>Send. Supabase fires the invite email.</div></li>
+    <li><div>New user sets password on first login, lands on their default department.</div></li>
+  </ol>
+</div>
+
+<div class="card">
+  <div class="card-title">Roles</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Role</th><th>Can do</th></tr>
+      <tr><td><b>Viewer</b></td><td>Read-only across granted departments</td></tr>
+      <tr><td><b>Staff</b></td><td>Standard work — create projects, cost, ship, etc.</td></tr>
+      <tr><td><b>Manager</b></td><td>Everything staff can do + Settings, Reports, Insights, team invites</td></tr>
+    </table>
+    Click any user's role in the team table to change it. You can't change your own role (prevents lockout).
+  </div>
+</div>
+
+<h2 id="multitenant">Multi-tenant operations</h2>
+
+<div class="card">
+  <div class="card-title">HPD and IHM</div>
+  <div class="card-desc">
+    OpsHub serves two companies via subdomain routing:
+    <br>• <b>HPD</b> (House Party Distro) — Las Vegas custom apparel
+    <br>• <b>IHM</b> — touring artists / bands brand
+    <br><br>
+    Each tenant has its own clients, decorators, payment provider, and team. RLS enforces strict separation — no data crosses tenants except where explicitly modeled (e.g. cross-tenant warehouse fulfillment).
+    <br><br>
+    The active tenant shows as a small slug under the sidebar logo (HPD or IHM).
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Cross-tenant warehouse (planned)</div>
+  <div class="card-desc">
+    IHM can use HPD as its fulfillment partner. The architecture supports surfacing IHM ship-through items on HPD's /receiving page via <span class="key">fulfillment_partner_company_id</span> + a targeted RLS carve-out. Plan locked, in build.
+  </div>
+</div>
+
+<h2 id="escalations">Escalation paths</h2>
+
+<div class="card">
+  <div class="card-title">When the team flags something to you</div>
+  <div class="card-desc">
+    <table>
+      <tr><th>Signal</th><th>What it usually means</th><th>Your move</th></tr>
+      <tr><td>Quote rejected</td><td>Client wants changes</td><td>Talk to Drake — adjust costing if needed, re-quote</td></tr>
+      <tr><td>Proof revision requested</td><td>Client wants design changes</td><td>Check Art Studio brief, route to designer</td></tr>
+      <tr><td>Decorator stalled 7+ days</td><td>Production behind</td><td>Drake calls decorator. If chronic — pricing review or vendor swap.</td></tr>
+      <tr><td>Variance on receive</td><td>Decorator short-shipped</td><td>Drake follows up with decorator, may need to comp or re-order</td></tr>
+      <tr><td>Webhook failure</td><td>Provider integration glitch</td><td>Manual payment entry; investigate webhook health on /integrations</td></tr>
+      <tr><td>Pre-order sold over capacity</td><td>Demand exceeded what we can produce</td><td>Conversation with client — extend timeline or cap orders</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="tip"><b>Permissions refactor is planned</b> but blocked on team meeting. Until then, navigation is hidden by role but enforcement is incomplete. Keep this in mind when granting access.</div>
+
+<div style="text-align: center; padding: 40px 0; color: #a0a0ad; font-size: 11px;">
+  OpsHub Role Guide — Manager · House Party Distro<br>
+  Other role guides: Taylor / Drake / Abigail / Warehouse — find them on /references
+</div>
+
+</div>
+</body>
+</html>

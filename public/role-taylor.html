@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpsHub Role Guide — Taylor (Setup)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; color: #1a1a1a; background: #f8f8f9; }
+  .container { max-width: 820px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font-size: 28px; font-weight: 900; margin-bottom: 4px; }
+  .role-pill { display: inline-block; background: #ede9fe; color: #7c3aed; font-size: 11px; font-weight: 800; padding: 4px 12px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .subtitle { font-size: 14px; color: #6b6b78; margin-bottom: 8px; }
+  .version { font-size: 11px; color: #a0a0ad; margin-bottom: 32px; }
+  h2 { font-size: 18px; font-weight: 800; margin: 40px 0 16px; padding-top: 24px; border-top: 2px solid #7c3aed; }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 24px; }
+  h3 { font-size: 14px; font-weight: 700; margin: 22px 0 10px; }
+  .route { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; color: #7c3aed; background: #f3f0ff; padding: 2px 8px; border-radius: 4px; margin-left: 8px; vertical-align: middle; font-weight: 600; }
+  .card { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 18px 20px; margin-bottom: 12px; }
+  .card-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .card-desc { font-size: 13px; color: #4a4a55; line-height: 1.65; }
+  .card-desc b { color: #1a1a1a; }
+  .step-list { list-style: none; counter-reset: step; }
+  .step-list li { counter-increment: step; padding: 10px 0; border-bottom: 1px solid #e0e0e4; font-size: 13px; line-height: 1.6; display: flex; gap: 12px; }
+  .step-list li:last-child { border-bottom: none; }
+  .step-list li::before { content: counter(step); background: #7c3aed; color: #fff; width: 22px; height: 22px; border-radius: 99px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 2px; }
+  .tip { background: #f3f0ff; border: 1px solid #d6cdf7; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #4c2f96; margin: 12px 0; line-height: 1.5; }
+  .warn { background: #fef9ee; border: 1px solid #f5dfa8; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #92400e; margin: 12px 0; line-height: 1.5; }
+  .nav-toc { background: #fff; border: 1px solid #e0e0e4; border-radius: 8px; padding: 20px; margin-bottom: 32px; }
+  .nav-toc a { display: block; padding: 6px 0; font-size: 13px; color: #1a1a1a; text-decoration: none; font-weight: 500; border-bottom: 1px solid #f0f0f2; }
+  .nav-toc a:last-child { border-bottom: none; }
+  .nav-toc a:hover { color: #7c3aed; }
+  .nav-toc .section-label { font-size: 9px; font-weight: 700; color: #a0a0ad; text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; }
+  th { text-align: left; padding: 8px 10px; font-size: 10px; font-weight: 700; color: #6b6b78; text-transform: uppercase; letter-spacing: 0.06em; background: #f3f3f5; }
+  td { padding: 9px 10px; border-bottom: 1px solid #f0f0f2; vertical-align: top; line-height: 1.5; }
+  .key { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; background: #f3f3f5; padding: 1px 6px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="role-pill">Taylor — Setup</div>
+<h1>Role Guide</h1>
+<div class="subtitle">Project setup &amp; design coordination — your daily playbook</div>
+<div class="version">Last updated May 23, 2026</div>
+
+<div class="nav-toc">
+  <div class="section-label">What you do</div>
+  <a href="#summary">Your role at a glance</a>
+  <a href="#new-project">Starting a new project</a>
+  <a href="#product-builder">Building the item list</a>
+  <a href="#art-studio">Briefing the art</a>
+  <a href="#preorder-planning">Pre-order planning</a>
+  <a href="#handoff">Handing off to Drake</a>
+  <a href="#workflow-checklist">Workflow checklist</a>
+</div>
+
+<h2 id="summary">Your role at a glance</h2>
+<div class="card">
+  <div class="card-desc">
+    You own the <b>front of the funnel</b>. When a client reaches out, you take it from idea to a fully scoped project ready for Drake to cost and order.
+    <br><br>
+    <b>Your pages:</b>
+    <table>
+      <tr><th>Page</th><th>What you do there</th></tr>
+      <tr><td><b>Projects</b> <span class="route">/jobs</span></td><td>Pick up new work, view the full list</td></tr>
+      <tr><td><b>+ New Project</b> <span class="route">/jobs/new</span></td><td>Bootstrap a new project</td></tr>
+      <tr><td><b>Project Overview</b></td><td>Set ship date, route, contacts, notes</td></tr>
+      <tr><td><b>Product Builder</b></td><td>Add items, set blanks, sizes, qtys</td></tr>
+      <tr><td><b>Art Studio</b> <span class="route">/art-studio</span></td><td>Brief designers, manage art lifecycle</td></tr>
+      <tr><td><b>Ecomm — Pre-order Detail</b> <span class="route">/ecomm/[id]</span></td><td>Scope pre-order products + retail prices</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2 id="new-project">Starting a new project</h2>
+<div class="card">
+  <div class="card-title">From Projects → + New Project</div>
+  <ol class="step-list">
+    <li><div><b>Pick the client</b>. Type in the search to find them. If they don't exist yet, click "+ New Client" and fill in the modal (name, type, default terms, billing address, primary contact).</div></li>
+    <li><div><b>Set the project title</b> — descriptive enough that anyone scanning the projects list knows what it is.</div></li>
+    <li><div><b>Pick the job type</b> (corporate / artist / tour / brand / webstore / drop_ship). Defaults from client type.</div></li>
+    <li><div><b>Pick the shipping route</b>:<br>• <b>Drop ship</b> — decorator ships direct to client<br>• <b>Ship through</b> — comes to HPD, immediately back out to client<br>• <b>Stage</b> — comes to HPD, held as inventory until orders come in</div></li>
+    <li><div><b>Set ship date</b>. The in-hands date auto-suggests ship date + 3 days. You can override.</div></li>
+    <li><div><b>Save</b>. You land on the Product Builder tab.</div></li>
+  </ol>
+</div>
+
+<div class="tip"><b>Reorder shortcut:</b> If a client is reordering, find the previous project → "Duplicate" button in the header. Items, contacts, costing all carry over.</div>
+
+<h2 id="product-builder">Building the item list <span class="route">Product Builder tab</span></h2>
+<div class="card">
+  <div class="card-title">Adding items</div>
+  <div class="card-desc">
+    Click <b>+ Add Item</b> at the top of the sidebar. The Product Builder modal opens.
+    <br><br>
+    <b>Catalog source picker</b> — Favorites, S&amp;S Activewear, AS Colour, LA Apparel, Other.
+    <br>
+    <b>S&amp;S flow:</b> Pick brand → style → color → sizes. Costs and SKUs auto-fill.
+    <br>
+    <b>Other / custom:</b> For non-garment items (patches, stickers, totes, banners, etc.) use "Custom" — pick a garment type that maps to QB and enter the SKU manually.
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Per-item fields</div>
+  <div class="card-desc">
+    Each item gets a card. Click an item in the sidebar to select it.
+    <br><br>
+    <b>Item name</b> — header bar, click to edit. Keep it short and obvious ("Front Logo Tee", "Crew Sweat — Back Print").
+    <br>
+    <b>Garment type</b> — drives QB product mapping. Must be set.
+    <br>
+    <b>Blank vendor / SKU / color</b> — click the blank bar to change.
+    <br>
+    <b>Sizes</b> — enter qty per size. Tab / arrow keys move you across. Numbers auto-select on focus so typing replaces.
+    <br>
+    <b>Dist button</b> — type a total qty, hit Fill — it distributes across sizes using a smart curve (more M/L, less XS/3XL).
+    <br>
+    <b>Notes</b> — anything Drake needs to know about this specific item (color match request, special blank prep, etc.).
+  </div>
+</div>
+
+<div class="warn"><b>Sort order matters.</b> Drag the ⠿ handle to reorder items. The order you set here is the order they appear on the quote, the PO, the invoice — everywhere. Letter designators (A, B, C…) follow this order across every tab.</div>
+
+<h2 id="art-studio">Briefing the art <span class="route">/art-studio</span></h2>
+<div class="card">
+  <div class="card-title">Where art lives now</div>
+  <div class="card-desc">
+    Art Studio is the single hub for every design brief — it replaced the old Art Files tab inside projects. Every brief is a visual tile with the latest version's thumbnail.
+    <br><br>
+    <b>Brief states</b> (in order):
+    <table>
+      <tr><th>State</th><th>What it means</th></tr>
+      <tr><td><b>Draft</b></td><td>You're building the brief, nothing sent yet</td></tr>
+      <tr><td><b>Sent</b></td><td>Brief is with the designer</td></tr>
+      <tr><td><b>In Progress</b></td><td>Designer is working</td></tr>
+      <tr><td><b>WIP Review</b></td><td>Designer uploaded a work-in-progress for HPD to check</td></tr>
+      <tr><td><b>Client Review</b></td><td>Sent to client for approval</td></tr>
+      <tr><td><b>Revisions</b></td><td>Client requested changes</td></tr>
+      <tr><td><b>Final Approved</b></td><td>Client signed off</td></tr>
+      <tr><td><b>Production Ready</b></td><td>Print files prepped</td></tr>
+      <tr><td><b>Delivered</b></td><td>Files sent to decorator</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Your art workflow</div>
+  <ol class="step-list">
+    <li><div><b>Upload client art</b>. Drop files into the brief.</div></li>
+    <li><div><b>Send brief</b> to a designer (pick from the designer list). State moves to Sent.</div></li>
+    <li><div><b>Watch the activity ribbon</b>. When the designer uploads a WIP, you'll see a highlighted notice on the tile.</div></li>
+    <li><div><b>Review the WIP</b> with Drake if needed. Chat per-file in the brief modal.</div></li>
+    <li><div><b>Forward to client</b> for review. State moves to Client Review.</div></li>
+    <li><div><b>Client approves on their portal</b>. State moves to Final Approved automatically — you'll see a green ribbon on the tile.</div></li>
+    <li><div><b>If client requests changes</b> — state goes to Revisions, you send back to designer with notes, repeat.</div></li>
+  </ol>
+</div>
+
+<div class="tip"><b>Per-file chat</b> is the central nervous system. Designer questions, client feedback, internal HPD notes — they all happen in the chat thread on each file. No more Slack scattergun.</div>
+
+<h2 id="preorder-planning">Pre-order planning <span class="route">Ecomm — Pre-order Detail</span></h2>
+<div class="card">
+  <div class="card-title">Your role in the pre-order lifecycle: Planning phase</div>
+  <div class="card-desc">
+    Pre-orders are scoped by you and Drake together, then handed off to Abigail to build in Shopify. You own the <b>Planning</b> phase.
+    <br><br>
+    On a pre-order in Planning, you:
+    <br>• <b>Add each product</b> — name, blank vendor, blank SKU, sizes, retail price (what the client charges the end customer)
+    <br>• <b>Set lifecycle dates</b> — Open date, Close date, Target ship date. Use the quick offset buttons (+3w / +4w / +5w / +6w) to set target ship from the close date.
+    <br>• <b>Set buffer %</b> — defaults to 5-7%. This is how much extra qty you order over what Shopify sold, to cover damages and reprints.
+    <br>• <b>Add notes</b> — anything Abigail needs to know about the build.
+    <br><br>
+    When you're done, click <b>"Hand off to Abigail (Build in Shopify)"</b>. Status moves to Building — Abigail takes it from here.
+  </div>
+</div>
+
+<div class="tip"><b>See the Pre-order SOP</b> for the full lifecycle and edge cases. Find it on the References page (lightbulb icon).</div>
+
+<h2 id="handoff">Handing off to Drake</h2>
+<div class="card">
+  <div class="card-desc">
+    Once a project has items, sizes, art briefed (or art in progress), and ship date set, it's ready for Drake to cost.
+    <br><br>
+    <b>Drake will:</b> Set decorator + print locations + finishing → margin → Lock In Pricing. Then quote, blanks, PO, production.
+    <br><br>
+    You can keep working on the art in parallel. Drake doesn't need final art to start costing — he just needs to know print count and complexity.
+  </div>
+</div>
+
+<h2 id="workflow-checklist">Workflow checklist</h2>
+<div class="card">
+  <div class="card-title">Before you hand off to Drake</div>
+  <div class="card-desc">
+    Use this to make sure nothing's missing:
+    <br><br>
+    <table>
+      <tr><th>Check</th><th>Where</th></tr>
+      <tr><td>Client selected, contacts added</td><td>Overview tab</td></tr>
+      <tr><td>Ship date set (not blank)</td><td>Overview tab</td></tr>
+      <tr><td>Shipping route picked</td><td>Overview tab</td></tr>
+      <tr><td>All items added with name, blank, sizes, qty</td><td>Product Builder</td></tr>
+      <tr><td>Garment type set per item</td><td>Product Builder</td></tr>
+      <tr><td>Item notes for anything unusual</td><td>Product Builder</td></tr>
+      <tr><td>Art briefs created in Art Studio</td><td>Art Studio</td></tr>
+      <tr><td>Briefs sent to designer</td><td>Art Studio</td></tr>
+    </table>
+  </div>
+</div>
+
+<div style="text-align: center; padding: 40px 0; color: #a0a0ad; font-size: 11px;">
+  OpsHub Role Guide — Taylor · House Party Distro<br>
+  Other role guides: Drake / Abigail / Warehouse / Manager — find them on /references
+</div>
+
+</div>
+</body>
+</html>

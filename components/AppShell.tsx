@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, FlaskConical, Truck, Store, Users, Cog, ChartColumn } from "lucide-react";
+import { LogOut, FlaskConical, Truck, Store, Users, Cog, ChartColumn, Lightbulb } from "lucide-react";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { useIsMobile } from "@/lib/useIsMobile";
 
@@ -211,6 +211,28 @@ export function AppShell({
               </Link>
             );
           })}
+
+          {/* References — team SOPs + training docs. Always visible to
+              every authenticated user; not gated by department access. */}
+          {(() => {
+            const isActive = pathname === "/references" || pathname?.startsWith("/references/");
+            return (
+              <Link
+                href="/references"
+                title="References"
+                style={{
+                  width: 40, height: 40, borderRadius: 8,
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  gap: 2, textDecoration: "none", transition: "all 0.15s",
+                  background: isActive ? "#73b6c9" : "transparent",
+                  color: isActive ? "#000" : "#fff",
+                }}
+              >
+                <Lightbulb size={18} />
+                <span style={{ fontSize: 7, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>Refs</span>
+              </Link>
+            );
+          })()}
         </div>
 
         {/* Bottom: sign out */}
@@ -374,6 +396,26 @@ export function AppShell({
               </Link>
             );
           })}
+          {/* References — always visible to every authenticated user. */}
+          {(() => {
+            const isActive = pathname === "/references" || pathname?.startsWith("/references/");
+            return (
+              <Link
+                href="/references"
+                style={{
+                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  gap: 2, padding: "6px 4px", borderRadius: 8,
+                  textDecoration: "none",
+                  background: isActive ? "#73b6c9" : "transparent",
+                  color: isActive ? "#000" : "#fff",
+                  minHeight: 44,
+                }}
+              >
+                <Lightbulb size={18} />
+                <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase" }}>Refs</span>
+              </Link>
+            );
+          })()}
           <form action="/api/auth/signout" method="post" style={{ flex: 1, display: "flex", justifyContent: "center" }}>
             <button
               type="submit"
