@@ -1,16 +1,17 @@
 import Link from "next/link";
+import { PORTFOLIO_IMAGES } from "./_placeholder-images";
 
 // Portfolio teaser — 6 standout projects with project type + units.
 // Richer than Killer Merch's logo-only credibility play. Hardcoded
 // for v1; can graduate to a `portfolio_items` table later.
 
-const ITEMS: { title: string; type: string; meta: string; tint: string }[] = [
-  { title: "Festival Collection",   type: "Tour Merch",  meta: "12 items · 2,400 units", tint: "#3a2a4a" },
-  { title: "Corporate Staff Polos", type: "Corporate",   meta: "4 items · 500 units",    tint: "#2a3d50" },
-  { title: "Album Release Drop",    type: "Brand",       meta: "8 items · 1,200 units",  tint: "#4a2a3a" },
-  { title: "Webstore Restock",      type: "Webstore",    meta: "6 items · 3,000 units",  tint: "#2a4a3a" },
-  { title: "Tour Merch 2026",       type: "Tour",        meta: "15 items · 5,000 units", tint: "#4a3a2a" },
-  { title: "Promo Giveaway",        type: "Corporate",   meta: "2 items · 300 units",    tint: "#1f1f1f" },
+const ITEMS: { title: string; type: string; meta: string }[] = [
+  { title: "Festival Collection",   type: "Tour Merch",  meta: "12 items · 2,400 units" },
+  { title: "Corporate Staff Polos", type: "Corporate",   meta: "4 items · 500 units"    },
+  { title: "Album Release Drop",    type: "Brand",       meta: "8 items · 1,200 units"  },
+  { title: "Webstore Restock",      type: "Webstore",    meta: "6 items · 3,000 units"  },
+  { title: "Tour Merch 2026",       type: "Tour",        meta: "15 items · 5,000 units" },
+  { title: "Promo Giveaway",        type: "Corporate",   meta: "2 items · 300 units"    },
 ];
 
 export function PortfolioGrid({ showCta = true }: { showCta?: boolean }) {
@@ -64,27 +65,29 @@ export function PortfolioGrid({ showCta = true }: { showCta?: boolean }) {
           gridTemplateColumns: "repeat(3, 1fr)",
           gap: 16,
         }}>
-          {ITEMS.map(item => (
+          {ITEMS.map((item, i) => (
             <div key={item.title} style={{
               borderRadius: 12, overflow: "hidden",
               background: "#fff",
               border: "1px solid #e0e0e4",
               display: "flex", flexDirection: "column",
             }}>
-              {/* Image placeholder */}
+              {/* Background photo (stock placeholder) */}
               <div style={{
                 aspectRatio: "4 / 3",
-                background: `linear-gradient(135deg, ${item.tint} 0%, #0a0a0c 100%)`,
+                background: "#0a0a0c",
                 position: "relative",
+                overflow: "hidden",
               }}>
-                <div style={{
-                  position: "absolute", inset: 0,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 11, color: "rgba(255,255,255,0.3)",
-                  letterSpacing: "0.1em", textTransform: "uppercase",
-                }}>
-                  Project Photo
-                </div>
+                <img
+                  src={PORTFOLIO_IMAGES[i % PORTFOLIO_IMAGES.length]}
+                  alt=""
+                  aria-hidden
+                  style={{
+                    position: "absolute", inset: 0,
+                    width: "100%", height: "100%", objectFit: "cover",
+                  }}
+                />
               </div>
               <div style={{ padding: "16px 18px" }}>
                 <div style={{

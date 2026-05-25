@@ -1,16 +1,17 @@
 import Link from "next/link";
+import { SERVICE_IMAGES } from "./_placeholder-images";
 
 // Service grid — Killer Merch style: 2-column rectangular tiles,
 // image-first, label overlaid bottom-left. Each tile is its own
-// photographic statement. Real imagery replaces placeholders later.
+// photographic statement.
 
-const SERVICES: { label: string; href: string; tint: string }[] = [
-  { label: "Design & Art",     href: "/services#design",     tint: "#2a3d50" },
-  { label: "Screen Printing",  href: "/services#screen",     tint: "#1f1f1f" },
-  { label: "Embroidery",       href: "/services#embroidery", tint: "#4a3a2a" },
-  { label: "Blank Sourcing",   href: "/services#blanks",     tint: "#2a4a3a" },
-  { label: "Warehousing",      href: "/services#warehouse",  tint: "#3a2a4a" },
-  { label: "Fulfillment",      href: "/services#fulfillment",tint: "#4a2a3a" },
+const SERVICES: { label: string; href: string }[] = [
+  { label: "Design & Art",     href: "/services#design"     },
+  { label: "Screen Printing",  href: "/services#screen"     },
+  { label: "Embroidery",       href: "/services#embroidery" },
+  { label: "Blank Sourcing",   href: "/services#blanks"     },
+  { label: "Warehousing",      href: "/services#warehouse"  },
+  { label: "Fulfillment",      href: "/services#fulfillment"},
 ];
 
 export function ServiceGrid() {
@@ -31,14 +32,26 @@ export function ServiceGrid() {
             overflow: "hidden",
             textDecoration: "none",
             display: "block",
-            background: `linear-gradient(140deg, ${svc.tint} 0%, #0a0a0c 100%)`,
+            background: "#0a0a0c",
           }}
             className="hpd-service-tile"
           >
+            {/* Background photo */}
+            <img
+              src={SERVICE_IMAGES[svc.label]}
+              alt=""
+              aria-hidden
+              style={{
+                position: "absolute", inset: 0,
+                width: "100%", height: "100%", objectFit: "cover",
+                transition: "transform 0.4s",
+              }}
+              className="hpd-service-img"
+            />
             {/* Overlay gradient for text legibility */}
             <div style={{
               position: "absolute", inset: 0,
-              background: "linear-gradient(to top, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.05) 60%, rgba(0,0,0,0.2) 100%)",
+              background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.15) 55%, rgba(0,0,0,0.25) 100%)",
               transition: "opacity 0.25s",
             }} className="hpd-service-overlay" />
             <div style={{
@@ -74,6 +87,9 @@ export function ServiceGrid() {
       <style>{`
         .hpd-service-tile:hover .hpd-service-overlay {
           opacity: 0.5;
+        }
+        .hpd-service-tile:hover .hpd-service-img {
+          transform: scale(1.04);
         }
         @media (max-width: 700px) {
           .hpd-service-grid {

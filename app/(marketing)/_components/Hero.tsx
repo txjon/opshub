@@ -1,9 +1,9 @@
 import Link from "next/link";
+import { HERO_IMAGE } from "./_placeholder-images";
 
 // Full-viewport hero, Killer Merch style — centered uppercase headline
 // dominating the frame, sparse supporting copy, no loud CTA buttons.
-// Dark photographic background (placeholder gradient until real hero
-// imagery lands).
+// Photographic background with dark overlay for text legibility.
 
 export function Hero() {
   return (
@@ -16,15 +16,21 @@ export function Hero() {
       overflow: "hidden",
       textAlign: "center",
     }}>
-      {/* Background — placeholder gradient. Replace with real hero photo:
-          swap the inner div's background with
-          `url("/marketing/hero.jpg") center/cover` */}
+      {/* Background photo. Stock placeholder from Unsplash; swap to
+          /marketing/hero.jpg when the real shoot lands. */}
+      <img
+        src={HERO_IMAGE}
+        alt=""
+        aria-hidden
+        style={{
+          position: "absolute", inset: 0,
+          width: "100%", height: "100%", objectFit: "cover",
+        }}
+      />
+      {/* Dark overlay for text legibility */}
       <div style={{
         position: "absolute", inset: 0,
-        background: `
-          linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.7) 100%),
-          radial-gradient(ellipse at 50% 40%, #2a2a35 0%, #0e0e14 60%, #050507 100%)
-        `,
+        background: "linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.7) 100%)",
       }} />
 
       {/* Centered content */}
