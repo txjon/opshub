@@ -1,0 +1,7 @@
+# Staging folder for photos Jon drops in before Claude sorts + places
+# them into /public/marketing/. Ignore everything except this file +
+# the README so the folder structure persists in git but the dropped
+# images don't pollute history.
+*
+!.gitignore
+!README.md

@@ -48,7 +48,7 @@ const SERVICES: {
     name: "DTG &amp; Sublimation",
     description: "Photo-quality, full-color prints. Best for small runs, complex artwork, all-over prints, and tight turnarounds.",
     capabilities: ["Full-color photo prints", "All-over coverage", "Small-run friendly", "Fast turnaround"],
-    image: SERVICE_IMAGES["Embroidery"], // placeholder reuse — swap when DTG photo lands
+    image: SERVICE_IMAGES["DTG"],
   },
   {
     id: "blanks",
