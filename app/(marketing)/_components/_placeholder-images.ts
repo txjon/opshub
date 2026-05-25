@@ -33,3 +33,19 @@ export const PORTFOLIO_IMAGES: string[] = [
   u("photo-1576566588028-4147f3842f27", 1200),  // clothing rack
   u("photo-1620799139507-2a76f79a2f4d", 1200),  // merch tee
 ];
+
+// Extended portfolio for /work — 12 items.
+export const WORK_IMAGES: string[] = [
+  u("photo-1521572163474-6864f9cf17ab", 1400),
+  u("photo-1556905055-8f358a7a47b2",   1400),
+  u("photo-1503342217505-b0a15ec3261c", 1400),
+  u("photo-1542272604-787c3835535d",   1400),
+  u("photo-1576566588028-4147f3842f27", 1400),
+  u("photo-1620799139507-2a76f79a2f4d", 1400),
+  u("photo-1591047139829-d91aecb6caea", 1400),
+  u("photo-1602810318383-c0cdc4c4d6d4", 1400),
+  u("photo-1556903454-2b9aa9f93f55", 1400),
+  u("photo-1564859228273-274232fdb516", 1400),
+  u("photo-1583744946564-b52ac1c389c8", 1400),
+  u("photo-1620799140408-edc6dcb6d633", 1400),
+];
