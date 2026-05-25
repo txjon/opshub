@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
       .from("clients")
       .insert({
         name: company.trim(),
-        type: clientType,
+        client_type: clientType,
         shipping_address: shippingAddress || null,
         notes: notes || null,
       })
