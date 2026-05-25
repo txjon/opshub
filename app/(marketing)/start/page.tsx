@@ -174,22 +174,46 @@ export default function StartPage() {
   // Upload a single file. Triggered immediately when the user picks a
   // file in step 3 — keeps the final submit fast (files are already in
   // storage by then).
+  //
+  // Two-step flow to bypass Vercel's 4.5MB serverless body limit:
+  //   1. POST metadata to /api/onboard/upload → get signed upload URL
+  //   2. PUT the raw file directly to Supabase Storage (browser → Supabase)
   async function uploadFile(row: FileRow) {
     setForm(f => ({
       ...f,
       files: f.files.map(r => r.id === row.id ? { ...r, uploading: true, error: null } : r),
     }));
     try {
-      const body = new FormData();
-      body.append("file", row.file);
-      body.append("session", sessionRef.current);
-      const res = await fetch("/api/onboard/upload", { method: "POST", body });
-      const data = await res.json();
-      if (!res.ok || data?.error) throw new Error(data?.error || "Upload failed");
+      // Step 1 — get signed URL
+      const initRes = await fetch("/api/onboard/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: row.file.name,
+          contentType: row.file.type,
+          session: sessionRef.current,
+        }),
+      });
+      const init = await initRes.json();
+      if (!initRes.ok || init?.error) throw new Error(init?.error || "Could not get upload URL");
+      if (init.session) sessionRef.current = init.session;
+
+      // Step 2 — PUT directly to Supabase
+      const putRes = await fetch(init.uploadUrl, {
+        method: "PUT",
+        body: row.file,
+        headers: {
+          "Content-Type": row.file.type || "application/octet-stream",
+        },
+      });
+      if (!putRes.ok) {
+        throw new Error(`Upload failed (HTTP ${putRes.status})`);
+      }
+
       setForm(f => ({
         ...f,
         files: f.files.map(r => r.id === row.id
-          ? { ...r, uploading: false, uploaded: true, url: data.url, error: null }
+          ? { ...r, uploading: false, uploaded: true, url: init.downloadUrl, error: null }
           : r),
       }));
     } catch (e: any) {
@@ -204,18 +228,23 @@ export default function StartPage() {
 
   function addFiles(filesIn: FileList | null) {
     if (!filesIn) return;
-    const newRows: FileRow[] = Array.from(filesIn).map(file => ({
-      id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      file,
-      uploading: false,
-      uploaded: false,
-      error: null,
-      url: null,
-      size: file.size,
-    }));
+    const MAX_BYTES = 50 * 1024 * 1024; // 50MB per file
+    const newRows: FileRow[] = Array.from(filesIn).map(file => {
+      const oversize = file.size > MAX_BYTES;
+      return {
+        id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        file,
+        uploading: false,
+        uploaded: false,
+        error: oversize ? `Too large (${Math.round(file.size / 1024 / 1024)}MB). Max 50MB per file — paste a link to it in the description instead.` : null,
+        url: null,
+        size: file.size,
+      };
+    });
     setForm(f => ({ ...f, files: [...f.files, ...newRows] }));
-    // Fire uploads immediately so the user doesn't wait at submit time.
-    newRows.forEach(r => uploadFile(r));
+    // Fire uploads immediately (only for in-bounds files) so the user
+    // doesn't wait at submit time.
+    newRows.filter(r => !r.error).forEach(r => uploadFile(r));
   }
 
   function removeFile(id: string) {

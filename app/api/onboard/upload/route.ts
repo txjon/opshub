@@ -5,22 +5,23 @@ import { createClient } from "@supabase/supabase-js";
 
 // POST /api/onboard/upload
 //
-// Public file upload endpoint for the /start intake form. Takes multipart
-// FormData with a single "file" field, writes to Supabase Storage in the
-// "intake-uploads" bucket, and returns a signed URL the form can stash
-// in the final /api/onboard submission.
+// Issues a signed upload URL so the browser can PUT the file directly to
+// Supabase Storage — bypassing Vercel's 4.5MB serverless body limit.
 //
-// Bucket is private — files only accessible via signed URLs. Auto-creates
-// the bucket on first call so deployment doesn't require a manual setup
-// step.
+// Flow:
+//   1. Client POSTs { filename, contentType, session } here
+//   2. We generate a signed upload URL + a signed download URL for the
+//      same path (download URL works once the upload completes)
+//   3. Client PUTs the raw file body to uploadUrl
+//   4. Final intake submission references downloadUrl
+//
+// Bucket is private, auto-created on first call.
 
 const BUCKET = "intake-uploads";
-const MAX_BYTES = 25 * 1024 * 1024;     // 25MB per file
-// Long-lived signed URL so the team can access the file weeks after
-// the lead lands. If a lead goes cold and gets revisited later, a stale
-// URL doesn't block them — but a long-running admin tool can always
-// regenerate a fresh one from the saved storage path.
-const SIGNED_URL_TTL = 60 * 60 * 24 * 30; // 30 days
+// Long-lived signed download URL so the team can access the file weeks
+// after the lead lands. If a lead goes cold and gets revisited later, a
+// stale URL doesn't block them.
+const DOWNLOAD_TTL = 60 * 60 * 24 * 30; // 30 days
 
 function admin() {
   return createClient(
@@ -29,8 +30,7 @@ function admin() {
   );
 }
 
-// Ensure the bucket exists. Idempotent — returns quickly when it does,
-// creates it (private) when it doesn't.
+// Ensure the bucket exists. Idempotent.
 async function ensureBucket(sb: ReturnType<typeof admin>) {
   const { data: list } = await sb.storage.listBuckets();
   if ((list || []).some(b => b.name === BUCKET)) return;
@@ -39,42 +39,43 @@ async function ensureBucket(sb: ReturnType<typeof admin>) {
 
 export async function POST(req: NextRequest) {
   try {
-    const form = await req.formData();
-    const file = form.get("file") as File | null;
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
-    }
-    if (file.size > MAX_BYTES) {
-      return NextResponse.json({ error: "File too large (max 25MB)" }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+    const filename = (body?.filename || "").toString();
+    const session = (body?.session || "").toString();
+
+    if (!filename) {
+      return NextResponse.json({ error: "Missing filename" }, { status: 400 });
     }
 
     const sb = admin();
     await ensureBucket(sb);
 
-    // Random session prefix prevents one submission from clashing with
-    // another, and lets us group all files from a single intake later.
-    const session = form.get("session")?.toString() || `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 100);
-    const path = `${session}/${Date.now()}-${safeName}`;
+    // Random session prefix groups all files from a single intake.
+    const sessionId = session || `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const safeName = filename.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 100);
+    const path = `${sessionId}/${Date.now()}-${safeName}`;
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const { error: upErr } = await sb.storage.from(BUCKET).upload(path, buffer, {
-      contentType: file.type || "application/octet-stream",
-      upsert: false,
-    });
-    if (upErr) {
-      return NextResponse.json({ error: upErr.message }, { status: 500 });
+    // Signed URL the browser will PUT to.
+    const { data: uploadData, error: uploadErr } = await sb.storage
+      .from(BUCKET)
+      .createSignedUploadUrl(path);
+    if (uploadErr || !uploadData) {
+      return NextResponse.json({ error: uploadErr?.message || "Upload URL failed" }, { status: 500 });
     }
 
-    const { data: url } = await sb.storage.from(BUCKET).createSignedUrl(path, SIGNED_URL_TTL);
+    // Signed download URL — valid for 30 days, returns 404 until the
+    // PUT lands, then starts working automatically.
+    const { data: downloadData } = await sb.storage
+      .from(BUCKET)
+      .createSignedUrl(path, DOWNLOAD_TTL);
 
     return NextResponse.json({
       ok: true,
+      uploadUrl: uploadData.signedUrl,
+      token: uploadData.token,
       path,
-      url: url?.signedUrl || null,
-      filename: file.name,
-      size: file.size,
-      session,
+      downloadUrl: downloadData?.signedUrl || null,
+      session: sessionId,
     });
   } catch (e: any) {
     console.error("[onboard/upload]", e?.message || e);
