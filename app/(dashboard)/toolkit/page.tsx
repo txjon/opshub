@@ -40,7 +40,8 @@ function ReferenceLinks() {
       label: "Dev / Internal",
       items: [
         { title: "End-to-End Test Checklist", description: "QA checklist for full-flow regression testing.", href: "/test-checklist.html" },
-        { title: "HPD Mockup", description: "UI design artifact — site/page mockups for House Party Distro.", href: "/hpd-mockup.html" },
+        { title: "HPD Website Mockup", description: "Concept mockup for the public House Party Distro marketing site — services, portfolio, intake form.", href: "/hpd-website-mockup.html" },
+        { title: "HPD Mockup", description: "UI design artifact — internal dashboard / page mockups.", href: "/hpd-mockup.html" },
       ],
     },
   ];
