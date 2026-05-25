@@ -1,86 +1,71 @@
 import Link from "next/link";
 
-// Full-bleed hero with overlay text. Killer-Merch-inspired: dark image
-// background, bold uppercase headline, single CTA. Placeholder gradient
-// stays until Jon provides real hero photography.
+// Full-viewport hero, Killer Merch style — centered uppercase headline
+// dominating the frame, sparse supporting copy, no loud CTA buttons.
+// Dark photographic background (placeholder gradient until real hero
+// imagery lands).
 
 export function Hero() {
   return (
     <section style={{
       position: "relative",
-      minHeight: 640,
+      minHeight: "calc(100vh - 64px)",  // viewport minus nav height
       display: "flex",
       alignItems: "center",
-      justifyContent: "flex-start",
+      justifyContent: "center",
       overflow: "hidden",
+      textAlign: "center",
     }}>
-      {/* Background — gradient placeholder until real hero image lands.
-          The radial gradient mimics a backlit subject; the linear darkens
-          the bottom for text contrast. */}
+      {/* Background — placeholder gradient. Replace with real hero photo:
+          swap the inner div's background with
+          `url("/marketing/hero.jpg") center/cover` */}
       <div style={{
         position: "absolute", inset: 0,
         background: `
-          linear-gradient(180deg, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.65) 100%),
-          radial-gradient(ellipse at 30% 30%, #3a3a4a 0%, #1a1a1f 60%, #050507 100%)
+          linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.7) 100%),
+          radial-gradient(ellipse at 50% 40%, #2a2a35 0%, #0e0e14 60%, #050507 100%)
         `,
       }} />
 
-      {/* Content */}
+      {/* Centered content */}
       <div style={{
         position: "relative", zIndex: 1,
-        maxWidth: 1280, margin: "0 auto", width: "100%",
-        padding: "120px 32px",
+        maxWidth: 1100, padding: "0 32px",
       }}>
-        <div style={{ maxWidth: 760 }}>
-          <h1 style={{
-            fontSize: "clamp(38px, 7vw, 68px)",
-            fontWeight: 900,
-            lineHeight: 1.02,
-            letterSpacing: "-0.03em",
-            color: "#fff",
-            textTransform: "uppercase",
-            marginBottom: 24,
-          }}>
-            Custom apparel.<br />
-            <span style={{ color: "#b0b0b8" }}>From concept to delivery.</span>
-          </h1>
-          <p style={{
-            fontSize: 18, lineHeight: 1.5,
-            color: "rgba(255,255,255,0.85)",
-            maxWidth: 560,
-            marginBottom: 32,
-          }}>
-            We handle every step — art production, blank sourcing, decoration, warehousing, and fulfillment. You focus on your brand.
-          </p>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <Link href="/start" style={{
-              display: "inline-block",
-              background: "#fff", color: "#1a1a1a",
-              padding: "15px 32px", borderRadius: 8,
-              fontSize: 15, fontWeight: 700,
-              textDecoration: "none",
-            }}>
-              Start a Project →
-            </Link>
-            <Link href="/work" style={{
-              display: "inline-block",
-              background: "transparent", color: "#fff",
-              padding: "15px 32px", borderRadius: 8,
-              fontSize: 15, fontWeight: 700,
-              textDecoration: "none",
-              border: "1px solid rgba(255,255,255,0.3)",
-            }}>
-              See our work
-            </Link>
-          </div>
-          <div style={{
-            fontSize: 12, color: "rgba(255,255,255,0.5)",
-            marginTop: 24,
-            letterSpacing: "0.04em",
-          }}>
-            Las Vegas, NV — serving brands, tours, and corporate clients nationwide
-          </div>
-        </div>
+        <h1 style={{
+          fontSize: "clamp(36px, 6.5vw, 84px)",
+          fontWeight: 900,
+          lineHeight: 1.02,
+          letterSpacing: "-0.02em",
+          color: "#fff",
+          textTransform: "uppercase",
+          marginBottom: 28,
+        }}>
+          Custom apparel from<br />
+          concept to delivery.
+        </h1>
+        <p style={{
+          fontSize: "clamp(15px, 1.4vw, 18px)",
+          lineHeight: 1.6,
+          color: "rgba(255,255,255,0.75)",
+          maxWidth: 720, margin: "0 auto 32px",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+        }}>
+          Art production · blank sourcing · screen printing · warehousing · fulfillment — for brands, tours, and corporate clients nationwide.
+        </p>
+        <Link href="/start" style={{
+          display: "inline-block",
+          color: "#fff",
+          fontSize: 13, fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.12em",
+          textDecoration: "none",
+          borderBottom: "2px solid #fff",
+          paddingBottom: 4,
+        }}>
+          Start a Project
+        </Link>
       </div>
     </section>
   );
