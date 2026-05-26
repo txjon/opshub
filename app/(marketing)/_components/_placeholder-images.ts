@@ -11,13 +11,13 @@ export const HERO_IMAGE = "/marketing/hero-motorcycle.png";
 // Service grid — 7 services. The home grid shows 6 of these; /services
 // uses all 7 (DTG/Sub added there). Keyed by service label.
 export const SERVICE_IMAGES: Record<string, string> = {
-  "Design & Art":     "/marketing/service-design.png",
-  "Screen Printing":  "/marketing/service-screen-print.png",
-  "Embroidery":       "/marketing/service-embroidery.png",
-  "DTG":              "/marketing/service-dtg.png",
-  "Blank Sourcing":   "/marketing/service-blanks.png",
-  "Warehousing":      "/marketing/service-warehousing.png",
-  "Fulfillment":      "/marketing/service-fulfillment.png",
+  "Design & Art":     "/marketing/service-design.jpg",
+  "Screen Printing":  "/marketing/service-screen-print.jpg",
+  "Embroidery":       "/marketing/service-embroidery.jpg",
+  "DTG":              "/marketing/service-dtg.jpg",
+  "Blank Sourcing":   "/marketing/service-blanks.jpg",
+  "Warehousing":      "/marketing/service-warehousing.jpg",
+  "Fulfillment":      "/marketing/service-fulfillment.jpg",
 };
 
 // Home portfolio teaser — first 6 of the full work grid.
