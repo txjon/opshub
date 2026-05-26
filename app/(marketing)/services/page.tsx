@@ -88,8 +88,13 @@ const SERVICES: {
     id: "fulfillment",
     badge: "Logistics",
     name: "Fulfillment",
-    description: "Pick, pack, and ship to your customers. Direct-to-consumer, batch event drops, or tour-route logistics. UPS, FedEx, USPS.",
-    capabilities: ["DTC + batch shipping", "UPS / FedEx / USPS", "Shopify + ShipStation integrated", "Event-route logistics"],
+    description: "Most fulfillment is a numbers game. We treat every box as a brand moment. Folded right, polybagged right, hangtags facing front. The unboxing your customer is about to post.",
+    capabilities: [],
+    stats: [
+      { value: "DTC + Tour", label: "Routes" },
+      { value: "Shopify", label: "Integrated" },
+      { value: "All", label: "Major carriers" },
+    ],
     image: SERVICE_IMAGES["Fulfillment"],
   },
   {
