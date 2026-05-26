@@ -20,11 +20,20 @@ export function MissionStrip() {
           lineHeight: 1.1,
           letterSpacing: "-0.01em",
           textTransform: "uppercase",
-          marginBottom: 36,
+          marginBottom: 16,
         }}>
-          Built for brands that move.<br />
-          <span style={{ color: "#737380" }}>Based in Las Vegas. Shipped everywhere.</span>
+          Built for brands that move.
         </h2>
+        <p style={{
+          fontSize: "clamp(16px, 1.6vw, 20px)",
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          textTransform: "uppercase",
+          color: "rgba(255,255,255,0.55)",
+          marginBottom: 40,
+        }}>
+          Based in Las Vegas. Shipped everywhere.
+        </p>
 
         <Link href="/start" style={{
           display: "inline-block",
