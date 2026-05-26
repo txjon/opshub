@@ -23,7 +23,7 @@ const SERVICES: {
     id: "screen",
     badge: "Decoration",
     name: "Screen Printing",
-    description: "The reason your favorite shirts still look good five years in. DTG fades and cracks. Screen printing doesn't. Every ink type. Every specialty effect. Every detail handled by people who treat your art like you do.",
+    description: "The reason your favorite shirts still look good five years in. DTG fades and cracks. Screen printing doesn't. The print method that builds a brand, not just a shirt.",
     capabilities: [],
     stats: [
       { value: "16", label: "Colors per location" },
