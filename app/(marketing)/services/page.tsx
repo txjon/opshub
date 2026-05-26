@@ -75,7 +75,7 @@ const SERVICES: {
     id: "warehouse",
     badge: "Logistics",
     name: "Warehousing",
-    description: "Most warehouses count boxes. We inspect units. Every piece counted, every variance flagged, every receipt photographed. Problems caught at intake, not in front of your customer.",
+    description: "Boxes lie. Units don't. We open every box, count every unit, flag every variance, and photograph every receipt. Problems caught at intake, not in front of your customer.",
     capabilities: [],
     stats: [
       { value: "Per-unit", label: "QC" },
@@ -88,7 +88,7 @@ const SERVICES: {
     id: "fulfillment",
     badge: "Logistics",
     name: "Fulfillment",
-    description: "Most fulfillment is a numbers game. We treat every box as a brand moment. Folded right, polybagged right, hangtags facing front. The unboxing your customer is about to post.",
+    description: "Fulfillment is your brand's last impression. Don't let it be a commodity. Folded right, polybagged right, hangtags facing front. The unboxing your customer is about to post.",
     capabilities: [],
     stats: [
       { value: "DTC + Tour", label: "Routes" },
@@ -101,7 +101,7 @@ const SERVICES: {
     id: "ecommerce",
     badge: "E-Commerce",
     name: "E-Commerce Management",
-    description: "Most e-comm agencies have never seen the inside of a warehouse. We run one. No plugin mismatches, no inventory ghosts, no oversold drops you'll apologize for. The team running your store also runs the floor your orders ship from.",
+    description: "Your storefront is only as accurate as the warehouse behind it. We run both. No plugin mismatches, no inventory ghosts, no oversold drops you'll apologize for. The team running your store also runs the floor your orders ship from.",
     capabilities: [],
     stats: [
       { value: "Shopify", label: "Storefront" },
