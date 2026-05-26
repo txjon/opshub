@@ -89,7 +89,7 @@ export default function ServicesPage() {
       />
 
       {/* Service rows — alternating image/text sides for visual rhythm */}
-      <section style={{ padding: "100px 32px", background: "#fff" }}>
+      <section style={{ padding: "100px 32px", background: "#0a0a0c" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", flexDirection: "column", gap: 80 }}>
           {SERVICES.map((svc, i) => (
             <article
@@ -111,7 +111,7 @@ export default function ServicesPage() {
                   aspectRatio: "4 / 3",
                   borderRadius: 12,
                   overflow: "hidden",
-                  background: "#0a0a0c",
+                  background: "#141417",
                 }}
               >
                 <img
@@ -130,7 +130,7 @@ export default function ServicesPage() {
                     fontWeight: 800,
                     letterSpacing: "-0.02em",
                     lineHeight: 1.15,
-                    color: "#1a1a1a",
+                    color: "#fff",
                     marginBottom: 16,
                   }}
                 />
@@ -138,7 +138,7 @@ export default function ServicesPage() {
                   dangerouslySetInnerHTML={{ __html: svc.description }}
                   style={{
                     fontSize: 16, lineHeight: 1.65,
-                    color: "#4a4a55",
+                    color: "rgba(255,255,255,0.72)",
                     marginBottom: 20,
                   }}
                 />
@@ -149,12 +149,12 @@ export default function ServicesPage() {
                 }}>
                   {svc.capabilities.map(cap => (
                     <li key={cap} style={{
-                      fontSize: 13, color: "#6b6b78",
+                      fontSize: 13, color: "rgba(255,255,255,0.6)",
                       paddingLeft: 16, position: "relative",
                     }}>
                       <span style={{
                         position: "absolute", left: 0, top: "0.5em",
-                        width: 6, height: 6, background: "#1a1a1a", borderRadius: 99,
+                        width: 6, height: 6, background: "#fff", borderRadius: 99,
                       }} />
                       {cap}
                     </li>
@@ -166,13 +166,13 @@ export default function ServicesPage() {
         </div>
       </section>
 
-      {/* Client types pills */}
-      <section style={{ padding: "80px 32px 100px", background: "#f8f8f9" }}>
+      {/* Client types */}
+      <section style={{ padding: "80px 32px 120px", background: "#0a0a0c", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", textAlign: "center" }}>
           <div style={{
             fontSize: 11, fontWeight: 700,
             textTransform: "uppercase", letterSpacing: "0.14em",
-            color: "#a0a0ad", marginBottom: 12,
+            color: "rgba(255,255,255,0.5)", marginBottom: 16,
           }}>
             Who we work with
           </div>
@@ -180,22 +180,21 @@ export default function ServicesPage() {
             fontSize: "clamp(26px, 3.4vw, 36px)",
             fontWeight: 800,
             letterSpacing: "-0.02em",
-            color: "#1a1a1a",
-            marginBottom: 32,
+            color: "#fff",
+            marginBottom: 40,
           }}>
             Brands. Tours. Corporates. Everyone in between.
           </h2>
           <div style={{
-            display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 12,
+            display: "flex", flexWrap: "wrap", justifyContent: "center",
+            gap: "16px 40px",
           }}>
             {CLIENT_TYPES.map(t => (
               <div key={t} style={{
-                padding: "12px 24px",
-                background: "#fff",
-                border: "1px solid #e0e0e4",
-                borderRadius: 99,
-                fontSize: 14, fontWeight: 600,
-                color: "#1a1a1a",
+                fontSize: 14, fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.14em",
+                color: "rgba(255,255,255,0.85)",
               }}>
                 {t}
               </div>
