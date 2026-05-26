@@ -218,12 +218,8 @@ export function LogoCarousel() {
           height: auto;
           object-fit: contain;
           filter: brightness(0) invert(1);
-          opacity: 0.72;
-          transition: opacity 0.2s;
-          display: block;
-        }
-        .hpd-blanks-tile:hover .hpd-blanks-logo {
           opacity: 1;
+          display: block;
         }
 
         /* Reduced motion: static centered grid */
