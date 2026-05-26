@@ -106,7 +106,6 @@ export function ServiceGrid() {
               <div className="hpd-svc-overlay" />
               <div className="hpd-svc-label">
                 <div className="hpd-svc-label-main">{svc.label}</div>
-                <div className="hpd-svc-label-sub">Learn more →</div>
               </div>
             </Link>
           ))}
@@ -184,14 +183,17 @@ export function ServiceGrid() {
         .hpd-svc-overlay {
           position: absolute;
           inset: 0;
-          background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.15) 55%, rgba(0,0,0,0.25) 100%);
+          background: linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.45) 50%, rgba(0,0,0,0.35) 100%);
         }
         .hpd-svc-label {
           position: absolute;
-          left: 0;
-          bottom: 0;
-          padding: 40px 48px;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 40px;
           color: #fff;
+          text-align: center;
         }
         .hpd-svc-label-main {
           font-size: clamp(28px, 3.2vw, 48px);
@@ -199,14 +201,6 @@ export function ServiceGrid() {
           line-height: 1.05;
           letter-spacing: -0.01em;
           text-transform: uppercase;
-        }
-        .hpd-svc-label-sub {
-          font-size: 11px;
-          font-weight: 700;
-          color: rgba(255,255,255,0.6);
-          text-transform: uppercase;
-          letter-spacing: 0.12em;
-          margin-top: 10px;
         }
         .hpd-svc-tile:hover .hpd-svc-img {
           transform: scale(1.03);
