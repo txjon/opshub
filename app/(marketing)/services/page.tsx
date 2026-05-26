@@ -101,8 +101,13 @@ const SERVICES: {
     id: "ecommerce",
     badge: "E-Commerce",
     name: "E-Commerce Management",
-    description: "Run your online store on infrastructure built for apparel brands. Shopify setup, product launches, inventory sync, and order routing, all wired into the same warehouse and fulfillment floor.",
-    capabilities: ["Shopify storefront management", "Product launches + pre-orders", "Inventory sync", "Order routing + customer service"],
+    description: "Most e-comm agencies have never seen the inside of a warehouse. We run one. No plugin mismatches, no inventory ghosts, no oversold drops you'll apologize for. The team running your store also runs the floor your orders ship from.",
+    capabilities: [],
+    stats: [
+      { value: "Shopify", label: "Storefront" },
+      { value: "Live", label: "Inventory sync" },
+      { value: "Drop", label: "Coordination" },
+    ],
     image: SERVICE_IMAGES["E-Commerce"],
   },
 ];
