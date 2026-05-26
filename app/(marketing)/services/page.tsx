@@ -84,7 +84,6 @@ export default function ServicesPage() {
   return (
     <>
       <PageHero
-        eyebrow="What we do"
         title="Everything under one roof."
         sub="From a single run of 48 tees to a 5,000-unit tour package, every order gets the same attention to detail."
         image="/marketing/hero-services.jpg"
@@ -125,11 +124,6 @@ export default function ServicesPage() {
               </div>
 
               <div>
-                <div style={{
-                  fontSize: 10, fontWeight: 700,
-                  textTransform: "uppercase", letterSpacing: "0.12em",
-                  color: "#a0a0ad", marginBottom: 12,
-                }}>{svc.badge}</div>
                 <h2
                   dangerouslySetInnerHTML={{ __html: svc.name }}
                   style={{
