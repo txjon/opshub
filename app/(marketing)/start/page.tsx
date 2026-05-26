@@ -855,8 +855,8 @@ function Step6({ form, sizesList }: { form: FormState; sizesList: string[] }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <Summary label="Project type" value={projectType || "—"} />
-      <Summary label="Project name" value={form.project_name || "—"} />
+      <Summary label="Project type" value={projectType || "Not provided"} />
+      <Summary label="Project name" value={form.project_name || "Not provided"} />
       {form.description && <Summary label="Description" value={form.description} multiline />}
       {(form.items_count_range || form.units_range || form.target_ship_date || form.budget_range) && (
         <div style={summaryBlock}>

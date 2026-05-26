@@ -8,16 +8,16 @@
 // Hero — full-bleed home page background. Lifestyle / brand-in-the-wild.
 export const HERO_IMAGE = "/marketing/hero-motorcycle.png";
 
-// Service grid — 7 services. The home grid shows 6 of these; /services
-// uses all 7 (DTG/Sub added there). Keyed by service label.
+// Service grid — 7 services. Both the home grid and /services use the
+// same set. Keyed by service label.
 export const SERVICE_IMAGES: Record<string, string> = {
-  "Design & Art":     "/marketing/service-design.jpg",
   "Screen Printing":  "/marketing/service-screen-print.jpg",
   "Embroidery":       "/marketing/service-embroidery.jpg",
-  "DTG":              "/marketing/service-dtg.jpg",
-  "Blank Sourcing":   "/marketing/service-blanks.jpg",
+  "Product Sourcing": "/marketing/service-blanks.jpg",
+  "Design":           "/marketing/service-design.jpg",
   "Warehousing":      "/marketing/service-warehousing.jpg",
   "Fulfillment":      "/marketing/service-fulfillment.jpg",
+  "E-Commerce":       "/marketing/service-dtg.jpg",
 };
 
 // Home portfolio teaser — first 6 of the full work grid.

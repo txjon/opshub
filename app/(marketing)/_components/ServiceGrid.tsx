@@ -16,13 +16,13 @@ import { SERVICE_IMAGES } from "./_placeholder-images";
 // scroll while the sticky child stays pinned — height: calc(100vh + 320vw).
 
 const SERVICES: { label: string; href: string; image: string }[] = [
-  { label: "Design & Art",     href: "/services#design",     image: SERVICE_IMAGES["Design & Art"] },
-  { label: "Screen Printing",  href: "/services#screen",     image: SERVICE_IMAGES["Screen Printing"] },
-  { label: "Embroidery",       href: "/services#embroidery", image: SERVICE_IMAGES["Embroidery"] },
-  { label: "DTG & Sublimation",href: "/services#dtg",        image: SERVICE_IMAGES["DTG"] },
-  { label: "Blank Sourcing",   href: "/services#blanks",     image: SERVICE_IMAGES["Blank Sourcing"] },
-  { label: "Warehousing",      href: "/services#warehouse",  image: SERVICE_IMAGES["Warehousing"] },
-  { label: "Fulfillment",      href: "/services#fulfillment",image: SERVICE_IMAGES["Fulfillment"] },
+  { label: "Screen Printing",              href: "/services#screen",     image: SERVICE_IMAGES["Screen Printing"] },
+  { label: "Embroidery",                   href: "/services#embroidery", image: SERVICE_IMAGES["Embroidery"] },
+  { label: "Product Sourcing",             href: "/services#sourcing",   image: SERVICE_IMAGES["Product Sourcing"] },
+  { label: "Design & Product Development", href: "/services#design",     image: SERVICE_IMAGES["Design"] },
+  { label: "Warehousing",                  href: "/services#warehouse",  image: SERVICE_IMAGES["Warehousing"] },
+  { label: "Fulfillment",                  href: "/services#fulfillment",image: SERVICE_IMAGES["Fulfillment"] },
+  { label: "E-Commerce Management",        href: "/services#ecommerce",  image: SERVICE_IMAGES["E-Commerce"] },
 ];
 
 export function ServiceGrid() {

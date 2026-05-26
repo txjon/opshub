@@ -7,7 +7,7 @@ import { SERVICE_IMAGES } from "../_components/_placeholder-images";
 
 export const metadata = {
   title: "Services | House Party Distro",
-  description: "Custom apparel decoration, blank sourcing, warehousing, and fulfillment. Screen printing, embroidery, DTG, and sublimation.",
+  description: "Custom apparel decoration, product sourcing, warehousing, fulfillment, and e-commerce management. Screen printing and embroidery under one roof.",
 };
 
 const SERVICES: {
@@ -18,14 +18,6 @@ const SERVICES: {
   capabilities: string[];
   image: string;
 }[] = [
-  {
-    id: "design",
-    badge: "Art & Design",
-    name: "Design & Art Production",
-    description: "Send us your artwork in any format. We prep vectors, build mockups, generate print-ready files, and walk every proof through your client portal before anything hits press.",
-    capabilities: ["Vector art prep", "Mockup generation", "Print-ready files", "Proof approval portal"],
-    image: SERVICE_IMAGES["Design & Art"],
-  },
   {
     id: "screen",
     badge: "Decoration",
@@ -43,20 +35,20 @@ const SERVICES: {
     image: SERVICE_IMAGES["Embroidery"],
   },
   {
-    id: "dtg",
-    badge: "Decoration",
-    name: "DTG &amp; Sublimation",
-    description: "Photo-quality, full-color prints. Best for small runs, complex artwork, all-over prints, and tight turnarounds.",
-    capabilities: ["Full-color photo prints", "All-over coverage", "Small-run friendly", "Fast turnaround"],
-    image: SERVICE_IMAGES["DTG"],
+    id: "sourcing",
+    badge: "Sourcing",
+    name: "Product Sourcing",
+    description: "S&amp;S Activewear, AS Colour, LA Apparel, Next Level, Comfort Colors, and more. We pick the right product for your brand, budget, and end-use.",
+    capabilities: ["Tier-1 vendors", "Premium + budget options", "Sustainable lines available", "Inventory-aware ordering"],
+    image: SERVICE_IMAGES["Product Sourcing"],
   },
   {
-    id: "blanks",
-    badge: "Sourcing",
-    name: "Blank Sourcing",
-    description: "S&amp;S Activewear, AS Colour, LA Apparel, Next Level, Comfort Colors, and more. We pick the right blank for your brand, budget, and end-use.",
-    capabilities: ["Tier-1 vendors", "Premium + budget options", "Sustainable lines available", "Inventory-aware ordering"],
-    image: SERVICE_IMAGES["Blank Sourcing"],
+    id: "design",
+    badge: "Design",
+    name: "Design &amp; Product Development",
+    description: "From a napkin sketch to a finished product. Art direction, vector prep, mockups, sample rounds, and print-ready files. Every step reviewed through your client portal before anything hits press.",
+    capabilities: ["Art direction + vector prep", "Mockup generation", "Sample rounds", "Proof approval portal"],
+    image: SERVICE_IMAGES["Design"],
   },
   {
     id: "warehouse",
@@ -74,6 +66,14 @@ const SERVICES: {
     capabilities: ["DTC + batch shipping", "UPS / FedEx / USPS", "Shopify + ShipStation integrated", "Event-route logistics"],
     image: SERVICE_IMAGES["Fulfillment"],
   },
+  {
+    id: "ecommerce",
+    badge: "E-Commerce",
+    name: "E-Commerce Management",
+    description: "Run your online store on infrastructure built for apparel brands. Shopify setup, product launches, inventory sync, and order routing, all wired into the same warehouse and fulfillment floor.",
+    capabilities: ["Shopify storefront management", "Product launches + pre-orders", "Inventory sync", "Order routing + customer service"],
+    image: SERVICE_IMAGES["E-Commerce"],
+  },
 ];
 
 const CLIENT_TYPES = [
@@ -87,6 +87,7 @@ export default function ServicesPage() {
         eyebrow="What we do"
         title="Everything under one roof."
         sub="From a single run of 48 tees to a 5,000-unit tour package, every order gets the same attention to detail."
+        image="/marketing/hero-services.jpg"
       />
 
       {/* Service rows — alternating image/text sides for visual rhythm */}
