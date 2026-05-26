@@ -8,12 +8,27 @@ import Link from "next/link";
 export function MissionStrip() {
   return (
     <section style={{
+      position: "relative",
       background: "#0a0a0c",
       color: "#fff",
       padding: "120px 32px",
       textAlign: "center",
+      overflow: "hidden",
     }}>
-      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      <img
+        src="/marketing/mission-bg.jpg"
+        alt=""
+        aria-hidden
+        style={{
+          position: "absolute", inset: 0,
+          width: "100%", height: "100%", objectFit: "cover",
+        }}
+      />
+      <div style={{
+        position: "absolute", inset: 0,
+        background: "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.75) 100%)",
+      }} />
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 1100, margin: "0 auto" }}>
         <h2 style={{
           fontSize: "clamp(28px, 4.4vw, 52px)",
           fontWeight: 900,
