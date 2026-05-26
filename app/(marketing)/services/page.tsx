@@ -75,8 +75,13 @@ const SERVICES: {
     id: "warehouse",
     badge: "Logistics",
     name: "Warehousing",
-    description: "Our Las Vegas warehouse receives, inspects, and stores every unit before it ships. Quality check on every box.",
-    capabilities: ["Las Vegas-based", "Per-unit QC", "Variance reporting", "Photo-documented receipts"],
+    description: "Most warehouses count boxes. We inspect units. Every piece counted, every variance flagged, every receipt photographed. Problems caught at intake, not in front of your customer.",
+    capabilities: [],
+    stats: [
+      { value: "Per-unit", label: "QC" },
+      { value: "Photo", label: "Receipts" },
+      { value: "In-house", label: "Production" },
+    ],
     image: SERVICE_IMAGES["Warehousing"],
   },
   {
