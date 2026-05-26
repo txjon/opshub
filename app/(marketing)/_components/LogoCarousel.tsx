@@ -125,11 +125,12 @@ export function LogoCarousel() {
           z-index: 2;
         }
         .hpd-blanks-eyebrow {
-          font-size: 11px;
-          font-weight: 700;
+          font-size: clamp(28px, 3.6vw, 56px);
+          font-weight: 900;
           text-transform: uppercase;
-          letter-spacing: 0.16em;
-          color: rgba(255,255,255,0.55);
+          letter-spacing: -0.01em;
+          line-height: 1.05;
+          color: #fff;
           text-align: center;
           padding: 0 32px 56px;
         }
