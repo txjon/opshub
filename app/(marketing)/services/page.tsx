@@ -49,8 +49,13 @@ const SERVICES: {
     id: "sourcing",
     badge: "Sourcing",
     name: "Product Sourcing",
-    description: "S&amp;S Activewear, AS Colour, LA Apparel, Next Level, Comfort Colors, and more. We pick the right product for your brand, budget, and end-use.",
-    capabilities: ["Tier-1 vendors", "Premium + budget options", "Sustainable lines available", "Inventory-aware ordering"],
+    description: "If it exists, we can source it. If it doesn't, we can build it. Tier-1 supplier accounts and overseas partners for everything in between.",
+    capabilities: [],
+    stats: [
+      { value: "All", label: "Tier-1 brand accounts" },
+      { value: "Custom", label: "Cut-and-sew available" },
+      { value: "Global", label: "Sourcing network" },
+    ],
     image: SERVICE_IMAGES["Product Sourcing"],
   },
   {
