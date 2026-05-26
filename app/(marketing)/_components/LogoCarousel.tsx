@@ -173,7 +173,6 @@ export function LogoCarousel() {
             align-items: center;
             justify-content: center;
             padding: 0 40px;
-            border-right: 1px solid rgba(255,255,255,0.06);
           }
         }
 
