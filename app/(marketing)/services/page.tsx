@@ -62,8 +62,13 @@ const SERVICES: {
     id: "design",
     badge: "Design",
     name: "Design &amp; Product Development",
-    description: "From a napkin sketch to a finished product. Art direction, vector prep, mockups, sample rounds, and print-ready files. Every step reviewed through your client portal before anything hits press.",
-    capabilities: ["Art direction + vector prep", "Mockup generation", "Sample rounds", "Proof approval portal"],
+    description: "Design starts with you. A brief, a sketch, a Pinterest board, even a half-formed idea: anything that points us at your taste. From there, we handle vector prep, mockups, samples, and print-ready files. No direction means no design worth printing.",
+    capabilities: [],
+    stats: [
+      { value: "Free", label: "Mockups" },
+      { value: "Real", label: "Samples" },
+      { value: "Vector", label: "Art prep" },
+    ],
     image: SERVICE_IMAGES["Design"],
   },
   {
