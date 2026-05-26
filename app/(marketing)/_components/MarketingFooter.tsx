@@ -7,7 +7,6 @@ import Link from "next/link";
 const FOOTER_MENU: { label: string; href: string; external?: boolean }[] = [
   { label: "Home", href: "/" },
   { label: "Services", href: "/services" },
-  { label: "Work", href: "/work" },
   { label: "Start a Project", href: "/start" },
   { label: "Client Portal", href: "/client-portal" },
   { label: "Shop", href: "https://shop.housepartydistro.com", external: true },

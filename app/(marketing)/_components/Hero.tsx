@@ -51,14 +51,12 @@ export function Hero() {
           concept to delivery.
         </h1>
         <p style={{
-          fontSize: "clamp(15px, 1.4vw, 18px)",
-          lineHeight: 1.6,
-          color: "rgba(255,255,255,0.75)",
-          maxWidth: 720, margin: "0 auto 32px",
-          textTransform: "uppercase",
-          letterSpacing: "0.04em",
+          fontSize: "clamp(16px, 1.5vw, 19px)",
+          lineHeight: 1.55,
+          color: "rgba(255,255,255,0.85)",
+          maxWidth: 760, margin: "0 auto 32px",
         }}>
-          Art production · blank sourcing · screen printing · warehousing · fulfillment — for brands, tours, and corporate clients nationwide.
+          House Party Distro is a single-source operations partner for premium branded apparel and accessories. Design, manufacturing, and distribution under one roof.
         </p>
         <Link href="/start" style={{
           display: "inline-block",

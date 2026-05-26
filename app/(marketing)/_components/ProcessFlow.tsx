@@ -2,7 +2,7 @@
 // surface this. Keeps the customer oriented through the project lifecycle.
 
 const STEPS: { n: string; label: string; desc: string }[] = [
-  { n: "01", label: "Submit",      desc: "Tell us what you need — items, quantities, artwork, timeline." },
+  { n: "01", label: "Submit",      desc: "Tell us what you need: items, quantities, artwork, timeline." },
   { n: "02", label: "Quote & Approve", desc: "Detailed quote with mockups. Approve from your client portal." },
   { n: "03", label: "Production",  desc: "We source blanks, send to decorators, track every item through production." },
   { n: "04", label: "Delivery",    desc: "Direct to your customer, to our warehouse for QC, or staged for fulfillment." },

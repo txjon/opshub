@@ -6,7 +6,7 @@ import { SERVICE_IMAGES } from "../_components/_placeholder-images";
 // page reads as a guided tour of what HPD does.
 
 export const metadata = {
-  title: "Services — House Party Distro",
+  title: "Services | House Party Distro",
   description: "Custom apparel decoration, blank sourcing, warehousing, and fulfillment. Screen printing, embroidery, DTG, and sublimation.",
 };
 
@@ -70,7 +70,7 @@ const SERVICES: {
     id: "fulfillment",
     badge: "Logistics",
     name: "Fulfillment",
-    description: "Pick, pack, and ship to your customers — direct-to-consumer, batch event drops, or tour-route logistics. UPS, FedEx, USPS.",
+    description: "Pick, pack, and ship to your customers. Direct-to-consumer, batch event drops, or tour-route logistics. UPS, FedEx, USPS.",
     capabilities: ["DTC + batch shipping", "UPS / FedEx / USPS", "Shopify + ShipStation integrated", "Event-route logistics"],
     image: SERVICE_IMAGES["Fulfillment"],
   },

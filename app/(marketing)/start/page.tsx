@@ -236,7 +236,7 @@ export default function StartPage() {
         file,
         uploading: false,
         uploaded: false,
-        error: oversize ? `Too large (${Math.round(file.size / 1024 / 1024)}MB). Max 50MB per file — paste a link to it in the description instead.` : null,
+        error: oversize ? `Too large (${Math.round(file.size / 1024 / 1024)}MB). Max 50MB per file. Paste a link to it in the description instead.` : null,
         url: null,
         size: file.size,
       };
@@ -465,7 +465,7 @@ function StepHeading({ step }: { step: Step }) {
   const titles: Record<Step, { eyebrow: string; title: string; sub: string }> = {
     1: { eyebrow: "Step 1 of 6", title: "What type of project?",   sub: "Helps us assign the right team and process." },
     2: { eyebrow: "Step 2 of 6", title: "Tell us about it",         sub: "The more detail, the faster we can quote." },
-    3: { eyebrow: "Step 3 of 6", title: "Upload your files",         sub: "Artwork, logos, inspiration, tech packs — anything helpful. Optional." },
+    3: { eyebrow: "Step 3 of 6", title: "Upload your files",         sub: "Artwork, logos, inspiration, tech packs. Anything that helps us understand your vision. Optional." },
     4: { eyebrow: "Step 4 of 6", title: "Items &amp; sizes",         sub: "If you know your size breakdown, enter it here. Skip if not." },
     5: { eyebrow: "Step 5 of 6", title: "Your details",              sub: "Where should we send the quote?" },
     6: { eyebrow: "Step 6 of 6", title: "Review &amp; submit",       sub: "Last look before we get to work." },
@@ -618,7 +618,7 @@ function Step3({
           Drag files here or click to browse
         </div>
         <div style={{ fontSize: 11, color: "#a0a0ad" }}>
-          Up to 25MB per file. PSD, AI, PNG, JPG, PDF — all fine.
+          Up to 50MB per file. PSD, AI, PNG, JPG, PDF all work.
         </div>
         <input
           ref={inputRef}
@@ -688,7 +688,7 @@ function Step4({
           padding: "20px 18px", textAlign: "center", marginBottom: 12,
         }}>
           <div style={{ fontSize: 13, color: "#6b6b78", marginBottom: 12 }}>
-            No items yet. Add one if you have a size breakdown in mind — otherwise skip this step.
+            No items yet. Add one if you have a size breakdown in mind. Otherwise skip this step.
           </div>
         </div>
       )}
@@ -882,7 +882,7 @@ function Step6({ form, sizesList }: { form: FormState; sizesList: string[] }) {
                 .join(" ");
               return (
                 <div key={it.id}>
-                  • {it.name || "Item"}{sizeStr ? ` — ${sizeStr}` : ""}
+                  • {it.name || "Item"}{sizeStr ? `: ${sizeStr}` : ""}
                 </div>
               );
             })}

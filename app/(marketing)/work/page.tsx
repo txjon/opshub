@@ -5,8 +5,8 @@ import { WORK_IMAGES } from "../_components/_placeholder-images";
 // graduate to a `portfolio_items` table + admin UI later.
 
 export const metadata = {
-  title: "Work — House Party Distro",
-  description: "Recent custom apparel and merch projects — tours, brands, corporate, and webstore drops.",
+  title: "Work | House Party Distro",
+  description: "Recent custom apparel and merch projects across tours, brands, corporate, and webstore drops.",
 };
 
 const ITEMS: { title: string; type: string; items: number; units: number }[] = [
@@ -30,7 +30,7 @@ export default function WorkPage() {
       <PageHero
         eyebrow="Selected work"
         title="Built for brands that move."
-        sub="A snapshot of recent runs — tours, brand drops, corporate gifts, and ongoing webstore inventory."
+        sub="A snapshot of recent runs across tours, brand drops, corporate gifts, and ongoing webstore inventory."
       />
 
       <section style={{ padding: "80px 32px 120px", background: "#fff" }}>
