@@ -7,7 +7,7 @@ import { SERVICE_IMAGES } from "../_components/_placeholder-images";
 
 export const metadata = {
   title: "Services | House Party Distro",
-  description: "Custom apparel decoration, product sourcing, warehousing, fulfillment, and e-commerce management. Screen printing and embroidery under one roof.",
+  description: "Custom apparel printing, embroidery, product sourcing, warehousing, fulfillment, and e-commerce management. Everything under one roof.",
 };
 
 const SERVICES: {
@@ -85,7 +85,6 @@ export default function ServicesPage() {
     <>
       <PageHero
         title="Everything under one roof."
-        sub="From a single run of 48 tees to a 5,000-unit tour package, every order gets the same attention to detail."
         image="/marketing/hero-services.jpg"
       />
 

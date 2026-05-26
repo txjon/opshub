@@ -548,7 +548,7 @@ function Step2({
         <textarea
           value={form.description}
           onChange={e => update("description", e.target.value)}
-          placeholder="What items do you need? Any specific blanks, colors, or decoration methods? Special packaging?"
+          placeholder="What items do you need? Any specific blanks, colors, or print methods? Special packaging?"
           rows={4}
           style={{ ...inputStyle, resize: "vertical", minHeight: 96 }}
         />

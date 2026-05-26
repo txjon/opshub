@@ -13,7 +13,7 @@ import { LogoCarousel } from "./_components/LogoCarousel";
 //     work to showcase
 
 export const metadata = {
-  title: "House Party Distro | Custom Apparel, Decoration & Fulfillment",
+  title: "House Party Distro | Custom Apparel, Printing & Fulfillment",
   description: "Custom apparel from concept to delivery. Art production, blank sourcing, screen printing, warehousing, and fulfillment for brands, tours, and corporate clients.",
 };
 
