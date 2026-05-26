@@ -28,7 +28,7 @@ const SERVICES: {
     stats: [
       { value: "16", label: "Colors per location" },
       { value: "100", label: "Unit minimum" },
-      { value: "All", label: "Specialty inks" },
+      { value: "Pantone", label: "Color matching" },
     ],
     image: SERVICE_IMAGES["Screen Printing"],
   },
@@ -36,12 +36,12 @@ const SERVICES: {
     id: "embroidery",
     badge: "Decoration",
     name: "Embroidery",
-    description: "The reason your favorite hat still sits right years after you bought it. Heat transfer peels. Vinyl cracks. Thread doesn't. The mark of a brand built to last.",
+    description: "Stitched into the fabric, not stuck on top of it. Vinyl peels. Heat transfer cracks. Thread doesn't move. The detail that earns a piece a permanent spot in the closet.",
     capabilities: [],
     stats: [
-      { value: "Pantone", label: "Color matching" },
       { value: "24", label: "Unit minimum" },
       { value: "All", label: "Stitch styles" },
+      { value: "Free", label: "Digitizing" },
     ],
     image: SERVICE_IMAGES["Embroidery"],
   },
