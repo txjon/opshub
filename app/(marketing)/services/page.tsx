@@ -16,14 +16,20 @@ const SERVICES: {
   name: string;
   description: string;
   capabilities: string[];
+  stats?: { value: string; label: string }[];
   image: string;
 }[] = [
   {
     id: "screen",
     badge: "Decoration",
     name: "Screen Printing",
-    description: "The workhorse for runs of 48+. Water-based, plastisol, and discharge inks. Up to 8 colors per print location with full specialty options.",
-    capabilities: ["Up to 8 colors", "Water-based + plastisol", "Discharge, puff, metallic, high-density", "Min 48 units"],
+    description: "The press of choice for serious runs. Every ink base from water-based to plastisol to discharge, plus the specialty inks that turn a print into a feature: puff, metallic, high-density, glow.",
+    capabilities: [],
+    stats: [
+      { value: "16", label: "Colors per location" },
+      { value: "100", label: "Unit minimum" },
+      { value: "All", label: "Specialty inks" },
+    ],
     image: SERVICE_IMAGES["Screen Printing"],
   },
   {
@@ -142,24 +148,56 @@ export default function ServicesPage() {
                     marginBottom: 20,
                   }}
                 />
-                <ul style={{
-                  listStyle: "none", padding: 0, margin: 0,
-                  display: "grid", gridTemplateColumns: "1fr 1fr",
-                  gap: "8px 16px",
-                }}>
-                  {svc.capabilities.map(cap => (
-                    <li key={cap} style={{
-                      fontSize: 13, color: "rgba(255,255,255,0.6)",
-                      paddingLeft: 16, position: "relative",
-                    }}>
-                      <span style={{
-                        position: "absolute", left: 0, top: "0.5em",
-                        width: 6, height: 6, background: "#fff", borderRadius: 99,
-                      }} />
-                      {cap}
-                    </li>
-                  ))}
-                </ul>
+                {svc.stats ? (
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: `repeat(${svc.stats.length}, 1fr)`,
+                    gap: 24,
+                    marginTop: 28,
+                    paddingTop: 28,
+                    borderTop: "1px solid rgba(255,255,255,0.1)",
+                  }}>
+                    {svc.stats.map(stat => (
+                      <div key={stat.label}>
+                        <div style={{
+                          fontSize: "clamp(32px, 3.6vw, 48px)",
+                          fontWeight: 800,
+                          lineHeight: 1,
+                          letterSpacing: "-0.02em",
+                          color: "#fff",
+                          marginBottom: 8,
+                        }}>{stat.value}</div>
+                        <div style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.14em",
+                          color: "rgba(255,255,255,0.55)",
+                          lineHeight: 1.3,
+                        }}>{stat.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <ul style={{
+                    listStyle: "none", padding: 0, margin: 0,
+                    display: "grid", gridTemplateColumns: "1fr 1fr",
+                    gap: "8px 16px",
+                  }}>
+                    {svc.capabilities.map(cap => (
+                      <li key={cap} style={{
+                        fontSize: 13, color: "rgba(255,255,255,0.6)",
+                        paddingLeft: 16, position: "relative",
+                      }}>
+                        <span style={{
+                          position: "absolute", left: 0, top: "0.5em",
+                          width: 6, height: 6, background: "#fff", borderRadius: 99,
+                        }} />
+                        {cap}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </article>
           ))}
