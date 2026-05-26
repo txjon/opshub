@@ -36,8 +36,13 @@ const SERVICES: {
     id: "embroidery",
     badge: "Decoration",
     name: "Embroidery",
-    description: "Flat and 3D puff embroidery on hats, polos, jackets, and patches. Digitizing included so your logo translates cleanly to thread.",
-    capabilities: ["Flat + 3D puff", "Hats, polos, jackets, patches", "Digitizing included", "Multi-position layouts"],
+    description: "The reason your favorite hat still sits right years after you bought it. Heat transfer peels. Vinyl cracks. Thread doesn't. The mark of a brand built to last.",
+    capabilities: [],
+    stats: [
+      { value: "Pantone", label: "Color matching" },
+      { value: "24", label: "Unit minimum" },
+      { value: "All", label: "Stitch styles" },
+    ],
     image: SERVICE_IMAGES["Embroidery"],
   },
   {
