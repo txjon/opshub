@@ -23,7 +23,7 @@ const SERVICES: {
     id: "screen",
     badge: "Decoration",
     name: "Screen Printing",
-    description: "The press of choice for serious runs. Every ink base from water-based to plastisol to discharge, plus the specialty inks that turn a print into a feature: puff, metallic, high-density, glow.",
+    description: "Where ambitious brands come for prints other shops won't quote. Every ink type. Every specialty effect. Every detail handled by people who treat your art like you do.",
     capabilities: [],
     stats: [
       { value: "16", label: "Colors per location" },
