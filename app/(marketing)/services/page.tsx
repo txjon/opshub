@@ -39,7 +39,7 @@ const SERVICES: {
     description: "Stitched into the fabric, not stuck on top of it. Vinyl peels. Heat transfer cracks. Thread doesn't move. The detail that earns a piece a permanent spot in the closet.",
     capabilities: [],
     stats: [
-      { value: "24", label: "Unit minimum" },
+      { value: "25", label: "Unit minimum" },
       { value: "All", label: "Stitch styles" },
       { value: "Free", label: "Digitizing" },
     ],
