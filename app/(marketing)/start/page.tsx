@@ -316,7 +316,7 @@ export default function StartPage() {
             marginTop: 12,
             lineHeight: 1.55,
           }}>
-            Six quick steps. We&apos;ll send back a detailed quote with mockups.
+            Six quick steps. We&apos;ll take it from there.
           </p>
         </div>
       </section>
