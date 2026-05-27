@@ -52,7 +52,9 @@ export async function updateSession(request: NextRequest) {
   // Public marketing site — exact-match paths so we don't accidentally
   // open the dashboard's /jobs or similar. Add new marketing pages here
   // when each phase ships (Services, Work, Start, Client Portal).
-  const isMarketingPublic = MARKETING_PUBLIC_PATHS.includes(pathname);
+  const isMarketingPublic = MARKETING_PUBLIC_PATHS.includes(pathname)
+    // /shop/[handle] — product detail pages, sub-paths of /shop
+    || pathname.startsWith("/shop/");
   // The legacy /onboard intake form stays publicly reachable.
   const isLegacyPublic = pathname.startsWith("/onboard");
 
@@ -81,10 +83,12 @@ export async function updateSession(request: NextRequest) {
 //   Phase 1 — "/" (home)
 //   Phase 2 — "/services", "/work", "/client-portal"
 //   Phase 3 — "/start"
+//   Phase 4 — "/shop" + product detail pages (headless Shopify)
 const MARKETING_PUBLIC_PATHS = [
   "/",
   "/services",
   "/work",
   "/start",
   "/client-portal",
+  "/shop",
 ];
