@@ -19,7 +19,6 @@ const FOOTER_INFO: { label: string; href: string }[] = [
 
 const FOOTER_SOCIAL: { label: string; href: string }[] = [
   { label: "Instagram", href: "https://instagram.com/housepartydistro" },
-  { label: "Twitter", href: "https://twitter.com/housepartydistro" },
 ];
 
 export function MarketingFooter() {
