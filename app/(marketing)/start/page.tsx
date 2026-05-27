@@ -445,7 +445,7 @@ function StepBar({ step, total }: { step: number; total: number }) {
         return (
           <div key={n} style={{
             flex: 1, height: 4, borderRadius: 2,
-            background: state === "done" ? "#1a8c5c" : state === "active" ? "#1a1a1a" : "#e0e0e4",
+            background: state === "done" ? "rgb(115, 182, 201)" : state === "active" ? "#1a1a1a" : "#e0e0e4",
             transition: "background 0.2s",
           }} />
         );
