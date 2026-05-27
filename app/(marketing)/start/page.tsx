@@ -15,10 +15,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 //   6. Review + submit
 
 const PROJECT_TYPES = [
-  { value: "production",   title: "Just need it made",   desc: "You have the art. We print, embroider, or both." },
-  { value: "design",       title: "Need it designed",    desc: "You have a direction. We turn it into something worth printing." },
-  { value: "fulfillment",  title: "Need it shipped",     desc: "You have product. We store, pick, and ship to your customers." },
-  { value: "full_service", title: "The whole thing",     desc: "Concept to customer. Every step handled under one roof." },
+  { value: "production",   title: "Product Manufacturing",      desc: "You know what you want and just need us to make it happen." },
+  { value: "design",       title: "Design and Development",     desc: "You have direction. We'll help you turn your idea into something real." },
+  { value: "fulfillment",  title: "Warehousing and Fulfillment", desc: "You have product. We store, pick, and ship to your customers." },
+  { value: "full_service", title: "Full Service",               desc: "Concept to customer. Every step handled under one roof." },
 ] as const;
 
 const ITEMS_RANGES = ["1-3 designs", "4-8 designs", "9-15 designs", "15+ designs"];
