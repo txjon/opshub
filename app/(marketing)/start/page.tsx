@@ -457,7 +457,7 @@ function StepBar({ step, total }: { step: number; total: number }) {
 function StepHeading({ step }: { step: Step }) {
   const titles: Record<Step, { eyebrow: string; title: string; sub: string }> = {
     1: { eyebrow: "Step 1 of 6", title: "What do you need from us?", sub: "Pick the closest fit. We'll dial in the details together." },
-    2: { eyebrow: "Step 2 of 6", title: "Tell us about it",         sub: "The more detail, the faster we can quote." },
+    2: { eyebrow: "Step 2 of 6", title: "Tell us about it",         sub: "The more we know, the less we have to guess." },
     3: { eyebrow: "Step 3 of 6", title: "Upload your files",         sub: "Artwork, logos, inspiration, tech packs. Anything that helps us understand your vision. Optional." },
     4: { eyebrow: "Step 4 of 6", title: "Items &amp; sizes",         sub: "If you know your size breakdown, enter it here. Skip if not." },
     5: { eyebrow: "Step 5 of 6", title: "Your details",              sub: "Where should we send the quote?" },
