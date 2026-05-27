@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useCart } from "@/lib/cart-context";
 
 // Public marketing nav, Killer Merch style.
 //
@@ -25,6 +26,8 @@ const SCROLL_THRESHOLD = 60;
 export function MarketingNav() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const { cart, open: openCart } = useCart();
+  const cartCount = cart?.totalQuantity || 0;
 
   useEffect(() => {
     function onScroll() {
@@ -143,8 +146,8 @@ export function MarketingNav() {
             House Party Distro
           </Link>
 
-          {/* RIGHT — login icon */}
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
+          {/* RIGHT — login + cart icons */}
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4 }}>
             <Link
               href="/client-portal"
               title="Client login"
@@ -163,6 +166,43 @@ export function MarketingNav() {
                 <circle cx="12" cy="7" r="4" />
               </svg>
             </Link>
+            <button
+              type="button"
+              onClick={openCart}
+              title="Cart"
+              aria-label={`Cart, ${cartCount} item${cartCount === 1 ? "" : "s"}`}
+              style={{
+                position: "relative",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 40, height: 40, borderRadius: 8,
+                color: "#fff", background: "transparent",
+                border: "none", cursor: "pointer",
+                fontFamily: "inherit",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <path d="M16 10a4 4 0 0 1-8 0" />
+              </svg>
+              {cartCount > 0 && (
+                <span style={{
+                  position: "absolute",
+                  top: 4, right: 4,
+                  background: "#fff", color: "#0a0a0c",
+                  fontSize: 10, fontWeight: 800,
+                  minWidth: 16, height: 16, padding: "0 4px",
+                  borderRadius: 99,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  lineHeight: 1,
+                }}>
+                  {cartCount}
+                </span>
+              )}
+            </button>
           </div>
         </div>
 

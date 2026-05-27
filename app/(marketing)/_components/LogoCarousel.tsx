@@ -1,4 +1,4 @@
-// Premium-blanks strip. Static section, two rows of brand SVG logos
+// Premium-blanks strip. Static section, three rows of brand SVG logos
 // laid out to fit the page width on desktop. Stacks tighter on tablet
 // and mobile. Sits over a print-shop background photo with a dark
 // gradient overlay for legibility.
@@ -9,13 +9,19 @@ const BLANK_BRANDS: Brand[] = [
   { label: "American Apparel",    svg: "/marketing/logos/american-apparel.svg" },
   { label: "AS Colour",           svg: "/marketing/logos/as-colour.svg" },
   { label: "Bella Canvas",        svg: "/marketing/logos/bella-canvas.svg" },
+  { label: "Champion",            svg: "/marketing/logos/champion.svg" },
+  { label: "Colortone",           svg: "/marketing/logos/colortone.svg" },
   { label: "Comfort Colors",      svg: "/marketing/logos/comfort-colors.svg" },
+  { label: "Cotton Collective",   svg: "/marketing/logos/cotton-collective.svg" },
   { label: "Flexfit",             svg: "/marketing/logos/flexfit.svg" },
+  { label: "Gildan",              svg: "/marketing/logos/gildan.svg" },
   { label: "Independent",         svg: "/marketing/logos/independent.svg" },
   { label: "LA Apparel",          svg: "/marketing/logos/la-apparel.svg" },
   { label: "New Era",             svg: "/marketing/logos/new-era.svg" },
   { label: "Next Level Apparel",  svg: "/marketing/logos/next-level-apparel.svg" },
+  { label: "Otto Cap",            svg: "/marketing/logos/otto-cap.svg" },
   { label: "Richardson",          svg: "/marketing/logos/richardson.svg" },
+  { label: "Shaka Wear",          svg: "/marketing/logos/shaka-wear.svg" },
   { label: "YP Classics",         svg: "/marketing/logos/yp-classics.svg" },
 ];
 
@@ -79,7 +85,7 @@ export function LogoCarousel() {
           text-align: center;
           margin-bottom: 64px;
         }
-        /* Desktop: 6 columns, 2 rows. */
+        /* Desktop: 6 columns, 3 rows. */
         .hpd-blanks-grid {
           display: grid;
           grid-template-columns: repeat(6, 1fr);

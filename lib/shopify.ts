@@ -314,9 +314,11 @@ export function formatMoney(money: Money): string {
 export function parseProductTitle(title: string): { name: string; tags: string[] } {
   const tags: string[] = [];
   let name = title;
-  // Greedy global match on **...** segments.
-  const matches = [...title.matchAll(/\*\*([^*]+)\*\*/g)];
-  for (const m of matches) {
+  // Greedy global match on **...** segments. Iterate with a while loop
+  // so we don't depend on iterating RegExpStringIterator (older TS target).
+  const re = /\*\*([^*]+)\*\*/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(title)) !== null) {
     tags.push(m[1].trim());
   }
   // Strip the **...** segments from the displayed name, then collapse

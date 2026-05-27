@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { Product, ProductVariant, formatMoney, parseProductTitle } from "@/lib/shopify";
+import { useCart } from "@/lib/cart-context";
 
 // Product detail client component. Owns the image gallery, variant
 // selection, quantity stepper, and add-to-cart action. The cart
@@ -15,7 +16,10 @@ export function ProductDetailClient({ product }: { product: Product }) {
   const [variant, setVariant] = useState<ProductVariant | null>(initialVariant);
   const [activeImage, setActiveImage] = useState<number>(0);
   const [qty, setQty] = useState(1);
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const { name: cleanName, tags } = parseProductTitle(product.title);
+  const { addItem } = useCart();
 
   // Map of option-name → option-value for the currently selected variant.
   const selectedOptions = useMemo(() => {
@@ -33,12 +37,17 @@ export function ProductDetailClient({ product }: { product: Product }) {
     if (found) setVariant(found);
   }
 
-  function addToCart() {
+  async function handleAddToCart() {
     if (!variant) return;
-    // TODO: wire to CartProvider in next step.
-    // For now, log so we can verify the right variant + qty are captured.
-    console.log("Add to cart:", { variantId: variant.id, qty });
-    alert(`Add to cart wired in next step\nVariant: ${variant.id}\nQty: ${qty}`);
+    setAdding(true);
+    setAddError(null);
+    try {
+      await addItem(variant.id, qty);
+    } catch (e: any) {
+      setAddError(e?.message || "Could not add to cart");
+    } finally {
+      setAdding(false);
+    }
   }
 
   return (
@@ -203,8 +212,8 @@ export function ProductDetailClient({ product }: { product: Product }) {
             </div>
             <button
               type="button"
-              onClick={addToCart}
-              disabled={!variant?.availableForSale}
+              onClick={handleAddToCart}
+              disabled={!variant?.availableForSale || adding}
               style={{
                 flex: 1,
                 background: variant?.availableForSale ? "#fff" : "rgba(255,255,255,0.2)",
@@ -214,13 +223,20 @@ export function ProductDetailClient({ product }: { product: Product }) {
                 fontSize: 13, fontWeight: 700,
                 letterSpacing: "0.14em",
                 textTransform: "uppercase",
-                cursor: variant?.availableForSale ? "pointer" : "not-allowed",
+                cursor: variant?.availableForSale && !adding ? "pointer" : "not-allowed",
                 fontFamily: "inherit",
+                opacity: adding ? 0.6 : 1,
               }}
             >
-              {variant?.availableForSale ? "Add to Bag" : "Sold Out"}
+              {adding ? "Adding..." : variant?.availableForSale ? "Add to Bag" : "Sold Out"}
             </button>
           </div>
+          {addError && (
+            <div style={{
+              fontSize: 12, color: "#ff9aa0",
+              marginTop: -16, marginBottom: 24,
+            }}>{addError}</div>
+          )}
 
           {/* Description */}
           {product.descriptionHtml && (
