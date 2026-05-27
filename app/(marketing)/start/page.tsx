@@ -338,44 +338,10 @@ export default function StartPage() {
       items: f.items.map(it => it.id === id ? { ...it, ...patch } : it),
     }));
   }
-  function updateSizeQty(itemId: string, cellId: string, qty: string) {
+  function replaceItemSizes(itemId: string, sizes: SizeCell[]) {
     setForm(f => ({
       ...f,
-      items: f.items.map(it => it.id !== itemId ? it : {
-        ...it,
-        sizes: it.sizes.map(c => c.id === cellId ? { ...c, qty } : c),
-      }),
-    }));
-  }
-  function updateSizeLabel(itemId: string, cellId: string, label: string) {
-    setForm(f => ({
-      ...f,
-      items: f.items.map(it => it.id !== itemId ? it : {
-        ...it,
-        sizes: it.sizes.map(c => c.id === cellId ? { ...c, label } : c),
-      }),
-    }));
-  }
-  function addSizeCell(itemId: string) {
-    setForm(f => ({
-      ...f,
-      items: f.items.map(it => it.id !== itemId ? it : {
-        ...it,
-        sizes: [...it.sizes, {
-          id: `sz-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-          label: "",
-          qty: "",
-        }],
-      }),
-    }));
-  }
-  function removeSizeCell(itemId: string, cellId: string) {
-    setForm(f => ({
-      ...f,
-      items: f.items.map(it => it.id !== itemId ? it : {
-        ...it,
-        sizes: it.sizes.filter(c => c.id !== cellId),
-      }),
+      items: f.items.map(it => it.id === itemId ? { ...it, sizes } : it),
     }));
   }
   function removeItem(id: string) {
@@ -530,10 +496,7 @@ export default function StartPage() {
                 items={form.items}
                 onAdd={addItem}
                 onUpdate={updateItem}
-                onUpdateSizeQty={updateSizeQty}
-                onUpdateSizeLabel={updateSizeLabel}
-                onAddSize={addSizeCell}
-                onRemoveSize={removeSizeCell}
+                onReplaceSizes={replaceItemSizes}
                 onRemove={removeItem}
               />
             )}
@@ -859,17 +822,17 @@ function Step3({
 }
 
 function Step4({
-  items, onAdd, onUpdate, onUpdateSizeQty, onUpdateSizeLabel, onAddSize, onRemoveSize, onRemove,
+  items, onAdd, onUpdate, onReplaceSizes, onRemove,
 }: {
   items: ItemRow[];
   onAdd: () => void;
   onUpdate: (id: string, patch: Partial<ItemRow>) => void;
-  onUpdateSizeQty: (itemId: string, cellId: string, qty: string) => void;
-  onUpdateSizeLabel: (itemId: string, cellId: string, label: string) => void;
-  onAddSize: (itemId: string) => void;
-  onRemoveSize: (itemId: string, cellId: string) => void;
+  onReplaceSizes: (itemId: string, sizes: SizeCell[]) => void;
   onRemove: (id: string) => void;
 }) {
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const editingItem = items.find(it => it.id === editingItemId) || null;
+
   return (
     <div>
       {items.length === 0 && (
@@ -885,126 +848,71 @@ function Step4({
 
       {items.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {items.map((it, idx) => (
-            <div key={it.id} style={{
-              background: "#f8f8f9", border: "1px solid #e0e0e4", borderRadius: 10,
-              padding: "16px 18px",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                <span style={{
-                  fontSize: 11, fontWeight: 800,
-                  background: "#1a1a1a", color: "#fff",
-                  borderRadius: 99, width: 22, height: 22,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>{idx + 1}</span>
-                <input
-                  type="text"
-                  placeholder="Item name (e.g. Front Logo Tee)"
-                  value={it.name}
-                  onChange={e => onUpdate(it.id, { name: e.target.value })}
-                  style={{ ...inputStyle, flex: 1, padding: "8px 12px", fontSize: 13, background: "#fff" }}
-                />
-                <button
-                  type="button"
-                  onClick={() => onRemove(it.id)}
-                  style={{
-                    background: "transparent", border: "none", cursor: "pointer",
-                    fontSize: 18, color: "#a0a0ad", padding: "4px 8px",
-                  }}
-                  aria-label="Remove item"
-                >×</button>
-              </div>
-              {/* Dynamic size grid: each column has an editable label + qty
-                  input. Plus a ╳ on hover to remove the column and a
-                  trailing "+" button to add a new column. */}
-              <div className="hpd-size-grid" style={{
-                display: "grid",
-                gridTemplateColumns: `repeat(${it.sizes.length + 1}, minmax(56px, 1fr))`,
-                gap: 6,
+          {items.map((it, idx) => {
+            const filled = it.sizes.filter(c => c.label.trim() && parseInt(c.qty) > 0);
+            const total = filled.reduce((s, c) => s + (parseInt(c.qty) || 0), 0);
+            return (
+              <div key={it.id} style={{
+                background: "#f8f8f9", border: "1px solid #e0e0e4", borderRadius: 10,
+                padding: "16px 18px",
               }}>
-                {it.sizes.map(cell => (
-                  <div key={cell.id} className="hpd-size-col" style={{ position: "relative" }}>
-                    <input
-                      type="text"
-                      value={cell.label}
-                      onChange={e => onUpdateSizeLabel(it.id, cell.id, e.target.value)}
-                      placeholder="Size"
-                      style={{
-                        width: "100%", padding: "4px 4px",
-                        textAlign: "center",
-                        border: "none",
-                        borderRadius: 4,
-                        fontSize: 10, fontWeight: 700,
-                        color: "#6b6b78",
-                        background: "transparent",
-                        fontFamily: "inherit",
-                        outline: "none",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                        marginBottom: 2,
-                        boxSizing: "border-box",
-                      }}
-                    />
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={cell.qty}
-                      onChange={e => onUpdateSizeQty(it.id, cell.id, e.target.value.replace(/[^0-9]/g, ""))}
-                      placeholder="0"
-                      style={{
-                        width: "100%", padding: "8px 6px",
-                        textAlign: "center",
-                        border: "1px solid #e0e0e4",
-                        borderRadius: 6,
-                        fontSize: 13,
-                        background: "#fff",
-                        fontFamily: "inherit",
-                        outline: "none",
-                        color: "#1a1a1a",
-                        boxSizing: "border-box",
-                      }}
-                    />
-                    {it.sizes.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => onRemoveSize(it.id, cell.id)}
-                        className="hpd-size-remove"
-                        aria-label="Remove size"
-                        style={{
-                          position: "absolute", top: -6, right: -6,
-                          width: 18, height: 18, borderRadius: 99,
-                          background: "#1a1a1a", color: "#fff",
-                          border: "none", cursor: "pointer",
-                          fontSize: 11, lineHeight: 1,
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          opacity: 0, transition: "opacity 0.15s",
-                        }}
-                      >×</button>
-                    )}
-                  </div>
-                ))}
-                {/* Add column button */}
-                <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 800,
+                    background: "#1a1a1a", color: "#fff",
+                    borderRadius: 99, width: 22, height: 22,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>{idx + 1}</span>
+                  <input
+                    type="text"
+                    placeholder="Item name (e.g. Front Logo Tee)"
+                    value={it.name}
+                    onChange={e => onUpdate(it.id, { name: e.target.value })}
+                    style={{ ...inputStyle, flex: 1, padding: "8px 12px", fontSize: 13, background: "#fff" }}
+                  />
                   <button
                     type="button"
-                    onClick={() => onAddSize(it.id)}
-                    aria-label="Add size"
+                    onClick={() => onRemove(it.id)}
                     style={{
-                      width: "100%", padding: "8px 6px",
-                      border: "1px dashed #c0c0c8",
-                      background: "transparent",
-                      borderRadius: 6,
-                      fontSize: 16, lineHeight: 1,
-                      color: "#a0a0ad",
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      boxSizing: "border-box",
+                      background: "transparent", border: "none", cursor: "pointer",
+                      fontSize: 18, color: "#a0a0ad", padding: "4px 8px",
                     }}
-                  >+</button>
+                    aria-label="Remove item"
+                  >×</button>
                 </div>
+                {/* Size summary + edit button */}
+                <button
+                  type="button"
+                  onClick={() => setEditingItemId(it.id)}
+                  style={{
+                    width: "100%",
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    gap: 12,
+                    padding: "10px 14px",
+                    background: "#fff",
+                    border: "1px solid #e0e0e4",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    textAlign: "left",
+                  }}
+                >
+                  <span style={{ fontSize: 13, color: filled.length ? "#1a1a1a" : "#a0a0ad" }}>
+                    {filled.length === 0
+                      ? "Set sizes & quantities"
+                      : `${filled.map(c => `${c.label}(${c.qty})`).join("  ")}`}
+                  </span>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, color: "#6b6b78",
+                    textTransform: "uppercase", letterSpacing: "0.1em",
+                    whiteSpace: "nowrap",
+                  }}>
+                    {filled.length === 0 ? "Edit →" : `${total} total · Edit →`}
+                  </span>
+                </button>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1020,19 +928,305 @@ function Step4({
         + Add an item
       </button>
 
-      <style>{`
-        .hpd-size-col:hover .hpd-size-remove,
-        .hpd-size-col:focus-within .hpd-size-remove {
-          opacity: 1;
-        }
-        @media (max-width: 540px) {
-          .hpd-size-grid { grid-template-columns: repeat(4, minmax(56px, 1fr)) !important; }
-          .hpd-size-remove { opacity: 1 !important; }
-        }
-      `}</style>
+      {editingItem && (
+        <SizeModal
+          item={editingItem}
+          onSave={(sizes) => {
+            onReplaceSizes(editingItem.id, sizes);
+            setEditingItemId(null);
+          }}
+          onCancel={() => setEditingItemId(null)}
+        />
+      )}
     </div>
   );
 }
+
+// Preset sizes grouped for the modal. Custom labels still supported via
+// a freeform input at the bottom so anything outside this list (jeans
+// waist sizes, etc) is still in reach.
+const SIZE_PRESETS: { label: string; sizes: string[] }[] = [
+  { label: "Adult", sizes: ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"] },
+  { label: "Youth", sizes: ["YXS", "YS", "YM", "YL", "YXL"] },
+  { label: "One size", sizes: ["OSFA", "OS"] },
+];
+
+function SizeModal({
+  item, onSave, onCancel,
+}: {
+  item: ItemRow;
+  onSave: (sizes: SizeCell[]) => void;
+  onCancel: () => void;
+}) {
+  // Local draft so Cancel discards changes.
+  const [draft, setDraft] = useState<SizeCell[]>(() =>
+    item.sizes.map(c => ({ ...c }))
+  );
+  const [totalInput, setTotalInput] = useState("");
+  const [customInput, setCustomInput] = useState("");
+
+  // Fast lookup of active labels (case-insensitive) → cell.
+  const activeByLabel = useMemo(() => {
+    const m = new Map<string, SizeCell>();
+    draft.forEach(c => {
+      const key = c.label.trim().toUpperCase();
+      if (key) m.set(key, c);
+    });
+    return m;
+  }, [draft]);
+
+  function togglePreset(label: string) {
+    const key = label.toUpperCase();
+    if (activeByLabel.has(key)) {
+      setDraft(d => d.filter(c => c.label.trim().toUpperCase() !== key));
+    } else {
+      setDraft(d => [...d, {
+        id: `sz-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        label,
+        qty: "",
+      }]);
+    }
+  }
+  function updateCellQty(cellId: string, qty: string) {
+    setDraft(d => d.map(c => c.id === cellId ? { ...c, qty } : c));
+  }
+  function addCustom() {
+    const label = customInput.trim();
+    if (!label) return;
+    if (activeByLabel.has(label.toUpperCase())) {
+      setCustomInput("");
+      return;
+    }
+    setDraft(d => [...d, {
+      id: `sz-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      label,
+      qty: "",
+    }]);
+    setCustomInput("");
+  }
+  function removeCell(cellId: string) {
+    setDraft(d => d.filter(c => c.id !== cellId));
+  }
+
+  // Distribute Total: spread evenly across active cells, remainder rolls
+  // to the middle index so the curve looks natural (most apparel sells
+  // heaviest in M/L).
+  function distributeTotal() {
+    const t = parseInt(totalInput);
+    if (!t || draft.length === 0) return;
+    const per = Math.floor(t / draft.length);
+    const rem = t - per * draft.length;
+    const mid = Math.floor(draft.length / 2);
+    setDraft(d => d.map((c, i) => ({
+      ...c,
+      qty: String(per + (i === mid ? rem : 0)),
+    })));
+  }
+
+  const total = draft.reduce((s, c) => s + (parseInt(c.qty) || 0), 0);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Sizes and quantities"
+      onClick={onCancel}
+      style={{
+        position: "fixed", inset: 0, zIndex: 9999,
+        background: "rgba(10,10,12,0.55)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 24,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: "#fff", color: "#1a1a1a",
+          borderRadius: 14,
+          width: "min(720px, 100%)",
+          maxHeight: "92vh", overflowY: "auto",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
+        }}
+      >
+        <div style={{ padding: "28px 32px 24px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: "#a0a0ad", marginBottom: 6 }}>
+            {item.name || "Item"}
+          </div>
+          <h2 style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.02em", marginBottom: 24 }}>
+            Sizes &amp; quantities
+          </h2>
+
+          {/* SIZES */}
+          <div style={modalSection}>
+            <div style={modalLabel}>Sizes</div>
+            {SIZE_PRESETS.map(group => (
+              <div key={group.label} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {group.sizes.map(s => {
+                    const active = activeByLabel.has(s.toUpperCase());
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => togglePreset(s)}
+                        style={{
+                          padding: "10px 18px",
+                          minWidth: 64,
+                          background: active ? "#1a1a1a" : "#fff",
+                          color: active ? "#fff" : "#1a1a1a",
+                          border: active ? "1px solid #1a1a1a" : "1px solid #d8d8de",
+                          borderRadius: 10,
+                          fontSize: 13, fontWeight: 700,
+                          letterSpacing: "0.04em",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                          transition: "all 0.12s",
+                        }}
+                      >{s}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            {/* Any custom (non-preset) cells appear here so they don't get lost */}
+            {draft.filter(c => {
+              const upper = c.label.trim().toUpperCase();
+              return upper && !SIZE_PRESETS.some(g => g.sizes.some(s => s.toUpperCase() === upper));
+            }).length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", color: "#a0a0ad", marginBottom: 6 }}>Custom</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {draft.filter(c => {
+                    const upper = c.label.trim().toUpperCase();
+                    return upper && !SIZE_PRESETS.some(g => g.sizes.some(s => s.toUpperCase() === upper));
+                  }).map(c => (
+                    <div key={c.id} style={{
+                      padding: "8px 12px 8px 16px",
+                      background: "#1a1a1a", color: "#fff",
+                      borderRadius: 10,
+                      fontSize: 13, fontWeight: 700,
+                      letterSpacing: "0.04em",
+                      display: "flex", alignItems: "center", gap: 8,
+                    }}>
+                      {c.label}
+                      <button
+                        type="button"
+                        onClick={() => removeCell(c.id)}
+                        aria-label={`Remove ${c.label}`}
+                        style={{
+                          background: "transparent", border: "none", color: "rgba(255,255,255,0.7)",
+                          cursor: "pointer", padding: 0, fontSize: 14, lineHeight: 1,
+                        }}
+                      >×</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <input
+                type="text"
+                value={customInput}
+                onChange={e => setCustomInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
+                placeholder="Add custom size (e.g. Tall L, W32)"
+                style={{ ...inputStyle, padding: "10px 14px", fontSize: 13, flex: 1, background: "#f8f8f9" }}
+              />
+              <button type="button" onClick={addCustom} style={{ ...btnSecondary, padding: "10px 18px", fontSize: 13 }}>Add</button>
+            </div>
+          </div>
+
+          {/* QUANTITIES */}
+          <div style={modalSection}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={modalLabel}>Quantities</div>
+              <div style={{ fontSize: 13, color: "#6b6b78" }}>
+                <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", color: "#a0a0ad", marginRight: 8 }}>Total</span>
+                <span style={{ fontSize: 20, fontWeight: 800, color: "#1a1a1a" }}>{total}</span>
+              </div>
+            </div>
+            {draft.length === 0 ? (
+              <div style={{ fontSize: 13, color: "#a0a0ad" }}>Pick at least one size above.</div>
+            ) : (
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))",
+                gap: 10,
+              }}>
+                {draft.map(cell => (
+                  <div key={cell.id}>
+                    <div style={{
+                      fontSize: 10, fontWeight: 700,
+                      textTransform: "uppercase", letterSpacing: "0.08em",
+                      color: "#6b6b78", textAlign: "center", marginBottom: 4,
+                    }}>{cell.label}</div>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={cell.qty}
+                      onChange={e => updateCellQty(cell.id, e.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="0"
+                      style={{
+                        width: "100%", padding: "10px 6px",
+                        textAlign: "center",
+                        border: "1px solid #e0e0e4",
+                        borderRadius: 8,
+                        fontSize: 14, fontWeight: 600,
+                        background: "#fff",
+                        fontFamily: "inherit",
+                        outline: "none",
+                        color: "#1a1a1a",
+                        boxSizing: "border-box",
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* DISTRIBUTE TOTAL */}
+          {draft.length > 0 && (
+            <div style={modalSection}>
+              <div style={modalLabel}>Distribute total</div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={totalInput}
+                  onChange={e => setTotalInput(e.target.value.replace(/[^0-9]/g, ""))}
+                  placeholder="Total qty"
+                  style={{ ...inputStyle, padding: "10px 14px", fontSize: 13, width: 160, background: "#f8f8f9" }}
+                />
+                <button type="button" onClick={distributeTotal} style={{ ...btnPrimary, padding: "10px 22px", fontSize: 13 }}>Fill</button>
+                <span style={{ fontSize: 12, color: "#6b6b78" }}>Spreads total evenly across active sizes.</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          borderTop: "1px solid #e0e0e4",
+          padding: "16px 24px",
+          display: "flex", justifyContent: "flex-end", gap: 10,
+        }}>
+          <button type="button" onClick={onCancel} style={{ ...btnSecondary, padding: "12px 22px" }}>Cancel</button>
+          <button type="button" onClick={() => onSave(draft)} style={{ ...btnPrimary, padding: "12px 28px" }}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const modalSection: React.CSSProperties = {
+  marginBottom: 24,
+};
+const modalLabel: React.CSSProperties = {
+  fontSize: 10, fontWeight: 700,
+  textTransform: "uppercase", letterSpacing: "0.14em",
+  color: "#a0a0ad", marginBottom: 12,
+};
 
 function Step5({
   form, update,
