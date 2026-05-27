@@ -84,6 +84,7 @@ export async function updateSession(request: NextRequest) {
 //   Phase 2 — "/services", "/work", "/client-portal"
 //   Phase 3 — "/start"
 //   Phase 4 — "/shop" + product detail pages (headless Shopify)
+//   Phase 5 — "/contact" (native contact form, replaces AWIO)
 const MARKETING_PUBLIC_PATHS = [
   "/",
   "/services",
@@ -91,4 +92,5 @@ const MARKETING_PUBLIC_PATHS = [
   "/start",
   "/client-portal",
   "/shop",
+  "/contact",
 ];
