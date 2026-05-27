@@ -711,7 +711,29 @@ function Step2({
       </div>
       <div className="hpd-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Field label="Needed by">
-          <input type="date" min={getMinNeededByDate()} value={form.target_ship_date} onChange={e => update("target_ship_date", e.target.value)} style={inputStyle} />
+          <input
+            type="date"
+            min={getMinNeededByDate()}
+            value={form.target_ship_date}
+            onChange={e => update("target_ship_date", e.target.value)}
+            onClick={e => {
+              // Open the native picker when the user clicks anywhere in
+              // the field, not just on the calendar icon. showPicker is
+              // available in all evergreen browsers since 2023; on older
+              // engines this is a no-op and the icon still works.
+              const el = e.currentTarget as HTMLInputElement & { showPicker?: () => void };
+              if (typeof el.showPicker === "function") el.showPicker();
+            }}
+            style={{
+              ...inputStyle,
+              // Force native date inputs to match the sibling text/select
+              // height. WebKit reserves vertical space for the picker
+              // indicator otherwise, making the box ~2-4px taller.
+              height: 46,
+              appearance: "none",
+              WebkitAppearance: "none",
+            }}
+          />
         </Field>
         <Field label="Budget range">
           <select value={form.budget_range} onChange={e => update("budget_range", e.target.value)} style={inputStyle}>
