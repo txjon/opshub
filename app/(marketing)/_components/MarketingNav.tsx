@@ -14,9 +14,9 @@ import { useEffect, useState } from "react";
 // Hero / PageHero have been set to 100vh / paddingTop accordingly.
 
 const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [
+  { label: "Start a Project", href: "/start" },
   { label: "Services", href: "/services" },
   { label: "Blog", href: "https://thehouse.blog/", external: true },
-  { label: "Start a Project", href: "/start" },
   { label: "Shop", href: "https://shop.housepartydistro.com", external: true },
 ];
 
