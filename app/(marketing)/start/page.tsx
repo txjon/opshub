@@ -15,10 +15,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 //   6. Review + submit
 
 const PROJECT_TYPES = [
-  { value: "brand",     title: "Brand / Merch Drop", desc: "Apparel line, merch collection, or product launch" },
-  { value: "tour",      title: "Tour / Artist",      desc: "Tour merch, show-specific items, artist collaborations" },
-  { value: "corporate", title: "Corporate",          desc: "Staff uniforms, client gifts, event giveaways" },
-  { value: "webstore",  title: "E-Commerce Management", desc: "Ongoing inventory for online sales" },
+  { value: "production",   title: "Just need it made",   desc: "You have the art. We print, embroider, or both." },
+  { value: "design",       title: "Need it designed",    desc: "You have a direction. We turn it into something worth printing." },
+  { value: "fulfillment",  title: "Need it shipped",     desc: "You have product. We store, pick, and ship to your customers." },
+  { value: "full_service", title: "The whole thing",     desc: "Concept to customer. Every step handled under one roof." },
 ] as const;
 
 const ITEMS_RANGES = ["1-3 designs", "4-8 designs", "9-15 designs", "15+ designs"];
@@ -456,7 +456,7 @@ function StepBar({ step, total }: { step: number; total: number }) {
 
 function StepHeading({ step }: { step: Step }) {
   const titles: Record<Step, { eyebrow: string; title: string; sub: string }> = {
-    1: { eyebrow: "Step 1 of 6", title: "What type of project?",   sub: "Helps us assign the right team and process." },
+    1: { eyebrow: "Step 1 of 6", title: "What do you need from us?", sub: "Pick the closest fit. We'll dial in the details together." },
     2: { eyebrow: "Step 2 of 6", title: "Tell us about it",         sub: "The more detail, the faster we can quote." },
     3: { eyebrow: "Step 3 of 6", title: "Upload your files",         sub: "Artwork, logos, inspiration, tech packs. Anything that helps us understand your vision. Optional." },
     4: { eyebrow: "Step 4 of 6", title: "Items &amp; sizes",         sub: "If you know your size breakdown, enter it here. Skip if not." },
