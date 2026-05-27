@@ -34,6 +34,26 @@ const SHIPPING_ROUTES = [
 
 const TOTAL_STEPS = 6;
 
+// Earliest "needed by" date a client can pick: today and the next 3 business
+// days are blocked, because anything that fast isn't realistic for sourcing
+// + production + ship. Min selectable = the day AFTER the 3rd business day
+// from today. Weekends after that point stay selectable.
+function getMinNeededByDate(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  let businessDaysCounted = 0;
+  while (businessDaysCounted < 3) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) businessDaysCounted++;
+  }
+  d.setDate(d.getDate() + 1);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 type Step = 1 | 2 | 3 | 4 | 5 | 6;
 
 type FileRow = {
@@ -562,7 +582,7 @@ function Step2({
       </div>
       <div className="hpd-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Field label="Needed by">
-          <input type="date" value={form.target_ship_date} onChange={e => update("target_ship_date", e.target.value)} style={inputStyle} />
+          <input type="date" min={getMinNeededByDate()} value={form.target_ship_date} onChange={e => update("target_ship_date", e.target.value)} style={inputStyle} />
         </Field>
         <Field label="Budget range">
           <select value={form.budget_range} onChange={e => update("budget_range", e.target.value)} style={inputStyle}>
