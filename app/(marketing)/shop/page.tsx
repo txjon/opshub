@@ -102,16 +102,17 @@ function ProductCard({ product }: { product: Product }) {
       }}
     >
       <div style={{
-        aspectRatio: "4 / 5",
-        background: "#0a0a0c",
+        aspectRatio: "1 / 1",
+        background: "#fff",
         overflow: "hidden",
+        padding: 16,
       }}>
         {product.featuredImage && (
           <img
             src={product.featuredImage.url}
             alt={product.featuredImage.altText || name}
             style={{
-              width: "100%", height: "100%", objectFit: "cover", display: "block",
+              width: "100%", height: "100%", objectFit: "contain", display: "block",
             }}
           />
         )}

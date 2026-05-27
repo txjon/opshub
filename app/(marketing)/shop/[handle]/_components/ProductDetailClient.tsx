@@ -52,16 +52,17 @@ export function ProductDetailClient({ product }: { product: Product }) {
         {/* ── Image gallery ── */}
         <div>
           <div style={{
-            aspectRatio: "4 / 5",
-            background: "#141417",
+            aspectRatio: "1 / 1",
+            background: "#fff",
             border: "1px solid rgba(255,255,255,0.06)",
             overflow: "hidden",
+            padding: 24,
           }}>
             {product.images[activeImage] && (
               <img
                 src={product.images[activeImage].url}
                 alt={product.images[activeImage].altText || product.title}
-                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
               />
             )}
           </div>
@@ -79,17 +80,17 @@ export function ProductDetailClient({ product }: { product: Product }) {
                   onClick={() => setActiveImage(i)}
                   style={{
                     aspectRatio: "1 / 1",
-                    background: "#141417",
+                    background: "#fff",
                     border: i === activeImage ? "1px solid #fff" : "1px solid rgba(255,255,255,0.06)",
                     cursor: "pointer",
-                    padding: 0,
+                    padding: 6,
                     overflow: "hidden",
                   }}
                 >
                   <img
                     src={img.url}
                     alt=""
-                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                    style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
                   />
                 </button>
               ))}
