@@ -27,7 +27,6 @@ const BUDGET_RANGES = ["Under $5,000", "$5,000-$15,000", "$15,000-$50,000", "$50
 const SIZES_LIST = ["XS", "S", "M", "L", "XL", "2XL", "3XL"];
 
 const SHIPPING_ROUTES = [
-  { value: "ship_to_us",            title: "Ship to HPD",       desc: "Goods come to our Las Vegas warehouse, we forward to you." },
   { value: "drop_ship",             title: "Drop ship",         desc: "Goods ship direct from decorator to client / end customer." },
   { value: "hold_for_fulfillment",  title: "Hold for fulfillment", desc: "Stored as inventory, we pick + pack as orders come in." },
 ];
