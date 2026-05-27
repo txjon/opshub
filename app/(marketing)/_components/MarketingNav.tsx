@@ -18,7 +18,7 @@ const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [
   { label: "Start a Project", href: "/start" },
   { label: "Services", href: "/services" },
   { label: "Blog", href: "https://thehouse.blog/", external: true },
-  { label: "Shop", href: "https://shop.housepartydistro.com", external: true },
+  { label: "Shop", href: "/shop" },
 ];
 
 const SCROLL_THRESHOLD = 60;
