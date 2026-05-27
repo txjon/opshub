@@ -21,7 +21,7 @@ const PROJECT_TYPES = [
   { value: "full_service", title: "Full Service",               desc: "Concept to customer. Every step handled under one roof." },
 ] as const;
 
-const ITEMS_RANGES = ["1-3 designs", "4-8 designs", "9-15 designs", "15+ designs"];
+const ITEMS_RANGES = ["1-3 products", "4-8 products", "9-15 products", "15+ products"];
 const UNITS_RANGES = ["Under 100", "100-500", "500-2,000", "2,000-5,000", "5,000+"];
 const BUDGET_RANGES = ["Under $5,000", "$5,000-$15,000", "$15,000-$50,000", "$50,000+", "Not sure yet"];
 const SIZES_LIST = ["XS", "S", "M", "L", "XL", "2XL", "3XL"];
@@ -547,7 +547,7 @@ function Step2({
         />
       </Field>
       <div className="hpd-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Field label="Estimated designs">
+        <Field label="How many products?">
           <select value={form.items_count_range} onChange={e => update("items_count_range", e.target.value)} style={inputStyle}>
             <option value="">Select...</option>
             {ITEMS_RANGES.map(o => <option key={o} value={o}>{o}</option>)}
@@ -855,7 +855,7 @@ function Step6({ form, sizesList }: { form: FormState; sizesList: string[] }) {
         <div style={summaryBlock}>
           <div style={summaryLabel}>Scope</div>
           <div style={{ fontSize: 13, color: "#1a1a1a", lineHeight: 1.7 }}>
-            {form.items_count_range && <div>Designs: {form.items_count_range}</div>}
+            {form.items_count_range && <div>Products: {form.items_count_range}</div>}
             {form.units_range && <div>Units: {form.units_range}</div>}
             {form.target_ship_date && <div>Ship date: {form.target_ship_date}</div>}
             {form.budget_range && <div>Budget: {form.budget_range}</div>}
