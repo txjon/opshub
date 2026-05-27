@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getAllProducts, formatMoney, Product } from "@/lib/shopify";
+import { getAllProducts, formatMoney, parseProductTitle, Product } from "@/lib/shopify";
 
 // /shop — collection grid. Lists every product from Shopify's
 // Storefront API, sorted by most recently updated. Cached for 60s
@@ -88,6 +88,7 @@ export default async function ShopPage() {
 function ProductCard({ product }: { product: Product }) {
   const price = formatMoney(product.priceRange.minVariantPrice);
   const hasRange = product.priceRange.minVariantPrice.amount !== product.priceRange.maxVariantPrice.amount;
+  const { name, tags } = parseProductTitle(product.title);
   return (
     <Link
       href={`/shop/${product.handle}`}
@@ -108,7 +109,7 @@ function ProductCard({ product }: { product: Product }) {
         {product.featuredImage && (
           <img
             src={product.featuredImage.url}
-            alt={product.featuredImage.altText || product.title}
+            alt={product.featuredImage.altText || name}
             style={{
               width: "100%", height: "100%", objectFit: "cover", display: "block",
             }}
@@ -116,12 +117,28 @@ function ProductCard({ product }: { product: Product }) {
         )}
       </div>
       <div style={{ padding: "16px 18px 18px" }}>
+        {tags.length > 0 && (
+          <div style={{
+            display: "flex", flexWrap: "wrap", gap: "4px 12px",
+            marginBottom: 8,
+          }}>
+            {tags.map(tag => (
+              <span key={tag} style={{
+                fontSize: 10, fontWeight: 700,
+                textTransform: "uppercase", letterSpacing: "0.14em",
+                color: tagColor(tag),
+              }}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
         <div style={{
           fontSize: 14, fontWeight: 700,
           textTransform: "uppercase", letterSpacing: "0.01em",
           lineHeight: 1.25, marginBottom: 6,
         }}>
-          {product.title}
+          {name}
         </div>
         <div style={{
           fontSize: 13, fontWeight: 600,
@@ -132,4 +149,12 @@ function ProductCard({ product }: { product: Product }) {
       </div>
     </Link>
   );
+}
+
+function tagColor(tag: string): string {
+  const t = tag.toUpperCase();
+  if (t === "IN STOCK") return "#73B6C9";                      // teal — available
+  if (t === "PRE ORDER" || t === "PRE-ORDER") return "#E0A26A"; // amber — coming
+  if (t === "SOLD OUT") return "rgba(255,255,255,0.4)";        // muted
+  return "rgba(255,255,255,0.65)";                              // generic neutral
 }

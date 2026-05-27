@@ -307,3 +307,22 @@ export function formatMoney(money: Money): string {
     currency: money.currencyCode,
   }).format(num);
 }
+
+// Some HPD product titles include merchandising tags inline as
+// **PRE ORDER**, **IN STOCK**, etc. Extract those out so the rendered
+// title is clean and the tags can be displayed as uppercase labels.
+export function parseProductTitle(title: string): { name: string; tags: string[] } {
+  const tags: string[] = [];
+  let name = title;
+  // Greedy global match on **...** segments.
+  const matches = [...title.matchAll(/\*\*([^*]+)\*\*/g)];
+  for (const m of matches) {
+    tags.push(m[1].trim());
+  }
+  // Strip the **...** segments from the displayed name, then collapse
+  // any stray separator junk left behind ("Hat - " etc).
+  name = name.replace(/\*\*[^*]+\*\*/g, "").trim();
+  // Trim trailing/leading hyphens or pipes that were used as separators.
+  name = name.replace(/[\s\-|]+$/g, "").replace(/^[\s\-|]+/g, "").trim();
+  return { name, tags };
+}

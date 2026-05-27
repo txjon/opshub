@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { Product, ProductVariant, formatMoney } from "@/lib/shopify";
+import { Product, ProductVariant, formatMoney, parseProductTitle } from "@/lib/shopify";
 
 // Product detail client component. Owns the image gallery, variant
 // selection, quantity stepper, and add-to-cart action. The cart
@@ -15,6 +15,7 @@ export function ProductDetailClient({ product }: { product: Product }) {
   const [variant, setVariant] = useState<ProductVariant | null>(initialVariant);
   const [activeImage, setActiveImage] = useState<number>(0);
   const [qty, setQty] = useState(1);
+  const { name: cleanName, tags } = parseProductTitle(product.title);
 
   // Map of option-name → option-value for the currently selected variant.
   const selectedOptions = useMemo(() => {
@@ -98,6 +99,22 @@ export function ProductDetailClient({ product }: { product: Product }) {
 
         {/* ── Detail ── */}
         <div>
+          {tags.length > 0 && (
+            <div style={{
+              display: "flex", flexWrap: "wrap", gap: "4px 14px",
+              marginBottom: 10,
+            }}>
+              {tags.map(tag => (
+                <span key={tag} style={{
+                  fontSize: 11, fontWeight: 700,
+                  textTransform: "uppercase", letterSpacing: "0.16em",
+                  color: tagColor(tag),
+                }}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
           <h1 style={{
             fontSize: "clamp(28px, 3.8vw, 44px)",
             fontWeight: 900,
@@ -106,7 +123,7 @@ export function ProductDetailClient({ product }: { product: Product }) {
             lineHeight: 1.1,
             marginBottom: 12,
           }}>
-            {product.title}
+            {cleanName}
           </h1>
           <div style={{
             fontSize: 18,
@@ -238,3 +255,11 @@ const qtyBtnStyle: React.CSSProperties = {
   cursor: "pointer",
   fontFamily: "inherit",
 };
+
+function tagColor(tag: string): string {
+  const t = tag.toUpperCase();
+  if (t === "IN STOCK") return "#73B6C9";
+  if (t === "PRE ORDER" || t === "PRE-ORDER") return "#E0A26A";
+  if (t === "SOLD OUT") return "rgba(255,255,255,0.4)";
+  return "rgba(255,255,255,0.65)";
+}
