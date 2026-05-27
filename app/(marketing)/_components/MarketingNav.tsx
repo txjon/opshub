@@ -74,9 +74,10 @@ export function MarketingNav() {
               </button>
             ) : (
               <nav className="hpd-nav-links" style={{
-                display: "flex", gap: 28,
+                display: "flex", flexDirection: "column", gap: 8,
                 fontSize: 12, fontWeight: 700,
                 letterSpacing: "0.14em", textTransform: "uppercase",
+                lineHeight: 1.4,
               }}>
                 {NAV_LINKS.map(link => link.external ? (
                   <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
