@@ -541,7 +541,7 @@ function Step2({
         <textarea
           value={form.description}
           onChange={e => update("description", e.target.value)}
-          placeholder="Example: A spring capsule of heavyweight tees and hoodies, washed look, premium feel. Similar vibe to Aimé Leon Dore. Need them by April."
+          placeholder="Example: A spring capsule of heavyweight tees and hoodies, washed look, premium feel. Need them by April."
           rows={4}
           style={{ ...inputStyle, resize: "vertical", minHeight: 96 }}
         />
