@@ -15,7 +15,6 @@ const FOOTER_MENU: { label: string; href: string; external?: boolean }[] = [
 const FOOTER_INFO: { label: string; href: string }[] = [
   { label: "Privacy", href: "/privacy" },
   { label: "Terms", href: "/terms" },
-  { label: "Team Login", href: "/login" },
 ];
 
 const FOOTER_SOCIAL: { label: string; href: string }[] = [
