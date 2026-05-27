@@ -301,13 +301,6 @@ export default function StartPage() {
         textAlign: "center",
       }}>
         <div style={{ maxWidth: 640, margin: "0 auto" }}>
-          <div style={{
-            fontSize: 10, fontWeight: 700,
-            textTransform: "uppercase", letterSpacing: "0.14em",
-            color: "rgba(255,255,255,0.55)", marginBottom: 10,
-          }}>
-            Start a Project
-          </div>
           <h1 style={{
             fontSize: "clamp(24px, 3.5vw, 36px)",
             fontWeight: 900,
