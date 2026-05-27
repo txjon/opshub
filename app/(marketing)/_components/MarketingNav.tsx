@@ -79,6 +79,11 @@ export function MarketingNav() {
                 fontSize: 12, fontWeight: 700,
                 letterSpacing: "0.14em", textTransform: "uppercase",
                 lineHeight: 1.4,
+                // Override parent's alignItems: center so the stack
+                // top-aligns with the visual top of the centered logo
+                // (logo top sits ~34px down in the 96px header).
+                alignSelf: "flex-start",
+                marginTop: 34,
               }}>
                 {NAV_LINKS.map(link => link.external ? (
                   <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
