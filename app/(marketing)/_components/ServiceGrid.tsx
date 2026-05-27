@@ -3,12 +3,10 @@ import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { SERVICE_IMAGES } from "./_placeholder-images";
 
-// Horizontal scroll-jacked service showcase. On desktop, the section
-// pins to the viewport and translates a 7-tile track horizontally as
-// the user continues scrolling vertically — same pattern as Apple
-// product pages and Killer Merch's galleries. On mobile (or any
-// touch device), falls back to native horizontal swipe with scroll
-// snap, which feels right on a phone.
+// Horizontal scroll-jacked service showcase, same pattern Killer Merch
+// uses. The section pins to the viewport and translates a 7-tile track
+// horizontally as the user continues scrolling vertically. Works on
+// desktop AND mobile — vertical swipe drives the horizontal pan.
 //
 // Math: track is 7 × 60vw = 420vw wide. To move it from 0 → -320vw
 // (so the last tile aligns with the right edge of the viewport), the
@@ -30,25 +28,13 @@ export function ServiceGrid() {
   const trackRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Run the scroll-jack for any device with a fine pointer (mouse or
-    // trackpad) — width doesn't matter. Touch-only devices fall through
-    // to native horizontal scroll via CSS. This means shrinking a
-    // desktop window still gives you the pinned-scroll effect, which
-    // matters because that's how everyone tests responsive design.
-    const mq = window.matchMedia("(pointer: fine)");
     let raf = 0;
-    let active = mq.matches;
 
     function update() {
       raf = 0;
       const section = sectionRef.current;
       const track = trackRef.current;
       if (!section || !track) return;
-
-      if (!active) {
-        track.style.transform = "";
-        return;
-      }
 
       const rect = section.getBoundingClientRect();
       const totalScroll = section.offsetHeight - window.innerHeight;
@@ -62,22 +48,14 @@ export function ServiceGrid() {
       if (raf) return;
       raf = requestAnimationFrame(update);
     }
-    function onMq(e: MediaQueryListEvent | MediaQueryList) {
-      active = e.matches;
-      // Snap back to start when switching to mobile mode.
-      if (!active && trackRef.current) trackRef.current.style.transform = "";
-      update();
-    }
 
     update();
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll, { passive: true });
-    mq.addEventListener("change", onMq);
 
     return () => {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
-      mq.removeEventListener("change", onMq);
       if (raf) cancelAnimationFrame(raf);
     };
   }, []);
@@ -88,9 +66,6 @@ export function ServiceGrid() {
       className="hpd-svc-jack"
       style={{ position: "relative", background: "#0a0a0c" }}
     >
-      {/* Sticky stage — pins to the viewport while the user scrolls
-          through the parent's extra height. On mobile this becomes
-          a normal in-flow box with native horizontal swipe. */}
       <div className="hpd-svc-stage">
         <div
           ref={trackRef}
@@ -113,62 +88,34 @@ export function ServiceGrid() {
       </div>
 
       <style>{`
-        /* Mouse/trackpad: scroll-jacked. Pinned section, tall parent.
-           Tiles fill the full pinned viewport — no padding above or below. */
-        @media (pointer: fine) {
-          .hpd-svc-jack {
-            height: calc(100vh + 320vw);
-          }
-          .hpd-svc-stage {
-            position: sticky;
-            top: 0;
-            height: 100vh;
-            overflow: hidden;
-            display: flex;
-            align-items: stretch;
-          }
-          .hpd-svc-track {
-            display: flex;
-            gap: 0;
-            height: 100%;
-            will-change: transform;
-          }
-          .hpd-svc-tile {
-            flex: 0 0 60vw;
-            height: 100%;
-            position: relative;
-            overflow: hidden;
-            display: block;
-            text-decoration: none;
-            color: inherit;
-            border-right: 1px solid rgba(255,255,255,0.06);
-          }
+        /* Scroll-jack runs everywhere now (desktop + mobile). Vertical
+           scroll drives horizontal pan; no separate touch branch. */
+        .hpd-svc-jack {
+          height: calc(100vh + 320vw);
         }
-
-        /* Touch devices: native horizontal scroll with snap. */
-        @media (pointer: coarse) {
-          .hpd-svc-stage {
-            overflow-x: auto;
-            overflow-y: hidden;
-            scroll-snap-type: x mandatory;
-            -webkit-overflow-scrolling: touch;
-          }
-          .hpd-svc-track {
-            display: flex;
-            gap: 0;
-            transform: none !important;
-            will-change: auto;
-          }
-          .hpd-svc-tile {
-            flex: 0 0 85vw;
-            height: 70vh;
-            scroll-snap-align: start;
-            position: relative;
-            overflow: hidden;
-            display: block;
-            text-decoration: none;
-            color: inherit;
-          }
+        .hpd-svc-stage {
+          position: sticky;
+          top: 0;
+          height: 100vh;
+          overflow: hidden;
+          display: flex;
+          align-items: stretch;
+        }
+        .hpd-svc-track {
+          display: flex;
+          gap: 0;
+          height: 100%;
+          will-change: transform;
+        }
+        .hpd-svc-tile {
+          flex: 0 0 60vw;
+          height: 100%;
+          position: relative;
+          overflow: hidden;
+          display: block;
+          text-decoration: none;
+          color: inherit;
+          border-right: 1px solid rgba(255,255,255,0.06);
         }
 
         /* Shared tile internals */
@@ -196,7 +143,7 @@ export function ServiceGrid() {
           text-align: center;
         }
         .hpd-svc-label-main {
-          font-size: clamp(28px, 3.2vw, 48px);
+          font-size: clamp(24px, 3.2vw, 48px);
           font-weight: 900;
           line-height: 1.05;
           letter-spacing: -0.01em;
