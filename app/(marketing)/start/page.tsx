@@ -27,8 +27,8 @@ const BUDGET_RANGES = ["Under $5,000", "$5,000-$15,000", "$15,000-$50,000", "$50
 const SIZES_LIST = ["XS", "S", "M", "L", "XL", "2XL", "3XL"];
 
 const SHIPPING_ROUTES = [
+  { value: "hold_for_fulfillment",  title: "Hold at House Party for fulfillment", desc: "" },
   { value: "drop_ship",             title: "Drop ship",         desc: "Goods ship direct from decorator to client / end customer." },
-  { value: "hold_for_fulfillment",  title: "Hold for fulfillment", desc: "Stored as inventory, we pick + pack as orders come in." },
 ];
 
 const TOTAL_STEPS = 6;
@@ -1271,8 +1271,8 @@ function Step5({
                   fontFamily: "inherit",
                 }}
               >
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", marginBottom: 2 }}>{r.title}</div>
-                <div style={{ fontSize: 12, color: "#6b6b78", lineHeight: 1.5 }}>{r.desc}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#1a1a1a", marginBottom: r.desc ? 2 : 0 }}>{r.title}</div>
+                {r.desc && <div style={{ fontSize: 12, color: "#6b6b78", lineHeight: 1.5 }}>{r.desc}</div>}
               </button>
             ))}
           </div>
