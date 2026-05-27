@@ -37,6 +37,7 @@ export function Hero() {
       <div style={{
         position: "relative", zIndex: 1,
         maxWidth: 1100, padding: "0 32px",
+        marginTop: 30,
       }}>
         <h1 style={{
           fontSize: "clamp(36px, 6.5vw, 84px)",
