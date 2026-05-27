@@ -595,7 +595,7 @@ function StepHeading({ step }: { step: Step }) {
     2: { eyebrow: "Step 2 of 6", title: "Tell us about it",         sub: "The more we know, the faster we can get to work." },
     3: { eyebrow: "Step 3 of 6", title: "Upload your files",         sub: "Artwork, logos, mockups, inspiration, tech packs. Anything that helps us understand your vision. Optional." },
     4: { eyebrow: "Step 4 of 6", title: "Products &amp; quantities",       sub: "If you know your size breakdown, enter it here. Skip if not." },
-    5: { eyebrow: "Step 5 of 6", title: "Your details",              sub: "Where should we send the quote?" },
+    5: { eyebrow: "Step 5 of 6", title: "Your details",              sub: "Where should we send your quote?" },
     6: { eyebrow: "Step 6 of 6", title: "Review &amp; submit",       sub: "Last look before we get to work." },
   };
   const t = titles[step];
