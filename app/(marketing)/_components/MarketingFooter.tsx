@@ -118,7 +118,7 @@ function FooterColumn({ label, children }: { label: string; children: React.Reac
       }}>
         {label}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10 }}>
         {children}
       </div>
     </div>
