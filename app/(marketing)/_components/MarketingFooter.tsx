@@ -49,11 +49,6 @@ export function MarketingFooter() {
               Custom apparel from concept to delivery.<br />
               Las Vegas, NV
             </div>
-            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 12 }}>
-              4670 W Silverado Ranch Blvd<br />
-              STE 120<br />
-              Las Vegas, NV 89139
-            </div>
           </div>
 
           {/* Menu */}
