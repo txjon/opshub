@@ -26,8 +26,9 @@ const FOOTER_SOCIAL: { label: string; href: string }[] = [
 export function MarketingFooter() {
   return (
     <footer style={{
-      background: "#fff", borderTop: "1px solid #e0e0e4",
+      background: "#0a0a0c", borderTop: "1px solid rgba(255,255,255,0.08)",
       padding: "60px 32px 32px",
+      color: "#fff",
     }}>
       <div style={{ maxWidth: 1280, margin: "0 auto" }}>
         <div style={{
@@ -39,15 +40,16 @@ export function MarketingFooter() {
           <div>
             <div style={{
               fontSize: 16, fontWeight: 900, letterSpacing: "-0.02em",
-              marginBottom: 12, color: "#1a1a1a",
+              marginBottom: 12, color: "#fff",
+              textTransform: "uppercase",
             }}>
               house party distro
             </div>
-            <div style={{ fontSize: 13, color: "#6b6b78", lineHeight: 1.6 }}>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.72)", lineHeight: 1.6 }}>
               Custom apparel from concept to delivery.<br />
               Las Vegas, NV
             </div>
-            <div style={{ fontSize: 12, color: "#a0a0ad", marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 12 }}>
               4670 W Silverado Ranch Blvd<br />
               STE 120<br />
               Las Vegas, NV 89139
@@ -84,14 +86,14 @@ export function MarketingFooter() {
 
         {/* Bottom bar */}
         <div style={{
-          paddingTop: 24, borderTop: "1px solid #f0f0f2",
+          paddingTop: 24, borderTop: "1px solid rgba(255,255,255,0.08)",
           display: "flex", justifyContent: "space-between", alignItems: "center",
           flexWrap: "wrap", gap: 12,
         }}>
-          <div style={{ fontSize: 12, color: "#a0a0ad" }}>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>
             © {new Date().getFullYear()} House Party Distro
           </div>
-          <div style={{ fontSize: 11, color: "#c0c0c5", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
             Built in Las Vegas
           </div>
         </div>
@@ -116,8 +118,8 @@ function FooterColumn({ label, children }: { label: string; children: React.Reac
   return (
     <div>
       <div style={{
-        fontSize: 10, fontWeight: 700, color: "#a0a0ad",
-        textTransform: "uppercase", letterSpacing: "0.08em",
+        fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)",
+        textTransform: "uppercase", letterSpacing: "0.14em",
         marginBottom: 16,
       }}>
         {label}
@@ -130,5 +132,5 @@ function FooterColumn({ label, children }: { label: string; children: React.Reac
 }
 
 const footerLinkStyle: React.CSSProperties = {
-  fontSize: 13, color: "#6b6b78", textDecoration: "none", lineHeight: 1.4,
+  fontSize: 13, color: "rgba(255,255,255,0.78)", textDecoration: "none", lineHeight: 1.4,
 };
