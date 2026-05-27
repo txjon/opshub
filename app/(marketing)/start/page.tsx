@@ -18,7 +18,7 @@ const PROJECT_TYPES = [
   { value: "brand",     title: "Brand / Merch Drop", desc: "Apparel line, merch collection, or product launch" },
   { value: "tour",      title: "Tour / Artist",      desc: "Tour merch, show-specific items, artist collaborations" },
   { value: "corporate", title: "Corporate",          desc: "Staff uniforms, client gifts, event giveaways" },
-  { value: "webstore",  title: "Webstore",           desc: "Ongoing inventory for online sales" },
+  { value: "webstore",  title: "E-Commerce Management", desc: "Ongoing inventory for online sales" },
 ] as const;
 
 const ITEMS_RANGES = ["1-3 designs", "4-8 designs", "9-15 designs", "15+ designs"];
