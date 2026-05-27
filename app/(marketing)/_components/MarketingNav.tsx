@@ -98,25 +98,27 @@ export function MarketingNav() {
                 ))}
               </nav>
             )}
-            {/* Mobile hamburger always shows on small screens regardless
-                of scroll state — the inline links don't fit. */}
-            <button
-              type="button"
-              className="hpd-nav-burger-mobile"
-              onClick={() => setMenuOpen(true)}
-              aria-label="Open menu"
-              style={{
-                background: "transparent", border: "none", cursor: "pointer",
-                padding: 4, color: "#fff",
-                display: "none",
-              }}
-            >
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <line x1="3" y1="7" x2="21" y2="7" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="17" x2="21" y2="17" />
-              </svg>
-            </button>
+            {/* Mobile hamburger — only when not scrolled (the scrolled-
+                state hamburger above already handles small screens too). */}
+            {!scrolled && (
+              <button
+                type="button"
+                className="hpd-nav-burger-mobile"
+                onClick={() => setMenuOpen(true)}
+                aria-label="Open menu"
+                style={{
+                  background: "transparent", border: "none", cursor: "pointer",
+                  padding: 4, color: "#fff",
+                  display: "none",
+                }}
+              >
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="3" y1="7" x2="21" y2="7" />
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="17" x2="21" y2="17" />
+                </svg>
+              </button>
+            )}
           </div>
 
           {/* CENTER — logo, absolutely centered regardless of side widths */}
