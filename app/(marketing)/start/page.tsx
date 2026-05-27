@@ -67,11 +67,25 @@ type FileRow = {
   loaded: number;        // bytes uploaded so far (XHR upload progress)
 };
 
+type SizeCell = {
+  id: string;     // stable column id, used as the React key
+  label: string;  // size label (editable — "XS", "OS", "4XL", whatever)
+  qty: string;    // string so empty / partial inputs don't break
+};
+
 type ItemRow = {
   id: string;
   name: string;
-  sizes: Record<string, string>;  // string so empty / partial inputs don't break
+  sizes: SizeCell[];
 };
+
+function makeDefaultSizes(): SizeCell[] {
+  return SIZES_LIST.map((label, i) => ({
+    id: `sz-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 5)}`,
+    label,
+    qty: "",
+  }));
+}
 
 type FormState = {
   // Step 1
@@ -158,16 +172,19 @@ export default function StartPage() {
         budget_range: form.budget_range || undefined,
         // Step 5
         shipping_route: form.shipping_route || undefined,
-        // Step 4 — only items with a name OR some sizes
+        // Step 4 — only items with a name OR some sizes. Sizes are stored
+        // as a SizeCell[] for the UI; the API still wants a flat
+        // { label: qty } record, so we flatten on the way out.
         items: form.items
-          .filter(it => it.name.trim() || Object.values(it.sizes).some(v => parseInt(v) > 0))
+          .filter(it => it.name.trim() || it.sizes.some(c => parseInt(c.qty) > 0))
           .map(it => ({
             name: it.name.trim() || undefined,
-            sizes: Object.fromEntries(
-              Object.entries(it.sizes)
-                .map(([k, v]) => [k, parseInt(v)])
-                .filter(([, n]) => typeof n === "number" && !isNaN(n) && n > 0)
-            ),
+            sizes: it.sizes.reduce<Record<string, number>>((acc, c) => {
+              const label = c.label.trim();
+              const n = parseInt(c.qty);
+              if (label && !isNaN(n) && n > 0) acc[label] = n;
+              return acc;
+            }, {}),
           })),
         // Step 3 — only successfully-uploaded files
         files: form.files
@@ -288,7 +305,7 @@ export default function StartPage() {
       items: [...f.items, {
         id: `it-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         name: "",
-        sizes: Object.fromEntries(SIZES_LIST.map(s => [s, ""])),
+        sizes: makeDefaultSizes(),
       }],
     }));
   }
@@ -298,10 +315,44 @@ export default function StartPage() {
       items: f.items.map(it => it.id === id ? { ...it, ...patch } : it),
     }));
   }
-  function updateItemSize(id: string, size: string, value: string) {
+  function updateSizeQty(itemId: string, cellId: string, qty: string) {
     setForm(f => ({
       ...f,
-      items: f.items.map(it => it.id === id ? { ...it, sizes: { ...it.sizes, [size]: value } } : it),
+      items: f.items.map(it => it.id !== itemId ? it : {
+        ...it,
+        sizes: it.sizes.map(c => c.id === cellId ? { ...c, qty } : c),
+      }),
+    }));
+  }
+  function updateSizeLabel(itemId: string, cellId: string, label: string) {
+    setForm(f => ({
+      ...f,
+      items: f.items.map(it => it.id !== itemId ? it : {
+        ...it,
+        sizes: it.sizes.map(c => c.id === cellId ? { ...c, label } : c),
+      }),
+    }));
+  }
+  function addSizeCell(itemId: string) {
+    setForm(f => ({
+      ...f,
+      items: f.items.map(it => it.id !== itemId ? it : {
+        ...it,
+        sizes: [...it.sizes, {
+          id: `sz-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          label: "",
+          qty: "",
+        }],
+      }),
+    }));
+  }
+  function removeSizeCell(itemId: string, cellId: string) {
+    setForm(f => ({
+      ...f,
+      items: f.items.map(it => it.id !== itemId ? it : {
+        ...it,
+        sizes: it.sizes.filter(c => c.id !== cellId),
+      }),
     }));
   }
   function removeItem(id: string) {
@@ -456,7 +507,10 @@ export default function StartPage() {
                 items={form.items}
                 onAdd={addItem}
                 onUpdate={updateItem}
-                onUpdateSize={updateItemSize}
+                onUpdateSizeQty={updateSizeQty}
+                onUpdateSizeLabel={updateSizeLabel}
+                onAddSize={addSizeCell}
+                onRemoveSize={removeSizeCell}
                 onRemove={removeItem}
               />
             )}
@@ -466,7 +520,7 @@ export default function StartPage() {
             )}
 
             {step === 6 && (
-              <Step6 form={form} sizesList={SIZES_LIST} />
+              <Step6 form={form} />
             )}
 
             {submitError && step === 6 && (
@@ -760,12 +814,15 @@ function Step3({
 }
 
 function Step4({
-  items, onAdd, onUpdate, onUpdateSize, onRemove,
+  items, onAdd, onUpdate, onUpdateSizeQty, onUpdateSizeLabel, onAddSize, onRemoveSize, onRemove,
 }: {
   items: ItemRow[];
   onAdd: () => void;
   onUpdate: (id: string, patch: Partial<ItemRow>) => void;
-  onUpdateSize: (id: string, size: string, value: string) => void;
+  onUpdateSizeQty: (itemId: string, cellId: string, qty: string) => void;
+  onUpdateSizeLabel: (itemId: string, cellId: string, label: string) => void;
+  onAddSize: (itemId: string) => void;
+  onRemoveSize: (itemId: string, cellId: string) => void;
   onRemove: (id: string) => void;
 }) {
   return (
@@ -812,23 +869,42 @@ function Step4({
                   aria-label="Remove item"
                 >×</button>
               </div>
+              {/* Dynamic size grid: each column has an editable label + qty
+                  input. Plus a ╳ on hover to remove the column and a
+                  trailing "+" button to add a new column. */}
               <div className="hpd-size-grid" style={{
                 display: "grid",
-                gridTemplateColumns: `repeat(${SIZES_LIST.length}, 1fr)`,
+                gridTemplateColumns: `repeat(${it.sizes.length + 1}, minmax(56px, 1fr))`,
                 gap: 6,
               }}>
-                {SIZES_LIST.map(size => (
-                  <div key={size}>
-                    <div style={{
-                      fontSize: 10, fontWeight: 700,
-                      textAlign: "center", color: "#6b6b78",
-                      marginBottom: 4,
-                    }}>{size}</div>
+                {it.sizes.map(cell => (
+                  <div key={cell.id} className="hpd-size-col" style={{ position: "relative" }}>
+                    <input
+                      type="text"
+                      value={cell.label}
+                      onChange={e => onUpdateSizeLabel(it.id, cell.id, e.target.value)}
+                      placeholder="Size"
+                      style={{
+                        width: "100%", padding: "4px 4px",
+                        textAlign: "center",
+                        border: "none",
+                        borderRadius: 4,
+                        fontSize: 10, fontWeight: 700,
+                        color: "#6b6b78",
+                        background: "transparent",
+                        fontFamily: "inherit",
+                        outline: "none",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                        marginBottom: 2,
+                        boxSizing: "border-box",
+                      }}
+                    />
                     <input
                       type="text"
                       inputMode="numeric"
-                      value={it.sizes[size] || ""}
-                      onChange={e => onUpdateSize(it.id, size, e.target.value.replace(/[^0-9]/g, ""))}
+                      value={cell.qty}
+                      onChange={e => onUpdateSizeQty(it.id, cell.id, e.target.value.replace(/[^0-9]/g, ""))}
                       placeholder="0"
                       style={{
                         width: "100%", padding: "8px 6px",
@@ -843,8 +919,44 @@ function Step4({
                         boxSizing: "border-box",
                       }}
                     />
+                    {it.sizes.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => onRemoveSize(it.id, cell.id)}
+                        className="hpd-size-remove"
+                        aria-label="Remove size"
+                        style={{
+                          position: "absolute", top: -6, right: -6,
+                          width: 18, height: 18, borderRadius: 99,
+                          background: "#1a1a1a", color: "#fff",
+                          border: "none", cursor: "pointer",
+                          fontSize: 11, lineHeight: 1,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          opacity: 0, transition: "opacity 0.15s",
+                        }}
+                      >×</button>
+                    )}
                   </div>
                 ))}
+                {/* Add column button */}
+                <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={() => onAddSize(it.id)}
+                    aria-label="Add size"
+                    style={{
+                      width: "100%", padding: "8px 6px",
+                      border: "1px dashed #c0c0c8",
+                      background: "transparent",
+                      borderRadius: 6,
+                      fontSize: 16, lineHeight: 1,
+                      color: "#a0a0ad",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      boxSizing: "border-box",
+                    }}
+                  >+</button>
+                </div>
               </div>
             </div>
           ))}
@@ -864,8 +976,13 @@ function Step4({
       </button>
 
       <style>{`
+        .hpd-size-col:hover .hpd-size-remove,
+        .hpd-size-col:focus-within .hpd-size-remove {
+          opacity: 1;
+        }
         @media (max-width: 540px) {
-          .hpd-size-grid { grid-template-columns: repeat(4, 1fr) !important; }
+          .hpd-size-grid { grid-template-columns: repeat(4, minmax(56px, 1fr)) !important; }
+          .hpd-size-remove { opacity: 1 !important; }
         }
       `}</style>
     </div>
@@ -933,11 +1050,11 @@ function Step5({
   );
 }
 
-function Step6({ form, sizesList }: { form: FormState; sizesList: string[] }) {
+function Step6({ form }: { form: FormState }) {
   const projectType = PROJECT_TYPES.find(t => t.value === form.project_type)?.title;
   const shippingRoute = SHIPPING_ROUTES.find(r => r.value === form.shipping_route)?.title;
   const itemsWithContent = form.items.filter(it =>
-    it.name.trim() || Object.values(it.sizes).some(v => parseInt(v) > 0)
+    it.name.trim() || it.sizes.some(c => parseInt(c.qty) > 0)
   );
   const uploadedFiles = form.files.filter(f => f.uploaded);
 
@@ -963,10 +1080,10 @@ function Step6({ form, sizesList }: { form: FormState; sizesList: string[] }) {
           <div style={summaryLabel}>Products &amp; quantities</div>
           <div style={{ fontSize: 13, color: "#1a1a1a", lineHeight: 1.7 }}>
             {itemsWithContent.map(it => {
-              const sizeStr = sizesList
-                .map(s => [s, parseInt(it.sizes[s])] as [string, number])
-                .filter(([, n]) => !isNaN(n) && n > 0)
-                .map(([s, n]) => `${s}(${n})`)
+              const sizeStr = it.sizes
+                .map(c => [c.label.trim(), parseInt(c.qty)] as [string, number])
+                .filter(([label, n]) => label && !isNaN(n) && n > 0)
+                .map(([label, n]) => `${label}(${n})`)
                 .join(" ");
               return (
                 <div key={it.id}>
