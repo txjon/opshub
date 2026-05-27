@@ -561,7 +561,7 @@ function Step2({
         </Field>
       </div>
       <div className="hpd-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Field label="Target ship date">
+        <Field label="Needed by">
           <input type="date" value={form.target_ship_date} onChange={e => update("target_ship_date", e.target.value)} style={inputStyle} />
         </Field>
         <Field label="Budget range">
@@ -857,7 +857,7 @@ function Step6({ form, sizesList }: { form: FormState; sizesList: string[] }) {
           <div style={{ fontSize: 13, color: "#1a1a1a", lineHeight: 1.7 }}>
             {form.items_count_range && <div>Products: {form.items_count_range}</div>}
             {form.units_range && <div>Units: {form.units_range}</div>}
-            {form.target_ship_date && <div>Ship date: {form.target_ship_date}</div>}
+            {form.target_ship_date && <div>Needed by: {form.target_ship_date}</div>}
             {form.budget_range && <div>Budget: {form.budget_range}</div>}
           </div>
         </div>
