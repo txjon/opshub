@@ -83,7 +83,7 @@ export function MarketingNav() {
                 // top-aligns with the visual top of the centered logo
                 // (logo top sits ~34px down in the 96px header).
                 alignSelf: "flex-start",
-                marginTop: 34,
+                marginTop: 44,
               }}>
                 {NAV_LINKS.map(link => link.external ? (
                   <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer"
