@@ -64,6 +64,7 @@ type FileRow = {
   error: string | null;
   url: string | null;
   size: number;
+  loaded: number;        // bytes uploaded so far (XHR upload progress)
 };
 
 type ItemRow = {
@@ -201,7 +202,7 @@ export default function StartPage() {
   async function uploadFile(row: FileRow) {
     setForm(f => ({
       ...f,
-      files: f.files.map(r => r.id === row.id ? { ...r, uploading: true, error: null } : r),
+      files: f.files.map(r => r.id === row.id ? { ...r, uploading: true, error: null, loaded: 0 } : r),
     }));
     try {
       // Step 1 — get signed URL
@@ -218,22 +219,31 @@ export default function StartPage() {
       if (!initRes.ok || init?.error) throw new Error(init?.error || "Could not get upload URL");
       if (init.session) sessionRef.current = init.session;
 
-      // Step 2 — PUT directly to Supabase
-      const putRes = await fetch(init.uploadUrl, {
-        method: "PUT",
-        body: row.file,
-        headers: {
-          "Content-Type": row.file.type || "application/octet-stream",
-        },
+      // Step 2 — PUT directly to Supabase via XHR so we get real-time
+      // upload progress events. `fetch` doesn't expose upload progress.
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", init.uploadUrl);
+        xhr.setRequestHeader("Content-Type", row.file.type || "application/octet-stream");
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
+          setForm(f => ({
+            ...f,
+            files: f.files.map(r => r.id === row.id ? { ...r, loaded: e.loaded } : r),
+          }));
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`Upload failed (HTTP ${xhr.status})`));
+        };
+        xhr.onerror = () => reject(new Error("Upload failed (network error)"));
+        xhr.send(row.file);
       });
-      if (!putRes.ok) {
-        throw new Error(`Upload failed (HTTP ${putRes.status})`);
-      }
 
       setForm(f => ({
         ...f,
         files: f.files.map(r => r.id === row.id
-          ? { ...r, uploading: false, uploaded: true, url: init.downloadUrl, error: null }
+          ? { ...r, uploading: false, uploaded: true, url: init.downloadUrl, error: null, loaded: r.size }
           : r),
       }));
     } catch (e: any) {
@@ -259,6 +269,7 @@ export default function StartPage() {
         error: oversize ? `Too large (${Math.round(file.size / 1024 / 1024)}MB). Max 50MB per file. Paste a link to it in the description instead.` : null,
         url: null,
         size: file.size,
+        loaded: 0,
       };
     });
     setForm(f => ({ ...f, files: [...f.files, ...newRows] }));
@@ -299,6 +310,17 @@ export default function StartPage() {
 
   const filesPending = useMemo(() => form.files.some(f => f.uploading), [form.files]);
 
+  // Total upload progress across the current batch (any file currently
+  // uploading or already uploaded). Drives the freeze overlay.
+  const uploadStats = useMemo(() => {
+    const inFlight = form.files.filter(f => f.uploading || f.uploaded);
+    const totalSize = inFlight.reduce((s, f) => s + (f.size || 0), 0);
+    const totalLoaded = inFlight.reduce((s, f) => s + (f.uploaded ? (f.size || 0) : (f.loaded || 0)), 0);
+    const pct = totalSize > 0 ? Math.min(100, Math.floor((totalLoaded / totalSize) * 100)) : 0;
+    const activeCount = form.files.filter(f => f.uploading).length;
+    return { totalSize, totalLoaded, pct, activeCount };
+  }, [form.files]);
+
   // SUCCESS STATE — replaces the form once submitted.
   if (submitted) {
     return (
@@ -313,6 +335,59 @@ export default function StartPage() {
 
   return (
     <>
+      {/* Full-screen freeze + progress overlay. Visible only while files
+          are actively uploading. Blocks the form behind it so the user
+          can't navigate steps or close the tab mid-upload. */}
+      {filesPending && (
+        <div
+          role="dialog"
+          aria-live="polite"
+          aria-label="Uploading files"
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(10,10,12,0.75)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 24,
+          }}
+        >
+          <div style={{
+            background: "#fff", color: "#1a1a1a",
+            borderRadius: 14, padding: "32px 36px",
+            width: "min(440px, 100%)",
+            boxShadow: "0 24px 64px rgba(0,0,0,0.45)",
+          }}>
+            <div style={{
+              fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: "0.16em", color: "#a0a0ad", marginBottom: 12,
+            }}>
+              Uploading {uploadStats.activeCount} {uploadStats.activeCount === 1 ? "file" : "files"}
+            </div>
+            <div style={{
+              fontSize: 36, fontWeight: 900, letterSpacing: "-0.02em",
+              lineHeight: 1, marginBottom: 18, color: "#1a1a1a",
+            }}>
+              {uploadStats.pct}%
+            </div>
+            <div style={{
+              height: 6, borderRadius: 3, background: "#e6e6ea", overflow: "hidden",
+            }}>
+              <div style={{
+                height: "100%", width: `${uploadStats.pct}%`,
+                background: "rgb(115, 182, 201)",
+                transition: "width 0.2s ease",
+              }} />
+            </div>
+            <div style={{
+              fontSize: 12, color: "#6b6b78", marginTop: 14, lineHeight: 1.55,
+            }}>
+              Hold tight while your files transfer. Don&apos;t close this tab.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header band — much smaller than other PageHeros since the form is the focus */}
       <section style={{
         background: "#0a0a0c",
