@@ -1238,18 +1238,18 @@ function Step5({
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="hpd-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Field label="Your name *">
-          <input type="text" value={form.contactName} onChange={e => update("contactName", e.target.value)} placeholder="Drake Smith" style={inputStyle} autoFocus />
+          <input type="text" value={form.contactName} onChange={e => update("contactName", e.target.value)} style={inputStyle} autoFocus />
         </Field>
         <Field label="Company *">
-          <input type="text" value={form.company} onChange={e => update("company", e.target.value)} placeholder="Your Brand" style={inputStyle} />
+          <input type="text" value={form.company} onChange={e => update("company", e.target.value)} style={inputStyle} />
         </Field>
       </div>
       <div className="hpd-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Field label="Email *">
-          <input type="email" value={form.email} onChange={e => update("email", e.target.value)} placeholder="you@yourbrand.com" style={inputStyle} />
+          <input type="email" value={form.email} onChange={e => update("email", e.target.value)} style={inputStyle} />
         </Field>
         <Field label="Phone">
-          <input type="tel" value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="(555) 555-5555" style={inputStyle} />
+          <input type="tel" value={form.phone} onChange={e => update("phone", e.target.value)} style={inputStyle} />
         </Field>
       </div>
 
