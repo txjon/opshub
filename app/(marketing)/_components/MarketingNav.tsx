@@ -129,7 +129,10 @@ export function MarketingNav() {
               fontWeight: 900,
               letterSpacing: "-0.02em",
               textTransform: "uppercase",
-              fontSize: scrolled ? 18 : 28,
+              // Top state: clamp so the logo shrinks on narrow viewports
+              // and doesn't overlap the hamburger + login icon on mobile.
+              // Floor 18px, scales with viewport, capped at 28px (desktop).
+              fontSize: scrolled ? 18 : "clamp(18px, 5vw, 28px)",
               lineHeight: 1,
               transition: "font-size 0.25s ease",
               whiteSpace: "nowrap",
