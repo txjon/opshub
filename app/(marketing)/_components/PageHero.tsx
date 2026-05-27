@@ -16,12 +16,15 @@ export function PageHero({
   return (
     <section style={{
       position: "relative",
-      minHeight: 360,
+      minHeight: 420,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       overflow: "hidden",
       textAlign: "center",
+      // Nav is fixed-overlay (96px tall at top); add headroom so the
+      // title doesn't sit behind it.
+      paddingTop: 96,
     }}>
       {/* Optional photo background, otherwise solid dark */}
       {image ? (

@@ -9,7 +9,7 @@ export function Hero() {
   return (
     <section style={{
       position: "relative",
-      minHeight: "calc(100vh - 64px)",  // viewport minus nav height
+      minHeight: "100vh",  // nav is now fixed-overlay, hero fills full viewport
       display: "flex",
       alignItems: "center",
       justifyContent: "center",

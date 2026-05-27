@@ -451,7 +451,8 @@ export default function StartPage() {
       <section style={{
         background: "#0a0a0c",
         color: "#fff",
-        padding: "48px 32px 40px",
+        // 96px paddingTop accounts for the fixed nav so the title clears it
+        padding: "144px 32px 40px",
         textAlign: "center",
       }}>
         <div style={{ maxWidth: 640, margin: "0 auto" }}>
