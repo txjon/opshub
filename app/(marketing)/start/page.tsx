@@ -110,22 +110,36 @@ type FormState = {
   shipping_route: string;
 };
 
-const initialState: FormState = {
-  project_type: "",
-  project_name: "",
-  description: "",
-  items_count_range: "",
-  units_range: "",
-  target_ship_date: "",
-  budget_range: "",
-  files: [],
-  items: [],
-  contactName: "",
-  email: "",
-  phone: "",
-  company: "",
-  shipping_route: "",
-};
+function makeBlankItem(): ItemRow {
+  return {
+    id: `it-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: "",
+    sizes: makeDefaultSizes(),
+  };
+}
+
+// Function (not const) so a reset on the success screen gives the form
+// fresh ids on its default row + sizes. Module-level constants would
+// reuse the same ids on every reset.
+function makeInitialState(): FormState {
+  return {
+    project_type: "",
+    project_name: "",
+    description: "",
+    items_count_range: "",
+    units_range: "",
+    target_ship_date: "",
+    budget_range: "",
+    files: [],
+    items: [makeBlankItem()],
+    contactName: "",
+    email: "",
+    phone: "",
+    company: "",
+    shipping_route: "",
+  };
+}
+const initialState: FormState = makeInitialState();
 
 export default function StartPage() {
   const [step, setStep] = useState<Step>(1);
@@ -316,14 +330,7 @@ export default function StartPage() {
   }
 
   function addItem() {
-    setForm(f => ({
-      ...f,
-      items: [...f.items, {
-        id: `it-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        name: "",
-        sizes: makeDefaultSizes(),
-      }],
-    }));
+    setForm(f => ({ ...f, items: [...f.items, makeBlankItem()] }));
   }
   function updateItem(id: string, patch: Partial<ItemRow>) {
     setForm(f => ({
@@ -392,7 +399,7 @@ export default function StartPage() {
   if (submitted) {
     return (
       <SuccessScreen onReset={() => {
-        setForm(initialState);
+        setForm(makeInitialState());
         setStep(1);
         setSubmitted(false);
         sessionRef.current = `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
