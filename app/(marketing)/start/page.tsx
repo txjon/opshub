@@ -1254,7 +1254,7 @@ function Step5({
       </div>
 
       <div style={{ marginTop: 8 }}>
-        <Field label="Where should the finished goods go?">
+        <Field label="Where should the finished product go?">
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {SHIPPING_ROUTES.map(r => (
               <button
