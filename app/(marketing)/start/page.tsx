@@ -63,6 +63,7 @@ type FileRow = {
   uploaded: boolean;
   error: string | null;
   url: string | null;
+  path: string | null;   // storage object path — used to delete on × click
   size: number;
   loaded: number;        // bytes uploaded so far (XHR upload progress)
 };
@@ -189,7 +190,7 @@ export default function StartPage() {
         // Step 3 — only successfully-uploaded files
         files: form.files
           .filter(f => f.uploaded && f.url)
-          .map(f => ({ filename: f.file.name, url: f.url, size: f.size })),
+          .map(f => ({ filename: f.file.name, url: f.url, size: f.size, path: f.path })),
       };
 
       const res = await fetch("/api/onboard", {
@@ -260,7 +261,7 @@ export default function StartPage() {
       setForm(f => ({
         ...f,
         files: f.files.map(r => r.id === row.id
-          ? { ...r, uploading: false, uploaded: true, url: init.downloadUrl, error: null, loaded: r.size }
+          ? { ...r, uploading: false, uploaded: true, url: init.downloadUrl, path: init.path, error: null, loaded: r.size }
           : r),
       }));
     } catch (e: any) {
@@ -285,6 +286,7 @@ export default function StartPage() {
         uploaded: false,
         error: oversize ? `Too large (${Math.round(file.size / 1024 / 1024)}MB). Max 50MB per file. Paste a link to it in the description instead.` : null,
         url: null,
+        path: null,
         size: file.size,
         loaded: 0,
       };
@@ -296,7 +298,21 @@ export default function StartPage() {
   }
 
   function removeFile(id: string) {
-    setForm(f => ({ ...f, files: f.files.filter(r => r.id !== id) }));
+    setForm(f => {
+      // If the file was uploaded to Supabase, fire a fire-and-forget
+      // DELETE so the orphan bytes don't linger. Failure is fine — the
+      // nightly sweeper picks up anything we miss.
+      const row = f.files.find(r => r.id === id);
+      if (row?.path) {
+        fetch("/api/onboard/upload", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: row.path }),
+          keepalive: true,
+        }).catch(() => {});
+      }
+      return { ...f, files: f.files.filter(r => r.id !== id) };
+    });
   }
 
   function addItem() {

@@ -37,6 +37,38 @@ async function ensureBucket(sb: ReturnType<typeof admin>) {
   await sb.storage.createBucket(BUCKET, { public: false });
 }
 
+// DELETE /api/onboard/upload — removes a single uploaded object from
+// the intake-uploads bucket. Called when the user clicks × on an
+// already-uploaded file in the intake form. Best-effort: a failure
+// just means the orphan sits there until the nightly sweeper hits it.
+//
+// The body contains the storage path that was returned from the
+// signed-upload response, so the caller is implicitly authenticated
+// by knowing the random session prefix. We still constrain to the
+// intake-uploads bucket so this can't be used to nuke other storage.
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const path = (body?.path || "").toString();
+    if (!path) return NextResponse.json({ error: "Missing path" }, { status: 400 });
+    // Hard-stop on anything weird so nobody can ../escape into other
+    // buckets or root. Paths are always "<sessionId>/<timestamped-name>".
+    if (path.includes("..") || path.startsWith("/")) {
+      return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+    }
+
+    const sb = admin();
+    const { error } = await sb.storage.from(BUCKET).remove([path]);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    console.error("[onboard/upload DELETE]", e?.message || e);
+    return NextResponse.json({ error: e?.message || "Delete failed" }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
