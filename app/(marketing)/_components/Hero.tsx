@@ -57,7 +57,7 @@ export function Hero() {
           color: "rgba(255,255,255,0.85)",
           maxWidth: 760, margin: "0 auto 32px",
         }}>
-          House Party Distro is a single-source operations partner for premium branded apparel and accessories. Design, manufacturing, and distribution under one roof.
+          House Party Distro is a single-source production partner for premium branded apparel and accessories. Design, manufacturing, and distribution under one roof.
         </p>
         <Link href="/start" style={{
           display: "inline-block",
