@@ -28,7 +28,7 @@ const SIZES_LIST = ["XS", "S", "M", "L", "XL", "2XL", "3XL"];
 
 const SHIPPING_ROUTES = [
   { value: "hold_for_fulfillment",  title: "Hold at House Party for fulfillment", desc: "" },
-  { value: "drop_ship",             title: "Drop ship",         desc: "Goods ship direct from decorator to client / end customer." },
+  { value: "drop_ship",             title: "Ship directly to me", desc: "" },
 ];
 
 const TOTAL_STEPS = 6;
@@ -107,6 +107,12 @@ type FormState = {
   phone: string;
   company: string;
   shipping_route: string;
+  // Shipping address — only collected/shown when shipping_route === "drop_ship"
+  ship_address1: string;
+  ship_address2: string;
+  ship_city: string;
+  ship_state: string;
+  ship_zip: string;
 };
 
 function makeBlankItem(): ItemRow {
@@ -136,6 +142,11 @@ function makeInitialState(): FormState {
     phone: "",
     company: "",
     shipping_route: "",
+    ship_address1: "",
+    ship_address2: "",
+    ship_city: "",
+    ship_state: "",
+    ship_zip: "",
   };
 }
 const initialState: FormState = makeInitialState();
@@ -186,6 +197,15 @@ export default function StartPage() {
         budget_range: form.budget_range || undefined,
         // Step 5
         shipping_route: form.shipping_route || undefined,
+        // Drop-ship address — only relevant when route is "drop_ship";
+        // we still send if filled regardless, in case the user toggled.
+        ship_address: form.shipping_route === "drop_ship" ? {
+          line1: form.ship_address1.trim() || undefined,
+          line2: form.ship_address2.trim() || undefined,
+          city: form.ship_city.trim() || undefined,
+          state: form.ship_state.trim() || undefined,
+          zip: form.ship_zip.trim() || undefined,
+        } : undefined,
         // Step 4 — only items with a name OR some sizes. Sizes are stored
         // as a SizeCell[] for the UI; the API still wants a flat
         // { label: qty } record, so we flatten on the way out.
@@ -1277,6 +1297,28 @@ function Step5({
             ))}
           </div>
         </Field>
+
+        {form.shipping_route === "drop_ship" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 14 }}>
+            <Field label="Address line 1">
+              <input type="text" value={form.ship_address1} onChange={e => update("ship_address1", e.target.value)} style={inputStyle} />
+            </Field>
+            <Field label="Address line 2">
+              <input type="text" value={form.ship_address2} onChange={e => update("ship_address2", e.target.value)} style={inputStyle} />
+            </Field>
+            <div className="hpd-row" style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
+              <Field label="City">
+                <input type="text" value={form.ship_city} onChange={e => update("ship_city", e.target.value)} style={inputStyle} />
+              </Field>
+              <Field label="State">
+                <input type="text" value={form.ship_state} onChange={e => update("ship_state", e.target.value)} style={inputStyle} />
+              </Field>
+              <Field label="ZIP">
+                <input type="text" value={form.ship_zip} onChange={e => update("ship_zip", e.target.value)} style={inputStyle} />
+              </Field>
+            </div>
+          </div>
+        )}
       </div>
 
       <style>{`
@@ -1313,6 +1355,17 @@ function Step6({ form }: { form: FormState }) {
         </div>
       )}
       {shippingRoute && <Summary label="Shipping" value={shippingRoute} />}
+      {form.shipping_route === "drop_ship" && (form.ship_address1 || form.ship_city || form.ship_state || form.ship_zip) && (
+        <Summary
+          label="Ship to"
+          value={[
+            form.ship_address1.trim(),
+            form.ship_address2.trim(),
+            [form.ship_city.trim(), form.ship_state.trim(), form.ship_zip.trim()].filter(Boolean).join(", "),
+          ].filter(Boolean).join("\n")}
+          multiline
+        />
+      )}
       {itemsWithContent.length > 0 && (
         <div style={summaryBlock}>
           <div style={summaryLabel}>Products &amp; quantities</div>
