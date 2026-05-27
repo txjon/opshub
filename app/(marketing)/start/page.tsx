@@ -22,7 +22,7 @@ const PROJECT_TYPES = [
 ] as const;
 
 const ITEMS_RANGES = ["1-3 products", "4-8 products", "9-15 products", "15+ products"];
-const UNITS_RANGES = ["Under 100", "100-500", "500-2,000", "2,000-5,000", "5,000+"];
+const UNITS_RANGES = ["Under 100", "100-500", "500-2,000", "2,000-5,000", "5,000+", "Not sure yet"];
 const BUDGET_RANGES = ["Under $5,000", "$5,000-$15,000", "$15,000-$50,000", "$50,000+", "Not sure yet"];
 const SIZES_LIST = ["XS", "S", "M", "L", "XL", "2XL", "3XL"];
 
