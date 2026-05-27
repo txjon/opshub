@@ -532,7 +532,7 @@ function Step2({
           type="text"
           value={form.project_name}
           onChange={e => update("project_name", e.target.value)}
-          placeholder="e.g. Summer Tour 2026 Merch"
+          placeholder="e.g. Fall 2026 Pre-Order"
           style={inputStyle}
           autoFocus
         />
