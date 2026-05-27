@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [
   { label: "Services", href: "/services" },
   { label: "Start a Project", href: "/start" },
-  { label: "Shop ↗", href: "https://shop.housepartydistro.com", external: true },
+  { label: "Shop", href: "https://shop.housepartydistro.com", external: true },
 ];
 
 const SCROLL_THRESHOLD = 60;
