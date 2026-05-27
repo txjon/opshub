@@ -34,7 +34,7 @@ export function Hero() {
       }} />
 
       {/* Centered content */}
-      <div style={{
+      <div className="hpd-hero-content" style={{
         position: "relative", zIndex: 1,
         maxWidth: 1100, padding: "0 32px",
         marginTop: 30,
@@ -72,6 +72,14 @@ export function Hero() {
           Start a Project
         </Link>
       </div>
+
+      {/* Mobile-only: hamburger collapses the left-side nav stack, so
+          we don't need to push the hero content down to balance it. */}
+      <style>{`
+        @media (max-width: 768px) {
+          .hpd-hero-content { margin-top: -40px !important; }
+        }
+      `}</style>
     </section>
   );
 }
