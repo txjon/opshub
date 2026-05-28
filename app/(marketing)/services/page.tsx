@@ -1,34 +1,40 @@
+import Link from "next/link";
 import { PageHero } from "../_components/PageHero";
 import { SERVICE_IMAGES } from "../_components/_placeholder-images";
 
-// Services page — deeper breakdown than the home page's 6-tile grid.
-// Each service gets a 2-column row (photo + descriptive copy) so the
-// page reads as a guided tour of what HPD does.
+// Services page.
+//
+// One continuous zig-zag of service rows (production + warehousing/
+// fulfillment merged at the end), bracketed by an intro thesis line
+// at the top and a Full Service capstone at the bottom. "Who we work
+// with" closes the page.
 
 export const metadata = {
   title: "Services | House Party Distro",
-  description: "Custom apparel printing, embroidery, product sourcing, warehousing, fulfillment, and e-commerce management. Everything under one roof.",
+  description: "Custom apparel printing, embroidery, product sourcing, warehousing, fulfillment, and full-service brand operations under one roof.",
 };
 
-const SERVICES: {
+type Service = {
   id: string;
   badge: string;
   name: string;
   description: string;
   capabilities: string[];
-  stats?: { value: string; label: string }[];
+  stats?: { value: string; label: string; valueImage?: string; valueImageAlt?: string }[];
   image: string;
-}[] = [
+};
+
+const SERVICES: Service[] = [
   {
     id: "screen",
     badge: "Decoration",
     name: "Screen Printing",
-    description: "The reason your favorite shirts still look good five years in. DTG fades and cracks. Screen printing doesn't. The print method that builds a brand, not just a shirt.",
+    description: "The print serious brands build on. Ink cured into the fabric, color matched to spec, and built to outlast the drop it launched with. Quality that's noticed long after the season's over.",
     capabilities: [],
     stats: [
-      { value: "16", label: "Colors per location" },
-      { value: "100", label: "Unit minimum" },
-      { value: "Pantone", label: "Color matching" },
+      { value: "16", label: "Color Capability" },
+      { value: "High", label: "Volume" },
+      { value: "Pantone", valueImage: "/marketing/pantone.svg", valueImageAlt: "Pantone", label: "Color matching" },
     ],
     image: SERVICE_IMAGES["Screen Printing"],
   },
@@ -36,12 +42,12 @@ const SERVICES: {
     id: "embroidery",
     badge: "Decoration",
     name: "Embroidery",
-    description: "Stitched into the fabric, not stuck on top of it. Vinyl peels. Heat transfer cracks. Thread doesn't move. The detail that earns a piece a permanent spot in the closet.",
+    description: "Stitched in, not stuck on. The premium touch for hats and high-end pieces. The kind of detail that earns a permanent spot in the rotation.",
     capabilities: [],
     stats: [
-      { value: "25", label: "Unit minimum" },
-      { value: "All", label: "Stitch styles" },
-      { value: "Free", label: "Digitizing" },
+      { value: "Low", label: "Minimum" },
+      { value: "Fast", label: "Turnaround" },
+      { value: "Premium", label: "Finish" },
     ],
     image: SERVICE_IMAGES["Embroidery"],
   },
@@ -49,12 +55,12 @@ const SERVICES: {
     id: "sourcing",
     badge: "Sourcing",
     name: "Product Sourcing",
-    description: "If it exists, we can source it. If it doesn't, we can build it. Tier-1 supplier accounts and overseas partners for everything in between.",
+    description: "If it exists, we can source it. If it doesn't, we can build it. Top brand accounts for quick turnarounds, and overseas partners for everything else.",
     capabilities: [],
     stats: [
-      { value: "All", label: "Tier-1 brand accounts" },
-      { value: "Custom", label: "Cut-and-sew available" },
-      { value: "Global", label: "Sourcing network" },
+      { value: "In-stock", label: "Blanks" },
+      { value: "Custom", label: "Available" },
+      { value: "Global", label: "Network" },
     ],
     image: SERVICE_IMAGES["Product Sourcing"],
   },
@@ -62,58 +68,28 @@ const SERVICES: {
     id: "design",
     badge: "Design",
     name: "Design &amp; Product Development",
-    description: "Design starts with you. A brief, a Pinterest board, a napkin sketch, even a half-formed idea: anything that points us at your taste. We'll handle the rest. No direction means no design worth printing.",
+    description: "Direction starts with you. A reference, a mood board, a napkin sketch, even a half-baked idea. Point us toward your vision, we'll build it.",
     capabilities: [],
     stats: [
-      { value: "Direct", label: "Designer access" },
-      { value: "Vector", label: "Art prep" },
-      { value: "Print-ready", label: "Final files" },
+      { value: "Your", label: "Vision" },
+      { value: "Our", label: "Execution" },
+      { value: "Production", label: "Ready" },
     ],
     image: SERVICE_IMAGES["Design"],
   },
   {
-    id: "warehouse",
+    id: "warehousing-fulfillment",
     badge: "Logistics",
-    name: "Warehousing",
-    description: "Boxes lie. Units don't. We open every box, count every unit, flag every variance, and photograph every receipt. Problems caught at intake, not in front of your customer.",
+    name: "Warehousing &amp; Fulfillment",
+    description: "Every unit logged, inspected, and tracked from the day it lands. Discrepancies get caught on our floor, not in your customer's hands. And when it ships, it ships right: fast, accurate, and on-brand, because fulfillment is your brand's last impression, not a commodity.",
     capabilities: [],
     stats: [
-      { value: "Per-unit", label: "QC" },
-      { value: "Photo", label: "Receipts" },
-      { value: "In-house", label: "Production" },
-    ],
-    image: SERVICE_IMAGES["Warehousing"],
-  },
-  {
-    id: "fulfillment",
-    badge: "Logistics",
-    name: "Fulfillment",
-    description: "Fulfillment is your brand's last impression. Don't let it be a commodity. Folded right, polybagged right, hangtags facing front. The unboxing your customer is about to post.",
-    capabilities: [],
-    stats: [
-      { value: "DTC + Tour", label: "Routes" },
-      { value: "Shopify", label: "Integrated" },
-      { value: "All", label: "Major carriers" },
+      { value: "Secure", label: "Storage" },
+      { value: "Real-time", label: "Tracking" },
+      { value: "High", label: "Volume" },
     ],
     image: SERVICE_IMAGES["Fulfillment"],
   },
-  {
-    id: "ecommerce",
-    badge: "E-Commerce",
-    name: "E-Commerce Management",
-    description: "Your storefront is only as accurate as the warehouse behind it. We run both. No plugin mismatches, no inventory ghosts, no oversold drops you'll apologize for. The team running your store also runs the floor your orders ship from.",
-    capabilities: [],
-    stats: [
-      { value: "Shopify", label: "Storefront" },
-      { value: "Live", label: "Inventory sync" },
-      { value: "Drop", label: "Coordination" },
-    ],
-    image: SERVICE_IMAGES["E-Commerce"],
-  },
-];
-
-const CLIENT_TYPES = [
-  "Brands", "Tours & Artists", "Corporate", "Webstores", "Events", "Startups",
 ];
 
 export default function ServicesPage() {
@@ -122,152 +98,73 @@ export default function ServicesPage() {
       <PageHero
         title="Everything under one roof."
         image="/marketing/hero-services.jpg"
+        minHeight="min(72vh, 720px)"
       />
 
-      {/* Service rows — alternating image/text sides for visual rhythm */}
-      <section style={{ padding: "100px 32px", background: "#0a0a0c" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", flexDirection: "column", gap: 80 }}>
-          {SERVICES.map((svc, i) => (
-            <article
-              key={svc.id}
-              id={svc.id}
-              className="hpd-svc-row"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 56,
-                alignItems: "center",
-              }}
-            >
-              {/* Image — flips side on odd rows */}
-              <div
-                className="hpd-svc-img"
-                style={{
-                  order: i % 2 === 0 ? 0 : 1,
-                  aspectRatio: "4 / 3",
-                  borderRadius: 12,
-                  overflow: "hidden",
-                  background: "#141417",
-                }}
-              >
-                <img
-                  src={svc.image}
-                  alt=""
-                  aria-hidden
-                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                />
-              </div>
+      {/* Thesis — introduces the manufacturing core. */}
+      <ConnectiveLine>
+        Focus on your brand. We'll handle the rest.
+        <br />
+        Every step between your idea and your customer's
+        <br />
+        new favorite piece.
+      </ConnectiveLine>
 
-              <div>
-                <h2
-                  dangerouslySetInnerHTML={{ __html: svc.name }}
-                  style={{
-                    fontSize: "clamp(26px, 3.4vw, 36px)",
-                    fontWeight: 800,
-                    letterSpacing: "-0.02em",
-                    lineHeight: 1.15,
-                    color: "#fff",
-                    marginBottom: 16,
-                  }}
-                />
-                <p
-                  dangerouslySetInnerHTML={{ __html: svc.description }}
-                  style={{
-                    fontSize: 16, lineHeight: 1.65,
-                    color: "rgba(255,255,255,0.72)",
-                    marginBottom: 20,
-                  }}
-                />
-                {svc.stats ? (
-                  <div style={{
-                    display: "grid",
-                    gridTemplateColumns: `repeat(${svc.stats.length}, 1fr)`,
-                    gap: 24,
-                    marginTop: 28,
-                    paddingTop: 28,
-                    borderTop: "1px solid rgba(255,255,255,0.1)",
-                  }}>
-                    {svc.stats.map(stat => (
-                      <div key={stat.label}>
-                        <div style={{
-                          fontSize: "clamp(32px, 3.6vw, 48px)",
-                          fontWeight: 800,
-                          lineHeight: 1,
-                          letterSpacing: "-0.02em",
-                          color: "#fff",
-                          marginBottom: 8,
-                        }}>{stat.value}</div>
-                        <div style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.14em",
-                          color: "rgba(255,255,255,0.55)",
-                          lineHeight: 1.3,
-                        }}>{stat.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <ul style={{
-                    listStyle: "none", padding: 0, margin: 0,
-                    display: "grid", gridTemplateColumns: "1fr 1fr",
-                    gap: "8px 16px",
-                  }}>
-                    {svc.capabilities.map(cap => (
-                      <li key={cap} style={{
-                        fontSize: 13, color: "rgba(255,255,255,0.6)",
-                        paddingLeft: 16, position: "relative",
-                      }}>
-                        <span style={{
-                          position: "absolute", left: 0, top: "0.5em",
-                          width: 6, height: 6, background: "#fff", borderRadius: 99,
-                        }} />
-                        {cap}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      {/* All services as one continuous zig-zag — production work plus
+          the merged warehousing & fulfillment row at the end. */}
+      <ServiceGroup services={SERVICES} />
 
-      {/* Client types */}
-      <section style={{ padding: "80px 32px 120px", background: "#0a0a0c", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", textAlign: "center" }}>
-          <div style={{
-            fontSize: 11, fontWeight: 700,
-            textTransform: "uppercase", letterSpacing: "0.14em",
-            color: "rgba(255,255,255,0.5)", marginBottom: 16,
-          }}>
-            Who we work with
-          </div>
+      {/* Closing hero — full-bleed photo with the partnership statement.
+          Same scale as the top hero, no nav-clearance padding since
+          we're at the bottom of the page. */}
+      <section style={{
+        position: "relative",
+        minHeight: "min(72vh, 720px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+        textAlign: "center",
+      }}>
+        <img
+          src="/marketing/hero-services2.jpg"
+          alt=""
+          aria-hidden
+          style={{
+            position: "absolute", inset: 0,
+            width: "100%", height: "100%", objectFit: "cover",
+          }}
+        />
+        <div style={{
+          position: "absolute", inset: 0,
+          background: "linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.75) 100%)",
+        }} />
+        <div style={{
+          position: "relative", zIndex: 1,
+          maxWidth: 1000, padding: "80px 32px",
+        }}>
           <h2 style={{
-            fontSize: "clamp(26px, 3.4vw, 36px)",
-            fontWeight: 800,
+            fontSize: "clamp(32px, 5.5vw, 60px)",
+            fontWeight: 900,
+            lineHeight: 1.05,
             letterSpacing: "-0.02em",
             color: "#fff",
-            marginBottom: 40,
+            textTransform: "uppercase",
+            marginBottom: 36,
           }}>
-            Brands. Tours. Corporates. Everyone in between.
+            One partner, from your idea to the last shipment.
           </h2>
-          <div style={{
-            display: "flex", flexWrap: "wrap", justifyContent: "center",
-            gap: "16px 40px",
+          <Link href="/start" style={{
+            display: "inline-block",
+            background: "#fff", color: "#0a0a0c",
+            padding: "16px 36px", borderRadius: 8,
+            fontSize: 14, fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            textDecoration: "none",
           }}>
-            {CLIENT_TYPES.map(t => (
-              <div key={t} style={{
-                fontSize: 14, fontWeight: 700,
-                textTransform: "uppercase",
-                letterSpacing: "0.14em",
-                color: "rgba(255,255,255,0.85)",
-              }}>
-                {t}
-              </div>
-            ))}
-          </div>
+            Start a Project
+          </Link>
         </div>
       </section>
 
@@ -283,5 +180,165 @@ export default function ServicesPage() {
         }
       `}</style>
     </>
+  );
+}
+
+// Centered connective prose bridging service groups. Reads as a
+// transition beat, not a content block.
+function ConnectiveLine({ children }: { children: React.ReactNode }) {
+  return (
+    <section style={{
+      padding: "80px 32px",
+      background: "#0a0a0c",
+      textAlign: "center",
+    }}>
+      <p style={{
+        fontSize: "clamp(20px, 2.2vw, 28px)",
+        lineHeight: 1.4,
+        letterSpacing: "-0.01em",
+        color: "rgba(255,255,255,0.92)",
+        maxWidth: 820, margin: "0 auto",
+        fontWeight: 500,
+      }}>
+        {children}
+      </p>
+    </section>
+  );
+}
+
+// Group renderer — maps service rows with alternating image side.
+// Used for MAKE IT (production services, big crafted photo boxes).
+function ServiceGroup({ services }: { services: Service[] }) {
+  return (
+    <section style={{ padding: "0 32px 40px", background: "#0a0a0c" }}>
+      <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", flexDirection: "column", gap: 80 }}>
+        {services.map((svc, i) => <ServiceRow key={svc.id} svc={svc} index={i} />)}
+      </div>
+    </section>
+  );
+}
+
+function ServiceRow({ svc, index }: { svc: Service; index: number }) {
+  return (
+    <article
+      id={svc.id}
+      className="hpd-svc-row"
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 56,
+        alignItems: "center",
+      }}
+    >
+      <div
+        className="hpd-svc-img"
+        style={{
+          order: index % 2 === 0 ? 0 : 1,
+          aspectRatio: "4 / 3",
+          borderRadius: 12,
+          overflow: "hidden",
+          background: "#141417",
+        }}
+      >
+        <img
+          src={svc.image}
+          alt=""
+          aria-hidden
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+        />
+      </div>
+
+      <div>
+        <h2
+          dangerouslySetInnerHTML={{ __html: svc.name }}
+          style={{
+            fontSize: "clamp(26px, 3.4vw, 36px)",
+            fontWeight: 800,
+            letterSpacing: "-0.02em",
+            lineHeight: 1.15,
+            color: "#fff",
+            marginBottom: 16,
+          }}
+        />
+        <p
+          dangerouslySetInnerHTML={{ __html: svc.description }}
+          style={{
+            fontSize: 16, lineHeight: 1.65,
+            color: "rgba(255,255,255,0.72)",
+            marginBottom: 20,
+          }}
+        />
+        {svc.stats ? (
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(${svc.stats.length}, 1fr)`,
+            gap: 24,
+            marginTop: 28,
+            paddingTop: 28,
+            borderTop: "1px solid rgba(255,255,255,0.1)",
+          }}>
+            {svc.stats.map(stat => (
+              <div key={stat.label} style={{ textAlign: "center" }}>
+                {stat.valueImage ? (
+                  <div style={{
+                    height: "clamp(24px, 2.6vw, 34px)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    marginBottom: 10,
+                  }}>
+                    <img
+                      src={stat.valueImage}
+                      alt={stat.valueImageAlt || stat.value}
+                      style={{
+                        height: "100%",
+                        maxWidth: "100%",
+                        width: "auto",
+                        display: "block",
+                        objectFit: "contain",
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div style={{
+                    fontSize: "clamp(24px, 2.6vw, 34px)",
+                    fontWeight: 800,
+                    lineHeight: 1,
+                    letterSpacing: "-0.02em",
+                    color: "#fff",
+                    marginBottom: 10,
+                  }}>{stat.value}</div>
+                )}
+                <div style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.14em",
+                  color: "rgba(255,255,255,0.55)",
+                  lineHeight: 1.3,
+                }}>{stat.label}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <ul style={{
+            listStyle: "none", padding: 0, margin: 0,
+            display: "grid", gridTemplateColumns: "1fr 1fr",
+            gap: "8px 16px",
+          }}>
+            {svc.capabilities.map(cap => (
+              <li key={cap} style={{
+                fontSize: 13, color: "rgba(255,255,255,0.6)",
+                paddingLeft: 16, position: "relative",
+              }}>
+                <span style={{
+                  position: "absolute", left: 0, top: "0.5em",
+                  width: 6, height: 6, background: "#fff", borderRadius: 99,
+                }} />
+                {cap}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </article>
   );
 }

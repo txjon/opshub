@@ -4,23 +4,25 @@ import { useEffect, useRef } from "react";
 import { SERVICE_IMAGES } from "./_placeholder-images";
 
 // Horizontal scroll-jacked service showcase, same pattern Killer Merch
-// uses. The section pins to the viewport and translates a 7-tile track
+// uses. The section pins to the viewport and translates a 5-tile track
 // horizontally as the user continues scrolling vertically. Works on
 // desktop AND mobile — vertical swipe drives the horizontal pan.
 //
-// Math: track is 7 × 60vw = 420vw wide. To move it from 0 → -320vw
+// Math: track is 5 × 60vw = 300vw wide. To move it from 0 → -200vw
 // (so the last tile aligns with the right edge of the viewport), the
-// parent section is tall enough to give the user 320vw of vertical
-// scroll while the sticky child stays pinned — height: calc(100vh + 320vw).
+// parent section is tall enough to give the user 200vw of vertical
+// scroll while the sticky child stays pinned — height: calc(100vh + 200vw).
+//
+// Tile list mirrors /services exactly: 4 production services + a
+// merged Warehousing & Fulfillment tile (no separate E-Commerce, no
+// split warehouse/fulfillment).
 
 const SERVICES: { label: string; href: string; image: string }[] = [
-  { label: "Screen Printing",              href: "/services#screen",     image: SERVICE_IMAGES["Screen Printing"] },
-  { label: "Embroidery",                   href: "/services#embroidery", image: SERVICE_IMAGES["Embroidery"] },
-  { label: "Product Sourcing",             href: "/services#sourcing",   image: SERVICE_IMAGES["Product Sourcing"] },
-  { label: "Design & Product Development", href: "/services#design",     image: SERVICE_IMAGES["Design"] },
-  { label: "Warehousing",                  href: "/services#warehouse",  image: SERVICE_IMAGES["Warehousing"] },
-  { label: "Fulfillment",                  href: "/services#fulfillment",image: SERVICE_IMAGES["Fulfillment"] },
-  { label: "E-Commerce Management",        href: "/services#ecommerce",  image: SERVICE_IMAGES["E-Commerce"] },
+  { label: "Screen Printing",              href: "/services#screen",                    image: SERVICE_IMAGES["Screen Printing"] },
+  { label: "Embroidery",                   href: "/services#embroidery",                image: SERVICE_IMAGES["Embroidery"] },
+  { label: "Product Sourcing",             href: "/services#sourcing",                  image: SERVICE_IMAGES["Product Sourcing"] },
+  { label: "Design & Product Development", href: "/services#design",                    image: SERVICE_IMAGES["Design"] },
+  { label: "Warehousing & Fulfillment",    href: "/services#warehousing-fulfillment",   image: SERVICE_IMAGES["Fulfillment"] },
 ];
 
 export function ServiceGrid() {
@@ -91,7 +93,7 @@ export function ServiceGrid() {
         /* Scroll-jack runs everywhere now (desktop + mobile). Vertical
            scroll drives horizontal pan; no separate touch branch. */
         .hpd-svc-jack {
-          height: calc(100vh + 320vw);
+          height: calc(100vh + 200vw);
         }
         .hpd-svc-stage {
           position: sticky;

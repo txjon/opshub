@@ -7,16 +7,18 @@ export function PageHero({
   title,
   sub,
   image,
+  minHeight = 420,
 }: {
   eyebrow?: string;
   title: string;
   sub?: string;
   image?: string;
+  minHeight?: number | string;
 }) {
   return (
     <section style={{
       position: "relative",
-      minHeight: 420,
+      minHeight,
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
