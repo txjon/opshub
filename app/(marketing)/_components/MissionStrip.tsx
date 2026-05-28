@@ -47,7 +47,7 @@ export function MissionStrip() {
           color: "rgba(255,255,255,0.55)",
           marginBottom: 40,
         }}>
-          Based in Las Vegas. Shipped everywhere.
+          Based in Las Vegas. Shipped worldwide.
         </p>
 
         <Link href="/start" style={{
