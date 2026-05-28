@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/client-digest",
       "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/cron/sweep-orphan-uploads",
+      "schedule": "30 9 * * *"
     }
   ]
 }

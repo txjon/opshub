@@ -43,10 +43,22 @@ export async function updateSession(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
-  const isAuthRoute = request.nextUrl.pathname.startsWith("/login") || request.nextUrl.pathname.startsWith("/set-password") || request.nextUrl.pathname.startsWith("/auth/callback");
-  const isPublicRoute = request.nextUrl.pathname.startsWith("/portal")
-    || request.nextUrl.pathname.startsWith("/staging/share")
-    || request.nextUrl.pathname.startsWith("/design/");
+  const pathname = request.nextUrl.pathname;
+  const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/set-password") || pathname.startsWith("/auth/callback");
+  // Token-gated public surfaces.
+  const isTokenPublic = pathname.startsWith("/portal")
+    || pathname.startsWith("/staging/share")
+    || pathname.startsWith("/design/");
+  // Public marketing site — exact-match paths so we don't accidentally
+  // open the dashboard's /jobs or similar. Add new marketing pages here
+  // when each phase ships (Services, Work, Start, Client Portal).
+  const isMarketingPublic = MARKETING_PUBLIC_PATHS.includes(pathname)
+    // /shop/[handle] — product detail pages, sub-paths of /shop
+    || pathname.startsWith("/shop/");
+  // The legacy /onboard intake form stays publicly reachable.
+  const isLegacyPublic = pathname.startsWith("/onboard");
+
+  const isPublicRoute = isTokenPublic || isMarketingPublic || isLegacyPublic;
 
   if (!user && !isAuthRoute && !isPublicRoute) {
     const url = request.nextUrl.clone();
@@ -54,11 +66,31 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Authenticated users hitting /login etc. used to redirect to /. With
+  // the marketing site living at /, that's no longer the dashboard —
+  // route them to /dashboard explicitly so the login flow lands them
+  // where they actually work.
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 
   return supabaseResponse;
 }
+
+// Public marketing routes. Each phase appends to this list:
+//   Phase 1 — "/" (home)
+//   Phase 2 — "/services", "/work", "/client-portal"
+//   Phase 3 — "/start"
+//   Phase 4 — "/shop" + product detail pages (headless Shopify)
+//   Phase 5 — "/contact" (native contact form, replaces AWIO)
+const MARKETING_PUBLIC_PATHS = [
+  "/",
+  "/services",
+  "/work",
+  "/start",
+  "/client-portal",
+  "/shop",
+  "/contact",
+];
