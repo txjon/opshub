@@ -37,13 +37,11 @@ export function MarketingFooter() {
         }} className="hpd-footer-grid">
           {/* Brand column */}
           <div>
-            <div style={{
-              fontSize: 16, fontWeight: 900, letterSpacing: "-0.02em",
-              marginBottom: 12, color: "#fff",
-              textTransform: "uppercase",
-            }}>
-              house party distro
-            </div>
+            <img
+              src="/marketing/hpd-logo.svg"
+              alt="House Party Distro"
+              style={{ height: 22, width: "auto", display: "block", marginBottom: 14 }}
+            />
             <div style={{ fontSize: 13, color: "rgba(255,255,255,0.72)", lineHeight: 1.6 }}>
               Custom apparel from concept to delivery.<br />
               Las Vegas, NV

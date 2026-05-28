@@ -127,23 +127,28 @@ export function MarketingNav() {
           {/* CENTER — logo, absolutely centered regardless of side widths */}
           <Link
             href="/"
+            aria-label="House Party Distro home"
             style={{
               position: "absolute", left: "50%", top: "50%",
               transform: "translate(-50%, -50%)",
-              color: "#fff", textDecoration: "none",
-              fontWeight: 900,
-              letterSpacing: "-0.02em",
-              textTransform: "uppercase",
-              // Top state: clamp so the logo shrinks on narrow viewports
-              // and doesn't overlap the hamburger + login icon on mobile.
-              // Floor 18px, scales with viewport, capped at 28px (desktop).
-              fontSize: scrolled ? 18 : "clamp(18px, 5vw, 28px)",
-              lineHeight: 1,
-              transition: "font-size 0.25s ease",
-              whiteSpace: "nowrap",
+              textDecoration: "none",
+              display: "flex", alignItems: "center",
+              lineHeight: 0,
             }}
           >
-            House Party Distro
+            <img
+              src="/marketing/hpd-logo.svg"
+              alt="House Party Distro"
+              style={{
+                // Top state clamps so the logo shrinks on narrow viewports
+                // and doesn't overlap the hamburger + login icon on mobile.
+                // Floor 20px, scales with viewport, capped at 32px (desktop).
+                height: scrolled ? 22 : "clamp(20px, 4.4vw, 32px)",
+                width: "auto",
+                display: "block",
+                transition: "height 0.25s ease",
+              }}
+            />
           </Link>
 
           {/* RIGHT — login + cart icons */}
