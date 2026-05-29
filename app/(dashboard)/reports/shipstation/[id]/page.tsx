@@ -40,11 +40,18 @@ type SalesTotals = { qty: number; sales: number; cost: number; net: number; fee:
 type PostageTotals = { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number; fulfillment?: number; invoice_total?: number };
 
 type ReportType = "sales" | "postage" | "combined";
+type BulkLine = { transaction_date: string; amount: number; billed: number };
 type Report = {
   id: string;
   client_id: string;
   report_type: ReportType;
+  // "per_shipment" (default) or "bulk" pass-through reimbursement. Only
+  // meaningful when the report has a postage half.
+  postage_mode: "per_shipment" | "bulk" | null;
   period_label: string;
+  // Per-half period overrides (combined). Null → inherit period_label.
+  sales_period_label: string | null;
+  postage_period_label: string | null;
   hpd_fee_pct: number;
   per_package_fee: number | null;
   line_items: any[];
@@ -113,6 +120,10 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   // Older reports don't have totals.fulfillment — fall back to 0.
   const isPostage = report?.report_type === "postage";
   const isCombined = report?.report_type === "combined";
+  // Bulk postage pass-through — applies to either postage-only or combined.
+  // The dollar math is unchanged (billed already = the reimbursement total,
+  // fulfillment = 0), so only the rendering differs.
+  const isBulkPostage = (isPostage || isCombined) && report?.postage_mode === "bulk";
   const billedAmount = useMemo(() => {
     if (!report) return 0;
     if (isCombined) {
@@ -275,6 +286,13 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   const input: React.CSSProperties = { padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font, boxSizing: "border-box", width: "100%" };
 
   const created = new Date(report.created_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  // Per-half periods. Only worth showing on the section when combined and
+  // the half differs from the invoice period (single-type already shows the
+  // period in the page header).
+  const salesPeriod = report.sales_period_label || report.period_label;
+  const postagePeriod = report.postage_period_label || report.period_label;
+  const salesSectionPeriod = isCombined && salesPeriod !== report.period_label ? salesPeriod : undefined;
+  const postageSectionPeriod = isCombined && postagePeriod !== report.period_label ? postagePeriod : undefined;
   const hasQB = !!report.qb_invoice_id;
   const isManualInvoice = !!report.qb_invoice_number && !report.qb_invoice_id;
   const sentDate = report.sent_at ? new Date(report.sent_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : null;
@@ -439,37 +457,48 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         </div>
       )}
 
-      {/* Totals strip(s) — combined shows both halves stacked. */}
+      {/* Totals strip(s) — combined shows both halves stacked. Bulk postage
+          swaps the shipment strip for a pass-through reimbursement strip. */}
       {isCombined ? (
         <>
           <SalesTotalsStrip totals={report.totals as SalesTotals} feePct={report.hpd_fee_pct} />
-          <PostageTotalsStrip
-            totals={(report.postage_totals || {}) as PostageTotals}
-            lines={(report.postage_line_items || []) as PostageLineItem[]}
-          />
-          <CombinedInvoiceBreakdown report={report} />
+          {isBulkPostage
+            ? <BulkPostageStrip totals={(report.postage_totals || {}) as any} />
+            : <PostageTotalsStrip
+                totals={(report.postage_totals || {}) as PostageTotals}
+                lines={(report.postage_line_items || []) as PostageLineItem[]}
+              />}
+          <CombinedInvoiceBreakdown report={report} isBulkPostage={isBulkPostage} />
         </>
       ) : isPostage ? (
-        <PostageTotalsStrip totals={report.totals as PostageTotals} lines={(report.line_items || []) as PostageLineItem[]} />
+        isBulkPostage
+          ? <BulkPostageStrip totals={(report.totals || {}) as any} />
+          : <PostageTotalsStrip totals={report.totals as PostageTotals} lines={(report.line_items || []) as PostageLineItem[]} />
       ) : (
         <SalesTotalsStrip totals={report.totals as SalesTotals} feePct={report.hpd_fee_pct} />
       )}
 
-      {/* Line items — combined shows both tables stacked. */}
+      {/* Line items — combined shows both tables stacked. Bulk postage
+          shows the purchase ledger instead of the shipment table. */}
       {isCombined ? (
         <>
-          <LineItemsTable report={report} />
-          <PostageLineItemsTable
-            report={report}
-            postageOverride={{
-              lines: (report.postage_line_items || []) as PostageLineItem[],
-              totals: (report.postage_totals || {}) as PostageTotals,
-              perPackageFee: Number(report.per_package_fee) || 0,
-            }}
-          />
+          <LineItemsTable report={report} period={salesSectionPeriod} />
+          {isBulkPostage
+            ? <BulkPostageLedger lines={(report.postage_line_items || []) as BulkLine[]} total={Number((report.postage_totals || {}).billed) || 0} period={postageSectionPeriod} />
+            : <PostageLineItemsTable
+                report={report}
+                period={postageSectionPeriod}
+                postageOverride={{
+                  lines: (report.postage_line_items || []) as PostageLineItem[],
+                  totals: (report.postage_totals || {}) as PostageTotals,
+                  perPackageFee: Number(report.per_package_fee) || 0,
+                }}
+              />}
         </>
       ) : isPostage ? (
-        <PostageLineItemsTable report={report} />
+        isBulkPostage
+          ? <BulkPostageLedger lines={(report.line_items || []) as BulkLine[]} total={Number((report.totals || {}).billed) || 0} />
+          : <PostageLineItemsTable report={report} />
       ) : (
         <LineItemsTable report={report} />
       )}
@@ -549,7 +578,7 @@ function PostageTotalsStrip({ totals, lines }: { totals: PostageTotals; lines: P
   );
 }
 
-function LineItemsTable({ report }: { report: Report }) {
+function LineItemsTable({ report, period }: { report: Report; period?: string }) {
   const lines = (report.line_items || []) as SalesLineItem[];
   const groups = useMemo(() => groupLineItems(lines), [lines]);
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" };
@@ -559,6 +588,7 @@ function LineItemsTable({ report }: { report: Report }) {
     <div style={card}>
       <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
         Products ({groups.length}) · {lines.length} variant{lines.length === 1 ? "" : "s"}
+        {period && <span style={{ marginLeft: 8, color: T.faint }}>· {period}</span>}
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -611,12 +641,14 @@ function LineItemsTable({ report }: { report: Report }) {
 function PostageLineItemsTable({
   report,
   postageOverride,
+  period,
 }: {
   report: Report;
   // Combined reports keep postage data on dedicated columns; pass them
   // through here so this component can render either a postage-only
   // report or the postage half of a combined report from the same code.
   postageOverride?: { lines: PostageLineItem[]; totals: PostageTotals; perPackageFee: number };
+  period?: string;
 }) {
   const lines = postageOverride?.lines ?? ((report.line_items || []) as PostageLineItem[]);
   const totals = postageOverride?.totals ?? ((report.totals || {}) as PostageTotals);
@@ -632,6 +664,7 @@ function PostageLineItemsTable({
     <div style={card}>
       <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
         Shipments ({lines.length})
+        {period && <span style={{ marginLeft: 8, color: T.faint }}>· {period}</span>}
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 960 }}>
@@ -750,10 +783,73 @@ function ManualInvoiceInput({ reportId, initial, onSaved }: { reportId: string; 
 //   Service Fee   ← totals.fee (sales side)
 //   Postage       ← postage_totals.billed
 //   Fulfillment   ← postage_totals.fulfillment (only when > 0)
-function CombinedInvoiceBreakdown({ report }: { report: Report }) {
+// Bulk postage strip — pass-through has only two real numbers (purchase
+// count + reimbursement total), so it gets its own 3-tile strip rather
+// than the shipment strip's income/cost/margin columns.
+function BulkPostageStrip({ totals }: { totals: { purchases?: number; total?: number; billed?: number } }) {
+  const reimbursement = Number(totals?.billed ?? totals?.total) || 0;
+  const tiles = [
+    { label: "Purchases", value: fmtN(Number(totals?.purchases) || 0), color: T.text },
+    { label: "Billing", value: "Pass-through", color: T.text },
+    { label: "Reimbursement", value: fmtD(reimbursement), color: T.green },
+  ];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+      {tiles.map(i => (
+        <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px" }}>
+          <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
+          <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono, color: i.color }}>{i.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Bulk postage ledger — itemized list of postage purchases (date + amount)
+// with a reimbursement total. Mirrors the shipment table's card styling.
+function BulkPostageLedger({ lines, total, period }: { lines: BulkLine[]; total: number; period?: string }) {
+  const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" };
+  const thStyle: React.CSSProperties = { padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}` };
+  const tdStyle: React.CSSProperties = { padding: "7px 10px", fontSize: 12, borderBottom: `1px solid ${T.border}`, fontFamily: mono };
+  return (
+    <div style={card}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
+        Postage Purchases ({lines.length})
+        {period && <span style={{ marginLeft: 8, color: T.faint }}>· {period}</span>}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Transaction Date</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((r, i) => (
+              <tr key={i}>
+                <td style={{ ...tdStyle, fontFamily: font }}>{r.transaction_date || "—"}</td>
+                <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(Number(r.amount) || 0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", width: "100%", maxWidth: 480, fontSize: 14, color: T.text, fontFamily: mono, fontWeight: 800 }}>
+          <span>Total Reimbursement</span>
+          <span>{fmtD(total)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CombinedInvoiceBreakdown({ report, isBulkPostage }: { report: Report; isBulkPostage: boolean }) {
   const fee = Number((report.totals as any)?.fee) || 0;
   const billed = Number((report.postage_totals as any)?.billed) || 0;
-  const fulfillment = Number((report.postage_totals as any)?.fulfillment) || 0;
+  // Bulk has no fulfillment fee; force it to 0 regardless of any stale value.
+  const fulfillment = isBulkPostage ? 0 : (Number((report.postage_totals as any)?.fulfillment) || 0);
   const shipments = Number((report.postage_totals as any)?.shipments) || 0;
   const perPackage = Number(report.per_package_fee) || 0;
   const feePct = (Number(report.hpd_fee_pct) || 0) * 100;
@@ -768,7 +864,7 @@ function CombinedInvoiceBreakdown({ report }: { report: Report }) {
           <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(fee)}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-          <span style={{ color: T.muted }}>Postage &amp; Insurance</span>
+          <span style={{ color: T.muted }}>{isBulkPostage ? "Postage reimbursement" : "Postage & Insurance"}</span>
           <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(billed)}</span>
         </div>
         {fulfillment > 0 && (

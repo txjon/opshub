@@ -229,3 +229,86 @@ export async function generatePostageXlsx(data: {
   const ab = await wb.xlsx.writeBuffer();
   return Buffer.from(ab as ArrayBuffer);
 }
+
+export type BulkLine = { transaction_date: string; amount: number; billed: number };
+
+// Bulk postage ledger xlsx — accompanies the POSTAGE INVOICE (and the
+// postage half of a bulk Full Service invoice). One row per postage
+// purchase (date + amount) and a reimbursement total. Pure pass-through,
+// so there are no markup / cost / margin columns.
+export async function generateBulkPostageXlsx(data: {
+  clientName: string;
+  periodLabel: string;
+  invoiceNumber: string | null;
+  generatedOn: string;
+  lines: BulkLine[];
+  total: number;
+}): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "House Party Distro";
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet("Postage Purchases", {
+    views: [{ state: "frozen", ySplit: 8 }],
+  });
+
+  ws.mergeCells("A1:B1");
+  const title = ws.getCell("A1");
+  title.value = "HOUSE PARTY DISTRO — POSTAGE INVOICE";
+  title.font = { name: "Helvetica", size: 14, bold: true, color: { argb: "FF111111" } };
+  title.alignment = { vertical: "middle", horizontal: "left" };
+
+  ws.getCell("A2").value = "Client:";
+  ws.getCell("B2").value = data.clientName;
+  ws.getCell("A3").value = "Period:";
+  ws.getCell("B3").value = data.periodLabel;
+  ws.getCell("A4").value = "Invoice #:";
+  ws.getCell("B4").value = data.invoiceNumber || "—";
+  ws.getCell("A5").value = "Generated:";
+  ws.getCell("B5").value = data.generatedOn;
+  for (const addr of ["A2", "A3", "A4", "A5"]) {
+    ws.getCell(addr).font = { bold: true, color: { argb: "FF666666" }, size: 10 };
+  }
+  for (const addr of ["B2", "B3", "B4", "B5"]) {
+    ws.getCell(addr).font = { size: 11, color: { argb: "FF111111" } };
+  }
+
+  ws.getCell("A6").value = "Reimbursement:";
+  ws.getCell("A6").font = { bold: true, size: 11, color: { argb: "FF111111" } };
+  ws.getCell("A6").alignment = { horizontal: "left", vertical: "middle" };
+  ws.getCell("B6").value = Number(data.total) || 0;
+  ws.getCell("B6").numFmt = '"$"#,##0.00';
+  ws.getCell("B6").font = { bold: true, size: 13, color: { argb: "FF111111" } };
+
+  // Column headers at row 8.
+  const headerRow = ws.getRow(8);
+  headerRow.values = ["Transaction Date", "Amount"];
+  headerRow.eachCell(cell => {
+    cell.font = { bold: true, size: 10, color: { argb: "FFFFFFFF" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A1A1A" } };
+    cell.alignment = { vertical: "middle", horizontal: "left" };
+    cell.border = { bottom: { style: "thin", color: { argb: "FF1A1A1A" } } };
+  });
+
+  const firstDataRow = 9;
+  for (const r of data.lines) {
+    ws.addRow([r.transaction_date || "", Number(r.amount) || 0]);
+  }
+  const lastDataRow = 8 + data.lines.length;
+  for (let r = firstDataRow; r <= lastDataRow; r++) {
+    ws.getCell(`B${r}`).numFmt = '"$"#,##0.00';
+  }
+
+  const totalsRowIdx = lastDataRow + 1;
+  ws.getCell(`A${totalsRowIdx}`).value = "TOTAL";
+  ws.getCell(`A${totalsRowIdx}`).font = { bold: true, size: 10 };
+  ws.getCell(`B${totalsRowIdx}`).value = { formula: `SUM(B${firstDataRow}:B${lastDataRow})` };
+  ws.getCell(`B${totalsRowIdx}`).numFmt = '"$"#,##0.00';
+  ws.getCell(`B${totalsRowIdx}`).font = { bold: true, size: 10 };
+  ws.getCell(`B${totalsRowIdx}`).border = { top: { style: "thin", color: { argb: "FF1A1A1A" } } };
+
+  ws.columns = [{ width: 30 }, { width: 16 }];
+
+  const ab = await wb.xlsx.writeBuffer();
+  return Buffer.from(ab as ArrayBuffer);
+}

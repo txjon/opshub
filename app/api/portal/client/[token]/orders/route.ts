@@ -147,7 +147,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     // ready for them to.
     const { data: shipReports } = await db
       .from("shipstation_reports")
-      .select("id, report_type, period_label, totals, postage_totals, per_package_fee, qb_invoice_id, qb_invoice_number, qb_payment_link, sent_at, created_at, paid_at, paid_amount")
+      .select("id, report_type, postage_mode, period_label, totals, postage_totals, per_package_fee, qb_invoice_id, qb_invoice_number, qb_payment_link, sent_at, created_at, paid_at, paid_amount")
       .eq("client_id", client.id)
       .not("qb_invoice_number", "is", null)
       .not("sent_at", "is", null);
@@ -174,10 +174,14 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       } else {
         total = Number(totals.fee) || 0;
       }
+      const isBulk = (isPostage || isCombined) && r.postage_mode === "bulk";
+      // Bulk postage has no unit/shipment count — use the purchase count
+      // so the portal copy reads "N postage purchases" instead of "0 units".
+      const bulkCount = isCombined ? (Number((r.postage_totals || {}).purchases) || 0) : (Number(totals.purchases) || 0);
       const totalQty = isCombined
-        ? (Number(totals.qty) || 0) + (Number((r.postage_totals || {}).shipments) || 0)
+        ? (Number(totals.qty) || 0) + (isBulk ? bulkCount : (Number((r.postage_totals || {}).shipments) || 0))
         : isPostage
-          ? (Number(totals.shipments) || 0)
+          ? (isBulk ? bulkCount : (Number(totals.shipments) || 0))
           : (Number(totals.qty) || 0);
       // paid_at + paid_amount are set by the QB webhook when the client
       // pays via the Pay Online link (see /api/qb/webhook2).
@@ -191,7 +195,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         id: r.id,
         kind: "fulfillment" as const,
         job_number: null,
-        title: `${isCombined ? "Full Service Invoice" : isPostage ? "Postage Report" : "Services Invoice"} — ${r.period_label}`,
+        title: `${isCombined ? "Full Service Invoice" : isPostage ? (isBulk ? "Postage Invoice" : "Postage Report") : "Services Invoice"} — ${r.period_label}`,
         phase: "fulfillment_invoice",
         target_ship_date: null,
         created_at: r.created_at,
@@ -208,6 +212,8 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         has_invoice: true,
         period_label: r.period_label,
         report_type: r.report_type || "sales",
+        postage_mode: r.postage_mode || "per_shipment",
+        bulk_count: bulkCount,
       };
     });
 
