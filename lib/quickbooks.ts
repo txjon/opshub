@@ -16,6 +16,49 @@ function getSupabase() {
   );
 }
 
+// ── Webhook payload parsing ──
+// Intuit is migrating webhooks from the legacy "eventNotifications /
+// dataChangeEvent / entities" shape to a flat CloudEvents array (deadline
+// May 15 2026, flipped per-subscription via a toggle in the dev portal).
+// parseWebhookEvents accepts EITHER format and normalizes to one flat list,
+// so the handler keeps working before and after the toggle is flipped.
+//
+//   Legacy:  { eventNotifications: [ { realmId, dataChangeEvent: { entities: [ { name, id, operation, lastUpdated } ] } } ] }
+//   CloudEvents (array): [ { intuitaccountid, intuitentityid, type: "qbo.<entity>.<operation>.v1", time, ... } ]
+//
+// HMAC verification (intuit-signature header over the raw body) is unchanged
+// between the two formats.
+export type QBWebhookEvent = { realmId: string; name: string; id: string; operation: string };
+
+export function parseWebhookEvents(body: any): QBWebhookEvent[] {
+  const out: QBWebhookEvent[] = [];
+  if (Array.isArray(body)) {
+    // New CloudEvents format — a flat array, one entry per entity change
+    // (and potentially across multiple companies in one delivery).
+    for (const ev of body) {
+      // type looks like "qbo.payment.created.v1" → [qbo, payment, created, v1]
+      const parts = String(ev?.type || "").split(".");
+      const entity = parts[1] || "";
+      out.push({
+        realmId: String(ev?.intuitaccountid ?? ""),
+        id: String(ev?.intuitentityid ?? ""),
+        // Capitalize to match the legacy entity casing ("Payment").
+        name: entity ? entity.charAt(0).toUpperCase() + entity.slice(1) : "",
+        operation: parts[2] || "",
+      });
+    }
+  } else {
+    // Legacy format.
+    for (const n of body?.eventNotifications || []) {
+      const realmId = String(n?.realmId ?? "");
+      for (const e of n?.dataChangeEvent?.entities || []) {
+        out.push({ realmId, id: String(e?.id ?? ""), name: e?.name || "", operation: e?.operation || "" });
+      }
+    }
+  }
+  return out;
+}
+
 // ── OAuth helpers ──
 
 export function getAuthUrl(): string {

@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getAccessToken } from "@/lib/quickbooks";
+import { getAccessToken, parseWebhookEvents } from "@/lib/quickbooks";
 import { createHmac } from "crypto";
 import { sendClientNotification } from "@/lib/auto-email";
 import { appBaseUrl } from "@/lib/public-url";
@@ -32,23 +32,19 @@ export async function POST(req: NextRequest) {
     const body = JSON.parse(rawBody);
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    const notifications = body.eventNotifications || [];
-    console.log("[QB Webhook2] Notifications:", notifications.length);
+    // Handles both the legacy and new CloudEvents payload shapes.
+    const events = parseWebhookEvents(body);
+    console.log("[QB Webhook2] Events:", events.map(e => `${e.name}:${e.id}@${e.realmId}`).join(", ") || "(none)");
 
-    for (const notification of notifications) {
-      const realmId = notification.realmId;
+    for (const ev of events) {
+      const realmId = ev.realmId;
       if (realmId !== process.env.QB_REALM_ID) {
         console.error("[QB Webhook2] Realm mismatch:", realmId, "!==", process.env.QB_REALM_ID);
         continue;
       }
-
-      const events = notification.dataChangeEvent?.entities || [];
-      console.log("[QB Webhook2] Entities:", events.map((e: any) => `${e.name}:${e.id}`).join(", "));
-
-      for (const entity of events) {
-        if (entity.name !== "Payment") continue;
-        const paymentId = entity.id;
-        console.log("[QB Webhook2] Processing payment:", paymentId);
+      if (ev.name !== "Payment") continue;
+      const paymentId = ev.id;
+      console.log("[QB Webhook2] Processing payment:", paymentId);
 
         // Fetch payment details from QB
         let token: string;
@@ -89,7 +85,6 @@ export async function POST(req: NextRequest) {
         const data = await res.json();
         await processPayment(data.Payment, supabase, paymentId);
       }
-    }
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
