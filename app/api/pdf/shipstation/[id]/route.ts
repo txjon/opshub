@@ -29,6 +29,8 @@ type PostageLine = {
   insurance_cost: number; weight: number; weight_unit: string; billed: number;
 };
 type PostageTotals = { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number; fulfillment?: number; invoice_total?: number };
+type BulkLine = { transaction_date: string; amount: number; billed: number };
+type BulkTotals = { purchases?: number; total?: number; billed?: number };
 
 function renderSalesReportHTML(data: {
   clientName: string;
@@ -400,6 +402,132 @@ function renderPostageReportHTML(data: {
 </body></html>`;
 }
 
+// ── Bulk postage ("POSTAGE INVOICE") PDF ──
+// Pure pass-through reimbursement of bulk postage purchases. No markup,
+// no shipment detail — just an itemized list of postage buys (date +
+// amount) and a reimbursement total. Layout mirrors the per-shipment
+// Fulfillment Invoice cover so it reads as a bill.
+function renderBulkPostageReportHTML(data: {
+  clientName: string;
+  clientBillingAddress: string | null;
+  clientBillingEmail: string | null;
+  periodLabel: string;
+  generatedOn: string;
+  invoiceNumber: string | null;
+  lines: BulkLine[];
+  totals: BulkTotals;
+  branding: import("@/lib/branding").PdfBranding;
+}): string {
+  const font = `'Helvetica Neue', Arial, sans-serif`;
+  const purchases = Number(data.totals?.purchases) || data.lines.length;
+  const total = Number(data.totals?.billed ?? data.totals?.total) || data.lines.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+
+  const ledgerRows = data.lines.map(r => `
+    <tr>
+      <td style="padding:7px 10px;border-bottom:0.5px solid #eee;font-size:11px">${escapeHtml(r.transaction_date || "—")}</td>
+      <td style="padding:7px 10px;border-bottom:0.5px solid #eee;font-size:11px;text-align:right;font-family:monospace">${fmtD(Number(r.amount) || 0)}</td>
+    </tr>`).join("");
+
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: ${font}; font-size: 11px; color: #1a1a1a; background: white; }
+  @media print { body { -webkit-print-color-adjust: exact; } }
+</style>
+</head><body>
+<div style="background:#fff;font-family:${font};color:#111;max-width:780px;margin:0 auto">
+
+  <!-- Header -->
+  <div style="padding:36px 40px 24px;border-bottom:3px solid #111">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        ${data.branding.logoSvg}
+        <div style="font-size:11px;color:#666;line-height:1.7;font-family:${font}">
+          ${data.branding.headerAddressHtml}${data.branding.fromEmailQuotes ? "<br/>" + data.branding.fromEmailQuotes : ""}
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:22px;font-weight:700;letter-spacing:-0.01em;font-family:${font};margin-bottom:8px">
+          POSTAGE INVOICE
+        </div>
+        <div style="font-size:11px;color:#666;line-height:1.8;font-family:${font}">
+          ${data.invoiceNumber ? `<div><span style="font-weight:600">Invoice #:</span> ${escapeHtml(data.invoiceNumber)}</div>` : ""}
+          <div><span style="font-weight:600">Date:</span> ${escapeHtml(data.generatedOn)}</div>
+          <div><span style="font-weight:600">Period:</span> ${escapeHtml(data.periodLabel)}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bill to -->
+  <div style="padding:24px 40px 8px;font-family:${font}">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:6px">Bill To</div>
+    <div style="font-size:15px;font-weight:700;color:#1a1a1a">${escapeHtml(data.clientName)}</div>
+    ${data.clientBillingAddress ? `<div style="font-size:11px;color:#444;line-height:1.6;margin-top:4px;white-space:pre-line">${escapeHtml(data.clientBillingAddress)}</div>` : ""}
+    ${data.clientBillingEmail ? `<div style="font-size:11px;color:#444;margin-top:4px">${escapeHtml(data.clientBillingEmail)}</div>` : ""}
+  </div>
+
+  <!-- Summary KPI strip -->
+  <div style="margin:16px 40px 0;font-family:${font}">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary — ${escapeHtml(data.periodLabel)}</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
+      <div style="padding:10px 12px;border-right:0.5px solid #e5e7eb">
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Purchases</div>
+        <div style="font-size:12px;font-weight:700;color:#1a1a1a;font-family:monospace">${fmtN(purchases)}</div>
+      </div>
+      <div style="padding:10px 12px;border-right:0.5px solid #e5e7eb">
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Billing</div>
+        <div style="font-size:12px;font-weight:700;color:#1a1a1a;font-family:monospace">Pass-through</div>
+      </div>
+      <div style="padding:10px 12px">
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Reimbursement</div>
+        <div style="font-size:12px;font-weight:700;color:#2a7a3a;font-family:monospace">${fmtD(total)}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Amount due -->
+  <div style="padding:20px 40px 8px;font-family:${font};display:flex;justify-content:flex-end">
+    <div style="text-align:right;min-width:240px;padding-top:10px;border-top:1.5px solid #1a1a1a">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa;margin-bottom:4px">Amount Due</div>
+      <div style="font-size:9px;color:#999;font-weight:500;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Postage reimbursement</div>
+      <div style="font-size:22px;font-weight:800;letter-spacing:-0.02em;color:#1a1a1a;font-family:monospace">${fmtD(total)}</div>
+    </div>
+  </div>
+
+  <!-- Itemized purchase ledger -->
+  <div style="padding:16px 40px 8px;font-family:${font}">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Postage Purchases (${data.lines.length})</div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr>
+          <th style="padding:8px 10px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#999;border-bottom:1px solid #ccc">Transaction Date</th>
+          <th style="padding:8px 10px;text-align:right;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#999;border-bottom:1px solid #ccc">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${ledgerRows}</tbody>
+      <tfoot>
+        <tr>
+          <td style="padding:10px 10px;font-size:11px;font-weight:800;border-top:1.5px solid #1a1a1a">Total</td>
+          <td style="padding:10px 10px;font-size:12px;font-weight:800;text-align:right;font-family:monospace;border-top:1.5px solid #1a1a1a">${fmtD(total)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- Footer -->
+  <div style="padding:18px 40px;border-top:0.5px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-end;font-family:${font};margin-top:12px">
+    <div>
+      <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">${data.branding.name}</div>
+      <div style="font-size:10px;color:#666;line-height:1.8">${data.branding.fromEmailQuotes ? data.branding.fromEmailQuotes + "<br/>" : ""}${data.branding.headerAddressHtml}</div>
+    </div>
+    <div style="font-size:9px;color:#aaa;text-align:right;max-width:300px">Postage purchased in bulk on the client's behalf, billed at cost. Please remit payment via the Pay Online link in the accompanying email.</div>
+  </div>
+
+</div>
+</body></html>`;
+}
+
 // ── Combined ("Full Service") report PDF ──
 // One invoice covering both halves of HPD's monthly fulfillment for a
 // client. Layout mirrors single-type PDFs so every detail (totals strip
@@ -418,6 +546,9 @@ function renderCombinedReportHTML(data: {
   clientBillingEmail: string | null;
   invoiceNumber: string | null;
   periodLabel: string;
+  // Per-half period labels for the section headers. Default to periodLabel.
+  salesPeriodLabel: string;
+  postagePeriodLabel: string;
   generatedOn: string;
   feePct: number;
   markupPct: number;
@@ -426,9 +557,14 @@ function renderCombinedReportHTML(data: {
   salesTotals: { qty: number; sales: number; cost: number; net: number; fee: number; profit: number };
   postageLines: PostageLine[];
   postageTotals: PostageTotals;
+  // Bulk pass-through: when true the postage half is an itemized list of
+  // postage purchases (bulkPostageLines) billed at cost, not shipments.
+  isBulkPostage: boolean;
+  bulkPostageLines: BulkLine[];
   branding: import("@/lib/branding").PdfBranding;
 }): string {
   const font = `'Helvetica Neue', Arial, sans-serif`;
+  const isBulk = data.isBulkPostage;
 
   const itemsFallback = data.postageLines.reduce((a, r) => a + (Number(r.items_count) || 0), 0);
   const post = {
@@ -442,8 +578,14 @@ function renderCombinedReportHTML(data: {
     margin: Number(data.postageTotals?.margin) || 0,
     fulfillment: Number(data.postageTotals?.fulfillment) || 0,
   };
-  const hasFulfillment = post.fulfillment > 0 || data.perPackageFee > 0;
-  const totalDue = data.salesTotals.fee + post.billed + post.fulfillment;
+  const hasFulfillment = !isBulk && (post.fulfillment > 0 || data.perPackageFee > 0);
+  const totalDue = data.salesTotals.fee + post.billed + (isBulk ? 0 : post.fulfillment);
+  const bulkPurchases = data.bulkPostageLines.length || Number((data.postageTotals as any)?.purchases) || 0;
+  const bulkLedgerRows = data.bulkPostageLines.map(r => `
+    <tr>
+      <td style="padding:7px 10px;border-bottom:0.5px solid #eee;font-size:11px">${escapeHtml(r.transaction_date || "—")}</td>
+      <td style="padding:7px 10px;border-bottom:0.5px solid #eee;font-size:11px;text-align:right;font-family:monospace">${fmtD(Number(r.amount) || 0)}</td>
+    </tr>`).join("");
 
   // Sales totals strip — same chip rhythm as the sales-only PDF so the
   // sales section of a combined PDF reads identically to a sales report.
@@ -521,6 +663,67 @@ function renderCombinedReportHTML(data: {
       <div style="font-size:12px;font-weight:700;color:${valueColor || "#1a1a1a"};font-family:monospace">${escapeHtml(value)}</div>
     </div>`;
 
+  // Postage section body (page 3). Per-shipment shows the 8-tile KPI strip
+  // + cost/fulfillment breakdown; bulk shows the itemized purchase ledger
+  // + reimbursement total. Built as a variable to avoid nesting template
+  // literals inside the main return template.
+  const postageSection = isBulk
+    ? `
+  <div style="margin:16px 40px 0;font-family:${font}">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Postage Purchases (${data.bulkPostageLines.length}) — billed at cost</div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr>
+          <th style="padding:8px 10px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#999;border-bottom:1px solid #ccc">Transaction Date</th>
+          <th style="padding:8px 10px;text-align:right;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#999;border-bottom:1px solid #ccc">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${bulkLedgerRows}</tbody>
+    </table>
+  </div>
+
+  <div style="padding:20px 40px 24px;font-family:${font};display:flex;justify-content:flex-end">
+    <div style="min-width:340px">
+      <div style="padding-top:10px;margin-top:6px;border-top:1.5px solid #1a1a1a;display:flex;justify-content:space-between;align-items:baseline">
+        <div><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa">Postage Reimbursement</div></div>
+        <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em;color:#1a1a1a;font-family:monospace">${fmtD(post.billed)}</div>
+      </div>
+    </div>
+  </div>`
+    : `
+  <div style="margin:16px 40px 0;font-family:${font}">
+    <div style="display:grid;grid-template-columns:repeat(8,1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
+      ${kpiTile("Shipments", fmtN(post.shipments))}
+      ${kpiTile("Items Shipped", fmtN(post.items))}
+      ${kpiTile("Shipping Income", fmtD(post.paid))}
+      ${kpiTile("Shipping Cost", fmtD(post.cost), "#666")}
+      ${kpiTile("Insurance", fmtD(post.insurance), "#666")}
+      ${kpiTile("Billed Amount", fmtD(post.billed))}
+      ${kpiTile("Client Profit", fmtD(post.margin), post.margin >= 0 ? "#2a7a3a" : "#b3263a")}
+      ${kpiTileLast("Fulfillment", fmtD(post.fulfillment))}
+    </div>
+  </div>
+
+  <div style="padding:20px 40px 24px;font-family:${font};display:flex;justify-content:flex-end">
+    <div style="min-width:340px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#666;padding:6px 0">
+        <span>Postage Billed (cost + insurance)</span>
+        <span style="font-family:monospace;font-weight:600;color:#1a1a1a">${fmtD(post.billed)}</span>
+      </div>
+      ${hasFulfillment ? `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#666;padding:6px 0">
+        <span>Fulfillment Fee${data.perPackageFee > 0 ? ` (${fmtD(data.perPackageFee)} × ${fmtN(post.shipments)} shipments)` : ""}</span>
+        <span style="font-family:monospace;font-weight:600;color:#1a1a1a">${fmtD(post.fulfillment)}</span>
+      </div>` : ""}
+      <div style="padding-top:10px;margin-top:6px;border-top:1.5px solid #1a1a1a;display:flex;justify-content:space-between;align-items:baseline">
+        <div>
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa">Postage Subtotal</div>
+        </div>
+        <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em;color:#1a1a1a;font-family:monospace">${fmtD(post.billed + post.fulfillment)}</div>
+      </div>
+    </div>
+  </div>`;
+
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -576,12 +779,12 @@ function renderCombinedReportHTML(data: {
         <div style="font-size:12px;font-weight:700;color:#1a1a1a;font-family:monospace">${fmtD(data.salesTotals.sales)}</div>
       </div>
       <div style="padding:10px 12px;border-right:0.5px solid #e5e7eb">
-        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Shipments</div>
-        <div style="font-size:12px;font-weight:700;color:#1a1a1a;font-family:monospace">${fmtN(post.shipments)}</div>
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">${isBulk ? "Postage Purchases" : "Shipments"}</div>
+        <div style="font-size:12px;font-weight:700;color:#1a1a1a;font-family:monospace">${isBulk ? fmtN(bulkPurchases) : fmtN(post.shipments)}</div>
       </div>
       <div style="padding:10px 12px">
-        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Items Shipped</div>
-        <div style="font-size:12px;font-weight:700;color:#1a1a1a;font-family:monospace">${fmtN(post.items)}</div>
+        <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">${isBulk ? "Postage Reimbursement" : "Items Shipped"}</div>
+        <div style="font-size:12px;font-weight:700;color:#1a1a1a;font-family:monospace">${isBulk ? fmtD(post.billed) : fmtN(post.items)}</div>
       </div>
     </div>
   </div>
@@ -594,7 +797,7 @@ function renderCombinedReportHTML(data: {
         <span style="font-family:monospace;font-weight:600;color:#1a1a1a">${fmtD(data.salesTotals.fee)}</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#666;padding:6px 0">
-        <span>Postage &amp; Insurance</span>
+        <span>${isBulk ? "Postage reimbursement" : "Postage &amp; Insurance"}</span>
         <span style="font-family:monospace;font-weight:600;color:#1a1a1a">${fmtD(post.billed)}</span>
       </div>
       ${hasFulfillment ? `
@@ -613,7 +816,7 @@ function renderCombinedReportHTML(data: {
 
   <!-- Attachment / detail note -->
   <div style="padding:14px 40px;background:#f7f7f8;font-family:${font};font-size:10px;color:#666">
-    A line-item product breakdown follows on page 2. The shipment-level postage spreadsheet is attached as xlsx.
+    A line-item product breakdown follows on page 2. ${isBulk ? "An itemized postage-purchase ledger follows on page 3 and is attached as xlsx." : "The shipment-level postage spreadsheet is attached as xlsx."}
   </div>
 
   <!-- ============ PAGE BREAK — sales detail begins page 2 ============ -->
@@ -622,7 +825,7 @@ function renderCombinedReportHTML(data: {
   <div style="padding:24px 32px 14px;border-bottom:1.5px solid #111;display:flex;justify-content:space-between;align-items:flex-end;font-family:${font}">
     <div>
       <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa;margin-bottom:4px">Sales Detail</div>
-      <div style="font-size:14px;font-weight:700;color:#1a1a1a">${escapeHtml(data.clientName)} · ${escapeHtml(data.periodLabel)}</div>
+      <div style="font-size:14px;font-weight:700;color:#1a1a1a">${escapeHtml(data.clientName)} · ${escapeHtml(data.salesPeriodLabel)}</div>
     </div>
     <div style="font-size:10px;color:#888">${data.invoiceNumber ? `Invoice #${escapeHtml(data.invoiceNumber)} · ` : ""}${escapeHtml(data.generatedOn)}</div>
   </div>
@@ -661,46 +864,15 @@ function renderCombinedReportHTML(data: {
   <div style="padding:24px 32px 14px;border-bottom:1.5px solid #111;display:flex;justify-content:space-between;align-items:flex-end;font-family:${font}">
     <div>
       <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa;margin-bottom:4px">Postage Summary</div>
-      <div style="font-size:14px;font-weight:700;color:#1a1a1a">${escapeHtml(data.clientName)} · ${escapeHtml(data.periodLabel)}</div>
+      <div style="font-size:14px;font-weight:700;color:#1a1a1a">${escapeHtml(data.clientName)} · ${escapeHtml(data.postagePeriodLabel)}</div>
     </div>
     <div style="font-size:10px;color:#888">${data.invoiceNumber ? `Invoice #${escapeHtml(data.invoiceNumber)} · ` : ""}${escapeHtml(data.generatedOn)}</div>
   </div>
 
-  <div style="margin:16px 40px 0;font-family:${font}">
-    <div style="display:grid;grid-template-columns:repeat(8,1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
-      ${kpiTile("Shipments", fmtN(post.shipments))}
-      ${kpiTile("Items Shipped", fmtN(post.items))}
-      ${kpiTile("Shipping Income", fmtD(post.paid))}
-      ${kpiTile("Shipping Cost", fmtD(post.cost), "#666")}
-      ${kpiTile("Insurance", fmtD(post.insurance), "#666")}
-      ${kpiTile("Billed Amount", fmtD(post.billed))}
-      ${kpiTile("Client Profit", fmtD(post.margin), post.margin >= 0 ? "#2a7a3a" : "#b3263a")}
-      ${kpiTileLast("Fulfillment", fmtD(post.fulfillment))}
-    </div>
-  </div>
-
-  <div style="padding:20px 40px 24px;font-family:${font};display:flex;justify-content:flex-end">
-    <div style="min-width:340px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#666;padding:6px 0">
-        <span>Postage Billed (cost + insurance)</span>
-        <span style="font-family:monospace;font-weight:600;color:#1a1a1a">${fmtD(post.billed)}</span>
-      </div>
-      ${hasFulfillment ? `
-      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#666;padding:6px 0">
-        <span>Fulfillment Fee${data.perPackageFee > 0 ? ` (${fmtD(data.perPackageFee)} × ${fmtN(post.shipments)} shipments)` : ""}</span>
-        <span style="font-family:monospace;font-weight:600;color:#1a1a1a">${fmtD(post.fulfillment)}</span>
-      </div>` : ""}
-      <div style="padding-top:10px;margin-top:6px;border-top:1.5px solid #1a1a1a;display:flex;justify-content:space-between;align-items:baseline">
-        <div>
-          <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa">Postage Subtotal</div>
-        </div>
-        <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em;color:#1a1a1a;font-family:monospace">${fmtD(post.billed + post.fulfillment)}</div>
-      </div>
-    </div>
-  </div>
+  ${postageSection}
 
   <div style="padding:16px 40px;background:#f7f7f8;font-family:${font};font-size:10px;color:#666">
-    A detailed shipment-level spreadsheet is attached to this invoice (xlsx).
+    ${isBulk ? "An itemized list of postage purchases is shown above; the same ledger is attached as xlsx." : "A detailed shipment-level spreadsheet is attached to this invoice (xlsx)."}
   </div>
 
   <!-- Footer -->
@@ -766,6 +938,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const generatedOn = new Date(report.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     const isPostage = report.report_type === "postage";
     const isCombined = report.report_type === "combined";
+    const isBulkPostage = (isPostage || isCombined) && (report as any).postage_mode === "bulk";
 
     // Pick bill-to email. Convention in OpsHub: client contacts are
     // labeled by actual role (Owner, Manager, etc.). Owner pays the
@@ -790,6 +963,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           clientBillingEmail,
           invoiceNumber: report.qb_invoice_number || null,
           periodLabel: report.period_label,
+          salesPeriodLabel: (report as any).sales_period_label || report.period_label,
+          postagePeriodLabel: (report as any).postage_period_label || report.period_label,
           generatedOn,
           feePct: Number(report.hpd_fee_pct) || 0,
           markupPct: Number((report as any).postage_markup_pct) || 0,
@@ -798,6 +973,20 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           salesTotals: report.totals || { qty: 0, sales: 0, cost: 0, net: 0, fee: 0, profit: 0 },
           postageLines: ((report as any).postage_line_items || []) as PostageLine[],
           postageTotals: ((report as any).postage_totals || { shipments: 0, items: 0, paid: 0, cost_raw: 0, cost: 0, insurance: 0, billed: 0, margin: 0 }) as PostageTotals,
+          isBulkPostage,
+          bulkPostageLines: ((report as any).postage_line_items || []) as BulkLine[],
+          branding,
+        })
+      : isPostage && isBulkPostage
+      ? renderBulkPostageReportHTML({
+          clientName,
+          clientBillingAddress,
+          clientBillingEmail,
+          periodLabel: report.period_label,
+          generatedOn,
+          invoiceNumber: report.qb_invoice_number || null,
+          lines: (report.line_items || []) as BulkLine[],
+          totals: (report.totals || {}) as BulkTotals,
           branding,
         })
       : isPostage
@@ -829,7 +1018,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     const pdfBuffer = await generatePDF(html);
     const slug = (clientName + "-" + report.period_label).replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "");
-    const filename = `HPD-${isCombined ? "Full-Service-Invoice" : isPostage ? "Fulfillment-Invoice" : "Services-Invoice"}-${slug}.pdf`;
+    const filename = `HPD-${isCombined ? "Full-Service-Invoice" : isPostage ? (isBulkPostage ? "Postage-Invoice" : "Fulfillment-Invoice") : "Services-Invoice"}-${slug}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
     return new NextResponse(pdfBuffer, {

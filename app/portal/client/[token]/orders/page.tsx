@@ -503,8 +503,12 @@ function OrderDetail({ order, token }: { order: Order; token: string }) {
                 display: "flex", flexDirection: "column", gap: 10,
               }}>
                 <div style={{ fontSize: 13, color: C.text, lineHeight: 1.6 }}>
-                  Fulfillment fee for <strong>{order.period_label}</strong> covering{" "}
-                  <strong>{order.total_qty.toLocaleString()} units</strong> shipped through {tenantLabel}.
+                  {(order as any).postage_mode === "bulk" && (order as any).report_type === "postage" ? (
+                    <>Postage reimbursement for <strong>{order.period_label}</strong> — <strong>{((order as any).bulk_count || 0).toLocaleString()} postage purchase{((order as any).bulk_count || 0) === 1 ? "" : "s"}</strong> billed at cost.</>
+                  ) : (
+                    <>Fulfillment fee for <strong>{order.period_label}</strong> covering{" "}
+                    <strong>{order.total_qty.toLocaleString()} units</strong> shipped through {tenantLabel}.</>
+                  )}
                 </div>
                 <a
                   href={`/api/pdf/shipstation/${order.id}?portal=${token}`}

@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
     const { data: report, error: reportErr } = await admin
       .from("shipstation_reports")
-      .select("*, clients(id, name, qb_customer_id, default_terms, shipping_address)")
+      .select("*, clients(id, name, qb_customer_id, default_terms, shipping_address, allow_cc, allow_ach)")
       .eq("id", reportId)
       .single();
     if (reportErr || !report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
@@ -45,9 +45,24 @@ export async function POST(req: NextRequest) {
     const clientName = client?.name;
     if (!clientName) return NextResponse.json({ error: "No client name on report" }, { status: 400 });
 
+    // Honor the client's online-payment preferences (set on the client
+    // record). Mirrors the jobs invoice flow — e.g. ACH-only clients must
+    // not get a credit-card option on the QB invoice. Defaults to true
+    // when the flag is null/unset.
+    const allowCC = client.allow_cc !== false;
+    const allowACH = client.allow_ach !== false;
+
     const totals = report.totals || {};
     const isPostage = report.report_type === "postage";
     const isCombined = report.report_type === "combined";
+    // Bulk postage is a pure pass-through reimbursement — billed already
+    // equals the total spent, fulfillment is 0, and the line description
+    // drops the shipment-count / markup language.
+    const isBulkPostage = (isPostage || isCombined) && (report as any).postage_mode === "bulk";
+    // Per-half period labels — each line cites its own range; null falls
+    // back to the invoice period. The memo keeps the invoice period.
+    const salesPeriod = (report as any).sales_period_label || report.period_label;
+    const postagePeriod = (report as any).postage_period_label || report.period_label;
     const perPackageFee = Number((report as any).per_package_fee) || 0;
     // Combined reports keep the postage half on the new postage_totals
     // column. Postage-only reports keep it on totals.
@@ -165,7 +180,7 @@ export async function POST(req: NextRequest) {
     if (isCombined || (!isPostage && !isCombined)) {
       const feePct = (Number(report.hpd_fee_pct) || 0) * 100;
       lineItems.push({
-        description: `Product Sales Fulfillment — ${report.period_label} (${feePct.toFixed(1)}% of $${Number(totals.net || 0).toFixed(2)} net sales)`,
+        description: `Product Sales Fulfillment — ${salesPeriod} (${feePct.toFixed(1)}% of $${Number(totals.net || 0).toFixed(2)} net sales)`,
         qty: 1,
         unitPrice: Math.round(salesFee * 100) / 100,
         itemName: "Service Fee",
@@ -179,7 +194,9 @@ export async function POST(req: NextRequest) {
       // the client can verify the rate against the carrier cost.
       const markupPct = ((isCombined ? Number((report as any).postage_markup_pct) : Number(report.hpd_fee_pct)) || 0) * 100;
       lineItems.push({
-        description: `Postage & Insurance — ${report.period_label} (${shipments.toFixed(0)} shipments, ${markupPct.toFixed(1)}% markup on carrier cost)`,
+        description: isBulkPostage
+          ? `Postage reimbursement — ${postagePeriod}`
+          : `Postage & Insurance — ${postagePeriod} (${shipments.toFixed(0)} shipments, ${markupPct.toFixed(1)}% markup on carrier cost)`,
         qty: 1,
         unitPrice: Math.round(postageBilled * 100) / 100,
         itemName: "Postage",
@@ -190,7 +207,7 @@ export async function POST(req: NextRequest) {
       // their packing-slip count.
       if (fulfillmentAmount > 0 && shipments > 0 && perPackageFee > 0) {
         lineItems.push({
-          description: `Fulfillment Fee — ${report.period_label} (per-package handling)`,
+          description: `Fulfillment Fee — ${postagePeriod} (per-package handling)`,
           qty: shipments,
           unitPrice: Math.round(perPackageFee * 100) / 100,
           itemName: "Fulfillment",
@@ -212,6 +229,8 @@ export async function POST(req: NextRequest) {
       const updated = await updateInvoice(existingInvoiceId, lineItems, {
         memo,
         shipAddress: shipAddr,
+        allowCC,
+        allowACH,
       });
 
       const prevLink: string = report.qb_payment_link || "";
@@ -240,6 +259,8 @@ export async function POST(req: NextRequest) {
       terms: (client.default_terms as string) || undefined,
       memo,
       shipAddress: shipAddr,
+      allowCC,
+      allowACH,
     });
 
     await admin.from("shipstation_reports").update({

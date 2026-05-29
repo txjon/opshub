@@ -30,7 +30,7 @@ export default function ShipStationIntegrationPage() {
     supabase
       .from("shipstation_reports")
       .select(
-        "id, client_id, report_type, period_label, created_at, totals, postage_totals, per_package_fee, clients(name)"
+        "id, client_id, report_type, postage_mode, period_label, created_at, totals, postage_totals, per_package_fee, clients(name)"
       )
       .order("created_at", { ascending: false })
       .limit(50)
@@ -173,24 +173,28 @@ export default function ShipStationIntegrationPage() {
                   const isCombined = r.report_type === "combined";
                   const totals = r.totals || {};
                   const post = r.postage_totals || {};
+                  // Bulk postage is pass-through: no shipment count / margin.
+                  // Show the purchase count, and bill = reimbursement total.
+                  const isBulk = (isPostage || isCombined) && r.postage_mode === "bulk";
+                  const bulkCount = isCombined ? (Number(post.purchases) || 0) : (Number(totals.purchases) || 0);
                   const volume = isCombined
-                    ? `${(totals.qty || 0).toLocaleString()} + ${(post.shipments || 0).toLocaleString()} ship`
+                    ? `${(totals.qty || 0).toLocaleString()} + ${isBulk ? `${bulkCount.toLocaleString()} buys` : `${(post.shipments || 0).toLocaleString()} ship`}`
                     : isPostage
-                    ? `${(totals.shipments || 0).toLocaleString()} ship`
+                    ? (isBulk ? `${bulkCount.toLocaleString()} buys` : `${(totals.shipments || 0).toLocaleString()} ship`)
                     : (totals.qty || 0).toLocaleString();
                   const revenue = isCombined
-                    ? (Number(totals.sales) || 0) + (Number(post.paid) || 0)
+                    ? (Number(totals.sales) || 0) + (isBulk ? (Number(post.billed) || 0) : (Number(post.paid) || 0))
                     : isPostage
-                    ? totals.paid || 0
+                    ? (isBulk ? (Number(totals.billed) || 0) : (totals.paid || 0))
                     : totals.sales || 0;
                   const result = isCombined
                     ? (Number(totals.fee) || 0) +
                       (Number(post.billed) || 0) +
                       (Number(post.fulfillment) || 0)
                     : isPostage
-                    ? totals.margin || 0
+                    ? (isBulk ? (Number(totals.billed) || 0) : (totals.margin || 0))
                     : totals.profit || 0;
-                  const resultColor = !isCombined && isPostage && result < 0 ? T.red : T.green;
+                  const resultColor = !isCombined && isPostage && !isBulk && result < 0 ? T.red : T.green;
                   const typeLabel = isCombined ? "Full Svc" : isPostage ? "Postage" : "Sales";
                   const typeColor = isCombined ? T.purple : isPostage ? T.amber : T.accent;
                   return (

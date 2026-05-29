@@ -38,6 +38,19 @@ type ParsedPostageRow = {
   included: boolean;
 };
 
+// ── Bulk postage CSV row shape ────────────────────────────────────────────
+// ShipStation postage-ACCOUNT ledger export: TransactionTime, Tracking#
+// (transaction type, e.g. "Purchase"), Amount, Balance. We only consume
+// TransactionTime + Amount — each row is a bulk postage purchase HPD made
+// on the client's behalf. Billed as a pure pass-through reimbursement
+// (no markup, no per-package fee). Balance + Tracking# are ignored.
+type ParsedBulkRow = {
+  idx: number;
+  transaction_date: string;
+  amount: number;
+  included: boolean;
+};
+
 const fmtD = (n: number) =>
   "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtN = (n: number) => Number(n || 0).toLocaleString("en-US");
@@ -46,6 +59,13 @@ const fmtN = (n: number) => Number(n || 0).toLocaleString("en-US");
 function dateOnly(raw: string): string {
   if (!raw) return "";
   return raw.trim().split(/[\sT]/)[0];
+}
+// Bulk ledger TransactionTime looks like "March 27, 2026 11:05 AM" — the
+// date itself contains spaces, so dateOnly() can't be used. Strip just the
+// trailing clock time, keeping the human-readable date.
+function stripTime(raw: string): string {
+  if (!raw) return "";
+  return raw.replace(/\s+\d{1,2}:\d{2}(:\d{2})?\s*([AP]\.?M\.?)?\s*$/i, "").trim();
 }
 
 // Unit costs / money inputs are often copy-pasted from Excel — the raw
@@ -135,6 +155,10 @@ export default function NewShipstationReportPage() {
     d.setMonth(d.getMonth() - 1);
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   });
+  // Per-half period overrides (combined only). Blank → inherit periodLabel.
+  // The main periodLabel stays the invoice period (title, QB memo, email).
+  const [salesPeriodLabel, setSalesPeriodLabel] = useState<string>("");
+  const [postagePeriodLabel, setPostagePeriodLabel] = useState<string>("");
   const [csvError, setCsvError] = useState("");
   const [csvErrorPostage, setCsvErrorPostage] = useState("");
 
@@ -153,9 +177,18 @@ export default function NewShipstationReportPage() {
   // it doesn't muddy the client's postage performance numbers.
   const [perPackageFee, setPerPackageFee] = useState<string>("0");
 
+  // Postage source mode. "per_shipment" (default) is the original
+  // per-package report. "bulk" handles clients where HPD buys postage in
+  // bulk (account top-ups) and bills a pure pass-through reimbursement.
+  const [postageMode, setPostageMode] = useState<"per_shipment" | "bulk">("per_shipment");
+  const [rawBulkRows, setRawBulkRows] = useState<ParsedBulkRow[]>([]);
+
   const isCombined = reportType === "combined";
   const showSales = reportType === "sales" || isCombined;
   const showPostage = reportType === "postage" || isCombined;
+  // Bulk only matters when there's a postage half. Per-shipment is the
+  // postage flavor used by all existing reports.
+  const isBulkPostage = showPostage && postageMode === "bulk";
 
   // Stage 4
   const [saving, setSaving] = useState(false);
@@ -203,10 +236,14 @@ export default function NewShipstationReportPage() {
         const r = data as any;
         setClientId(r.client_id);
         setPeriodLabel(r.period_label || "");
+        setSalesPeriodLabel(r.sales_period_label || "");
+        setPostagePeriodLabel(r.postage_period_label || "");
         setReportType((r.report_type || "sales") as ReportType);
 
         const isPostageOnly = r.report_type === "postage";
         const isCombinedSaved = r.report_type === "combined";
+        const savedMode: "per_shipment" | "bulk" = r.postage_mode === "bulk" ? "bulk" : "per_shipment";
+        setPostageMode(savedMode);
 
         // Sales side — sales-only and combined have line_items with
         // {sku, description, qty_sold, product_sales, unit_cost}.
@@ -247,7 +284,20 @@ export default function NewShipstationReportPage() {
         // shipping_cost_raw (the carrier cost before markup) so the
         // wizard's markup math re-applies cleanly when the user
         // tweaks the rate.
-        if (isPostageOnly || isCombinedSaved) {
+        if ((isPostageOnly || isCombinedSaved) && savedMode === "bulk") {
+          // Bulk ledger reverse-map. Combined keeps it on
+          // postage_line_items; postage-only on line_items.
+          const lines: any[] = isCombinedSaved
+            ? (r.postage_line_items || [])
+            : (r.line_items || []);
+          const parsed: ParsedBulkRow[] = lines.map((l, i) => ({
+            idx: i,
+            transaction_date: l.transaction_date || "",
+            amount: Number(l.amount) || 0,
+            included: true,
+          }));
+          setRawBulkRows(parsed);
+        } else if (isPostageOnly || isCombinedSaved) {
           const lines: any[] = isCombinedSaved
             ? (r.postage_line_items || [])
             : (r.line_items || []);
@@ -446,6 +496,36 @@ export default function NewShipstationReportPage() {
     return { rows };
   }
 
+  // Bulk postage ledger parser. Reads TransactionTime + Amount only; the
+  // Balance and transaction-type columns are ignored. Each row is one
+  // postage purchase HPD made for the client.
+  async function parseBulkPostageCsv(text: string) {
+    const parsed = parseCsv(text);
+    if (parsed.length < 2) throw new Error("CSV looks empty");
+    const header = parsed[0];
+    const dateIdx = findCol(header, ["transactiontime", "transaction time", "transaction date", "date"]);
+    const amountIdx = findCol(header, ["amount", "purchase amount", "cost"]);
+    if (amountIdx < 0) {
+      throw new Error("CSV is missing an Amount column");
+    }
+    const rows: ParsedBulkRow[] = [];
+    for (let i = 1; i < parsed.length; i++) {
+      const r = parsed[i];
+      if (!r || r.every(c => !c || !c.trim())) continue;
+      const amount = parseMoney(r[amountIdx]);
+      // Skip zero/blank-amount rows — they carry no reimbursable value.
+      if (!amount) continue;
+      rows.push({
+        idx: rows.length,
+        transaction_date: dateIdx >= 0 ? stripTime((r[dateIdx] || "").trim()) : "",
+        amount,
+        included: true,
+      });
+    }
+    if (rows.length === 0) throw new Error("No postage purchases found");
+    return { rows };
+  }
+
   // Two handlers so the combined flow can target each CSV independently.
   // Single-type flows still call the right one based on reportType.
   async function onSalesCsvFile(file: File) {
@@ -472,6 +552,17 @@ export default function NewShipstationReportPage() {
       setRawPostageRows([]);
     }
   }
+  async function onBulkCsvFile(file: File) {
+    setCsvErrorPostage("");
+    try {
+      const text = await file.text();
+      const { rows } = await parseBulkPostageCsv(text);
+      setRawBulkRows(rows);
+    } catch (e: any) {
+      setCsvErrorPostage(e.message || "Failed to parse CSV");
+      setRawBulkRows([]);
+    }
+  }
 
   // Reset row state when the user flips the type toggle after uploading —
   // parsed rows from one type don't cross-apply, so we clear all data
@@ -483,7 +574,19 @@ export default function NewShipstationReportPage() {
     setCsvErrorPostage("");
     setRawRows([]);
     setRawPostageRows([]);
+    setRawBulkRows([]);
     setMergedCount(0);
+  }
+
+  // Flipping the postage source mode invalidates whichever postage CSV was
+  // parsed (per-shipment rows ≠ bulk ledger rows), so clear both and return
+  // to stage 1. Sales rows are untouched (combined keeps its sales half).
+  function onChangePostageMode(next: "per_shipment" | "bulk") {
+    setPostageMode(next);
+    setStage(1);
+    setCsvErrorPostage("");
+    setRawPostageRows([]);
+    setRawBulkRows([]);
   }
 
   // ── Sales flow derivations ────────────────────────────────────────────────
@@ -558,6 +661,32 @@ export default function NewShipstationReportPage() {
     return { shipments, items, paid: round2(paid), cost_raw: round2(cost_raw), cost: round2(cost), insurance: round2(insurance), billed: round2(billed), margin, fulfillment, invoice_total };
   }, [selectedPostageRows, markupPct, perPackageFee]);
 
+  // ── Bulk postage derivations ─────────────────────────────────────────────
+  // Pure pass-through: the billed amount IS the sum of the included
+  // purchases. No markup, no per-package fee, no shipping income/margin.
+  // billed is set equal to total so every downstream "billed + fulfillment"
+  // reader (QB invoice, PDF, portal, list) rolls up the reimbursement.
+  const selectedBulkRows = useMemo(() => rawBulkRows.filter(r => r.included), [rawBulkRows]);
+  const bulkPostageTotals = useMemo(() => {
+    let total = 0;
+    for (const r of selectedBulkRows) total += r.amount;
+    total = round2(total);
+    return {
+      purchases: selectedBulkRows.length,
+      total,
+      billed: total,
+      shipments: 0,
+      items: 0,
+      paid: 0,
+      cost_raw: total,
+      cost: total,
+      insurance: 0,
+      margin: 0,
+      fulfillment: 0,
+      invoice_total: total,
+    };
+  }, [selectedBulkRows]);
+
   // ── Per-side selection handlers ───────────────────────────────────────
   // Combined mode renders both tables together, each with its own
   // select-all/clear-all + shift-range click. Independent refs keep the
@@ -596,6 +725,25 @@ export default function NewShipstationReportPage() {
   const clearAllSales = useCallback(() => setRawRows(rs => rs.map(r => ({ ...r, included: false }))), []);
   const selectAllPostage = useCallback(() => setRawPostageRows(rs => rs.map(r => ({ ...r, included: true }))), []);
   const clearAllPostage = useCallback(() => setRawPostageRows(rs => rs.map(r => ({ ...r, included: false }))), []);
+
+  // Bulk ledger selection — same shift-range behavior as the other tables,
+  // with its own anchor ref so ranges don't bleed across panels.
+  const lastClickedBulkIdxRef = useRef<number | null>(null);
+  const toggleBulkRow = useCallback((idx: number, shiftKey: boolean) => {
+    setRawBulkRows(rs => {
+      const target = rs.find(r => r.idx === idx);
+      if (!target) return rs;
+      const newState = !target.included;
+      if (shiftKey && lastClickedBulkIdxRef.current != null && lastClickedBulkIdxRef.current !== idx) {
+        const [from, to] = [lastClickedBulkIdxRef.current, idx].sort((a, b) => a - b);
+        return rs.map(r => (r.idx >= from && r.idx <= to) ? { ...r, included: newState } : r);
+      }
+      return rs.map(r => r.idx === idx ? { ...r, included: newState } : r);
+    });
+    if (!shiftKey) lastClickedBulkIdxRef.current = idx;
+  }, []);
+  const selectAllBulk = useCallback(() => setRawBulkRows(rs => rs.map(r => ({ ...r, included: true }))), []);
+  const clearAllBulk = useCallback(() => setRawBulkRows(rs => rs.map(r => ({ ...r, included: false }))), []);
 
   // Seed groupCosts from savedCosts when entering stage 3 (any flow with
   // a sales side — sales-only or combined). Postage-only skips this.
@@ -670,6 +818,16 @@ export default function NewShipstationReportPage() {
     return { line_items, totals: postageTotals };
   }
 
+  // Bulk pass-through payload — one line per postage purchase, billed = amount.
+  function buildBulkPostagePayload() {
+    const line_items = selectedBulkRows.map(r => ({
+      transaction_date: r.transaction_date,
+      amount: round2(r.amount),
+      billed: round2(r.amount),
+    }));
+    return { line_items, totals: bulkPostageTotals };
+  }
+
   async function generate() {
     setSaving(true);
     setSaveError("");
@@ -720,7 +878,10 @@ export default function NewShipstationReportPage() {
             .from("shipstation_reports")
             .update({
               report_type: "sales",
+              postage_mode: "per_shipment",
               period_label: periodLabel,
+              sales_period_label: null,
+              postage_period_label: null,
               hpd_fee_pct: feeRate,
               line_items,
               totals: salesTotals,
@@ -748,6 +909,42 @@ export default function NewShipstationReportPage() {
             })
             .select("id")
             .single();
+          if (insErr) throw insErr;
+          router.push(`/reports/shipstation/${inserted.id}`);
+        }
+      } else if (reportType === "postage" && isBulkPostage) {
+        // Bulk postage-only — pure pass-through reimbursement. Ledger rows
+        // live on line_items, totals on totals, like a per-shipment postage
+        // report, but with postage_mode='bulk' so every reader renders the
+        // ledger instead of the shipment table. No markup / per-package /
+        // client-rate save-back (those concepts don't apply to bulk).
+        const bulk = buildBulkPostagePayload();
+        const payload = {
+          report_type: "postage" as const,
+          postage_mode: "bulk" as const,
+          period_label: periodLabel,
+          sales_period_label: null,
+          postage_period_label: null,
+          hpd_fee_pct: 0,
+          per_package_fee: 0,
+          line_items: bulk.line_items,
+          totals: bulk.totals,
+          // Clear combined-only fields in case the user edited down from
+          // a combined report.
+          postage_line_items: null,
+          postage_totals: null,
+          postage_markup_pct: null,
+        };
+        if (editId) {
+          const { error: updErr } = await (supabase as any)
+            .from("shipstation_reports").update(payload).eq("id", editId);
+          if (updErr) throw updErr;
+          router.push(`/reports/shipstation/${editId}`);
+        } else {
+          const { data: inserted, error: insErr } = await (supabase as any)
+            .from("shipstation_reports")
+            .insert({ client_id: clientId, ...payload, created_by: user.user?.id || null })
+            .select("id").single();
           if (insErr) throw insErr;
           router.push(`/reports/shipstation/${inserted.id}`);
         }
@@ -805,7 +1002,10 @@ export default function NewShipstationReportPage() {
             .from("shipstation_reports")
             .update({
               report_type: "postage",
+              postage_mode: "per_shipment",
               period_label: periodLabel,
+              sales_period_label: null,
+              postage_period_label: null,
               hpd_fee_pct: markup,
               per_package_fee: perPkg,
               line_items,
@@ -825,6 +1025,7 @@ export default function NewShipstationReportPage() {
             .insert({
               client_id: clientId,
               report_type: "postage",
+              postage_mode: "per_shipment",
               period_label: periodLabel,
               hpd_fee_pct: markup,
               per_package_fee: perPkg,
@@ -846,11 +1047,14 @@ export default function NewShipstationReportPage() {
         // inherits every fix (rounding, dedupe, sku-cost persistence,
         // client-rate save-back).
         const feeRate = parseMoney(feePct);
-        const markup = parseMoney(markupPct);
-        const perPkg = parseMoney(perPackageFee);
+        // Bulk postage is pure pass-through — markup + per-package don't
+        // apply, so both persist as 0 on a bulk combined report.
+        const markup = isBulkPostage ? 0 : parseMoney(markupPct);
+        const perPkg = isBulkPostage ? 0 : parseMoney(perPackageFee);
+        const postageModeToSave = isBulkPostage ? "bulk" : "per_shipment";
 
         const sales = buildSalesPayload(feeRate);
-        const postage = buildPostagePayload(markup);
+        const postage = isBulkPostage ? buildBulkPostagePayload() : buildPostagePayload(markup);
 
         // Persist per-SKU unit costs so next month pre-fills.
         if (sales.upserts.length) {
@@ -872,7 +1076,9 @@ export default function NewShipstationReportPage() {
           if (client.hpd_fee_pct == null || Math.abs(client.hpd_fee_pct - feeRate) > 1e-9) {
             patch.hpd_fee_pct = feeRate;
           }
-          if (client.hpd_per_package_fee == null || Math.abs(client.hpd_per_package_fee - perPkg) > 1e-9) {
+          // Don't overwrite the client's saved per-package fee with 0 on a
+          // bulk report — bulk doesn't use it.
+          if (!isBulkPostage && (client.hpd_per_package_fee == null || Math.abs(client.hpd_per_package_fee - perPkg) > 1e-9)) {
             patch.hpd_per_package_fee = perPkg;
           }
           if (Object.keys(patch).length > 0) {
@@ -885,7 +1091,10 @@ export default function NewShipstationReportPage() {
             .from("shipstation_reports")
             .update({
               report_type: "combined",
+              postage_mode: postageModeToSave,
               period_label: periodLabel,
+              sales_period_label: salesPeriodLabel.trim() || null,
+              postage_period_label: postagePeriodLabel.trim() || null,
               hpd_fee_pct: feeRate,
               postage_markup_pct: markup,
               per_package_fee: perPkg,
@@ -903,7 +1112,10 @@ export default function NewShipstationReportPage() {
             .insert({
               client_id: clientId,
               report_type: "combined",
+              postage_mode: postageModeToSave,
               period_label: periodLabel,
+              sales_period_label: salesPeriodLabel.trim() || null,
+              postage_period_label: postagePeriodLabel.trim() || null,
               hpd_fee_pct: feeRate,
               postage_markup_pct: markup,
               per_package_fee: perPkg,
@@ -950,9 +1162,12 @@ export default function NewShipstationReportPage() {
   const isPostage = reportType === "postage";
   const isSales = reportType === "sales";
   const salesLoaded = rawRows.length;
-  const postageLoaded = rawPostageRows.length;
   const salesSelectedCount = selectedRows.length;
-  const postageSelectedCount = selectedPostageRows.length;
+  // Postage "loaded / selected / priced" resolve to either the per-shipment
+  // rows or the bulk ledger, depending on the active mode — so the gates,
+  // counters, and Next buttons work the same for both flavors.
+  const postageLoaded = isBulkPostage ? rawBulkRows.length : rawPostageRows.length;
+  const postageSelectedCount = isBulkPostage ? selectedBulkRows.length : selectedPostageRows.length;
   // canNextFrom* gates per type. Combined requires both halves at every
   // stage — empty CSVs / zero rows / missing prices on either side
   // block the Next button.
@@ -969,7 +1184,8 @@ export default function NewShipstationReportPage() {
       ? postageSelectedCount > 0
       : salesSelectedCount > 0;
   const salesPricingComplete = groups.every(g => groupCosts[g.key] !== undefined && groupCosts[g.key] !== "");
-  const postagePricingComplete = parseMoney(markupPct) >= 0;
+  // Bulk postage has no pricing inputs (pure pass-through) → always complete.
+  const postagePricingComplete = isBulkPostage ? true : parseMoney(markupPct) >= 0;
   const canNextFrom3 = isCombined
     ? salesPricingComplete && postagePricingComplete
     : isPostage
@@ -1030,6 +1246,39 @@ export default function NewShipstationReportPage() {
         </div>
       )}
 
+      {/* Postage source toggle — only when there's a postage half (Postage
+          or Full Service). Per-shipment is the original per-package report;
+          Bulk is a pure pass-through reimbursement of bulk postage buys.
+          Hidden in edit mode (mode is fixed by the saved report). */}
+      {!isEditing && showPostage && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Postage source</span>
+          <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
+            {([
+              { value: "per_shipment", label: "Per-shipment" },
+              { value: "bulk", label: "Bulk purchase" },
+            ] as const).map(m => (
+              <button
+                key={m.value}
+                onClick={() => onChangePostageMode(m.value)}
+                style={{
+                  background: postageMode === m.value ? T.amber : "transparent",
+                  color: postageMode === m.value ? "#0a0e1a" : T.muted,
+                  border: "none", borderRadius: 6,
+                  padding: "5px 14px", fontSize: 12, fontWeight: 700,
+                  fontFamily: font, cursor: "pointer",
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <span style={{ fontSize: 10, color: T.faint }}>
+            {isBulkPostage ? "Bulk: pass-through reimbursement of postage purchases (no markup)." : "Per-shipment: one row per package, markup + per-package fee."}
+          </span>
+        </div>
+      )}
+
       {/* Stage pills — In edit mode Stage 1 (CSV upload) is unreachable
           so it stays grey. The 2/3/4 progression still applies. */}
       <div style={{ display: "flex", gap: 8 }}>
@@ -1056,6 +1305,22 @@ export default function NewShipstationReportPage() {
             </div>
           </div>
 
+          {/* Per-half period overrides — only when both halves exist and
+              they cover different date ranges. Blank inherits the invoice
+              period above, so most months these stay empty. */}
+          {isCombined && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Sales period <span style={{ color: T.faint, fontWeight: 500 }}>(if different)</span></label>
+                <input value={salesPeriodLabel} onChange={e => setSalesPeriodLabel(e.target.value)} placeholder={periodLabel || "defaults to invoice period"} style={input} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Postage period <span style={{ color: T.faint, fontWeight: 500 }}>(if different)</span></label>
+                <input value={postagePeriodLabel} onChange={e => setPostagePeriodLabel(e.target.value)} placeholder={periodLabel || "defaults to invoice period"} style={input} />
+              </div>
+            </div>
+          )}
+
           {/* Sales CSV input — visible for sales-only and combined */}
           {showSales && (
             <div>
@@ -1079,27 +1344,30 @@ export default function NewShipstationReportPage() {
             </div>
           )}
 
-          {/* Postage CSV input — visible for postage-only and combined */}
+          {/* Postage CSV input — visible for postage-only and combined.
+              Bulk mode swaps in the postage-account ledger uploader. */}
           {showPostage && (
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>
-                ShipStation shipment CSV
+                {isBulkPostage ? "ShipStation postage ledger CSV" : "ShipStation shipment CSV"}
               </label>
               <div style={{ border: `1px dashed ${T.border}`, borderRadius: 10, padding: "18px 16px", background: T.surface, display: "flex", alignItems: "center", gap: 12 }}>
                 <input
                   type="file"
                   accept=".csv,text/csv"
-                  onChange={e => e.target.files?.[0] && onPostageCsvFile(e.target.files[0])}
+                  onChange={e => e.target.files?.[0] && (isBulkPostage ? onBulkCsvFile(e.target.files[0]) : onPostageCsvFile(e.target.files[0]))}
                   style={{ fontSize: 12, color: T.muted, fontFamily: font }}
                 />
                 {postageLoaded > 0 && (
                   <span style={{ fontSize: 12, color: T.green, fontFamily: mono }}>
-                    ✓ {postageLoaded} shipments parsed
+                    ✓ {postageLoaded} {isBulkPostage ? "purchases" : "shipments"} parsed
                   </span>
                 )}
               </div>
               <div style={{ fontSize: 10, color: T.faint, marginTop: 6, lineHeight: 1.5 }}>
-                Expected columns: Ship Date · Recipient · Order # · Provider · Service · Package · Items · Zone · Shipping Paid · Shipping Cost · Insurance Cost · Weight · Weight Unit. Extra columns are ignored.
+                {isBulkPostage
+                  ? "Expected columns: TransactionTime · Amount (the postage-account purchase ledger). Balance and other columns are ignored. Each purchase is billed back to the client at cost."
+                  : "Expected columns: Ship Date · Recipient · Order # · Provider · Service · Package · Items · Zone · Shipping Paid · Shipping Cost · Insurance Cost · Weight · Weight Unit. Extra columns are ignored."}
               </div>
               {csvErrorPostage && <div style={{ fontSize: 12, color: T.red, marginTop: 8 }}>{csvErrorPostage}</div>}
             </div>
@@ -1177,8 +1445,8 @@ export default function NewShipstationReportPage() {
         </div>
       )}
 
-      {/* ── Stage 2 — Select shipments (postage-only) ── */}
-      {stage === 2 && isPostage && (
+      {/* ── Stage 2 — Select shipments (postage-only, per-shipment) ── */}
+      {stage === 2 && isPostage && !isBulkPostage && (
         <div style={card}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: T.muted }}>
@@ -1233,6 +1501,57 @@ export default function NewShipstationReportPage() {
                     </tr>
                   );
                 })}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
+            <button onClick={() => isEditing ? router.push(`/reports/shipstation/${editId}`) : setStage(1)} style={btnGhost}>{isEditing ? "Cancel" : "← Back"}</button>
+            <button disabled={!canNextFrom2} onClick={() => setStage(3)} style={{ ...btnPrimary, opacity: canNextFrom2 ? 1 : 0.4, cursor: canNextFrom2 ? "pointer" : "not-allowed" }}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Stage 2 — Select purchases (postage-only, bulk) ── */}
+      {stage === 2 && isPostage && isBulkPostage && (
+        <div style={card}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 12, color: T.muted }}>
+              <span style={{ fontWeight: 700, color: T.text }}>{selectedBulkRows.length}</span> of {rawBulkRows.length} purchases included
+              <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
+              <span style={{ marginLeft: 10, fontSize: 11, color: T.green, fontFamily: mono }}>· {fmtD(bulkPostageTotals.total)} total</span>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={selectAllBulk} style={btnGhost}>Select all</button>
+              <button onClick={clearAllBulk} style={btnGhost}>Clear all</button>
+            </div>
+          </div>
+
+          <div style={{ maxHeight: 560, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
+                <tr>
+                  <th style={{ ...thStyle, width: 36 }}></th>
+                  <th style={thStyle}>Transaction Date</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rawBulkRows.map(r => (
+                  <tr key={r.idx} style={{ opacity: r.included ? 1 : 0.45 }}>
+                    <td style={{ ...tdStyle, textAlign: "center" }}>
+                      <input
+                        type="checkbox"
+                        checked={r.included}
+                        onChange={() => {}}
+                        onClick={(e) => toggleBulkRow(r.idx, e.shiftKey)}
+                        style={{ cursor: "pointer" }}
+                      />
+                    </td>
+                    <td style={{ ...tdStyle, fontFamily: font, fontWeight: 600 }}>{r.transaction_date || "—"}</td>
+                    <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(r.amount)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -1328,7 +1647,7 @@ export default function NewShipstationReportPage() {
       )}
 
       {/* ── Stage 3 — Postage: markup % + per-package fulfillment fee ── */}
-      {stage === 3 && isPostage && (
+      {stage === 3 && isPostage && !isBulkPostage && (
         <>
           <PostageTotalsStrip totals={postageTotals} />
           <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
@@ -1393,6 +1712,24 @@ export default function NewShipstationReportPage() {
         </>
       )}
 
+      {/* ── Stage 3 — Postage (bulk): pass-through confirmation ── */}
+      {stage === 3 && isPostage && isBulkPostage && (
+        <>
+          <BulkPostageTotalsStrip totals={bulkPostageTotals} />
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Pass-through reimbursement</div>
+            <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
+              No markup or per-package fee applies to bulk postage. The client is billed exactly what HPD spent on postage —
+              <strong style={{ color: T.text }}> {fmtD(bulkPostageTotals.total)}</strong> across {fmtN(bulkPostageTotals.purchases)} purchase{bulkPostageTotals.purchases === 1 ? "" : "s"}.
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <button onClick={() => setStage(2)} style={btnGhost}>← Back</button>
+              <button disabled={!canNextFrom3} onClick={() => setStage(4)} style={{ ...btnPrimary, opacity: canNextFrom3 ? 1 : 0.4, cursor: canNextFrom3 ? "pointer" : "not-allowed" }}>Next →</button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* ── Stage 4 — Sales Review + generate ── */}
       {stage === 4 && isSales && (
         <>
@@ -1438,8 +1775,8 @@ export default function NewShipstationReportPage() {
         </>
       )}
 
-      {/* ── Stage 4 — Postage Review + generate ── */}
-      {stage === 4 && isPostage && (
+      {/* ── Stage 4 — Postage Review + generate (per-shipment) ── */}
+      {stage === 4 && isPostage && !isBulkPostage && (
         <>
           <PostageTotalsStrip totals={postageTotals} />
           <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1485,6 +1822,42 @@ export default function NewShipstationReportPage() {
               {postageTotals.shipments} shipment{postageTotals.shipments === 1 ? "" : "s"} · {fmtD(postageTotals.paid)} shipping income · postage billed {fmtD(postageTotals.billed)} · client profit {fmtD(postageTotals.margin)}
               <br />
               + Fulfillment fee {fmtD(postageTotals.fulfillment)} · <strong style={{ color: T.text }}>Total invoice {fmtD(postageTotals.invoice_total)}</strong>
+            </div>
+
+            {saveError && <div style={{ fontSize: 12, color: T.red, background: T.red + "11", padding: "8px 12px", borderRadius: 6 }}>{saveError}</div>}
+
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <button onClick={() => setStage(3)} style={btnGhost} disabled={saving}>← Back</button>
+              <button onClick={generate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>
+                {generateBtnLabel}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Stage 4 — Postage Review + generate (bulk) ── */}
+      {stage === 4 && isPostage && isBulkPostage && (
+        <>
+          <BulkPostageTotalsStrip totals={bulkPostageTotals} />
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{client?.name || "—"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Period</div>
+                <input value={periodLabel} onChange={e => setPeriodLabel(e.target.value)} style={{ ...input, fontSize: 13, fontWeight: 700 }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Billing</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.green }}>Pass-through</div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.6 }}>
+              {fmtN(bulkPostageTotals.purchases)} postage purchase{bulkPostageTotals.purchases === 1 ? "" : "s"} · billed at cost · <strong style={{ color: T.text }}>Total invoice {fmtD(bulkPostageTotals.total)}</strong>
             </div>
 
             {saveError && <div style={{ fontSize: 12, color: T.red, background: T.red + "11", padding: "8px 12px", borderRadius: 6 }}>{saveError}</div>}
@@ -1565,7 +1938,8 @@ export default function NewShipstationReportPage() {
 
           <div style={{ borderTop: `1px solid ${T.border}` }} />
 
-          {/* Postage shipments */}
+          {/* Postage shipments (per-shipment) */}
+          {!isBulkPostage && (
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
               <div style={{ fontSize: 12, color: T.muted }}>
@@ -1624,6 +1998,53 @@ export default function NewShipstationReportPage() {
               </table>
             </div>
           </div>
+          )}
+
+          {/* Postage purchases (bulk) */}
+          {isBulkPostage && (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 12, color: T.muted }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: "0.08em", marginRight: 8 }}>Postage</span>
+                <span style={{ fontWeight: 700, color: T.text }}>{selectedBulkRows.length}</span> of {rawBulkRows.length} purchases included
+                <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
+                <span style={{ marginLeft: 10, fontSize: 11, color: T.green, fontFamily: mono }}>· {fmtD(bulkPostageTotals.total)} total</span>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={selectAllBulk} style={btnGhost}>Select all</button>
+                <button onClick={clearAllBulk} style={btnGhost}>Clear all</button>
+              </div>
+            </div>
+            <div style={{ maxHeight: 380, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
+                  <tr>
+                    <th style={{ ...thStyle, width: 36 }}></th>
+                    <th style={thStyle}>Transaction Date</th>
+                    <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rawBulkRows.map(r => (
+                    <tr key={r.idx} style={{ opacity: r.included ? 1 : 0.45 }}>
+                      <td style={{ ...tdStyle, textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={r.included}
+                          onChange={() => {}}
+                          onClick={(e) => toggleBulkRow(r.idx, e.shiftKey)}
+                          style={{ cursor: "pointer" }}
+                        />
+                      </td>
+                      <td style={{ ...tdStyle, fontFamily: font, fontWeight: 600 }}>{r.transaction_date || "—"}</td>
+                      <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(r.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          )}
 
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
             <button onClick={() => isEditing ? router.push(`/reports/shipstation/${editId}`) : setStage(1)} style={btnGhost}>{isEditing ? "Cancel" : "← Back"}</button>
@@ -1639,7 +2060,9 @@ export default function NewShipstationReportPage() {
       {stage === 3 && isCombined && (
         <>
           <SalesTotalsStrip totals={salesTotals} />
-          <PostageTotalsStrip totals={postageTotals} />
+          {isBulkPostage
+            ? <BulkPostageTotalsStrip totals={bulkPostageTotals} />
+            : <PostageTotalsStrip totals={postageTotals} />}
           <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
 
             {/* Sales pricing */}
@@ -1735,7 +2158,8 @@ export default function NewShipstationReportPage() {
 
             <div style={{ borderTop: `1px solid ${T.border}` }} />
 
-            {/* Postage pricing */}
+            {/* Postage pricing — per-shipment markup + fee, or bulk note */}
+            {!isBulkPostage && (
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Postage Pricing</div>
 
@@ -1790,6 +2214,18 @@ export default function NewShipstationReportPage() {
                 </div>
               </div>
             </div>
+            )}
+
+            {/* Postage pricing — bulk pass-through note */}
+            {isBulkPostage && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Postage — Pass-through</div>
+              <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
+                No markup or per-package fee applies to bulk postage. The client is billed exactly what HPD spent —
+                <strong style={{ color: T.text }}> {fmtD(bulkPostageTotals.total)}</strong> across {fmtN(bulkPostageTotals.purchases)} purchase{bulkPostageTotals.purchases === 1 ? "" : "s"}.
+              </div>
+            </div>
+            )}
 
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <button onClick={() => setStage(2)} style={btnGhost}>← Back</button>
@@ -1803,9 +2239,11 @@ export default function NewShipstationReportPage() {
       {stage === 4 && isCombined && (
         <>
           <SalesTotalsStrip totals={salesTotals} />
-          <PostageTotalsStrip totals={postageTotals} />
+          {isBulkPostage
+            ? <BulkPostageTotalsStrip totals={bulkPostageTotals} />
+            : <PostageTotalsStrip totals={postageTotals} />}
           <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isBulkPostage ? "repeat(3, 1fr)" : "repeat(5, 1fr)", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{client?.name || "—"}</div>
@@ -1827,6 +2265,7 @@ export default function NewShipstationReportPage() {
                   <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(feePct) * 100).toFixed(1)}%)</span>
                 </div>
               </div>
+              {!isBulkPostage && (<>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Markup</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1854,6 +2293,20 @@ export default function NewShipstationReportPage() {
                   <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>× {postageTotals.shipments}</span>
                 </div>
               </div>
+              </>)}
+            </div>
+
+            {/* Per-half period overrides — editable here too since edit
+                mode skips stage 1. Blank inherits the invoice period. */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Sales period <span style={{ color: T.faint, fontWeight: 400 }}>(if different)</span></div>
+                <input value={salesPeriodLabel} onChange={e => setSalesPeriodLabel(e.target.value)} placeholder={periodLabel || "defaults to invoice period"} style={{ ...input, fontSize: 13 }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Postage period <span style={{ color: T.faint, fontWeight: 400 }}>(if different)</span></div>
+                <input value={postagePeriodLabel} onChange={e => setPostagePeriodLabel(e.target.value)} placeholder={periodLabel || "defaults to invoice period"} style={{ ...input, fontSize: 13 }} />
+              </div>
             </div>
 
             {/* Combined invoice breakdown — what the client will pay. */}
@@ -1865,10 +2318,10 @@ export default function NewShipstationReportPage() {
                   <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(salesTotals.fee)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                  <span style={{ color: T.muted }}>Postage &amp; Insurance</span>
-                  <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(postageTotals.billed)}</span>
+                  <span style={{ color: T.muted }}>{isBulkPostage ? "Postage reimbursement" : "Postage & Insurance"}</span>
+                  <span style={{ color: T.text, fontWeight: 600 }}>{fmtD((isBulkPostage ? bulkPostageTotals : postageTotals).billed)}</span>
                 </div>
-                {postageTotals.fulfillment > 0 && (
+                {!isBulkPostage && postageTotals.fulfillment > 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
                     <span style={{ color: T.muted }}>Fulfillment Fee ({fmtD(parseMoney(perPackageFee))} × {fmtN(postageTotals.shipments)})</span>
                     <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(postageTotals.fulfillment)}</span>
@@ -1876,7 +2329,7 @@ export default function NewShipstationReportPage() {
                 )}
                 <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 6, display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 800 }}>
                   <span style={{ color: T.text }}>Total Invoice</span>
-                  <span style={{ color: T.text }}>{fmtD(salesTotals.fee + postageTotals.billed + postageTotals.fulfillment)}</span>
+                  <span style={{ color: T.text }}>{fmtD(salesTotals.fee + (isBulkPostage ? bulkPostageTotals.billed : postageTotals.billed + postageTotals.fulfillment))}</span>
                 </div>
               </div>
             </div>
@@ -1884,7 +2337,9 @@ export default function NewShipstationReportPage() {
             <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.6 }}>
               {groups.length} product{groups.length === 1 ? "" : "s"} ({selectedRows.length} variant{selectedRows.length === 1 ? "" : "s"}) · {fmtN(salesTotals.qty)} units · {fmtD(salesTotals.sales)} in sales
               <br />
-              {postageTotals.shipments} shipment{postageTotals.shipments === 1 ? "" : "s"} · {fmtD(postageTotals.paid)} shipping income · client profit {fmtD(postageTotals.margin)}
+              {isBulkPostage
+                ? <>{fmtN(bulkPostageTotals.purchases)} postage purchase{bulkPostageTotals.purchases === 1 ? "" : "s"} · billed at cost · {fmtD(bulkPostageTotals.total)} reimbursement</>
+                : <>{postageTotals.shipments} shipment{postageTotals.shipments === 1 ? "" : "s"} · {fmtD(postageTotals.paid)} shipping income · client profit {fmtD(postageTotals.margin)}</>}
             </div>
 
             {saveError && <div style={{ fontSize: 12, color: T.red, background: T.red + "11", padding: "8px 12px", borderRadius: 6 }}>{saveError}</div>}
@@ -1938,6 +2393,29 @@ function PostageTotalsStrip({ totals }: { totals: { shipments: number; items: nu
   ];
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8 }}>
+      {tiles.map(i => (
+        <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
+          <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
+          <div style={{ fontSize: 14, fontWeight: 700, fontFamily: mono, color: i.color || T.text }}>{i.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Bulk postage = pure pass-through, so only two numbers matter: how many
+// purchases and the reimbursement total. Kept as its own 3-tile strip so
+// it doesn't borrow the shipment strip's income/margin/markup columns
+// (none of which apply to bulk).
+function BulkPostageTotalsStrip({ totals }: { totals: { purchases: number; total: number } }) {
+  const fmt = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tiles: { label: string; value: string; color?: string }[] = [
+    { label: "Purchases", value: Number(totals.purchases).toLocaleString() },
+    { label: "Billing", value: "Pass-through" },
+    { label: "Reimbursement", value: fmt(totals.total), color: T.green },
+  ];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
       {tiles.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>

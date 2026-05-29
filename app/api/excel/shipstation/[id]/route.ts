@@ -4,7 +4,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
-import { generatePostageXlsx, PostageLine, PostageTotals } from "@/lib/shipstation-xlsx";
+import { generatePostageXlsx, generateBulkPostageXlsx, PostageLine, PostageTotals, BulkLine } from "@/lib/shipstation-xlsx";
 
 // Shipment-level xlsx export that accompanies the Fulfillment Invoice
 // PDF. Same auth model as /api/pdf/shipstation/[id]:
@@ -53,6 +53,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (report.report_type !== "postage" && !isCombined) {
       return NextResponse.json({ error: "Excel export is only available for postage and Full Service reports" }, { status: 400 });
     }
+    const isBulkPostage = (report as any).postage_mode === "bulk";
+    // The spreadsheet is the postage half — use the postage period if the
+    // report set one, else the invoice period.
+    const postagePeriod = (report as any).postage_period_label || report.period_label;
 
     const clientName = (report.clients as any)?.name || "—";
     const generatedOn = new Date(report.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -66,18 +70,32 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       ? (report as any).postage_totals
       : report.totals) || { shipments: 0, items: 0, paid: 0, cost_raw: 0, cost: 0, insurance: 0, billed: 0, margin: 0 };
 
-    const buffer = await generatePostageXlsx({
-      clientName,
-      periodLabel: report.period_label,
-      invoiceNumber: report.qb_invoice_number || null,
-      generatedOn,
-      perPackageFee: Number((report as any).per_package_fee) || 0,
-      lines: lines as PostageLine[],
-      totals: totals as PostageTotals,
-    });
-
     const slug = (clientName + "-" + report.period_label).replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "");
-    const filename = `HPD-${isCombined ? "Full-Service-Shipments" : "Fulfillment-Shipments"}-${slug}.xlsx`;
+
+    let buffer: Buffer;
+    let filename: string;
+    if (isBulkPostage) {
+      buffer = await generateBulkPostageXlsx({
+        clientName,
+        periodLabel: postagePeriod,
+        invoiceNumber: report.qb_invoice_number || null,
+        generatedOn,
+        lines: lines as BulkLine[],
+        total: Number((totals as any).billed) || 0,
+      });
+      filename = `HPD-${isCombined ? "Full-Service-Postage" : "Postage"}-${slug}.xlsx`;
+    } else {
+      buffer = await generatePostageXlsx({
+        clientName,
+        periodLabel: postagePeriod,
+        invoiceNumber: report.qb_invoice_number || null,
+        generatedOn,
+        perPackageFee: Number((report as any).per_package_fee) || 0,
+        lines: lines as PostageLine[],
+        totals: totals as PostageTotals,
+      });
+      filename = `HPD-${isCombined ? "Full-Service-Shipments" : "Fulfillment-Shipments"}-${slug}.xlsx`;
+    }
 
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
