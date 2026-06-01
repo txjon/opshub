@@ -908,6 +908,14 @@ export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
   const [newPrices, setNewPrices] = useState({});
   const newLastClickedSize = useRef(null);
 
+  // Edit-existing-entry state (inline catalog edit: cost + brand/style/color).
+  // editId = the blank_catalog row being edited; null when not editing.
+  const [editId, setEditId] = useState(null);
+  const [editBrand, setEditBrand] = useState("");
+  const [editStyle, setEditStyle] = useState("");
+  const [editColor, setEditColor] = useState("");
+  const [editCosts, setEditCosts] = useState({});
+
   useEffect(() => { loadCatalog(); }, []);
   async function loadCatalog() {
     const supabase = createClient();
@@ -966,7 +974,39 @@ export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
     loadCatalog();
   }
 
-  const colRow = (label, active, onClick, sub, onDelete) => (
+  // Open the inline editor for an existing catalog entry, pre-filled.
+  function startEdit(entry) {
+    setShowNewForm(false);
+    setEditId(entry.id);
+    setEditBrand(entry.brand || "");
+    setEditStyle(entry.style || "");
+    setEditColor(entry.color || "");
+    const costs = {};
+    sortSizes(entry.sizes || []).forEach(sz => { costs[sz] = entry.costs?.[sz] != null ? String(entry.costs[sz]) : ""; });
+    setEditCosts(costs);
+  }
+
+  function cancelEdit() { setEditId(null); }
+
+  // Persist edits to blank_catalog. Permanent — affects future projects that
+  // pick this blank. Existing job items keep their own items.blank_costs (a
+  // per-job snapshot), so nothing already in production changes. Sizes stay
+  // as-is; only costs + brand/style/color are editable here.
+  async function saveEdit() {
+    if (!editId || !editBrand.trim() || !editStyle.trim() || !editColor.trim()) return;
+    const supabase = createClient();
+    const costs = {};
+    Object.keys(editCosts).forEach(sz => { costs[sz] = parseFloat(editCosts[sz]) || 0; });
+    await supabase.from("blank_catalog").update({ brand: editBrand.trim(), style: editStyle.trim(), color: editColor.trim(), costs }).eq("id", editId);
+    // Follow the entry if its brand/style was renamed so the drill-down
+    // doesn't land on an empty column after reload.
+    setSelBrand(editBrand.trim());
+    setSelStyle(editStyle.trim());
+    setEditId(null);
+    loadCatalog();
+  }
+
+  const colRow = (label, active, onClick, sub, onDelete, onEdit) => (
     <div style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
       <div onClick={onClick} style={{ flex: 1, padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, transition: "background 0.1s" }}
         onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
@@ -974,6 +1014,9 @@ export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
         {label}
         {sub && <div style={{ fontSize: 9, color: active ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{sub}</div>}
       </div>
+      {onEdit && <button onClick={e => { e.stopPropagation(); onEdit(); }} title="Edit cost / details"
+        style={{ background: "none", border: "none", color: active ? "rgba(255,255,255,0.7)" : T.faint, cursor: "pointer", fontSize: 11, padding: "4px 6px", flexShrink: 0 }}
+        onMouseEnter={e => (e.currentTarget.style.color = T.accent)} onMouseLeave={e => (e.currentTarget.style.color = active ? "rgba(255,255,255,0.7)" : T.faint)}>✎</button>}
       {onDelete && <button onClick={e => { e.stopPropagation(); onDelete(); }}
         style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, padding: "4px 8px", flexShrink: 0 }}
         onMouseEnter={e => (e.currentTarget.style.color = T.red)} onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>✕</button>}
@@ -990,7 +1033,7 @@ export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font, whiteSpace: "nowrap" }}>Other</span>
-        <button onClick={() => setShowNewForm(!showNewForm)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>+ New</button>
+        <button onClick={() => { setEditId(null); setShowNewForm(!showNewForm); }} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>+ New</button>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search styles..." autoFocus style={{ flex: 1, fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none" }} />
         <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
         <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
@@ -1046,6 +1089,53 @@ export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
         </div>
       )}
 
+      {/* Edit existing entry — inline catalog edit (cost + brand/style/color).
+          Sizes stay fixed; only their per-size costs are editable here. */}
+      {editId && (
+        <div style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, fontFamily: font, letterSpacing: "0.04em", textTransform: "uppercase" }}>Edit catalog entry</span>
+            <button onClick={cancelEdit} style={{ background: "none", border: "none", color: T.muted, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <div><label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Brand</label><input value={editBrand} onChange={e => setEditBrand(e.target.value)} style={ic} /></div>
+            <div><label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Style</label><input value={editStyle} onChange={e => setEditStyle(e.target.value)} style={ic} /></div>
+            <div><label style={{ fontSize: 9, color: T.muted, display: "block", marginBottom: 2 }}>Color</label><input value={editColor} onChange={e => setEditColor(e.target.value)} style={ic} /></div>
+          </div>
+          {Object.keys(editCosts).length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+              {sortSizes(Object.keys(editCosts)).map(sz => (
+                <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, color: T.muted, fontFamily: mono }}>{sz}</span>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <span style={{ fontSize: 9, color: T.faint, marginRight: 1 }}>$</span>
+                    <input type="text" inputMode="decimal" value={editCosts[sz] || ""} onChange={e => setEditCosts(p => ({...p, [sz]: e.target.value}))} onFocus={e => e.target.select()}
+                      style={{ width: 44, textAlign: "center", padding: "3px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 10, outline: "none", fontFamily: mono }} />
+                  </div>
+                </div>
+              ))}
+              {Object.keys(editCosts).length > 1 && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, color: T.accent, fontFamily: mono }}>ALL</span>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <span style={{ fontSize: 9, color: T.faint, marginRight: 1 }}>$</span>
+                    <input type="text" inputMode="decimal" onChange={e => { const v = e.target.value; setEditCosts(Object.fromEntries(Object.keys(editCosts).map(sz => [sz, v]))); }} onFocus={e => e.target.select()}
+                      style={{ width: 44, textAlign: "center", padding: "3px", borderRadius: 4, border: `1px solid ${T.accent}44`, background: T.accentDim, color: T.accent, fontSize: 10, outline: "none", fontFamily: mono }} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={saveEdit} disabled={!editBrand.trim() || !editStyle.trim() || !editColor.trim()}
+              style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: editBrand.trim() && editStyle.trim() && editColor.trim() ? T.green : T.surface, color: editBrand.trim() && editStyle.trim() && editColor.trim() ? "#fff" : T.faint, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+              Save Changes
+            </button>
+            <button onClick={cancelEdit} style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, fontSize: 11, cursor: "pointer", fontFamily: font }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: T.muted }}>Loading catalog...</div>
       ) : catalog.length === 0 && !showNewForm ? (
@@ -1075,7 +1165,7 @@ export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
               {!selStyle ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint }}>← Style</div>
                 : colors.filter(c => !colorSearch.trim() || c.color.toLowerCase().includes(colorSearch.toLowerCase())).map(c => colRow(c.color, selColor === c.id, () => { setSelColor(c.id); setSelSizes({}); },
                   `${c.sizes?.length || 0} sizes · $${Object.values(c.costs || {}).filter(v => v > 0)[0]?.toFixed(2) || "—"}`,
-                  () => setConfirmDelete(c)))}
+                  () => setConfirmDelete(c), () => startEdit(c)))}
             </div>
           </div>
           {/* Sizes */}
