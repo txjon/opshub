@@ -410,7 +410,14 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
     if(localCosts[k]===undefined) return;
     const parsed=parseFloat(localCosts[k])||0;
     setLocalCosts(p2=>{const n={...p2};delete n[k];return n;});
-    updateProd(i,{...p,blankCosts:{...(p.blankCosts||{}),[sz]:parsed}});
+    const newBlankCosts={...(p.blankCosts||{}),[sz]:parsed};
+    updateProd(i,{...p,blankCosts:newBlankCosts});
+    // Mirror the qty-edit pattern (see the qty input's onChange): push the
+    // refined cost back to buyItems too. Without this, the buyItems→costProds
+    // sync sees the buy item's stale blankCosts differ from this edit and
+    // reverts it on the next sync (e.g. when a qty changes). Keeping the two
+    // copies equal is what makes a Costing cost edit actually stick.
+    if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,blankCosts:newBlankCosts}:bi));}
   };
   const toggleCollapse=(id)=>setCollapsed(p=>({...p,[id]:!p[id]}));
   // Click handler for the item strip header. Prefers the page-level
@@ -1753,9 +1760,14 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           updates.qtys = bi.qtys;
           updates.totalQty = totalQty;
         }
-        // Sync blank info if assigned/changed on buy sheet
+        // Sync blank info if assigned/changed on buy sheet. Pull the catalog
+        // costs ONLY when the blank itself was (re)assigned — NOT on every
+        // difference. Costing is the authority for cost *refinements* on an
+        // unchanged blank; overwriting on any diff is what reverted edited
+        // costs back to the catalog value (the per-item revert bug).
+        const blankReassigned = (bi.blank_vendor && bi.blank_vendor !== cp.style) || (bi.blank_sku && bi.blank_sku !== cp.color);
         if (bi.blank_vendor && bi.blank_vendor !== cp.style) { updates.style = bi.blank_vendor; updates.color = bi.blank_sku || cp.color; }
-        if (bi.blankCosts && Object.keys(bi.blankCosts).length > 0 && JSON.stringify(bi.blankCosts) !== JSON.stringify(cp.blankCosts)) { updates.blankCosts = bi.blankCosts; updates.blankCostPerUnit = Object.values(bi.blankCosts).filter(v=>v>0).reduce((a,v,_,arr)=>a+v/arr.length,0); }
+        if (blankReassigned && bi.blankCosts && Object.keys(bi.blankCosts).length > 0) { updates.blankCosts = bi.blankCosts; updates.blankCostPerUnit = Object.values(bi.blankCosts).filter(v=>v>0).reduce((a,v,_,arr)=>a+v/arr.length,0); }
         return { ...cp, ...updates };
       });
       return newItems.length > 0 ? [...updated, ...newItems] : updated;
