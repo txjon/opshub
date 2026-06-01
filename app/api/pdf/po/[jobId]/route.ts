@@ -110,7 +110,7 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
     if (p.finishingQtys["Packaging_on"]) {
       const variant = p.isFleece ? "Fleece" : (p.finishingQtys["Packaging_variant"] || "Tee");
       const rate = pr.packaging?.[variant] || pr.finishing?.[variant] || 0;
-      if (rate > 0) lines.push({ label: `Packaging (${variant})`, qty, rate, total: rate * qty });
+      if (rate > 0) lines.push({ label: `Individual Packaging (${variant})`, qty, rate, total: rate * qty });
     }
     // Dynamic finishing items
     for (const fk of Object.keys(p.finishingQtys)) {
