@@ -7,6 +7,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
+import { MockupPeek } from "@/components/MockupPeek";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -430,6 +431,11 @@ export default function ProductionPage() {
         slipMap[f.item_id].push({ id: f.id, file_name: f.file_name, drive_link: f.drive_link, folder_link: f.notes || undefined });
       }
       setPackingSlips(slipMap);
+      // Mockups for the item-click peek modal (List view).
+      const { data: mockupFiles } = await supabase.from("item_files").select("item_id, drive_file_id, drive_link, created_at").eq("stage", "mockup").is("superseded_at", null).in("item_id", allItemIds).order("created_at", { ascending: false });
+      const mMap: Record<string, { driveFileId: string | null; driveLink: string | null }> = {};
+      for (const f of ((mockupFiles || []) as any[])) { if (!mMap[f.item_id]) mMap[f.item_id] = { driveFileId: f.drive_file_id, driveLink: f.drive_link }; }
+      setMockupMap(mMap);
     }
 
     setLoading(false);
@@ -727,6 +733,8 @@ export default function ProductionPage() {
   const [tab, setTab] = useState<"active" | "overdue" | "stalled" | "shipped">("active");
   const [sortKey, setSortKey] = useState<"ship_date" | "days_at_decorator" | "decorator" | "client" | "units">("ship_date");
   const [viewMode, setViewMode] = useState<"grouped" | "list">("list");
+  const [mockupMap, setMockupMap] = useState<Record<string, { driveFileId: string | null; driveLink: string | null }>>({});
+  const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
   // List-view sorting is driven by clicking column headers (asc/desc toggle),
   // independent of the grouped board's sort dropdown.
   const [listSortKey, setListSortKey] = useState<"inv" | "client" | "item" | "decorator" | "stage" | "units" | "ship">("ship");
@@ -1080,7 +1088,8 @@ export default function ProductionPage() {
                     {p.jobTitle && <div style={{ color: T.faint, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.jobTitle}</div>}
                   </div>
                   {/* Item (letter dropped in this view) */}
-                  <div style={{ flex: 1, minWidth: 0, paddingLeft: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</div>
+                  <div onClick={() => setMockupPeek({ driveFileId: mockupMap[it.id]?.driveFileId || null, name: it.name })} title="View mockup"
+                    style={{ flex: 1, minWidth: 0, paddingLeft: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>{it.name}</div>
                   {/* Deco — widened so the full short code fits */}
                   <div style={{ width: 104, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
                   {/* Stage */}
@@ -1578,6 +1587,8 @@ export default function ProductionPage() {
       })}
 
       {/* Packing slip viewer modal */}
+      {mockupPeek && <MockupPeek driveFileId={mockupPeek.driveFileId} name={mockupPeek.name} onClose={() => setMockupPeek(null)} />}
+
       {viewingSlips && (
         <div onClick={() => setViewingSlips(null)}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
