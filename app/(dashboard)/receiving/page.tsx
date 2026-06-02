@@ -8,6 +8,7 @@ import { useShipments, type Shipment } from "@/lib/use-shipments";
 import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { DriveFileLink } from "@/components/DriveFileLink";
 import { DriveThumb } from "@/components/DriveThumb";
+import { MockupPeek } from "@/components/MockupPeek";
 
 type OutsideShipment = {
   id: string;
@@ -79,6 +80,7 @@ export default function ReceivingPage() {
   const [viewMode, setViewMode] = useState<"shipments" | "list">("list");
   // Batch-receive confirm modal — the items queued by "Receive Selected".
   const [batchReceiveItems, setBatchReceiveItems] = useState<WarehouseItem[] | null>(null);
+  const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
   const [listSortKey, setListSortKey] = useState<"inv" | "client" | "item" | "decorator" | "shipped" | "units">("shipped");
   const [listSortDir, setListSortDir] = useState<"asc" | "desc">("asc");
   const listHeaderClick = (key: typeof listSortKey) => {
@@ -630,7 +632,8 @@ export default function ReceivingPage() {
               )}
               <div style={{ width: 90, flexShrink: 0, color: job?.display_number ? T.text : T.faint, fontFamily: mono, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job?.display_number || "—"}</div>
               <div style={{ width: 150, flexShrink: 0, minWidth: 0, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job?.client_name || "No client"}</div>
-              <div style={{ flex: 1, minWidth: 0, paddingLeft: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</div>
+              <div onClick={() => setMockupPeek({ driveFileId: mockupMap[it.id]?.driveFileId || null, name: it.name })} title="View mockup"
+                style={{ flex: 1, minWidth: 0, paddingLeft: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>{it.name}</div>
               <div style={{ width: 104, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
               <div style={{ width: 84, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.muted }}>{shippedStr}</div>
               <div style={{ width: 56, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{tQty(it.qtys)}</div>
@@ -1425,6 +1428,8 @@ export default function ReceivingPage() {
       {/* Batch-receive confirm — opened by "Receive Selected" in List view.
           Review each item's qty + condition, then commit via bulkMarkReceived.
           Per-size / photo detail stays in the per-item Receive modal. */}
+      {mockupPeek && <MockupPeek driveFileId={mockupPeek.driveFileId} name={mockupPeek.name} onClose={() => setMockupPeek(null)} />}
+
       {batchReceiveItems && (() => {
         const items = batchReceiveItems;
         return (
