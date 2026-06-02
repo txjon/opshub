@@ -38,6 +38,13 @@ const PHASE_LABELS: Record<string, string> = {
 // every state with a count.
 //
 // Buckets render in workflow order; only those with count > 0 show.
+// Phases where every item has landed at HPD: the warehouse now owns the
+// outbound (ship_through forwarding) or fulfillment (stage). These leave
+// the "Active" production view and live under their own "At HPD" tab.
+// A job only reaches these once ALL its to-HPD items are received — while
+// items are still in transit it sits in "receiving" and stays in Active.
+const AT_HPD_PHASES = ["shipping", "fulfillment"];
+
 type StatusBucket = { key: string; label: string; color: string; count: number };
 function getStatusBuckets(job: any, T: any): StatusBucket[] {
   const items = job.items || [];
@@ -189,7 +196,7 @@ export default function JobsPage() {
     // Active = any non-terminal phase. Includes warehouse phases
     // (receiving / shipping / fulfillment) — those still have work in
     // flight even when every item has shipped from its decorator.
-    const active = jobs.filter(j => !["complete","cancelled","on_hold"].includes(j.phase));
+    const active = jobs.filter(j => !["complete","cancelled","on_hold", ...AT_HPD_PHASES].includes(j.phase));
     const items = active.flatMap(j => (j as any).items || []);
     const units = items.reduce(
       (s: number, it: any) => s + ((it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0)),
@@ -222,9 +229,11 @@ export default function JobsPage() {
       // Active = any non-terminal phase. Production-active jobs and
       // warehouse-side jobs (receiving / shipping / fulfillment) all
       // belong in Active until they hit complete / cancelled / on_hold.
-      const isTerminal = ["complete","cancelled","on_hold"].includes(j.phase);
+      const offActive = ["complete","cancelled","on_hold", ...AT_HPD_PHASES].includes(j.phase);
       if (filter === "active") {
-        if (isTerminal) return false;
+        if (offActive) return false;
+      } else if (filter === "at_hpd") {
+        if (!AT_HPD_PHASES.includes(j.phase)) return false;
       } else if (filter !== "all" && j.phase !== filter) {
         return false;
       }
@@ -256,7 +265,7 @@ export default function JobsPage() {
       const order: Record<string,number> = { hot:0, rush:1, normal:2 };
       av = order[a.priority] ?? 3; bv = order[b.priority] ?? 3;
     } else if (sortKey === "phase") {
-      const order: Record<string,number> = { intake:0, pending:1, ready:2, production:3, receiving:4, fulfillment:5, complete:6 };
+      const order: Record<string,number> = { intake:0, pending:1, ready:2, production:3, receiving:4, shipping:5, fulfillment:6, complete:7 };
       av = order[a.phase] ?? 9; bv = order[b.phase] ?? 9;
     } else if (sortKey === "invoice_number") {
       // Numeric-aware: QB returns invoice numbers as strings ("4170")
@@ -323,7 +332,8 @@ export default function JobsPage() {
           per-row in the PHASE column for scanning. */}
       <div style={{ display:"flex", alignItems:"center", gap:14, flexWrap:"wrap", borderBottom:`1px solid ${T.border}`, paddingBottom:6 }}>
         {([
-          ["active",   "Active",    jobs.filter(j => !["complete","cancelled","on_hold"].includes(j.phase)).length],
+          ["active",   "Active",    jobs.filter(j => !["complete","cancelled","on_hold", ...AT_HPD_PHASES].includes(j.phase)).length],
+          ["at_hpd",   "At HPD",    jobs.filter(j => AT_HPD_PHASES.includes(j.phase)).length],
           ["on_hold",  "On Hold",   phaseCounts.on_hold],
           ["complete", "Complete",  phaseCounts.complete],
           ["cancelled","Cancelled", phaseCounts.cancelled],

@@ -728,6 +728,15 @@ export default function ProductionPage() {
   const STALL_DAYS = 7;
   const [tab, setTab] = useState<"active" | "overdue" | "stalled" | "shipped">("active");
   const [sortKey, setSortKey] = useState<"ship_date" | "days_at_decorator" | "decorator" | "client" | "units">("ship_date");
+  const [viewMode, setViewMode] = useState<"grouped" | "list">("list");
+  // List-view sorting is driven by clicking column headers (asc/desc toggle),
+  // independent of the grouped board's sort dropdown.
+  const [listSortKey, setListSortKey] = useState<"inv" | "client" | "item" | "decorator" | "stage" | "units" | "ship">("ship");
+  const [listSortDir, setListSortDir] = useState<"asc" | "desc">("asc");
+  const listHeaderClick = (key: "inv" | "client" | "item" | "decorator" | "stage" | "units" | "ship") => {
+    if (key === listSortKey) setListSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setListSortKey(key); setListSortDir("asc"); }
+  };
 
   // Stash useful per-project metadata for filtering/sorting so we
   // compute it once per render instead of re-walking decoratorGroups
@@ -847,12 +856,77 @@ export default function ProductionPage() {
     return { color, bg, label, dateStr: new Date(d!).toLocaleDateString("en-US", { month: "short", day: "numeric" }) };
   };
 
+  // Flat one-row-per-item list for the "List" view. Same tab + decorator +
+  // search filters as the grouped board, but evaluated per item so each line
+  // is precise (Active = items still in_production, etc.). Sorted per item.
+  const itemRows = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    const rows: { it: ProdItem; p: ProjectGroup }[] = [];
+    for (const { p } of enriched) {
+      for (const dg of p.decoratorGroups) {
+        for (const it of dg.items) {
+          const inProd = it.pipeline_stage === "in_production";
+          const shipped = it.pipeline_stage === "shipped";
+          const overdue = inProd && !!it.target_ship_date && it.target_ship_date !== "ASAP"
+            && new Date(it.target_ship_date).getTime() < now.getTime();
+          const dInStage = getDaysInStage(it) ?? 0;
+          const stalled = inProd && dInStage >= STALL_DAYS;
+          const matchesTab = tab === "active" ? inProd : tab === "overdue" ? overdue : tab === "stalled" ? stalled : shipped;
+          if (!matchesTab) continue;
+          if (filterDecorator && it.decorator_name !== filterDecorator) continue;
+          if (q && !(
+            p.clientName.toLowerCase().includes(q) || p.jobTitle.toLowerCase().includes(q) ||
+            p.jobNumber.toLowerCase().includes(q) || (p.invoiceNumber || "").toLowerCase().includes(q) ||
+            it.name.toLowerCase().includes(q) || (it.decorator_name || "").toLowerCase().includes(q)
+          )) continue;
+          rows.push({ it, p });
+        }
+      }
+    }
+    const shipVal = (d: string | null) => d === "ASAP" ? -Infinity : d ? new Date(d).getTime() : Infinity;
+    const invVal = (s: string | null) => { const n = parseFloat(s || ""); return Number.isFinite(n) ? n : Infinity; };
+    // Natural ascending comparison per column; listSortDir flips it.
+    const cmpAsc = (a: { it: ProdItem; p: ProjectGroup }, b: { it: ProdItem; p: ProjectGroup }) => {
+      switch (listSortKey) {
+        case "inv": return invVal(a.p.invoiceNumber) - invVal(b.p.invoiceNumber);
+        case "client": return a.p.clientName.toLowerCase().localeCompare(b.p.clientName.toLowerCase());
+        case "item": return (a.it.name || "").toLowerCase().localeCompare((b.it.name || "").toLowerCase());
+        case "decorator": return (a.it.decorator_short_code || a.it.decorator_name || "").localeCompare(b.it.decorator_short_code || b.it.decorator_name || "");
+        case "stage": return (a.it.pipeline_stage || "").localeCompare(b.it.pipeline_stage || "");
+        case "units": return (a.it.total_units || 0) - (b.it.total_units || 0);
+        case "ship": return shipVal(a.it.target_ship_date) - shipVal(b.it.target_ship_date);
+        default: return 0;
+      }
+    };
+    const dir = listSortDir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => cmpAsc(a, b) * dir);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, tab, listSortKey, listSortDir, search, filterDecorator]);
+
   const ic: React.CSSProperties = { padding: "5px 8px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, fontSize: 11, fontFamily: mono, outline: "none", width: "100%" };
+
+  // ── List-view batch selection. Reuses the global selectedItemIds + the
+  // batch-ship modal (batchShipState). The modal ships the FULL selection.
+  // One tracking # applies to all, so we flag (not block) selections that span
+  // multiple decorators so it's a deliberate choice. Modal context (title,
+  // notify) comes from the first selected item's project + decorator.
+  const listSelected = itemRows.filter(r => selectedItemIds.has(r.it.id));
+  const listEligible = listSelected.filter(r => r.it.pipeline_stage !== "shipped");
+  const listMultiDeco = new Set(listEligible.map(r => r.it.decorator_id || r.it.decorator_name)).size > 1;
+  const openListBatchShip = () => {
+    if (listEligible.length === 0) return;
+    const first = listEligible[0];
+    const dg = first.p.decoratorGroups.find(g => (g.decoratorId || g.decoratorName) === (first.it.decorator_id || first.it.decorator_name));
+    if (!dg) return;
+    setBatchTracking("");
+    setBatchNotes("");
+    setBatchShipState({ items: listEligible.map(r => r.it), project: first.p, dg });
+  };
 
   if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading production...</div>;
 
   return (
-    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14, maxWidth: 1100 }}>
+    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14, maxWidth: 1280, width: "100%", margin: "0 auto" }}>
       {/* Header — title + search + decorator dropdown on one row, mirrors Projects */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Production</h1>
@@ -923,6 +997,18 @@ export default function ProductionPage() {
           );
         })}
         <div style={{ flex: 1 }} />
+        <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden" }}>
+          {(["grouped", "list"] as const).map(m => (
+            <button key={m} onClick={() => setViewMode(m)}
+              style={{
+                background: viewMode === m ? T.surface : "transparent",
+                color: viewMode === m ? T.text : T.muted,
+                border: "none", padding: "5px 12px", fontSize: 11, fontWeight: 700,
+                fontFamily: font, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.06em",
+              }}>{m === "grouped" ? "Grouped" : "List"}</button>
+          ))}
+        </div>
+        {viewMode === "grouped" && (
         <select value={sortKey} onChange={e => setSortKey(e.target.value as any)}
           style={{ background: "transparent", border: "none", padding: "4px 0", fontSize: 11, fontWeight: 700, color: T.muted, fontFamily: font, textTransform: "uppercase", letterSpacing: "0.07em", cursor: "pointer", outline: "none" }}>
           <option value="ship_date">Sort · Ship date</option>
@@ -931,16 +1017,105 @@ export default function ProductionPage() {
           <option value="client">Sort · Client</option>
           <option value="units">Sort · Units</option>
         </select>
+        )}
       </div>
 
       {/* ── Active Projects ── */}
-      {activeProjects.length === 0 && (
+      {viewMode === "grouped" && activeProjects.length === 0 && (
         <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>
           {tab === "active" ? "No active production" : tab === "overdue" ? "Nothing overdue" : tab === "stalled" ? "No stalls" : "Nothing shipped"}
         </div>
       )}
 
-      {activeProjects.map(project => {
+      {/* ── List view — one row per item, click-through to the project ── */}
+      {viewMode === "list" && (
+        itemRows.length === 0 ? (
+          <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>
+            {tab === "active" ? "No items in production" : tab === "overdue" ? "Nothing overdue" : tab === "stalled" ? "No stalled items" : "Nothing shipped"}
+          </div>
+        ) : (
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+            {listEligible.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+                <span style={{ fontSize: 12, color: T.text, fontWeight: 600 }}>{listEligible.length} selected</span>
+                <button onClick={() => setSelectedItemIds(new Set())} style={{ background: "none", border: "none", color: T.muted, fontSize: 11, cursor: "pointer", fontFamily: font }}>Clear</button>
+                <div style={{ flex: 1 }} />
+                {listMultiDeco && (
+                  <span style={{ fontSize: 11, color: T.amber }}>spans multiple decorators · one tracking # applies to all</span>
+                )}
+                <button onClick={openListBatchShip} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                  Ship Selected · {listEligible.length}
+                </button>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", userSelect: "none" }}>
+              <div style={{ width: 24, flexShrink: 0 }} />
+              <div onClick={() => listHeaderClick("inv")} style={{ width: 90, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, color: listSortKey === "inv" ? T.text : T.muted }}>Inv #<span style={{ fontSize: 8, opacity: listSortKey === "inv" ? 0.9 : 0.3 }}>{listSortKey === "inv" ? (listSortDir === "asc" ? "▲" : "▼") : "↕"}</span></div>
+              <div onClick={() => listHeaderClick("client")} style={{ width: 160, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, color: listSortKey === "client" ? T.text : T.muted }}>Client<span style={{ fontSize: 8, opacity: listSortKey === "client" ? 0.9 : 0.3 }}>{listSortKey === "client" ? (listSortDir === "asc" ? "▲" : "▼") : "↕"}</span></div>
+              <div onClick={() => listHeaderClick("item")} style={{ flex: 1, minWidth: 0, paddingLeft: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, color: listSortKey === "item" ? T.text : T.muted }}>Item<span style={{ fontSize: 8, opacity: listSortKey === "item" ? 0.9 : 0.3 }}>{listSortKey === "item" ? (listSortDir === "asc" ? "▲" : "▼") : "↕"}</span></div>
+              <div onClick={() => listHeaderClick("decorator")} style={{ width: 104, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, color: listSortKey === "decorator" ? T.text : T.muted }}>Deco<span style={{ fontSize: 8, opacity: listSortKey === "decorator" ? 0.9 : 0.3 }}>{listSortKey === "decorator" ? (listSortDir === "asc" ? "▲" : "▼") : "↕"}</span></div>
+              <div onClick={() => listHeaderClick("stage")} style={{ width: 110, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, color: listSortKey === "stage" ? T.text : T.muted }}>Stage<span style={{ fontSize: 8, opacity: listSortKey === "stage" ? 0.9 : 0.3 }}>{listSortKey === "stage" ? (listSortDir === "asc" ? "▲" : "▼") : "↕"}</span></div>
+              <div onClick={() => listHeaderClick("units")} style={{ width: 56, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 3, color: listSortKey === "units" ? T.text : T.muted }}>Units<span style={{ fontSize: 8, opacity: listSortKey === "units" ? 0.9 : 0.3 }}>{listSortKey === "units" ? (listSortDir === "asc" ? "▲" : "▼") : "↕"}</span></div>
+              <div onClick={() => listHeaderClick("ship")} style={{ width: 84, flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 3, color: listSortKey === "ship" ? T.text : T.muted }}>Ship<span style={{ fontSize: 8, opacity: listSortKey === "ship" ? 0.9 : 0.3 }}>{listSortKey === "ship" ? (listSortDir === "asc" ? "▲" : "▼") : "↕"}</span></div>
+              <div style={{ width: 72, flexShrink: 0 }} />
+            </div>
+            {itemRows.map(({ it, p }) => {
+              const isShipped = it.pipeline_stage === "shipped";
+              const ship = shipDatePill(it.target_ship_date);
+              return (
+                <div key={it.id}
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}
+                  onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
+                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                  {/* Select checkbox — non-shipped items only */}
+                  <div style={{ width: 24, flexShrink: 0, display: "flex", alignItems: "center" }} onClick={e => e.stopPropagation()}>
+                    {!isShipped && (
+                      <input type="checkbox" checked={selectedItemIds.has(it.id)} onChange={() => toggleItemSelected(it.id)}
+                        style={{ width: 15, height: 15, cursor: "pointer", accentColor: T.accent }} />
+                    )}
+                  </div>
+                  {/* Inv # */}
+                  <div style={{ width: 90, flexShrink: 0, color: p.invoiceNumber ? T.text : T.faint, fontFamily: mono, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.invoiceNumber || "—"}</div>
+                  {/* Client (+ project / PO subtitle) */}
+                  <div style={{ width: 160, flexShrink: 0, minWidth: 0 }}>
+                    <div style={{ color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.clientName || "No client"}</div>
+                    {p.jobTitle && <div style={{ color: T.faint, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.jobTitle}</div>}
+                  </div>
+                  {/* Item (letter dropped in this view) */}
+                  <div style={{ flex: 1, minWidth: 0, paddingLeft: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</div>
+                  {/* Deco — widened so the full short code fits */}
+                  <div style={{ width: 104, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
+                  {/* Stage */}
+                  <div style={{ width: 110, flexShrink: 0 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: isShipped ? T.green : T.blue, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      {isShipped ? "Shipped" : "In Production"}
+                    </span>
+                  </div>
+                  {/* Units */}
+                  <div style={{ width: 56, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{it.total_units || 0}</div>
+                  {/* Ship date */}
+                  <div style={{ width: 84, flexShrink: 0, textAlign: "right", fontFamily: mono }}>
+                    {ship ? <span style={{ color: isShipped ? T.muted : ship.color }}>{ship.dateStr}</span> : <span style={{ color: T.faint }}>—</span>}
+                  </div>
+                  {/* Ship action — opens the per-item ship modal */}
+                  <div style={{ width: 72, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
+                    {isShipped ? (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>Shipped</span>
+                    ) : (
+                      <button onClick={() => setShipDetailItem(it)}
+                        style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                        Ship
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+
+      {viewMode === "grouped" && activeProjects.map(project => {
         const isModalOpen = modalProject?.jobId === project.jobId;
         const ship = shipDatePill(project.shipDate);
         const allShipped = project.decoratorGroups.every(dg => dg.items.every(it => it.pipeline_stage === "shipped"));
