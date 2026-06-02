@@ -193,20 +193,30 @@ export default function JobsPage() {
   // but multi-vendor projects often still have items at other
   // decorators — that's still active work for these KPIs.
   const kpis = useMemo(() => {
-    // Active = any non-terminal phase. Includes warehouse phases
-    // (receiving / shipping / fulfillment) — those still have work in
-    // flight even when every item has shipped from its decorator.
-    const active = jobs.filter(j => !["complete","cancelled","on_hold", ...AT_HPD_PHASES].includes(j.phase));
-    const items = active.flatMap(j => (j as any).items || []);
-    const units = items.reduce(
-      (s: number, it: any) => s + ((it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0)),
-      0,
-    );
+    // Count by ITEM stage, not job phase: only items still in the production
+    // pipeline — not yet shipped from the decorator and not received at HPD —
+    // count, so a half-shipped job contributes just its remaining work.
+    // Terminal/paused jobs (complete / cancelled / on_hold) are excluded; a
+    // project counts only if it still has at least one active item.
     const NON_GARMENT = new Set(["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]);
-    let prints = 0;
-    for (const j of active) {
-      const costProds = ((j as any).costing_data?.costProds || []) as any[];
-      for (const cp of costProds) {
+    const isActiveItem = (it: any) => it.pipeline_stage !== "shipped" && !it.received_at_hpd;
+    const activeJobIds = new Set<string>();
+    let itemCount = 0, units = 0, prints = 0;
+    for (const j of jobs) {
+      if (["complete","cancelled","on_hold"].includes(j.phase)) continue;
+      const itemById: Record<string, any> = {};
+      for (const it of ((j as any).items || [])) itemById[it.id] = it;
+      for (const it of ((j as any).items || [])) {
+        if (!isActiveItem(it)) continue;
+        activeJobIds.add(j.id);
+        itemCount++;
+        units += (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0);
+      }
+      for (const cp of (((j as any).costing_data?.costProds || []) as any[])) {
+        const it = itemById[cp.id];
+        if (!it || !isActiveItem(it)) continue;
+        // Accessories / non-garment items aren't screen-printed — exclude from Prints.
+        if (NON_GARMENT.has(cp.garment_type)) continue;
         const qty = cp.totalQty || 0;
         if (qty === 0) continue;
         const activeLocs = [1,2,3,4,5,6].filter(loc => {
@@ -214,13 +224,10 @@ export default function JobsPage() {
           return ld?.screens > 0 || ld?.location;
         }).length;
         const hasTag = cp.tagPrint ? 1 : 0;
-        const decoCount = NON_GARMENT.has(cp.garment_type)
-          ? ((cp.customCosts?.length || 0) > 0 ? 1 : 0)
-          : activeLocs + hasTag;
-        prints += decoCount * qty;
+        prints += (activeLocs + hasTag) * qty;
       }
     }
-    return { projects: active.length, items: items.length, units, prints };
+    return { projects: activeJobIds.size, items: itemCount, units, prints };
   }, [jobs]);
 
   const visible = useMemo(() => {
