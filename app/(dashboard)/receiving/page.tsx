@@ -75,6 +75,16 @@ export default function ReceivingPage() {
   // project's full vendor mix.
   const [modalShipmentKey, setModalShipmentKey] = useState<string | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  // List view (production-style per-item view) — toggle on pending/received.
+  const [viewMode, setViewMode] = useState<"shipments" | "list">("list");
+  // Batch-receive confirm modal — the items queued by "Receive Selected".
+  const [batchReceiveItems, setBatchReceiveItems] = useState<WarehouseItem[] | null>(null);
+  const [listSortKey, setListSortKey] = useState<"inv" | "client" | "item" | "decorator" | "shipped" | "units">("shipped");
+  const [listSortDir, setListSortDir] = useState<"asc" | "desc">("asc");
+  const listHeaderClick = (key: typeof listSortKey) => {
+    if (key === listSortKey) setListSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setListSortKey(key); setListSortDir("asc"); }
+  };
 
   // Receive UI state — keyed by item id
   const [conditionNote, setConditionNote] = useState<Record<string, string>>({});
@@ -543,6 +553,101 @@ export default function ReceivingPage() {
     );
   }
 
+  // Flat per-item list (production-style). Reuses filteredShipments (search +
+  // decorator already applied), flattens to items for the active tab, sortable
+  // by column. Per-item Receive opens that item's shipment modal (full receive
+  // flow); multi-select runs bulkMarkReceived.
+  function renderListView() {
+    const isPending = tab === "pending";
+    const rows = filteredShipments.flatMap(s =>
+      s.items
+        .filter(it => !!it.received_at_hpd === !isPending)
+        .map(it => ({ it, s, job: s.jobs.find(j => j.id === it.job_id) || s.jobs[0] }))
+    );
+    const shipVal = (d: string | null) => d ? new Date(d).getTime() : Infinity;
+    const cmpAsc = (a: typeof rows[number], b: typeof rows[number]) => {
+      switch (listSortKey) {
+        case "inv": return (a.job?.display_number || "").localeCompare(b.job?.display_number || "");
+        case "client": return (a.job?.client_name || "").toLowerCase().localeCompare((b.job?.client_name || "").toLowerCase());
+        case "item": return (a.it.name || "").toLowerCase().localeCompare((b.it.name || "").toLowerCase());
+        case "decorator": return (a.it.decorator_short_code || a.it.decorator_name || "").localeCompare(b.it.decorator_short_code || b.it.decorator_name || "");
+        case "shipped": return shipVal(a.s.shipped_at) - shipVal(b.s.shipped_at);
+        case "units": return tQty(a.it.qtys) - tQty(b.it.qtys);
+        default: return 0;
+      }
+    };
+    const dir = listSortDir === "asc" ? 1 : -1;
+    rows.sort((a, b) => cmpAsc(a, b) * dir);
+
+    const selected = rows.filter(r => selectedItemIds.has(r.it.id));
+    const eligible = selected.filter(r => !r.it.received_at_hpd);
+
+    const sortGlyph = (k: typeof listSortKey) => (
+      <span style={{ fontSize: 8, opacity: listSortKey === k ? 0.9 : 0.3 }}>{listSortKey === k ? (listSortDir === "asc" ? "▲" : "▼") : "↕"}</span>
+    );
+    const hCell = (k: typeof listSortKey, label: string, style: any) => (
+      <div onClick={() => listHeaderClick(k)} style={{ ...style, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, color: listSortKey === k ? T.text : T.muted }}>{label}{sortGlyph(k)}</div>
+    );
+
+    if (rows.length === 0) {
+      return <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>{isPending ? "Nothing pending — every box is received." : "Nothing received yet."}</div>;
+    }
+
+    return (
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+        {isPending && eligible.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+            <span style={{ fontSize: 12, color: T.text, fontWeight: 600 }}>{eligible.length} selected</span>
+            <button onClick={() => setSelectedItemIds(new Set())} style={{ background: "none", border: "none", color: T.muted, fontSize: 11, cursor: "pointer", fontFamily: font }}>Clear</button>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setBatchReceiveItems(eligible.map(r => r.it))}
+              style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+              Receive Selected · {eligible.length}
+            </button>
+          </div>
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", userSelect: "none" }}>
+          {isPending && <div style={{ width: 24, flexShrink: 0 }} />}
+          {hCell("inv", "Inv #", { width: 90, flexShrink: 0 })}
+          {hCell("client", "Client", { width: 150, flexShrink: 0 })}
+          {hCell("item", "Item", { flex: 1, minWidth: 0, paddingLeft: 10 })}
+          {hCell("decorator", "Deco", { width: 104, flexShrink: 0 })}
+          {hCell("shipped", "Shipped", { width: 84, flexShrink: 0, justifyContent: "flex-end" })}
+          {hCell("units", "Units", { width: 56, flexShrink: 0, justifyContent: "flex-end" })}
+          <div style={{ width: 80, flexShrink: 0 }} />
+        </div>
+        {rows.map(({ it, s, job }) => {
+          const isReceived = it.received_at_hpd;
+          const shippedStr = s.shipped_at ? new Date(s.shipped_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+          return (
+            <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}
+              onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+              {isPending && (
+                <div style={{ width: 24, flexShrink: 0, display: "flex", alignItems: "center" }} onClick={e => e.stopPropagation()}>
+                  <input type="checkbox" checked={selectedItemIds.has(it.id)} onChange={() => toggleItemSelected(it.id)} style={{ width: 15, height: 15, cursor: "pointer", accentColor: T.accent }} />
+                </div>
+              )}
+              <div style={{ width: 90, flexShrink: 0, color: job?.display_number ? T.text : T.faint, fontFamily: mono, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job?.display_number || "—"}</div>
+              <div style={{ width: 150, flexShrink: 0, minWidth: 0, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job?.client_name || "No client"}</div>
+              <div style={{ flex: 1, minWidth: 0, paddingLeft: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</div>
+              <div style={{ width: 104, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
+              <div style={{ width: 84, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.muted }}>{shippedStr}</div>
+              <div style={{ width: 56, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{tQty(it.qtys)}</div>
+              <div style={{ width: 80, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
+                {isReceived ? (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>Received</span>
+                ) : (
+                  <button onClick={() => setModalShipmentKey(s.key)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Receive</button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading receiving...</div>;
 
   return (
@@ -625,10 +730,26 @@ export default function ReceivingPage() {
             </button>
           );
         })}
+        {tab !== "outside" && (
+          <>
+            <div style={{ flex: 1 }} />
+            <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden" }}>
+              {(["shipments", "list"] as const).map(m => (
+                <button key={m} onClick={() => setViewMode(m)}
+                  style={{ background: viewMode === m ? T.surface : "transparent", color: viewMode === m ? T.text : T.muted, border: "none", padding: "5px 12px", fontSize: 11, fontWeight: 700, fontFamily: font, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  {m === "shipments" ? "Shipments" : "Item List"}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
+      {/* ── List view (pending / received) — one row per item ── */}
+      {tab !== "outside" && viewMode === "list" && renderListView()}
+
       {/* ── Pending tab — shipment rows, flat list ── */}
-      {tab === "pending" && (
+      {tab === "pending" && viewMode === "shipments" && (
         <>
           {visibleShipments.length === 0 && (
             <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>
@@ -644,7 +765,7 @@ export default function ReceivingPage() {
           gives the floor a clear daily working list; time buckets
           collapse the historical pile so the page doesn't read as
           a wall of "done" stuff. */}
-      {tab === "received" && receivedBuckets && (
+      {tab === "received" && receivedBuckets && viewMode === "shipments" && (
         <>
           {visibleShipments.length === 0 && (
             <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>
@@ -1301,6 +1422,61 @@ export default function ReceivingPage() {
       )}
 
       {/* Packing slip viewer modal */}
+      {/* Batch-receive confirm — opened by "Receive Selected" in List view.
+          Review each item's qty + condition, then commit via bulkMarkReceived.
+          Per-size / photo detail stays in the per-item Receive modal. */}
+      {batchReceiveItems && (() => {
+        const items = batchReceiveItems;
+        return (
+          <div onClick={() => setBatchReceiveItems(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, width: "min(560px, 100%)", maxHeight: "85vh", display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
+              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>Receive {items.length} item{items.length !== 1 ? "s" : ""}</div>
+                <button onClick={() => setBatchReceiveItems(null)} style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: "12px 20px" }}>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 10 }}>Confirm quantities + condition, then mark received. For per-size or photo detail, use the row&apos;s Receive button instead.</div>
+                {items.map(it => {
+                  const cond = itemCondition[it.id] || "good";
+                  const shipped = tQty(it.ship_qtys) || tQty(it.qtys);
+                  return (
+                    <div key={it.id} style={{ padding: "10px 0", borderBottom: `1px solid ${T.border}55`, display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</div>
+                          <div style={{ fontSize: 11, color: T.muted }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 700, fontFamily: mono, whiteSpace: "nowrap" }}>{shipped} units</div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {(["good", "damaged"] as const).map(c => (
+                          <button key={c} onClick={() => setItemCondition(prev => ({ ...prev, [it.id]: c }))}
+                            style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6, border: `1px solid ${cond === c ? (c === "damaged" ? T.red : T.green) : T.border}`, background: cond === c ? (c === "damaged" ? T.redDim : T.greenDim) : "transparent", color: cond === c ? (c === "damaged" ? T.red : T.green) : T.muted, cursor: "pointer", fontFamily: font, textTransform: "capitalize" }}>{c}</button>
+                        ))}
+                        {cond === "damaged" && (
+                          <input value={conditionNote[it.id] || ""} onChange={e => setConditionNote(prev => ({ ...prev, [it.id]: e.target.value }))} placeholder="What's damaged?"
+                            style={{ flex: 1, fontSize: 12, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, outline: "none", fontFamily: font }} />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button onClick={() => setBatchReceiveItems(null)} style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Cancel</button>
+                <button onClick={async () => {
+                  await bulkMarkReceived(items, (it) => ({ condition: itemCondition[it.id] || "good", notes: conditionNote[it.id] || "" }), { skipClientEmail: silentMode });
+                  setSelectedItemIds(prev => { const next = new Set(prev); for (const it of items) next.delete(it.id); return next; });
+                  setBatchReceiveItems(null);
+                }} style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                  Mark {items.length} Received
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {viewingSlips && (
         <div onClick={() => setViewingSlips(null)}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
