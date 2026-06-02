@@ -697,14 +697,12 @@ export default function ProductionPage() {
           items++;
           units += it.total_units || 0;
 
+          // Prints = garment screen-prints + tags only. Accessories /
+          // non-garment items aren't screen-printed, so they don't count here
+          // (they're still counted in Items + Units above).
+          if (it.garment_type && NON_GARMENT.has(it.garment_type)) continue;
           const cp = it.garment_type ? cpByGarment[it.garment_type] : null;
           if (!cp) continue;
-          if (NON_GARMENT.has(cp.garment_type)) {
-            // Custom-cost items count as 1 decoration per piece if any
-            // custom costs are configured, else 0.
-            if ((cp.customCosts?.length || 0) > 0) prints += it.total_units || 0;
-            continue;
-          }
           const activeLocs = [1,2,3,4,5,6].filter(loc => {
             const ld = cp.printLocations?.[loc];
             return ld?.screens > 0 || ld?.location;
