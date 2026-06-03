@@ -911,6 +911,42 @@ export default function ProductionPage() {
 
   const ic: React.CSSProperties = { padding: "5px 8px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, fontSize: 11, fontFamily: mono, outline: "none", width: "100%" };
 
+  // Per-size shipped-qty editor for the LIST-view ship modals (single + batch).
+  // Each size defaults to its ordered qty; the border turns amber when shipping
+  // under / green when over. Writes ship_qtys (debounced) and updates local
+  // state immediately, so Mark Shipped persists exactly what's shown. The
+  // grouped view has its own inline copy of this grid (left untouched on
+  // purpose) — this helper only serves the two list-flow modals.
+  function shipQtyInputs(item: ProdItem) {
+    return item.sizes.map(sz => {
+      const ordered = item.qtys[sz] || 0;
+      const shipped = (item.ship_qtys || {})[sz] ?? ordered;
+      const diffColor = shipped < ordered ? T.amber : shipped > ordered ? T.green : null;
+      return (
+        <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+          <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{sz}</span>
+          <input type="text" inputMode="numeric" value={shipped}
+            onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
+            onChange={e => {
+              const val = parseInt(e.target.value) || 0;
+              const newQtys = { ...(item.ship_qtys || {}), [sz]: val };
+              setProjects(prev => prev.map(p => ({
+                ...p, decoratorGroups: p.decoratorGroups.map(dg2 => ({
+                  ...dg2, items: dg2.items.map(it => it.id === item.id ? { ...it, ship_qtys: newQtys } : it)
+                }))
+              })));
+              if (saveTimers.current[`sqty_${item.id}`]) clearTimeout(saveTimers.current[`sqty_${item.id}`]);
+              saveTimers.current[`sqty_${item.id}`] = setTimeout(() => {
+                (supabase.from("items") as any).update({ ship_qtys: newQtys }).eq("id", item.id);
+              }, 800);
+            }}
+            style={{ ...ic, width: 52, padding: "8px 6px", textAlign: "center", fontSize: 13, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: T.text }} />
+          <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>{ordered}</span>
+        </div>
+      );
+    });
+  }
+
   // ── List-view batch selection. Reuses the global selectedItemIds + the
   // batch-ship modal (batchShipState). The modal ships the FULL selection.
   // One tracking # applies to all, so we flag (not block) selections that span
@@ -1700,6 +1736,16 @@ export default function ProductionPage() {
                 );
               })()}
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {/* Shipped quantities — per-size, list-flow only. Grouped sets
+                    these inline on the item row, so the grid is gated to the
+                    list view here to leave the grouped Ship modal unchanged. */}
+                {viewMode === "list" && item.pipeline_stage !== "shipped" && item.sizes.length > 0 && (
+                  <div>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Shipped quantities</label>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{shipQtyInputs(item)}</div>
+                    <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Ordered shown below each — adjust if the vendor shipped a different count.</div>
+                  </div>
+                )}
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Tracking #</label>
                   <input value={item.ship_tracking || ""} placeholder="e.g. 1Z999AA10123456784"
@@ -1883,14 +1929,29 @@ export default function ProductionPage() {
                   </div>
                 );
               })()}
-              {/* Item list — confirm what's being shipped */}
-              <div style={{ marginBottom: 18, padding: "10px 12px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, maxHeight: 160, overflowY: "auto" }}>
-                {liveItems.map(it => (
-                  <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0", fontSize: 12 }}>
-                    <span style={{ fontFamily: mono, color: T.muted, fontWeight: 700 }}>{it.letter}</span>
-                    <span style={{ flex: 1, color: T.text }}>{it.name}</span>
-                    <span style={{ color: T.faint, fontFamily: mono }}>{it.total_units} units</span>
-                  </div>
+              {/* Item list — confirm what's being shipped. In the list flow each
+                  item also gets a per-size shipped-qty editor below its line.
+                  Grouped keeps its exact original row (verbatim else branch). */}
+              <div style={{ marginBottom: 18, padding: "10px 12px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}`, maxHeight: viewMode === "list" ? 320 : 160, overflowY: "auto" }}>
+                {liveItems.map((it, idx) => (
+                  viewMode === "list" ? (
+                    <div key={it.id} style={{ padding: "6px 0", borderTop: idx > 0 ? `1px solid ${T.border}` : "none" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+                        <span style={{ fontFamily: mono, color: T.muted, fontWeight: 700 }}>{it.letter}</span>
+                        <span style={{ flex: 1, color: T.text }}>{it.name}</span>
+                        <span style={{ color: T.faint, fontFamily: mono }}>{it.total_units} units</span>
+                      </div>
+                      {it.sizes.length > 0 && (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>{shipQtyInputs(it)}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0", fontSize: 12 }}>
+                      <span style={{ fontFamily: mono, color: T.muted, fontWeight: 700 }}>{it.letter}</span>
+                      <span style={{ flex: 1, color: T.text }}>{it.name}</span>
+                      <span style={{ color: T.faint, fontFamily: mono }}>{it.total_units} units</span>
+                    </div>
+                  )
                 ))}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
