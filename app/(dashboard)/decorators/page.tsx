@@ -503,6 +503,13 @@ export default function DecoratorsPage() {
                   </div>
                 </div>
                 {isSaving && <span style={{ fontSize:11, color:T.amber, fontFamily:font }}>Saving…</span>}
+                {d.pricing_data && (
+                  <a href={`/api/pdf/decorator-pricesheet/${d.id}`} target="_blank" rel="noopener noreferrer"
+                    onClick={e => e.stopPropagation()} title="Open pricing PDF in a new tab"
+                    style={{ fontSize:10, fontWeight:600, color:T.accent, fontFamily:font, textDecoration:"none", border:`1px solid ${T.accent}55`, borderRadius:99, padding:"3px 10px", whiteSpace:"nowrap" }}>
+                    Pricing PDF
+                  </a>
+                )}
                 {d.pricing_data ? (
                   <span style={{ fontSize:10, color:T.green, fontFamily:mono, background:T.greenDim, padding:"2px 8px", borderRadius:99 }}>Pricing set</span>
                 ) : (
