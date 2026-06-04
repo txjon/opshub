@@ -226,6 +226,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       const typeMeta = (j.type_meta || {}) as any;
       const costingSummary = (j.costing_summary || {}) as any;
       let total = Number(typeMeta.qb_total_with_tax) || 0;
+      if (total === 0 && Number(typeMeta.stripe_total_cents)) total = Number(typeMeta.stripe_total_cents) / 100;
       if (total === 0) total = Number(costingSummary.grossRev) || 0;
       if (total === 0) {
         for (const it of jobItems) {

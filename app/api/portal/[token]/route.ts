@@ -325,7 +325,7 @@ export async function GET(
         items: portalQuoteItems,
         subtotal: portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0),
         tax: isQuoteSent ? (typeMeta.qb_tax_amount || 0) : 0,
-        total: isQuoteSent ? (typeMeta.qb_total_with_tax || portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0)) : 0,
+        total: isQuoteSent ? (typeMeta.qb_total_with_tax || (typeMeta.stripe_total_cents ? typeMeta.stripe_total_cents / 100 : 0) || portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0)) : 0,
       },
       invoiceStale: (() => {
         // Only "stale" when OpsHub actually pushed an invoice to QB
