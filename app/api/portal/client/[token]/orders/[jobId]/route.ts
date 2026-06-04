@@ -233,7 +233,7 @@ export async function GET(
 
     const costingData = job.costing_data as any;
     const costingSummary = job.costing_summary as any;
-    const variancePushed = !!(job.type_meta as any)?.qb_variance_pushed_at;
+    const variancePushed = !!((job.type_meta as any)?.qb_variance_pushed_at || (job.type_meta as any)?.stripe_variance_pushed_at);
     const prefersReceived = job.shipping_route === "ship_through" || job.shipping_route === "stage";
     const quoteItems: any[] = [];
 
@@ -391,7 +391,7 @@ export async function GET(
         // total should reflect what's owed even when the quote
         // breakdown is hidden).
         total: showTotals
-          ? (typeMeta.qb_total_with_tax || quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0))
+          ? (typeMeta.qb_total_with_tax || (typeMeta.stripe_total_cents ? typeMeta.stripe_total_cents / 100 : 0) || quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0))
           : 0,
       },
       invoiceStale: (() => {

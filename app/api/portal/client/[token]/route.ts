@@ -256,7 +256,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         const isInvoiced = !!typeMeta.invoice_sent_at || hasIssued;
         if (!isInvoiced) continue;
         // Total — prefer QB total_with_tax, fall back to costing grossRev.
-        const total = Number(typeMeta.qb_total_with_tax) || Number(costingSummary.grossRev) || 0;
+        const total = Number(typeMeta.qb_total_with_tax) || (Number(typeMeta.stripe_total_cents) ? Number(typeMeta.stripe_total_cents) / 100 : 0) || Number(costingSummary.grossRev) || 0;
         const paidAmount = jobPays.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
         const balance = total - paidAmount;
         if (balance > 0.01) unpaidCount++;
