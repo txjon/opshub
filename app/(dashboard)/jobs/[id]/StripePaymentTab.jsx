@@ -6,6 +6,7 @@ import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
+import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewModal";
 
 // Stripe-backed invoice tab. Used by IHM (and any other tenant with
 // companies.default_payment_provider = 'stripe'). Two-step flow:
@@ -35,12 +36,23 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
   const [pmInvoice, setPmInvoice] = useState("");
   const [pmDue, setPmDue] = useState(new Date().toISOString().split("T")[0]);
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
+  const [showVarianceModal, setShowVarianceModal] = useState(false);
 
   const stripeInvoiceId = job.type_meta?.stripe_invoice_id;
   const stripeInvoiceNumber = job.type_meta?.stripe_invoice_number;
   const stripePaymentLink = job.type_meta?.stripe_payment_link;
   const stripeInvoiceStatus = job.type_meta?.stripe_invoice_status;
   const stripeTotalCents = job.type_meta?.stripe_total_cents;
+
+  // Variance review gating — mirrors the QB tab: invoice exists AND the job is
+  // fully shipped. Drop-ship = all items shipped; ship-through = HPD fulfillment
+  // marked shipped. Stripe can't edit a finalized invoice, so approving voids +
+  // recreates it with the actual shipped/received qtys.
+  const isDropShip = job.shipping_route === "drop_ship";
+  const isShipThrough = job.shipping_route === "ship_through";
+  const allItemsShipped = items.length > 0 && items.every(it => it.pipeline_stage === "shipped");
+  const isFullyShipped = (isDropShip && allItemsShipped) || (isShipThrough && job.fulfillment_status === "shipped");
+  const stripeVariancePushedAt = job.type_meta?.stripe_variance_pushed_at || null;
 
   // Auto-resync from Stripe on mount when an invoice exists. Catches
   // the case where the invoice.voided webhook didn't reach OpsHub
@@ -225,6 +237,34 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
           </div>
         )}
 
+        {/* Variance review — mirrors the QB tab. Shown once an invoice exists
+            AND the job is fully shipped; approving voids + recreates the invoice
+            with actual shipped/received qtys. Flips to a "✓ revised" row after,
+            and is never offered for paid/void invoices. */}
+        {stripeInvoiceNumber && isFullyShipped && !stripeVariancePushedAt
+          && stripeInvoiceStatus !== "paid" && stripeInvoiceStatus !== "void" && (
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+            <button onClick={() => setShowVarianceModal(true)}
+              style={{ width: "100%", padding: "10px", borderRadius: 7, border: `1px solid ${T.amber}66`, cursor: "pointer",
+                background: T.amberDim, color: T.amber, fontSize: 12, fontWeight: 700, fontFamily: font, transition: "opacity 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
+              onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+              Revise Invoice with {isShipThrough ? "Received" : "Shipped"} Qtys — Review Variance
+            </button>
+          </div>
+        )}
+        {stripeInvoiceNumber && stripeVariancePushedAt && (
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ width: "100%", padding: "8px 12px", borderRadius: 7, border: `1px solid ${T.green}44`, background: T.greenDim, color: T.green, fontSize: 11, fontWeight: 600, fontFamily: font, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <span>✓ Invoice revised with {isShipThrough ? "received" : "shipped"} qtys · {new Date(stripeVariancePushedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+              <button onClick={() => setShowVarianceModal(true)}
+                style={{ padding: "3px 9px", borderRadius: 4, border: `1px solid ${T.green}`, background: "transparent", color: T.green, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                Re-review
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Payment Records */}
         <div style={{ padding: "12px 14px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -389,6 +429,21 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
           </div>
         );
       })()}
+
+      {showVarianceModal && (
+        <InvoiceVarianceReviewModal
+          provider="stripe"
+          jobId={job.id}
+          shippingRoute={job.shipping_route}
+          jobTitle={job.title}
+          clientName={job.clients?.name || ""}
+          onClose={() => setShowVarianceModal(false)}
+          onApproved={() => {
+            logJobActivity(job.id, "Stripe invoice revised with actual qtys — send the revised invoice from Send Invoice");
+            if (onReload) onReload();
+          }}
+        />
+      )}
     </div>
   );
 }

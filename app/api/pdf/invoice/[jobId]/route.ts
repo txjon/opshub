@@ -226,7 +226,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // items.sell_per_unit is the source of truth — set by CostingTab (auto-calc or override), rounded to cent.
     // After variance push, use shipped/received per-size qtys for the invoice
     // line items so PDF matches what's been billed in QB. Before: use quote qtys.
-    const variancePushed = !!(job.type_meta as any)?.qb_variance_pushed_at;
+    const variancePushed = !!((job.type_meta as any)?.qb_variance_pushed_at || (job.type_meta as any)?.stripe_variance_pushed_at);
     const prefersReceived = (job as any).shipping_route === "ship_through" || (job as any).shipping_route === "stage";
 
     let prods: any[] = [];
@@ -285,7 +285,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const branding = await getPdfBranding();
     const html = renderInvoiceHTML({
-      invoiceNum: job.type_meta?.qb_invoice_number || orderInfo.invoiceNum || job.job_number || "",
+      invoiceNum: job.type_meta?.qb_invoice_number || job.type_meta?.stripe_invoice_number || orderInfo.invoiceNum || job.job_number || "",
       today,
       terms,
       shipDate: latestEta ? new Date(latestEta + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "",
