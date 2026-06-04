@@ -23,6 +23,7 @@ export function InvoiceVarianceReviewModal({
   clientName,
   onClose,
   onApproved,
+  provider = "quickbooks",
 }: {
   jobId: string;
   shippingRoute: "drop_ship" | "ship_through" | "stage" | null;
@@ -30,6 +31,9 @@ export function InvoiceVarianceReviewModal({
   clientName: string;
   onClose: () => void;
   onApproved: () => void;
+  /** Which invoicing backend to push to. QB updates in place; Stripe
+   *  voids + recreates. Defaults to QB so existing call sites are unchanged. */
+  provider?: "quickbooks" | "stripe";
 }) {
   const supabase = createClient();
   const [rows, setRows] = useState<VarianceRow[] | null>(null);
@@ -111,7 +115,8 @@ export function InvoiceVarianceReviewModal({
     setPushing(true);
     setError(null);
     try {
-      const res = await fetch("/api/qb/invoice", {
+      const endpoint = provider === "stripe" ? "/api/stripe/invoice" : "/api/qb/invoice";
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobId, useShippedQtys: true, billableQtys }),
@@ -289,7 +294,9 @@ export function InvoiceVarianceReviewModal({
         {/* Footer */}
         <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div style={{ fontSize: 11, color: T.muted }}>
-            Approving pushes updated qtys to QuickBooks and emails the client the revised invoice.
+            {provider === "stripe"
+              ? "Approving voids the current invoice and creates a revised one. Send it to the client from the Send Invoice button."
+              : "Approving pushes updated qtys to QuickBooks and emails the client the revised invoice."}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {error && <span style={{ color: T.red, fontSize: 11 }}>{error}</span>}
@@ -302,7 +309,7 @@ export function InvoiceVarianceReviewModal({
               onClick={approveAndPush}
               disabled={pushing || loading || !rows?.length}
               style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: pushing ? T.faint : T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: pushing ? "default" : "pointer", fontFamily: font }}
-            >{pushing ? "Pushing…" : "Approve & Push to QB"}</button>
+            >{pushing ? "Pushing…" : (provider === "stripe" ? "Approve & Revise Invoice" : "Approve & Push to QB")}</button>
           </div>
         </div>
       </div>

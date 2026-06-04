@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveCompany } from "@/lib/company";
-import { findOrCreateCustomer, createAndSendInvoice, getStripeClient, type StripeLineItem } from "@/lib/stripe";
+import { findOrCreateCustomer, createAndSendInvoice, voidInvoice, getStripeClient, type StripeLineItem } from "@/lib/stripe";
+import { deductSamples } from "@/lib/qty";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -38,13 +39,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { jobId } = await req.json();
+    const { jobId, useShippedQtys, billableQtys } = await req.json();
     if (!jobId) return NextResponse.json({ error: "jobId required" }, { status: 400 });
+    // useShippedQtys → variance flow: bill received→shipped→ordered qtys (minus
+    // samples) and replace the existing invoice. billableQtys → optional per-item
+    // total overrides (waive / manual edit) from the variance review screen.
+    const isVariance = !!useShippedQtys;
 
     // Pull job + client + billing/primary contact + items
     const { data: job } = await supabase
       .from("jobs")
-      .select("id, title, job_number, payment_terms, target_ship_date, type_meta, client_id, clients(id, name), items(id, name, garment_type, mockup_color, sell_per_unit, blank_vendor, buy_sheet_lines(size, qty_ordered)), job_contacts(role_on_job, contacts(id, name, email))")
+      .select("id, title, job_number, payment_terms, target_ship_date, shipping_route, type_meta, client_id, clients(id, name), items(id, name, garment_type, mockup_color, sell_per_unit, blank_vendor, ship_qtys, received_qtys, sample_qtys, buy_sheet_lines(size, qty_ordered)), job_contacts(role_on_job, contacts(id, name, email))")
       .eq("id", jobId)
       .single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
@@ -61,14 +66,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No billing contact with email on this job" }, { status: 400 });
     }
 
-    // Build Stripe line items from the job's items
+    // Build Stripe line items. Ordered qtys by default; the variance flow bills
+    // actual received→shipped→ordered qtys (minus samples), with optional
+    // per-item billable overrides from the review screen. Mirrors /api/qb/invoice.
+    const prefersReceived = (job as any).shipping_route === "ship_through" || (job as any).shipping_route === "stage";
     const lineItems: StripeLineItem[] = [];
     for (const item of ((job as any).items || [])) {
       const sellPerUnit = parseFloat(item.sell_per_unit) || 0;
       if (sellPerUnit <= 0) continue;
-      const totalQty = (item.buy_sheet_lines || []).reduce((a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0);
+      const lines = item.buy_sheet_lines || [];
+
+      const perSize: Record<string, number> = {};
+      if (isVariance) {
+        const received = (item.received_qtys || {}) as Record<string, number>;
+        const shipped = (item.ship_qtys || {}) as Record<string, number>;
+        const firstChoice = prefersReceived ? received : shipped;
+        const secondChoice = prefersReceived ? shipped : received;
+        for (const l of lines) {
+          const a = firstChoice[l.size];
+          const b = secondChoice[l.size];
+          // Missing sizes fall through to ordered — matches QB variance + packing slip.
+          perSize[l.size] = a !== undefined ? a : b !== undefined ? b : (Number(l.qty_ordered) || 0);
+        }
+      } else {
+        for (const l of lines) perSize[l.size] = Number(l.qty_ordered) || 0;
+      }
+      // Samples are pulled at HPD and never ship to the customer — don't bill them.
+      const billable = isVariance ? deductSamples(perSize, item.sample_qtys) : perSize;
+
+      let totalQty = Object.values(billable).reduce((a, q) => a + (q || 0), 0);
+      // Per-item billable override (waive / manual edit) from the variance review.
+      if (isVariance && billableQtys && item.id in billableQtys) {
+        const override = Number(billableQtys[item.id]);
+        if (!isNaN(override) && override >= 0) totalQty = Math.floor(override);
+      }
       if (totalQty <= 0) continue;
-      const sizes = (item.buy_sheet_lines || []).map((l: any) => `${l.size}:${l.qty_ordered}`).join(", ");
+
+      const sizes = Object.entries(billable).filter(([, q]) => (q || 0) > 0).map(([s, q]) => `${s}:${q}`).join(", ");
       const descParts = [item.name];
       if (item.blank_vendor) descParts.push(item.blank_vendor);
       if (item.mockup_color) descParts.push(item.mockup_color);
@@ -100,19 +134,32 @@ export async function POST(req: NextRequest) {
 
     const tm = (job as any).type_meta || {};
     const existingInvoiceId = tm.stripe_invoice_id;
+    // Variance flow voids the prior invoice AFTER the replacement exists (see the
+    // save block below) so the invoice.voided webhook — which matches a job by
+    // stripe_invoice_id — finds no job once we've repointed, avoiding a clobber race.
+    let voidAfter: { id: string; status: string } | null = null;
 
-    // Re-push handling: line items on a finalized invoice can't be edited
-    // via the API (Stripe enforces this), so a real "update" isn't possible.
-    // Three cases when stripe_invoice_id is already set:
-    //   1. Stripe deleted/missing  → recreate (catch fall-through).
-    //   2. Stripe says it's voided → recreate (this branch). Voiding in
-    //      Stripe Dashboard frees the invoice number for reuse and signals
-    //      "throw this one away" — exactly the user's intent here.
-    //   3. Otherwise (draft/open/paid) → return early with a clear hint.
+    // Re-push handling: line items on a finalized invoice can't be edited via the
+    // API (Stripe enforces this), so any "update" means void + recreate.
+    //   • Variance (useShippedQtys): recreate from shipped qtys; block if the
+    //     prior invoice is already paid/uncollectible; otherwise queue it for
+    //     void after the replacement is created.
+    //   • Plain re-push: recreate only if the prior invoice is void/missing;
+    //     otherwise return early (line items changed → void in Dashboard first).
     if (existingInvoiceId) {
       try {
         const existing = await stripe.invoices.retrieve(existingInvoiceId);
-        if (existing.status === "void") {
+        if (isVariance) {
+          if (existing.status === "paid" || existing.status === "uncollectible") {
+            return NextResponse.json({
+              error: "This invoice is already paid — it can't be revised here. Crediting an overbill or charging a shortfall is a manual step for now.",
+            }, { status: 409 });
+          }
+          if (existing.status === "open" || existing.status === "draft") {
+            voidAfter = { id: existing.id!, status: existing.status };
+          }
+          // already void → nothing to retire; just recreate.
+        } else if (existing.status === "void") {
           await supabase.from("job_activity").insert({
             job_id: job.id, user_id: user.id, type: "auto",
             message: `Voided Stripe invoice ${existing.number || existingInvoiceId} — creating a fresh invoice`,
@@ -152,8 +199,11 @@ export async function POST(req: NextRequest) {
       customNumber: (job as any).job_number || null,
     });
 
-    // Persist invoice ids onto jobs.type_meta
-    const newMeta = {
+    // Persist invoice ids onto jobs.type_meta. Variance: stamp the flag (so the
+    // PDF + portal switch to shipped qtys) and store the billable overrides.
+    // Plain create: CLEAR the flag so a later ordered-qty recreate doesn't leave
+    // the PDF showing shipped qtys for an invoice that actually bills ordered.
+    const newMeta: Record<string, any> = {
       ...tm,
       stripe_invoice_id: result.invoice_id,
       stripe_invoice_number: result.invoice_number,
@@ -162,17 +212,36 @@ export async function POST(req: NextRequest) {
       stripe_invoice_status: result.status,
       stripe_customer_id: customer.id,
     };
+    if (isVariance) {
+      newMeta.stripe_variance_pushed_at = new Date().toISOString();
+      newMeta.stripe_variance_total_cents = result.total_cents;
+      if (billableQtys) newMeta.stripe_variance_billable_qtys = billableQtys;
+    } else {
+      delete newMeta.stripe_variance_pushed_at;
+      delete newMeta.stripe_variance_total_cents;
+      delete newMeta.stripe_variance_billable_qtys;
+    }
+    // Repoint to the new invoice BEFORE voiding the old one — see voidAfter above.
     await supabase.from("jobs").update({ type_meta: newMeta }).eq("id", job.id);
 
-    // Cache the Stripe customer id on clients for future invoice pushes
-    if (!(clientRow as any)?.stripe_customer_id) {
-      // The clients table will need a stripe_customer_id column — see mig 063 below.
-      // For now, falling through silently since we already wrote it to type_meta.
+    // Retire the prior invoice now that the replacement exists and type_meta
+    // points at it (variance flow only). Best-effort — a failure here just
+    // leaves an extra voidable invoice in Stripe; OpsHub already points at the
+    // replacement, and the pay page self-heals to the latest open invoice.
+    if (voidAfter && voidAfter.id !== result.invoice_id) {
+      try {
+        if (voidAfter.status === "draft") await stripe.invoices.del(voidAfter.id);
+        else await voidInvoice(stripe, voidAfter.id);
+      } catch (e: any) {
+        console.error("[stripe/invoice] failed to retire prior invoice", voidAfter.id, e?.message);
+      }
     }
 
     await supabase.from("job_activity").insert({
       job_id: job.id, user_id: user.id, type: "auto",
-      message: `Invoice pushed to Stripe — #${result.invoice_number} · $${(result.total_cents / 100).toFixed(2)}`,
+      message: isVariance
+        ? `Invoice revised with shipped qtys — #${result.invoice_number} · $${(result.total_cents / 100).toFixed(2)}`
+        : `Invoice pushed to Stripe — #${result.invoice_number} · $${(result.total_cents / 100).toFixed(2)}`,
     });
 
     return NextResponse.json({
@@ -181,6 +250,7 @@ export async function POST(req: NextRequest) {
       hostedUrl: result.hosted_invoice_url,
       totalCents: result.total_cents,
       status: result.status,
+      revised: isVariance || undefined,
     });
   } catch (e: any) {
     console.error("[stripe/invoice]", e);

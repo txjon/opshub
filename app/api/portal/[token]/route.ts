@@ -203,7 +203,7 @@ export async function GET(
     // actually billed); before, use quoted qtys.
     const costingData = job.costing_data as any;
     const costingSummary = job.costing_summary as any;
-    const variancePushed = !!(job.type_meta as any)?.qb_variance_pushed_at;
+    const variancePushed = !!((job.type_meta as any)?.qb_variance_pushed_at || (job.type_meta as any)?.stripe_variance_pushed_at);
     const prefersReceived = job.shipping_route === "ship_through" || job.shipping_route === "stage";
     const quoteItems: any[] = [];
 

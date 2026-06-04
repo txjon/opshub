@@ -205,6 +205,14 @@ export async function getInvoice(stripe: Stripe, invoiceId: string): Promise<Str
   return await stripe.invoices.retrieve(invoiceId);
 }
 
+// Void a finalized (open/uncollectible) invoice. Stripe can't edit a
+// finalized invoice's line items, so the variance flow revises shipped
+// qtys by creating a replacement and voiding the original. Drafts can't
+// be voided — callers delete those instead (stripe.invoices.del).
+export async function voidInvoice(stripe: Stripe, invoiceId: string): Promise<Stripe.Invoice> {
+  return await stripe.invoices.voidInvoice(invoiceId);
+}
+
 // ─── Webhook signature verification ─────────────────────────────────
 
 export function verifyWebhookSignature(
