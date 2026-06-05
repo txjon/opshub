@@ -24,6 +24,10 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Monotonic counter — only the most recent search is allowed to write
+  // results. Prevents stale in-flight responses from replacing the list
+  // (and swallowing clicks) after the user has stopped typing.
+  const searchSeq = useRef(0);
 
   // Keyboard shortcut: Cmd+K or Ctrl+K to open
   useEffect(() => {
@@ -56,24 +60,57 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
 
   // Search on query change
   useEffect(() => {
-    if (!query.trim()) { setResults([]); return; }
     if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!query.trim()) {
+      searchSeq.current++; // invalidate any in-flight search
+      setResults([]);
+      setLoading(false);
+      return;
+    }
     searchTimer.current = setTimeout(() => search(query.trim()), 200);
   }, [query]);
 
   async function search(q: string) {
+    const seq = ++searchSeq.current;
     setLoading(true);
-    const lower = q.toLowerCase();
+
+    // All five lookups run in parallel — sequentially they took long
+    // enough that late responses landed while the user was mid-click.
+    const [jobsRes, jobsByClientRes, clientsRes, decoratorsRes, itemsRes] = await Promise.all([
+      supabase
+        .from("jobs")
+        .select("id, title, job_number, type_meta, phase, clients(name)")
+        .or(`title.ilike.%${q}%,job_number.ilike.%${q}%,type_meta->>qb_invoice_number.ilike.%${q}%`)
+        .limit(5),
+      supabase
+        .from("jobs")
+        .select("id, title, job_number, type_meta, phase, clients!inner(name)")
+        .ilike("clients.name", `%${q}%`)
+        .limit(5),
+      supabase
+        .from("clients")
+        .select("id, name, client_type")
+        .ilike("name", `%${q}%`)
+        .limit(5),
+      supabase
+        .from("decorators")
+        .select("id, name, short_code")
+        .or(`name.ilike.%${q}%,short_code.ilike.%${q}%`)
+        .limit(3),
+      supabase
+        .from("items")
+        .select("id, name, blank_vendor, blank_sku, job_id, jobs(title, clients(name))")
+        .ilike("name", `%${q}%`)
+        .limit(5),
+    ]);
+
+    // A newer search (or a cleared query) superseded this one — drop it.
+    if (seq !== searchSeq.current) return;
+
     const results: Result[] = [];
 
-    // Search jobs
-    const { data: jobs } = await supabase
-      .from("jobs")
-      .select("id, title, job_number, type_meta, phase, clients(name)")
-      .or(`title.ilike.%${q}%,job_number.ilike.%${q}%,type_meta->>qb_invoice_number.ilike.%${q}%`)
-      .limit(5);
-
-    for (const j of (jobs || [])) {
+    // Jobs
+    for (const j of (jobsRes.data || [])) {
       const displayNum = (j as any).type_meta?.qb_invoice_number || j.job_number;
       results.push({
         type: "project",
@@ -84,14 +121,8 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
       });
     }
 
-    // Also search jobs by client name
-    const { data: jobsByClient } = await supabase
-      .from("jobs")
-      .select("id, title, job_number, type_meta, phase, clients!inner(name)")
-      .ilike("clients.name", `%${q}%`)
-      .limit(5);
-
-    for (const j of (jobsByClient || [])) {
+    // Jobs matched by client name
+    for (const j of (jobsByClientRes.data || [])) {
       if (!results.some(r => r.id === j.id)) {
         const displayNum = (j as any).type_meta?.qb_invoice_number || j.job_number;
         results.push({
@@ -104,14 +135,8 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
       }
     }
 
-    // Search clients
-    const { data: clients } = await supabase
-      .from("clients")
-      .select("id, name, client_type")
-      .ilike("name", `%${q}%`)
-      .limit(5);
-
-    for (const c of (clients || [])) {
+    // Clients
+    for (const c of (clientsRes.data || [])) {
       results.push({
         type: "client",
         id: c.id,
@@ -121,14 +146,8 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
       });
     }
 
-    // Search decorators
-    const { data: decorators } = await supabase
-      .from("decorators")
-      .select("id, name, short_code")
-      .or(`name.ilike.%${q}%,short_code.ilike.%${q}%`)
-      .limit(3);
-
-    for (const d of (decorators || [])) {
+    // Decorators
+    for (const d of (decoratorsRes.data || [])) {
       results.push({
         type: "decorator",
         id: d.id,
@@ -138,14 +157,8 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
       });
     }
 
-    // Search items
-    const { data: items } = await supabase
-      .from("items")
-      .select("id, name, blank_vendor, blank_sku, job_id, jobs(title, clients(name))")
-      .ilike("name", `%${q}%`)
-      .limit(5);
-
-    for (const it of (items || [])) {
+    // Items
+    for (const it of (itemsRes.data || [])) {
       results.push({
         type: "item",
         id: it.id,
@@ -249,7 +262,10 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
 
             {/* Results */}
             <div style={{ maxHeight: 400, overflowY: "auto" }}>
-              {loading && <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: T.muted }}>Searching...</div>}
+              {/* Only show the banner when there are no rows yet — if it
+                  rendered above existing results, toggling it would shift
+                  the rows under the user's cursor mid-click. */}
+              {loading && results.length === 0 && <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: T.muted }}>Searching...</div>}
 
               {!loading && query && results.length === 0 && (
                 <div style={{ padding: "24px 16px", textAlign: "center", fontSize: 12, color: T.faint }}>No results for "{query}"</div>
@@ -259,7 +275,10 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
                 const t = typeIcon[r.type];
                 return (
                   <div key={r.type + r.id + i}
-                    onClick={() => navigate(r)}
+                    // Commit on mousedown (not click) so a results
+                    // re-render between mousedown and mouseup can't
+                    // swallow the selection.
+                    onMouseDown={e => { if (e.button === 0) { e.preventDefault(); navigate(r); } }}
                     style={{
                       display: "flex", alignItems: "center", gap: 10,
                       padding: "10px 16px", cursor: "pointer",
