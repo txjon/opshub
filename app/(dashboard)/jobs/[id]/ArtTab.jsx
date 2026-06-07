@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { buildMockupClient, preloadTemplate, extractPrintInfoFromPsd } from "@/lib/mockup-client";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
-import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
+import { generateProofPdfClient, deriveProofSummary, preloadLogo } from "@/lib/proof-client";
 import { useClientBranding } from "@/lib/branding-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
@@ -278,6 +278,10 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // costing's print locations. Every field is editable; the PSD is
   // only a seeder (Re-pull = explicit refresh).
   const [specLocations, setSpecLocations] = useState([]);
+  // Summary-bar override — null = auto-derive from locations +
+  // instructions (stays live as they change); string = custom text;
+  // empty string = omit the bar from the PDF.
+  const [summaryOverride, setSummaryOverride] = useState(null);
   const [specLoaded, setSpecLoaded] = useState(false);
   // The print-ready PSD file row, when one exists — drives the
   // "seeded from PSD" label, the Re-pull button, and the newer-PSD hint.
@@ -326,6 +330,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       if (Array.isArray(saved.methods) && saved.methods.length > 0) setMethods(saved.methods);
       if (Array.isArray(saved.instructions)) setSelInstructions(saved.instructions);
       if (typeof saved.notes === "string") setNotes(saved.notes);
+      if (typeof saved.summaryText === "string") setSummaryOverride(saved.summaryText);
       seededFromRef.current = saved.seededFrom || null;
       // Newer PSD uploaded since this spec was seeded → surface a hint.
       if (psdFile && saved.seededFrom?.at && psdFile.created_at &&
@@ -381,6 +386,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     methods,
     instructions: selInstructions,
     notes,
+    summaryText: summaryOverride,
     seededFrom: seededFromRef.current,
   });
   useEffect(() => {
@@ -398,7 +404,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     }, 800);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [specLoaded, specLocations, methods, selInstructions, notes]);
+  }, [specLoaded, specLocations, methods, selInstructions, notes, summaryOverride]);
 
   // Immediate flush for close/save paths — the debounce above could
   // otherwise drop the last edit when the modal unmounts.
@@ -447,35 +453,44 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     })();
   }, [mockupThumbUrl]);
 
+  // The tag-filtered, trimmed print info — one transform feeding both
+  // the PDF render and the derived summary-bar text, so the sidebar
+  // shows exactly the line the PDF will print.
+  const buildPrintInfo = () => {
+    const activeSizes = item.qtys ? Object.keys(item.qtys).filter(sz => item.qtys[sz] > 0) : null;
+    const hasActiveSizes = activeSizes && activeSizes.length > 0;
+    const normalizeSize = (s) => {
+      const u = (s || "").toUpperCase().trim();
+      if (u === "XXL" || u === "2X") return "2XL";
+      if (u === "XXXL" || u === "3X") return "3XL";
+      if (u === "XXXXL" || u === "4X") return "4XL";
+      if (u === "XXXXXL" || u === "5X") return "5XL";
+      return u;
+    };
+    const activeSizesNorm = hasActiveSizes ? activeSizes.map(normalizeSize) : null;
+    return (specLocations || [])
+      .filter(p => (p.placement || "").trim())
+      .map(p => {
+        const isTag = (p.placement || "").toLowerCase().trim() === "tag" || (p.placement || "").toLowerCase().trim() === "tags";
+        // Tag groups carry one layer per size — only show sizes the
+        // order actually includes.
+        const colors = (isTag && activeSizesNorm) ? (p.colors || []).filter(c => activeSizesNorm.includes(normalizeSize(c.name))) : (p.colors || []);
+        return { placement: p.placement.trim(), sizeText: (p.sizeText || "").trim(), colors, callout: p.callout || "" };
+      });
+  };
+  const derivedSummary = deriveProofSummary(buildPrintInfo(), selInstructions);
+
   // Auto-generate preview whenever inputs change (debounced to avoid lag)
   useEffect(() => {
     if (!mockupDataUrl) return;
     const timer = setTimeout(() => {
       try {
-        const activeSizes = item.qtys ? Object.keys(item.qtys).filter(sz => item.qtys[sz] > 0) : null;
-        const hasActiveSizes = activeSizes && activeSizes.length > 0;
-        const normalizeSize = (s) => {
-          const u = (s || "").toUpperCase().trim();
-          if (u === "XXL" || u === "2X") return "2XL";
-          if (u === "XXXL" || u === "3X") return "3XL";
-          if (u === "XXXXL" || u === "4X") return "4XL";
-          if (u === "XXXXXL" || u === "5X") return "5XL";
-          return u;
-        };
-        const activeSizesNorm = hasActiveSizes ? activeSizes.map(normalizeSize) : null;
-        const printInfo = (specLocations || [])
-          .filter(p => (p.placement || "").trim())
-          .map(p => {
-            const isTag = (p.placement || "").toLowerCase().trim() === "tag" || (p.placement || "").toLowerCase().trim() === "tags";
-            // Tag groups carry one layer per size — only show sizes the
-            // order actually includes.
-            const colors = (isTag && activeSizesNorm) ? (p.colors || []).filter(c => activeSizesNorm.includes(normalizeSize(c.name))) : (p.colors || []);
-            return { placement: p.placement.trim(), sizeText: (p.sizeText || "").trim(), colors, callout: p.callout || "" };
-          });
+        const printInfo = buildPrintInfo();
 
         const doc = generateProofPdfClient({
           mockupDataUrl,
           printInfo,
+          summaryText: summaryOverride === null ? undefined : summaryOverride,
           clientName: clientName || "",
           itemName: item.name || "",
           blankVendor: item.blank_vendor || "",
@@ -498,7 +513,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [mockupDataUrl, specLocations, methods, selInstructions, notes]);
+  }, [mockupDataUrl, specLocations, methods, selInstructions, notes, summaryOverride]);
 
   async function saveToDrive() {
     if (!pdfDoc) return;
@@ -683,6 +698,28 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                   );
                 })}
               </div>
+            </div>
+
+            {/* Summary bar — pre-loaded with the derived line ("2
+                locations · 6 colors · …"); typing makes it custom,
+                Auto reverts. Clearing the field omits the bar. */}
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <label style={{ fontSize: 11, color: T.muted }}>Summary Bar{summaryOverride !== null && <span style={{ color: T.amber, fontWeight: 600 }}> · custom</span>}</label>
+                {summaryOverride !== null && (
+                  <button onClick={() => setSummaryOverride(null)}
+                    title="Revert to the auto-derived summary (updates live with locations + instructions)"
+                    style={{ fontSize: 10, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: font }}
+                    onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
+                    ↺ Auto
+                  </button>
+                )}
+              </div>
+              <textarea value={summaryOverride !== null ? summaryOverride : derivedSummary}
+                onChange={e => setSummaryOverride(e.target.value)}
+                rows={2} placeholder="Leave empty to omit the bar"
+                style={{ ...ic, fontSize: 11, resize: "vertical", lineHeight: 1.4, color: summaryOverride !== null ? T.text : T.muted }} />
             </div>
 
             {/* Notes */}
@@ -1256,6 +1293,7 @@ export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged,
       methods: Array.isArray(existing?.methods) ? existing.methods : [],
       instructions: Array.isArray(existing?.instructions) ? existing.instructions : [],
       notes: typeof existing?.notes === "string" ? existing.notes : "",
+      summaryText: typeof existing?.summaryText === "string" ? existing.summaryText : null,
     };
   }
 
@@ -1272,6 +1310,7 @@ export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged,
       method: (spec.methods || []).join(", "),
       instructions: spec.instructions || [],
       notes: (spec.notes || "").trim(),
+      summaryText: spec.summaryText === null ? undefined : spec.summaryText,
       tenantSlug: branding.slug,
       tenantName: branding.name,
     });
