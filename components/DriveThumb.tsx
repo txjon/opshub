@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { T, font } from "@/lib/theme";
 
 type Props = {
@@ -94,7 +95,7 @@ export function DriveThumb({
         {img}
       </span>
       {open && (
-        <Lightbox
+        <ImageLightbox
           driveFileId={driveFileId}
           title={title}
           driveLink={driveLink}
@@ -105,7 +106,18 @@ export function DriveThumb({
   );
 }
 
-function Lightbox({
+/**
+ * Full-screen image viewer — dark glass backdrop, title + Download +
+ * Close header. Exported for surfaces that render their own <img> but
+ * want the same click-to-enlarge chrome (e.g. the client portal item
+ * modal). Rendered via portal to document.body so it escapes any
+ * transformed/overflow-clipped ancestor (vaul's bottom sheet animates
+ * Drawer.Content with translate3d, which would otherwise become the
+ * containing block for this fixed overlay and trap it inside the
+ * sheet). Pointer events stop at the root so an enclosing drawer's
+ * drag-to-dismiss never sees them.
+ */
+export function ImageLightbox({
   driveFileId,
   title,
   driveLink,
@@ -146,15 +158,22 @@ function Lightbox({
     transition: "background 0.15s",
   };
 
-  return (
+  return createPortal(
     <div
-      onClick={onClose}
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
+      // Stop pointer/touch events at the root so React-tree ancestors
+      // (clickable rows, vaul drag handlers) never receive them.
+      onPointerDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
       style={{
         position: "fixed", inset: 0, background: "rgba(10,10,14,0.86)",
         backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
         display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "center",
         zIndex: 10000, padding: "24px 16px", fontFamily: font,
+        // Radix/vaul modals set pointer-events:none on <body> while
+        // open — re-enable for this body-level portal explicitly.
+        pointerEvents: "auto",
       }}
     >
       {/* Header bar — same width as the image area below so the row
@@ -208,6 +227,7 @@ function Lightbox({
           style={{ maxWidth: "100%", maxHeight: "calc(92vh - 60px)", objectFit: "contain", borderRadius: 10, display: "block" }}
         />
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

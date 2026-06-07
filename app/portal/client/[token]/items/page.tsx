@@ -5,6 +5,7 @@ import { C, fmtDate, fmtDateYear, daysUntil } from "../_shared/theme";
 import { ItemState, STATE_LABELS } from "@/lib/item-status";
 import { StatusPill } from "../_shared/StatusPill";
 import { MobileSheet } from "../_shared/MobileSheet";
+import { ImageLightbox } from "@/components/DriveThumb";
 import { SIZE_ORDER } from "@/lib/theme";
 
 type Item = {
@@ -651,12 +652,16 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
   // Progressive image load — the thumbnail is already cached from the
   // item row preview, so it paints instantly when the sheet opens.
   // The full-res file fetches in parallel; once it lands we swap the
-  // <img>'s src to the higher-quality version. The dropped secondary
-  // lightbox modal (replaced by this inline upgrade) removed an extra
-  // tap + a fight with the bottom-sheet swipe gesture on touch.
+  // <img>'s src to the higher-quality version.
   const [imgSrc, setImgSrc] = useState<string | null>(
     item.thumb_id ? `/api/files/thumbnail?id=${item.thumb_id}&thumb=1` : null
   );
+  // Click-to-enlarge lightbox. An earlier version was dropped because
+  // it fought the old hand-rolled sheet's drag gesture — safe now:
+  // ImageLightbox portals to document.body (escaping vaul's transform)
+  // and the sheet is made non-dismissible while it's open, so closing
+  // the lightbox can't fall through and close the sheet.
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   useEffect(() => {
     if (!item.thumb_id) { setImgSrc(null); return; }
     const thumbUrl = `/api/files/thumbnail?id=${item.thumb_id}&thumb=1`;
@@ -702,6 +707,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
     <MobileSheet
       open
       onClose={onClose}
+      dismissible={!lightboxOpen}
       title={item.name}
       subtitle={subtitleBits.join(" · ") || undefined}
       footer={
@@ -731,14 +737,22 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
       `}</style>
       <div className="item-detail-body" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
         {/* Image — thumb paints instantly, full-res swaps in once
-            it's loaded (see imgSrc upgrade effect above). No
-            secondary lightbox modal anymore; clients view the
-            high-res inline. */}
-        <div style={{
-          aspectRatio: "1", background: "#fff", borderRadius: 10,
-          overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
-          border: `1px solid ${C.border}`,
-        }}>
+            it's loaded (see imgSrc upgrade effect above). Click/tap
+            opens the full-screen lightbox for a proper look. */}
+        <button
+          type="button"
+          onClick={() => { if (imgSrc) setLightboxOpen(true); }}
+          disabled={!imgSrc}
+          aria-label={imgSrc ? "View full size" : "No image"}
+          style={{
+            aspectRatio: "1", background: "#fff", borderRadius: 10,
+            overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center",
+            border: `1px solid ${C.border}`, padding: 0,
+            cursor: imgSrc ? "zoom-in" : "default", fontFamily: C.font,
+            transition: "border-color 0.15s",
+          }}
+          onMouseEnter={e => { if (imgSrc) e.currentTarget.style.borderColor = C.text; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; }}>
           {imgSrc ? (
             <img src={imgSrc}
               alt={item.name} referrerPolicy="no-referrer"
@@ -747,7 +761,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
           ) : (
             <span style={{ color: C.faint, fontSize: 12 }}>No preview</span>
           )}
-        </div>
+        </button>
 
         {/* Meta column — Status + ETA share the top row, Quantity is
             full-width below (size list needs the room), Project +
@@ -864,6 +878,16 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
         }}>
           {reorderResult}
         </div>
+      )}
+
+      {/* Full-screen viewer — portals to document.body, so it sits
+          above the sheet regardless of where it renders in this tree. */}
+      {lightboxOpen && item.thumb_id && (
+        <ImageLightbox
+          driveFileId={item.thumb_id}
+          title={item.name}
+          onClose={() => setLightboxOpen(false)}
+        />
       )}
 
     </MobileSheet>

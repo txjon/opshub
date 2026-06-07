@@ -38,7 +38,12 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   // ═══════════════════════════════════════════════════════════════
   // BUY SHEET SAVE INFRASTRUCTURE — copied verbatim from BuySheetTab
   // ═══════════════════════════════════════════════════════════════
-  const costingLocked = !!project?.type_meta?.costing_locked;
+  // Effective lock = manual "Lock In Pricing" OR archived phase.
+  // Complete/cancelled jobs are historic records — the builder stays
+  // viewable (nav unhidden in ProjectProgress) but force-locks so
+  // history can't be edited. Same flag drives every gate below.
+  const isArchivedJob = project?.phase === "complete" || project?.phase === "cancelled";
+  const costingLocked = !!project?.type_meta?.costing_locked || isArchivedJob;
   const [localItems, setLocalItems] = useState(null);
   const [savedSnapshot, setSavedSnapshot] = useState(JSON.stringify(items || []));
   const onSaveRef = useRef(null);
@@ -103,6 +108,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const saveInFlight = useRef(false);
   const doSave = async () => {
     if (saveInFlight.current) return; // Skip if already saving
+    // Hard write-gate: archived jobs are read-only historic records.
+    // Also covers the unmount/tab-switch force-save paths.
+    if (isArchivedJob) return;
     saveInFlight.current = true;
     // Flush any pending qty inputs before saving (user may not have blurred)
     const pending = localQtysRef.current;
@@ -606,8 +614,17 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 
       {costingLocked && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase" }}>Costing locked</span>
-          <span style={{ fontSize: 11, color: T.muted }}>Unlock pricing in the Costing tab to edit items, quantities, or blanks</span>
+          {isArchivedJob ? (
+            <>
+              <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>Historic record</span>
+              <span style={{ fontSize: 11, color: T.muted }}>This project is {project?.phase === "cancelled" ? "cancelled" : "complete"} — items are read-only</span>
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase" }}>Costing locked</span>
+              <span style={{ fontSize: 11, color: T.muted }}>Unlock pricing in the Costing tab to edit items, quantities, or blanks</span>
+            </>
+          )}
         </div>
       )}
 
@@ -1159,8 +1176,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 {/* Hover-only rename button. Clicking it swaps the text
                     for an input (visibility toggled via a sibling data
                     attribute) without bubbling the click to the row —
-                    so the row doesn't expand/collapse on rename. */}
-                <button
+                    so the row doesn't expand/collapse on rename.
+                    Hidden when locked — renames are item edits. */}
+                {!costingLocked && <button
                   type="button"
                   className="pb-rename-btn"
                   title="Rename item"
@@ -1176,7 +1194,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                   style={{ background: "none", border: "none", cursor: "pointer", color: T.faint, padding: "2px 4px", fontSize: 12, lineHeight: 1, borderRadius: 4, opacity: 0, transition: "opacity 0.12s" }}
                 >
                   ✎
-                </button>
+                </button>}
                 <input
                   value={item.name || ""}
                   onChange={e => {
@@ -1656,9 +1674,10 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
               <>
                 <span style={{ fontSize: isMobile ? 14 : 16, fontWeight: 700, color: T.text, wordBreak: isMobile ? "break-word" : "normal" }}>{item.blank_vendor}</span>
                 {(item.color || item.blank_sku) && <span style={{ fontSize: isMobile ? 13 : 14, color: T.muted }}>{item.color || item.blank_sku}</span>}
-                <select value={item.garment_type || ""} onClick={e => e.stopPropagation()}
+                <select value={item.garment_type || ""} disabled={costingLocked} onClick={e => e.stopPropagation()}
                   onChange={e => {
                     e.stopPropagation();
+                    if (costingLocked) return;
                     const next = e.target.value || null;
                     // Fleece garments auto-flag is_fleece so the
                     // decorator's per-print fleece upcharge + fleece
@@ -1843,7 +1862,11 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
       <div style={isMobile
         ? { display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", padding: "12px 0 4px", borderTop: `1px solid ${T.border}`, marginTop: 14 }
         : { position: "absolute", bottom: 14, right: 16, display: "flex", gap: 14, alignItems: "center" }}>
-        {typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && (
+        {/* Duplicate / Move / Delete mutate this job — hidden when
+            locked (incl. archived historic records). "Copy to another
+            job" stays: it reads history without changing it, which is
+            exactly the reorder-from-history flow. */}
+        {!costingLocked && typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && (
           <button onClick={async e => {
               e.stopPropagation();
               if (!window.confirm(`Duplicate "${item.name || "(unnamed)"}" within this job?`)) return;
@@ -1870,7 +1893,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
             Copy to another job
           </button>
         )}
-        {typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && requestMove && (
+        {!costingLocked && typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id) && requestMove && (
           <button onClick={e => { e.stopPropagation(); requestMove(item); }}
             title="Move this item to another job for the same client"
             style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer" }}
@@ -1878,11 +1901,13 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
             Move to another job
           </button>
         )}
-        <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }}
-          style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer" }}
-          onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>
-          Delete item
-        </button>
+        {!costingLocked && (
+          <button onClick={e => { e.stopPropagation(); if (window.confirm(`Remove "${item.name}"?`)) removeItem(item.id); }}
+            style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer" }}
+            onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>
+            Delete item
+          </button>
+        )}
       </div>
     </div>
   );

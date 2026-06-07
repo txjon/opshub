@@ -629,6 +629,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               state, so when triggered from Builder we jump to Costing
               first; Lock In Pricing toggles the job directly. */}
           {(tab === "builder" || tab === "costing") && !isMobile && (() => {
+            // Archived = historic record. Lock is forced + permanent
+            // (mirrors ProductBuilder/CostingTab), so the toolbar
+            // collapses to a status label — no Pull / Request / Lock.
+            const archived = job.phase === "complete" || job.phase === "cancelled";
             const locked = !!(job as any).type_meta?.costing_locked;
             const ensureCosting = async () => {
               if (tab !== "costing") {
@@ -651,6 +655,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               await supabase.from("jobs").update({type_meta: meta}).eq("id", job.id);
               setJob(j => j ? {...j, type_meta: meta} as any : j);
             };
+            if (archived) {
+              return (
+                <div style={{marginLeft:"auto",display:"flex",flexDirection:"column",alignItems:"flex-end",lineHeight:1.2}}>
+                  <span style={{fontSize:10,fontWeight:700,color:T.green,letterSpacing:"0.06em",textTransform:"uppercase"}}>
+                    Historic record
+                  </span>
+                  <span style={{fontSize:10,color:T.muted}}>
+                    {job.phase === "cancelled" ? "Cancelled" : "Complete"} — read-only
+                  </span>
+                </div>
+              );
+            }
             return (
               <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",lineHeight:1.2}}>

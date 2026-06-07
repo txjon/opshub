@@ -243,6 +243,12 @@ function AddDecoratorModal({ open, onClose, onSaved }) {
 const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
   const branding=useClientBranding();
   const isMobile=useIsMobile();
+  // Effective lock = manual "Lock In Pricing" OR archived phase.
+  // Complete/cancelled projects are historic records — costing stays
+  // viewable but read-only, with no unlock. The raw type_meta flag is
+  // still what the Lock/Unlock toggle flips (hidden when archived).
+  const isArchivedJob=project?.phase==="complete"||project?.phase==="cancelled";
+  const costingLocked=!!project?.type_meta?.costing_locked||isArchivedJob;
   const [costTab,setCostTab]=useState(initialTab||"calc");
   // Portal target for the right rail. Resolved after mount so the
   // host page (which renders the rail in its outer flex) has had a
@@ -484,12 +490,12 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
       {costTab==="calc"&&!hideToolbar&&(
         <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",justifyContent:"space-between",gap:isMobile?10:0,marginBottom:12,paddingBottom:8,borderBottom:`1px solid ${T.border}`}}>
           <div>
-            <span style={{fontSize:isMobile?10:11,fontWeight:700,color:project?.type_meta?.costing_locked?T.green:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>
-              {project?.type_meta?.costing_locked?"Pricing locked":"Pricing not locked"}
+            <span style={{fontSize:isMobile?10:11,fontWeight:700,color:costingLocked?T.green:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>
+              {isArchivedJob?"Historic record":costingLocked?"Pricing locked":"Pricing not locked"}
             </span>
             {!isMobile && (
               <span style={{fontSize:11,color:T.muted,marginLeft:10}}>
-                {project?.type_meta?.costing_locked?"Ready to quote":"Lock in pricing when all items are costed"}
+                {isArchivedJob?`This project is ${project?.phase==="cancelled"?"cancelled":"complete"} — pricing is read-only`:costingLocked?"Ready to quote":"Lock in pricing when all items are costed"}
               </span>
             )}
           </div>
@@ -519,7 +525,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               title="Send a quote request to a decorator for selected items">
               {isMobile ? "Request" : "Request Pricing"}
             </button>
-            <button onClick={async ()=>{
+            {/* Lock toggle flips the raw type_meta flag — hidden on
+                archived jobs where the lock is forced + permanent. */}
+            {!isArchivedJob && <button onClick={async ()=>{
               if (onSave) await onSave();
               const { createClient: cc } = await import("@/lib/supabase/client");
               const sb = cc();
@@ -532,7 +540,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 background:project?.type_meta?.costing_locked?T.surface:T.green,
                 color:project?.type_meta?.costing_locked?T.muted:"#fff"}}>
               {project?.type_meta?.costing_locked?(isMobile?"Unlock":"Unlock Pricing"):(isMobile?"Lock In":"Lock In Pricing")}
-            </button>
+            </button>}
           </div>
         </div>
       )}
@@ -576,7 +584,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                         </div>
                         {!isMobile && <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>}
-                        <div style={{display:"flex",alignItems:"center",gap:8,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}} onClick={e=>e.stopPropagation()}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,...(costingLocked?{pointerEvents:"none",opacity:0.6}:{})}} onClick={e=>e.stopPropagation()}>
                           <div style={{display:"flex",flexDirection:isMobile?"row":"column",gap:isMobile?4:2,flexShrink:0}}>
                             {p._sellOverride?(
                               <>
@@ -609,15 +617,15 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                               <div style={{background:T.surface,border:"1px solid "+T.text,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box"}}>
                                 <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
                                 <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus
-                                  disabled={!!project?.type_meta?.costing_locked}
+                                  disabled={costingLocked}
                                   onFocus={e=>e.target.select()}
                                   onChange={e=>updateProd(i,{...p,_sellOverrideVal:e.target.value})}
                                   style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
                               </div>
                             ):(
-                              <div onClick={()=>{ if(project?.type_meta?.costing_locked) return; updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""}); }}
+                              <div onClick={()=>{ if(costingLocked) return; updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""}); }}
                                 title="Click to override"
-                                style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box",cursor:project?.type_meta?.costing_locked?"default":"pointer"}}>
+                                style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box",cursor:costingLocked?"default":"pointer"}}>
                                 <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
                                 <span style={{fontSize:12,fontWeight:700,color:(p.sellOverride!=null||r?.sellPerUnit>0)?T.text:T.faint,fontFamily:mono}}>{p.sellOverride!=null?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
                               </div>
@@ -628,7 +636,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       {!selectedItemId && !isMobile && <span style={{fontSize:11,color:T.muted,marginLeft:8,flexShrink:0}}>{chevron}</span>}
                     </div>
                     {/* Vendor selector + Cost line items */}
-                    <div style={{padding:"12px 16px",display:bodyDisplay,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}}>
+                    <div style={{padding:"12px 16px",display:bodyDisplay,...(costingLocked?{pointerEvents:"none",opacity:0.6}:{})}}>
                       {/* Vendor / Decorator selector */}
                       <div style={{marginBottom:12}}>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Vendor</div>
@@ -793,7 +801,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()}</div>
                       </div>
                       {!isMobile && <div style={{width:1,height:28,background:T.border,marginRight:12,flexShrink:0}}/>}
-                      <div style={{display:"flex",alignItems:"center",gap:8,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}} onClick={e=>e.stopPropagation()}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,...(costingLocked?{pointerEvents:"none",opacity:0.6}:{})}} onClick={e=>e.stopPropagation()}>
                         <div style={{display:"flex",flexDirection:isMobile?"row":"column",gap:isMobile?4:2,flexShrink:0}}>
                           {p._sellOverride?(
                             <>
@@ -831,9 +839,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
                             </div>
                           ):(
-                            <div onClick={()=>{ if(project?.type_meta?.costing_locked) return; updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""}); }}
+                            <div onClick={()=>{ if(costingLocked) return; updateProd(i,{...p,_sellOverride:true,_sellOverrideVal:p.sellOverride??r?.sellPerUnit?.toFixed(2)??""}); }}
                               title="Click to override"
-                              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box",cursor:project?.type_meta?.costing_locked?"default":"pointer"}}>
+                              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box",cursor:costingLocked?"default":"pointer"}}>
                               <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
                               <span style={{fontSize:12,fontWeight:700,color:(p.sellOverride!=null||r?.sellPerUnit>0)?T.text:T.faint,fontFamily:mono}}>{p.sellOverride!=null?p.sellOverride.toFixed(2):r?.sellPerUnit>0?r.sellPerUnit.toFixed(2):"—"}</span>
                             </div>
@@ -847,7 +855,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                     {/* DECORATION PANEL — full width on top. This is
                         where the work happens (vendor, locations,
                         colors, finishing) so it gets the wide stage. */}
-                    <DecorationPanel p={p} i={i} costProds={costProds} PRINTERS={PRINTERS} decoratorRecords={decoratorRecords} onAddDecorator={()=>setAddDecoratorTargetIdx(i)} updateProd={updateProd} setCostProds={setCostProds} lookupPrintPrice={lookupPrintPrice} lookupTagPrice={lookupTagPrice} costingLocked={!!project?.type_meta?.costing_locked} />
+                    <DecorationPanel p={p} i={i} costProds={costProds} PRINTERS={PRINTERS} decoratorRecords={decoratorRecords} onAddDecorator={()=>setAddDecoratorTargetIdx(i)} updateProd={updateProd} setCostProds={setCostProds} lookupPrintPrice={lookupPrintPrice} lookupTagPrice={lookupTagPrice} costingLocked={costingLocked} />
 
                     {/* BLANKS — summary chip by default, expands on
                         click to reveal the full editable panel. Keeps
@@ -859,7 +867,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       const sizeSummary = (p.sizes || []).filter(sz => (p.qtys?.[sz] || 0) > 0).map(sz => `${sz}:${p.qtys[sz]}`).join(" · ");
                       const marginColor = r ? (r.margin_pct >= 0.30 ? T.green : r.margin_pct >= 0.20 ? T.amber : T.red) : T.muted;
                       return (
-                    <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:isMobile?0:20,...(project?.type_meta?.costing_locked?{pointerEvents:"none",opacity:0.6}:{})}}>
+                    <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:isMobile?0:20,...(costingLocked?{pointerEvents:"none",opacity:0.6}:{})}}>
                       {/* Section label above the chip, matching Tag
                           Print / Packaging / Finishing headers. */}
                       <div style={{fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Blanks</div>
@@ -1438,6 +1446,12 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 export { CostingTab };
 
 export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false, selectedItemId, onSelectItem, onUpdateProject, hideToolbar = false, actionsRef, onPullStateChange }) {
+  // Archived (complete/cancelled) = read-only historic record. Blocks
+  // the PSD auto-pull mount effect and hard-gates onSave so nothing
+  // writes costing_data / items / buy_sheet_lines on an archived job —
+  // opening the tab to view history must never mutate it.
+  const isArchivedJob = project?.phase === "complete" || project?.phase === "cancelled";
+  const effectiveLock = !!project?.type_meta?.costing_locked || isArchivedJob;
   const [pricingReady, setPricingReady] = useState(false);
   const [decoratorRecords, setDecoratorRecords] = useState([]);
   const vendorIdMapRef = React.useRef({});
@@ -1709,7 +1723,10 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   // the shared function now.
   const psdDetectedRef = React.useRef(false);
   useEffect(() => {
-    if (psdDetectedRef.current) return;
+    // Never auto-mutate print locations while pricing is locked or the
+    // job is archived — viewing must be side-effect free. (The manual
+    // Pull button stays available on live jobs.)
+    if (psdDetectedRef.current || effectiveLock) return;
     psdDetectedRef.current = true;
     const itemsNeedingPsd = costProds.filter(cp => {
       if (cp.garment_type === "accessory") return false;
@@ -1805,6 +1822,10 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
 
   const costingSaveInFlight = React.useRef(false);
   const onSave = async () => {
+    // Hard write-gate for historic records. Gated on archived only —
+    // NOT on costing_locked, because the Lock/Unlock toggle calls
+    // onSave() while still locked as part of its own flow.
+    if (isArchivedJob) return;
     if (costingSaveInFlight.current) return;
     costingSaveInFlight.current = true;
     setSavedCostProds(JSON.parse(JSON.stringify(costProds)));

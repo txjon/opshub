@@ -1,10 +1,11 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
+import { createClient } from "@/lib/supabase/client";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { buildMockupClient, preloadTemplate, extractPrintInfoFromPsd } from "@/lib/mockup-client";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
-import { generateProofPdfClient, preloadLogo } from "@/lib/proof-client";
+import { generateProofPdfClient, deriveProofSummary, preloadLogo } from "@/lib/proof-client";
 import { useClientBranding } from "@/lib/branding-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
@@ -157,6 +158,53 @@ const PROOF_DEFAULTS_BY_TYPE = {
   stencils:     { method: "", instructions: [] },
 };
 
+// ── Proof spec helpers ─────────────────────────────────────────────
+// items.proof_spec is the editable source of truth for the proof PDF.
+// The PSD parse only SEEDS it (first open, or explicit Re-pull) —
+// after that the sidebar owns every field the PDF renders below the
+// mockup. Shape:
+//   { locations: [{ placement, sizeText, colors: [{name, hex}], callout }],
+//     methods, instructions, notes, seededFrom: { fileId, at } }
+
+const DEFAULT_CALLOUTS = {
+  "Left Chest": 'Graphic centered 4" from center, 3" from neck seam',
+  "Full Front": 'Centered horizontally, 3" from neck seam',
+  "Full Back": 'Centered horizontally, 3" from neck seam',
+  "Tag": 'Centered .5" from neck seam',
+  "Tags": 'Centered .5" from neck seam',
+};
+
+// Map a PSD parse result onto spec-location rows. `priorLocations`
+// lets a Re-pull carry the user's placement callouts over when the
+// location name still exists in the new parse.
+function psdInfoToSpecLocations(info, priorLocations = []) {
+  const priorByPlacement = {};
+  for (const p of (priorLocations || [])) {
+    if (p?.placement) priorByPlacement[p.placement.toLowerCase().trim()] = p;
+  }
+  return (info || []).map(p => {
+    const prior = priorByPlacement[(p.placement || "").toLowerCase().trim()];
+    return {
+      placement: p.placement || "",
+      sizeText: (p.widthInches && p.heightInches) ? `${p.widthInches}" × ${p.heightInches}"` : "",
+      colors: (p.colors || []).map(c => ({ name: c.name || "", hex: c.hex || null })),
+      callout: prior?.callout || DEFAULT_CALLOUTS[p.placement] || "",
+    };
+  });
+}
+
+// Fetch + parse a print-ready PSD (db file row) into print info.
+// dl=1 forces the full PSD bytes — the thumbnail endpoint otherwise
+// serves Drive's PNG thumb for non-renderable mimes, which ag-psd
+// can't parse.
+async function parsePsdFileToInfo(fileRow) {
+  const res = await fetch(`/api/files/thumbnail?id=${fileRow.drive_file_id}&dl=1`);
+  const buf = await res.arrayBuffer();
+  const { readPsd } = await import("ag-psd");
+  const psd = readPsd(new Uint8Array(buf));
+  return extractPrintInfoFromPsd(psd);
+}
+
 export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved, generateAllCounter }) {
   const isMobile = useIsMobile();
   const METHODS = ["Screen Print", "DTF", "Embroidery"];
@@ -216,35 +264,35 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   const [methods, setMethods] = useState([defaultMethod]);
   const [selInstructions, setSelInstructions] = useState(defaultInstructions);
   const [notes, setNotes] = useState("");
-  const [callouts, setCallouts] = useState({});
   const [previewUrl, setPreviewUrl] = useState(null);
   const [pdfDoc, setPdfDoc] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const [psdPrintInfo, setPsdPrintInfo] = useState(null);
   const [loadingPsd, setLoadingPsd] = useState(false);
   const [mockupDataUrl, setMockupDataUrl] = useState(null);
 
-  // Manual print-info entry — fallback when no PSD is available. Seeded from
-  // costing's print locations so the user has a starting list of placements
-  // to fill in size / colors / callouts on. `sizeText` is freeform — whatever
-  // the user types (e.g. `2.5" × 1.5"`, `12 × 18 cm`, "Full back") flows
-  // straight to the proof PDF.
-  const [manualPrintInfo, setManualPrintInfo] = useState(() => {
-    const locs = costProd?.printLocations || {};
-    return Object.values(locs)
-      .filter(l => l?.location)
-      .map(l => ({
-        placement: l.location,
-        sizeText: "",
-        colorsText: "",
-        callout: "",
-      }));
-  });
+  // The proof spec — single editable source for everything the PDF
+  // renders below the mockup. Hydrated from items.proof_spec when
+  // saved, else seeded from the PSD parse, else a skeleton from
+  // costing's print locations. Every field is editable; the PSD is
+  // only a seeder (Re-pull = explicit refresh).
+  const [specLocations, setSpecLocations] = useState([]);
+  // Summary-bar override — null = auto-derive from locations +
+  // instructions (stays live as they change); string = custom text;
+  // empty string = omit the bar from the PDF.
+  const [summaryOverride, setSummaryOverride] = useState(null);
+  const [specLoaded, setSpecLoaded] = useState(false);
+  // The print-ready PSD file row, when one exists — drives the
+  // "seeded from PSD" label, the Re-pull button, and the newer-PSD hint.
+  const [psdFileMeta, setPsdFileMeta] = useState(null);
+  const [psdNewer, setPsdNewer] = useState(false);
+  const seededFromRef = useRef(null);
+  const lastSavedSpecRef = useRef(null);
 
-  // Best-effort name → hex resolution so manual entries get colored swatches
-  // on the PDF. Unrecognized names fall through to gray (handled in proof-client).
+  // Best-effort name → hex resolution so typed color names get colored
+  // swatches without touching the picker. Unrecognized names fall
+  // through to gray (handled in proof-client).
   const COLOR_HEX = {
     black: "#000000", white: "#ffffff", red: "#d32f2f", blue: "#1565c0",
     navy: "#001f5c", royal: "#1c3faa", green: "#2e7d32", forest: "#194d20",
@@ -258,56 +306,120 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   };
   const resolveHex = (name) => COLOR_HEX[(name || "").toLowerCase().trim()] || null;
 
-  // Use PSD info when available, manual entries otherwise.
-  const effectivePrintInfo = (psdPrintInfo && psdPrintInfo.length > 0)
-    ? psdPrintInfo
-    : manualPrintInfo
-        .filter(p => (p.placement || "").trim())
-        .map(p => ({
-          placement: p.placement.trim(),
-          // Freeform size string — passed through to the proof PDF as-is
-          sizeText: (p.sizeText || "").trim(),
-          colors: (p.colorsText || "").split(",").map(s => s.trim()).filter(Boolean).map(name => {
-            const hex = resolveHex(name);
-            return hex ? { name, hex } : { name };
-          }),
-          callout: p.callout || "",
-        }));
-
   const mockupThumbUrl = mockupFile ? `/api/files/thumbnail?id=${mockupFile.drive_file_id}` : null;
 
-  // Load PSD print info on mount
+  // Hydrate the proof spec on mount. Saved spec wins — the PSD is
+  // never re-parsed silently once a spec exists, so reopening shows
+  // exactly what was last saved/sent. Seeding order:
+  //   1. items.proof_spec (saved editor state)
+  //   2. PSD parse (first open with art)
+  //   3. skeleton from costing's print locations (no PSD yet)
   useEffect(() => {
     const psdFile = (files || []).find(f => f.stage === "print_ready" && f.file_name?.toLowerCase().endsWith(".psd"))
       || [...(files || [])].reverse().find(f => f.file_name?.toLowerCase().endsWith(".psd"));
-    if (!psdFile) return;
-    setLoadingPsd(true);
-    (async () => {
-      try {
-        // dl=1 forces the full PSD bytes — the thumbnail endpoint
-        // otherwise serves Drive's PNG thumb for non-renderable mimes
-        // (PSD/AI/EPS), which ag-psd can't parse.
-        const res = await fetch(`/api/files/thumbnail?id=${psdFile.drive_file_id}&dl=1`);
-        const buf = await res.arrayBuffer();
-        const { readPsd } = await import("ag-psd");
-        const psd = readPsd(new Uint8Array(buf));
-        const info = extractPrintInfoFromPsd(psd);
-        setPsdPrintInfo(info);
-        // Pre-fill default callouts
-        const defaults = {
-          "Left Chest": 'Graphic centered 4" from center, 3" from neck seam',
-          "Full Front": 'Centered horizontally, 3" from neck seam',
-          "Full Back": 'Centered horizontally, 3" from neck seam',
-          "Tag": 'Centered .5" from neck seam',
-          "Tags": 'Centered .5" from neck seam',
-        };
-        const prefilled = {};
-        for (const p of info) { if (defaults[p.placement]) prefilled[p.placement] = defaults[p.placement]; }
-        setCallouts(prev => ({ ...prefilled, ...prev }));
-      } catch(e) { console.error("PSD parse error:", e); }
-      finally { setLoadingPsd(false); }
-    })();
+    if (psdFile) setPsdFileMeta(psdFile);
+
+    const saved = item.proof_spec;
+    if (saved && Array.isArray(saved.locations) && saved.locations.length > 0) {
+      setSpecLocations(saved.locations.map(l => ({
+        placement: l.placement || "",
+        sizeText: l.sizeText || "",
+        colors: (l.colors || []).map(c => ({ name: c.name || "", hex: c.hex || null })),
+        callout: l.callout || "",
+      })));
+      if (Array.isArray(saved.methods) && saved.methods.length > 0) setMethods(saved.methods);
+      if (Array.isArray(saved.instructions)) setSelInstructions(saved.instructions);
+      if (typeof saved.notes === "string") setNotes(saved.notes);
+      if (typeof saved.summaryText === "string") setSummaryOverride(saved.summaryText);
+      seededFromRef.current = saved.seededFrom || null;
+      // Newer PSD uploaded since this spec was seeded → surface a hint.
+      if (psdFile && saved.seededFrom?.at && psdFile.created_at &&
+          new Date(psdFile.created_at) > new Date(saved.seededFrom.at)) {
+        setPsdNewer(true);
+      }
+      setSpecLoaded(true);
+      return;
+    }
+
+    if (psdFile) {
+      setLoadingPsd(true);
+      (async () => {
+        try {
+          const info = await parsePsdFileToInfo(psdFile);
+          setSpecLocations(psdInfoToSpecLocations(info));
+          seededFromRef.current = { fileId: psdFile.drive_file_id, at: new Date().toISOString() };
+        } catch(e) { console.error("PSD parse error:", e); }
+        finally { setLoadingPsd(false); setSpecLoaded(true); }
+      })();
+      return;
+    }
+
+    // No saved spec, no PSD — skeleton from costing's print locations.
+    const locs = Object.values(costProd?.printLocations || {})
+      .filter(l => l?.location)
+      .map(l => ({ placement: l.location, sizeText: "", colors: [], callout: DEFAULT_CALLOUTS[l.location] || "" }));
+    setSpecLocations(locs);
+    setSpecLoaded(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Explicit re-seed from the PSD — replaces names/sizes/colors with a
+  // fresh parse (callouts carry over by matching placement name).
+  // Method / instructions / notes are untouched.
+  async function repullFromPsd() {
+    if (!psdFileMeta || loadingPsd) return;
+    if (!window.confirm("Re-pull print locations from the PSD?\n\nLocation names, sizes, and colors will be replaced by the PSD parse. Placement callouts carry over where names match. Method, instructions, and notes are kept.")) return;
+    setLoadingPsd(true);
+    try {
+      const info = await parsePsdFileToInfo(psdFileMeta);
+      setSpecLocations(prev => psdInfoToSpecLocations(info, prev));
+      seededFromRef.current = { fileId: psdFileMeta.drive_file_id, at: new Date().toISOString() };
+      setPsdNewer(false);
+    } catch (e) { setError("PSD re-pull failed: " + e.message); }
+    finally { setLoadingPsd(false); }
+  }
+
+  // Persist the spec (silent, debounced) so edits survive reopen —
+  // items.proof_spec is the durable record of what the proof says.
+  const buildSpec = () => ({
+    locations: specLocations,
+    methods,
+    instructions: selInstructions,
+    notes,
+    summaryText: summaryOverride,
+    seededFrom: seededFromRef.current,
+  });
+  useEffect(() => {
+    if (!specLoaded) return;
+    const snapshot = JSON.stringify(buildSpec());
+    if (snapshot === lastSavedSpecRef.current) return;
+    const t = setTimeout(async () => {
+      try {
+        const spec = JSON.parse(snapshot);
+        const { error: err } = await createClient().from("items").update({ proof_spec: spec }).eq("id", item.id);
+        if (err) throw err;
+        lastSavedSpecRef.current = snapshot;
+        if (onUpdateItem) onUpdateItem(item.id, { proof_spec: spec });
+      } catch (e) { console.error("Proof spec save error:", e); }
+    }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specLoaded, specLocations, methods, selInstructions, notes, summaryOverride]);
+
+  // Immediate flush for close/save paths — the debounce above could
+  // otherwise drop the last edit when the modal unmounts.
+  function flushSpecSave() {
+    if (!specLoaded) return;
+    const snapshot = JSON.stringify(buildSpec());
+    if (snapshot === lastSavedSpecRef.current) return;
+    lastSavedSpecRef.current = snapshot;
+    const spec = JSON.parse(snapshot);
+    createClient().from("items").update({ proof_spec: spec }).eq("id", item.id)
+      .then(({ error: err }) => {
+        if (err) { console.error("Proof spec save error:", err); return; }
+        if (onUpdateItem) onUpdateItem(item.id, { proof_spec: spec });
+      });
+  }
 
   // Print method is single-select — clicking an unselected method makes it
   // the only choice; clicking the active one deselects (none).
@@ -341,33 +453,44 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     })();
   }, [mockupThumbUrl]);
 
+  // The tag-filtered, trimmed print info — one transform feeding both
+  // the PDF render and the derived summary-bar text, so the sidebar
+  // shows exactly the line the PDF will print.
+  const buildPrintInfo = () => {
+    const activeSizes = item.qtys ? Object.keys(item.qtys).filter(sz => item.qtys[sz] > 0) : null;
+    const hasActiveSizes = activeSizes && activeSizes.length > 0;
+    const normalizeSize = (s) => {
+      const u = (s || "").toUpperCase().trim();
+      if (u === "XXL" || u === "2X") return "2XL";
+      if (u === "XXXL" || u === "3X") return "3XL";
+      if (u === "XXXXL" || u === "4X") return "4XL";
+      if (u === "XXXXXL" || u === "5X") return "5XL";
+      return u;
+    };
+    const activeSizesNorm = hasActiveSizes ? activeSizes.map(normalizeSize) : null;
+    return (specLocations || [])
+      .filter(p => (p.placement || "").trim())
+      .map(p => {
+        const isTag = (p.placement || "").toLowerCase().trim() === "tag" || (p.placement || "").toLowerCase().trim() === "tags";
+        // Tag groups carry one layer per size — only show sizes the
+        // order actually includes.
+        const colors = (isTag && activeSizesNorm) ? (p.colors || []).filter(c => activeSizesNorm.includes(normalizeSize(c.name))) : (p.colors || []);
+        return { placement: p.placement.trim(), sizeText: (p.sizeText || "").trim(), colors, callout: p.callout || "" };
+      });
+  };
+  const derivedSummary = deriveProofSummary(buildPrintInfo(), selInstructions);
+
   // Auto-generate preview whenever inputs change (debounced to avoid lag)
   useEffect(() => {
     if (!mockupDataUrl) return;
     const timer = setTimeout(() => {
       try {
-        const activeSizes = item.qtys ? Object.keys(item.qtys).filter(sz => item.qtys[sz] > 0) : null;
-        const hasActiveSizes = activeSizes && activeSizes.length > 0;
-        const normalizeSize = (s) => {
-          const u = (s || "").toUpperCase().trim();
-          if (u === "XXL" || u === "2X") return "2XL";
-          if (u === "XXXL" || u === "3X") return "3XL";
-          if (u === "XXXXL" || u === "4X") return "4XL";
-          if (u === "XXXXXL" || u === "5X") return "5XL";
-          return u;
-        };
-        const activeSizesNorm = hasActiveSizes ? activeSizes.map(normalizeSize) : null;
-        const printInfo = (effectivePrintInfo || []).map(p => {
-          const isTag = (p.placement || "").toLowerCase() === "tag" || (p.placement || "").toLowerCase() === "tags";
-          const colors = (isTag && activeSizesNorm) ? (p.colors || []).filter(c => activeSizesNorm.includes(normalizeSize(c.name))) : (p.colors || []);
-          // Callouts state takes precedence over the manual-entry callout when both exist
-          const callout = callouts[p.placement] || p.callout || "";
-          return { ...p, colors, callout };
-        });
+        const printInfo = buildPrintInfo();
 
         const doc = generateProofPdfClient({
           mockupDataUrl,
           printInfo,
+          summaryText: summaryOverride === null ? undefined : summaryOverride,
           clientName: clientName || "",
           itemName: item.name || "",
           blankVendor: item.blank_vendor || "",
@@ -390,10 +513,11 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [mockupDataUrl, psdPrintInfo, methods, selInstructions, notes, callouts, manualPrintInfo]);
+  }, [mockupDataUrl, specLocations, methods, selInstructions, notes, summaryOverride]);
 
   async function saveToDrive() {
     if (!pdfDoc) return;
+    flushSpecSave();
     // Close modal immediately, upload in background
     const pdfBlob = pdfDoc.output("blob");
     const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
@@ -420,6 +544,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   }
 
   function handleClose() {
+    flushSpecSave();
     if (previewUrl) {
       if (!window.confirm("Save proof to Drive before closing?")) {
         URL.revokeObjectURL(previewUrl);
@@ -464,72 +589,100 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
               </div>
             </div>
 
-            {/* Print locations from PSD with callout fields */}
-            {loadingPsd && <div style={{ fontSize: 11, color: T.muted }}>Reading PSD print data...</div>}
-            {psdPrintInfo && psdPrintInfo.length > 0 && (
-              <div>
-                <label style={{ fontSize: 11, color: T.muted, marginBottom: 6, display: "block" }}>Print Locations <span style={{ color: T.faint, fontWeight: 400 }}>· from PSD</span></label>
-                {psdPrintInfo.map((p, i) => (
-                  <div key={i} style={{ background: T.surface, borderRadius: 6, padding: "8px 10px", marginBottom: 6 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{p.placement}</span>
-                      <span style={{ fontSize: 10, color: T.muted, fontFamily: mono }}>{p.widthInches}" × {p.heightInches}" · {p.colors?.length || 0} color{(p.colors?.length||0)!==1?"s":""}</span>
-                    </div>
-                    <input value={callouts[p.placement] || ""} onChange={e => setCallouts(prev => ({...prev, [p.placement]: e.target.value}))}
-                      placeholder="Placement callout..." style={{ ...ic, fontSize: 11 }} />
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Manual print-info entry — fallback when no PSD found */}
-            {!loadingPsd && (!psdPrintInfo || psdPrintInfo.length === 0) && (
-              <div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                  <label style={{ fontSize: 11, color: T.muted }}>Print Locations <span style={{ color: T.faint, fontWeight: 400 }}>· no PSD, enter manually</span></label>
-                  <button onClick={() => setManualPrintInfo(prev => [...prev, { placement: "", widthInches: "", heightInches: "", colorsText: "", callout: "" }])}
+            {/* Print locations — the editable proof spec. Everything
+                here is what the PDF renders; the PSD only seeds it. */}
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <label style={{ fontSize: 11, color: T.muted }}>Print Locations{psdFileMeta && <span style={{ color: T.faint, fontWeight: 400 }}> · seeded from PSD</span>}</label>
+                <div style={{ display: "flex", gap: 5 }}>
+                  {psdFileMeta && (
+                    <button onClick={repullFromPsd} disabled={loadingPsd}
+                      title="Replace locations with a fresh parse of the print-ready PSD (callouts carry over)"
+                      style={{ fontSize: 10, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 8px", cursor: loadingPsd ? "default" : "pointer", fontFamily: font, opacity: loadingPsd ? 0.6 : 1 }}
+                      onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
+                      {loadingPsd ? "Reading…" : "Re-pull PSD"}
+                    </button>
+                  )}
+                  <button onClick={() => setSpecLocations(prev => [...prev, { placement: "", sizeText: "", colors: [], callout: "" }])}
                     style={{ fontSize: 10, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: font }}
                     onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
                     onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
                     + Add
                   </button>
                 </div>
-                {manualPrintInfo.length === 0 && (
-                  <div style={{ fontSize: 11, color: T.faint, padding: "8px 10px", background: T.surface, borderRadius: 6, textAlign: "center" }}>
-                    Click + Add to enter a placement.
-                  </div>
-                )}
-                {manualPrintInfo.map((p, idx) => {
-                  const update = (field, value) => setManualPrintInfo(prev => prev.map((row, i) => i === idx ? { ...row, [field]: value } : row));
-                  const remove = () => setManualPrintInfo(prev => prev.filter((_, i) => i !== idx));
-                  return (
-                    <div key={idx} style={{ background: T.surface, borderRadius: 6, padding: "8px 10px", marginBottom: 6, display: "flex", flexDirection: "column", gap: 4 }}>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <input value={p.placement} onChange={e => update("placement", e.target.value)}
-                          list={`pi-placement-${idx}`} placeholder="Placement (Front, Back, Tag…)"
-                          style={{ ...ic, fontSize: 12, fontWeight: 600, flex: 1 }} />
-                        <datalist id={`pi-placement-${idx}`}>{["Front","Back","Left Chest","Right Chest","Left Sleeve","Right Sleeve","Hood","Pocket","Tag","Tags","Neck"].map(o => <option key={o} value={o} />)}</datalist>
-                        <button onClick={remove} title="Remove placement"
-                          style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 14, padding: "0 4px" }}
-                          onMouseEnter={e => e.currentTarget.style.color = T.red}
-                          onMouseLeave={e => e.currentTarget.style.color = T.faint}>✕</button>
-                      </div>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <input value={p.sizeText} onChange={e => update("sizeText", e.target.value)}
-                          placeholder={`Size (e.g. 2.5" × 1.5")`}
-                          style={{ ...ic, fontSize: 11, width: 160 }} />
-                        <input value={p.colorsText} onChange={e => update("colorsText", e.target.value)}
-                          placeholder="Colors: Black, White, Red"
-                          style={{ ...ic, fontSize: 11, flex: 1 }} />
-                      </div>
-                      <input value={p.callout} onChange={e => update("callout", e.target.value)}
-                        placeholder="Placement callout (optional)…"
-                        style={{ ...ic, fontSize: 11 }} />
-                    </div>
-                  );
-                })}
               </div>
-            )}
+              {psdNewer && (
+                <div style={{ fontSize: 10, color: T.amber, background: T.amberDim, borderRadius: 5, padding: "5px 8px", marginBottom: 6, lineHeight: 1.4 }}>
+                  A newer PSD was uploaded after these locations were seeded — Re-pull to refresh.
+                </div>
+              )}
+              {loadingPsd && specLocations.length === 0 && <div style={{ fontSize: 11, color: T.muted }}>Reading PSD print data...</div>}
+              {!loadingPsd && specLocations.length === 0 && (
+                <div style={{ fontSize: 11, color: T.faint, padding: "8px 10px", background: T.surface, borderRadius: 6, textAlign: "center" }}>
+                  Click + Add to enter a placement.
+                </div>
+              )}
+              {specLocations.map((p, idx) => {
+                const update = (patch) => setSpecLocations(prev => prev.map((row, i) => i === idx ? { ...row, ...patch } : row));
+                const updColor = (j, patch) => update({ colors: (p.colors || []).map((cc, k) => k === j ? { ...cc, ...patch } : cc) });
+                const remove = () => setSpecLocations(prev => prev.filter((_, i) => i !== idx));
+                return (
+                  <div key={idx} style={{ background: T.surface, borderRadius: 6, padding: "8px 10px", marginBottom: 6, display: "flex", flexDirection: "column", gap: 5 }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input value={p.placement} onChange={e => update({ placement: e.target.value })}
+                        list={`pi-placement-${idx}`} placeholder="Placement (Front, Back, Tag…)"
+                        style={{ ...ic, fontSize: 12, fontWeight: 600, flex: 1 }} />
+                      <datalist id={`pi-placement-${idx}`}>{["Front","Full Front","Back","Full Back","Left Chest","Right Chest","Left Sleeve","Right Sleeve","Hood","Pocket","Tag","Tags","Neck"].map(o => <option key={o} value={o} />)}</datalist>
+                      <input value={p.sizeText} onChange={e => update({ sizeText: e.target.value })}
+                        placeholder={`W" × H"`} title="Print size — freeform, flows to the PDF as-is"
+                        style={{ ...ic, fontSize: 11, width: 92, fontFamily: mono }} />
+                      <button onClick={remove} title="Remove placement"
+                        style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 14, padding: "0 2px" }}
+                        onMouseEnter={e => e.currentTarget.style.color = T.red}
+                        onMouseLeave={e => e.currentTarget.style.color = T.faint}>✕</button>
+                    </div>
+                    {/* Color chips — freeform names (pantones, "Base",
+                        separations); the swatch opens a color picker. */}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                      {(p.colors || []).map((c, j) => (
+                        <span key={j} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 5px" }}>
+                          <label title="Swatch color — click to pick"
+                            style={{ width: 16, height: 16, borderRadius: 4, background: c.hex || "#9aa0ae", border: `1px solid ${T.border}`, cursor: "pointer", flexShrink: 0, display: "inline-block", position: "relative", overflow: "hidden" }}>
+                            <input type="color" value={c.hex || "#9aa0ae"}
+                              onChange={e => updColor(j, { hex: e.target.value })}
+                              style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer", border: "none", padding: 0 }} />
+                          </label>
+                          <input value={c.name}
+                            onChange={e => {
+                              const name = e.target.value;
+                              // Auto-resolve a swatch from recognized names
+                              // until the user explicitly picks one.
+                              const auto = !c.hex ? resolveHex(name) : null;
+                              updColor(j, auto ? { name, hex: auto } : { name });
+                            }}
+                            placeholder="Color"
+                            style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 10.5, fontFamily: font, width: `${Math.min(Math.max((c.name || "").length + 1, 6), 22)}ch` }} />
+                          <button onClick={() => update({ colors: (p.colors || []).filter((_, k) => k !== j) })} title="Remove color"
+                            style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 11, padding: 0, lineHeight: 1 }}
+                            onMouseEnter={e => e.currentTarget.style.color = T.red}
+                            onMouseLeave={e => e.currentTarget.style.color = T.faint}>×</button>
+                        </span>
+                      ))}
+                      <button onClick={() => update({ colors: [...(p.colors || []), { name: "", hex: null }] })}
+                        style={{ fontSize: 10, fontWeight: 600, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: font }}
+                        onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
+                        + color
+                      </button>
+                    </div>
+                    <input value={p.callout || ""} onChange={e => update({ callout: e.target.value })}
+                      placeholder="Placement callout…"
+                      style={{ ...ic, fontSize: 11 }} />
+                  </div>
+                );
+              })}
+            </div>
 
             {/* Special instructions toggle buttons */}
             <div>
@@ -545,6 +698,28 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                   );
                 })}
               </div>
+            </div>
+
+            {/* Summary bar — pre-loaded with the derived line ("2
+                locations · 6 colors · …"); typing makes it custom,
+                Auto reverts. Clearing the field omits the bar. */}
+            <div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <label style={{ fontSize: 11, color: T.muted }}>Summary Bar{summaryOverride !== null && <span style={{ color: T.amber, fontWeight: 600 }}> · custom</span>}</label>
+                {summaryOverride !== null && (
+                  <button onClick={() => setSummaryOverride(null)}
+                    title="Revert to the auto-derived summary (updates live with locations + instructions)"
+                    style={{ fontSize: 10, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: font }}
+                    onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
+                    ↺ Auto
+                  </button>
+                )}
+              </div>
+              <textarea value={summaryOverride !== null ? summaryOverride : derivedSummary}
+                onChange={e => setSummaryOverride(e.target.value)}
+                rows={2} placeholder="Leave empty to omit the bar"
+                style={{ ...ic, fontSize: 11, resize: "vertical", lineHeight: 1.4, color: summaryOverride !== null ? T.text : T.muted }} />
             </div>
 
             {/* Notes */}
@@ -1051,10 +1226,12 @@ export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged,
       let folderLink = null;
 
       setSaveStatus("Uploading art file...");
+      let psdDriveId = null;
       if (mockupData.psdFile) {
         const psdFile = await uploadToDrive({ blob: mockupData.psdFile, fileName: mockupData.psdFile.name, mimeType: "application/octet-stream", ...driveCtx });
         await registerFileInDb({ ...psdFile, itemId: item.id, stage: "print_ready" });
         folderLink = psdFile.folderLink;
+        psdDriveId = psdFile.fileId || null;
       }
 
       setSaveStatus("Uploading mockup...");
@@ -1069,6 +1246,20 @@ export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged,
       const pdfBlob = doc.output("blob");
       const proofFile = await uploadToDrive({ blob: pdfBlob, fileName: `${safeName} - Product Proof.pdf`, mimeType: "application/pdf", ...driveCtx });
       await registerFileInDb({ ...proofFile, itemId: item.id, stage: "proof" });
+
+      // Seed/refresh the proof spec so the proof editor opens with
+      // exactly what this flow produced — fresh locations from the
+      // parse; methods/instructions/notes preserved if a spec existed.
+      // Skipped when there's no print info (manual mockup, no PSD) so
+      // an existing spec is never clobbered with an empty one.
+      const composedSpec = composeMockupProofSpec();
+      if (composedSpec.locations.length > 0) {
+        try {
+          const spec = { ...composedSpec, seededFrom: { fileId: psdDriveId, at: new Date().toISOString() } };
+          await createClient().from("items").update({ proof_spec: spec }).eq("id", item.id);
+          if (onUpdateItem) onUpdateItem(item.id, { proof_spec: spec });
+        } catch (e) { console.error("Proof spec seed error:", e); }
+      }
 
       if (folderLink) {
         await fetch("/api/drive/register", {
@@ -1091,15 +1282,35 @@ export function MockupDropZone({ item, clientName, projectTitle, onFilesChanged,
 
   const [downloading, setDownloading] = useState(false);
 
+  // Compose the proof data for the mockup-time PDF: the fresh parse
+  // seeds the locations, while a previously saved proof spec
+  // contributes methods / instructions / notes and carries placement
+  // callouts over by name — same merge the proof editor produces.
+  function composeMockupProofSpec() {
+    const existing = item.proof_spec || null;
+    return {
+      locations: psdInfoToSpecLocations(mockupData.printInfo || [], existing?.locations || []),
+      methods: Array.isArray(existing?.methods) ? existing.methods : [],
+      instructions: Array.isArray(existing?.instructions) ? existing.instructions : [],
+      notes: typeof existing?.notes === "string" ? existing.notes : "",
+      summaryText: typeof existing?.summaryText === "string" ? existing.summaryText : null,
+    };
+  }
+
   function buildProofPdf() {
+    const spec = composeMockupProofSpec();
     return generateProofPdfClient({
       mockupDataUrl: mockupData.uploadDataUrl,
-      printInfo: mockupData.printInfo,
+      printInfo: spec.locations,
       clientName,
       itemName: item.name || "",
       blankVendor: item.blank_vendor || "",
       blankStyle: item.sku || "",
       blankColor: item.color || "",
+      method: (spec.methods || []).join(", "),
+      instructions: spec.instructions || [],
+      notes: (spec.notes || "").trim(),
+      summaryText: spec.summaryText === null ? undefined : spec.summaryText,
       tenantSlug: branding.slug,
       tenantName: branding.name,
     });

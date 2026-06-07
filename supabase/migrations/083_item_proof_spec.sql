@@ -1,0 +1,11 @@
+-- 083: per-item proof spec — the editable source of truth for the
+-- product proof PDF. Holds everything rendered below the mockup:
+--   locations: [{ placement, sizeText, colors: [{name, hex}], callout }]
+--   methods:      ["Screen Print"]
+--   instructions: ["Piece Package", ...]
+--   notes:        free text
+--   seededFrom:   { fileId, at } — which PSD parse seeded it, for the
+--                 "newer PSD uploaded — Re-pull?" hint
+-- Seeded from the print-ready PSD parse on first open; owned by the
+-- proof editor sidebar thereafter. The PDF renderer reads only this.
+ALTER TABLE items ADD COLUMN IF NOT EXISTS proof_spec jsonb;

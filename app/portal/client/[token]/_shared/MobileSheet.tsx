@@ -28,6 +28,7 @@ export function MobileSheet({
   rightAccessory,
   footer,
   children,
+  dismissible = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -36,16 +37,21 @@ export function MobileSheet({
   rightAccessory?: ReactNode;
   footer?: ReactNode;
   children: ReactNode;
+  /** When false, Esc / drag / outside-tap won't close the sheet —
+      only the explicit × button. Set this while a child overlay
+      (e.g. an image lightbox) is stacked on top, so dismissing the
+      overlay can't fall through and close the sheet underneath. */
+  dismissible?: boolean;
 }) {
   const isMobile = useIsMobile();
 
   // Esc closes on every viewport (desktop fallback also wires it).
   useEffect(() => {
-    if (!open) return;
+    if (!open || !dismissible) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onClose, dismissible]);
 
   if (!open) return null;
 
@@ -108,7 +114,7 @@ export function MobileSheet({
   // Mobile: vaul bottom sheet
   if (isMobile) {
     return (
-      <Drawer.Root open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <Drawer.Root open={open} dismissible={dismissible} onOpenChange={(o) => { if (!o) onClose(); }}>
         <Drawer.Portal>
           <Drawer.Overlay style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1099,
@@ -145,7 +151,7 @@ export function MobileSheet({
   // Desktop: centered modal (vaul's bottom-sheet feel is wrong for a
   // wide viewport, so we keep the dialog pattern on desktop).
   return (
-    <div onClick={onClose}
+    <div onClick={dismissible ? onClose : undefined}
       style={{
         position: "fixed", inset: 0, zIndex: 1100,
         background: "rgba(0,0,0,0.45)",
