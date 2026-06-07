@@ -73,9 +73,19 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
 
   // Documents step lives on the Overview tab as a link now (next to
   // Project notes), not in the progress nav.
+  //
+  // Archived (complete/cancelled) keeps the historic-record tabs
+  // reachable — Builder, Costing, and Proofs & Invoice render
+  // read-only (costing lock forces on, see ProductBuilder/CostingTab)
+  // but the data stays viewable. All forced done:true so they render
+  // as calm green ✓ nav with no "next step" arrow noise. Quote /
+  // Blanks / PO stay hidden — nothing to do there post-completion.
   const steps: Step[] = isArchived
     ? [
         { id: "overview", label: "Overview", done: true, active: false },
+        { id: "builder", label: "Product Builder", done: true, active: false, detail: hasItems ? `${items.length}` : undefined },
+        { id: "costing", label: "Costing", done: true, active: false },
+        { id: "proofs", label: "Proofs & Invoice", done: true, active: false },
       ]
     : [
         { id: "overview", label: "Overview", done: true, active: false },
