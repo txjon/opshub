@@ -610,9 +610,13 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 }
               } catch {}
             }
-            // Advance items for this vendor to in_production
+            // Advance items for this vendor to in_production. Guard on
+            // "not shipped" (not on the current stage) so a stale in-memory
+            // value can't skip the write — the assignment update below is
+            // unconditional, so gating the item write here is what let the
+            // two drift (item null, assignment in_production).
             for (const it of vItems) {
-              if (it.pipeline_stage === "blanks_ordered" || !it.pipeline_stage) {
+              if (it.pipeline_stage !== "shipped") {
                 await supabase.from("items").update({ pipeline_stage: "in_production", pipeline_timestamps: { ...(it.pipeline_timestamps || {}), in_production: new Date().toISOString() } }).eq("id", it.id);
               }
               const costProd = costingData?.costProds?.find(cp => cp.id === it.id);
@@ -675,6 +679,14 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                     delete ts.in_production;
                     await supabase.from("items").update({ pipeline_stage: null, pipeline_timestamps: ts }).eq("id", it.id);
                   }
+                  // Revert the assignment too, mirroring the mark-sent path —
+                  // otherwise item resets to null while the assignment stays
+                  // in_production, and the item falls off the production board.
+                  const costProd = costingData?.costProds?.find(cp => cp.id === it.id);
+                  if (costProd?.printVendor) {
+                    const { data: da } = await supabase.from("decorator_assignments").select("id").eq("item_id", it.id).limit(1).single();
+                    if (da) await supabase.from("decorator_assignments").update({ pipeline_stage: "blanks_ordered" }).eq("id", da.id);
+                  }
                 }
                 logJobActivity(project.id, `PO for ${v} unmarked as sent — ${vendorItems.length} item${vendorItems.length===1?"":"s"} reverted to pre-PO`);
                 if(onRecalcPhase) onRecalcPhase();
@@ -695,7 +707,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                   return cp?.printVendor===v;
                 });
                 for (const it of vendorItems) {
-                  if (it.pipeline_stage === "blanks_ordered" || !it.pipeline_stage) {
+                  if (it.pipeline_stage !== "shipped") {
                     await supabase.from("items").update({ pipeline_stage: "in_production", pipeline_timestamps: { ...(it.pipeline_timestamps || {}), in_production: new Date().toISOString() } }).eq("id", it.id);
                   }
                   const costProd = costingData?.costProds?.find(cp => cp.id === it.id);
