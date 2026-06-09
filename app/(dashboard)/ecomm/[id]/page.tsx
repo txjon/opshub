@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { T, font, mono } from "@/lib/theme";
 
 // Pre-order detail page. Shows the full lifecycle workflow:
@@ -105,6 +106,13 @@ export default function PreorderDetail() {
   const [pushBuffer, setPushBuffer] = useState<string>("");
   const [pushing, setPushing] = useState(false);
   const [pushError, setPushError] = useState<string>("");
+  // Delete a pre-order (incl. stale/test entries). preorder_products
+  // cascade via FK (mig 079). The .select() after delete returns the
+  // removed rows — an empty array means nothing deleted (RLS / already
+  // gone), so it can't fail silently the way "no button" did.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string>("");
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [preorderId]);
 
@@ -137,6 +145,20 @@ export default function PreorderDetail() {
     if (!preorder) return;
     await supabase.from("fulfillment_projects").update({ preorder_status: next }).eq("id", preorderId);
     setPreorder(p => p ? { ...p, preorder_status: next } : p);
+  }
+
+  async function deletePreorder() {
+    if (deleting) return;
+    setDeleting(true);
+    setDeleteError("");
+    const { data, error } = await supabase
+      .from("fulfillment_projects").delete().eq("id", preorderId).select();
+    if (error) { setDeleteError(error.message); setDeleting(false); setConfirmDelete(false); return; }
+    if (!data || data.length === 0) {
+      setDeleteError("Nothing was deleted — you may not have permission, or it's already gone.");
+      setDeleting(false); setConfirmDelete(false); return;
+    }
+    router.push("/ecomm");
   }
 
   async function updateField(field: keyof Preorder, value: any) {
@@ -377,10 +399,24 @@ export default function PreorderDetail() {
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14, maxWidth: 1000, margin: "0 auto", paddingBottom: "3rem" }}>
-      <button onClick={() => router.push("/ecomm")}
-        style={{ background: "none", border: "none", color: T.muted, fontSize: 12, cursor: "pointer", padding: 0, fontFamily: font, alignSelf: "flex-start" }}>
-        ← Back to E-Commerce
-      </button>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <button onClick={() => router.push("/ecomm")}
+          style={{ background: "none", border: "none", color: T.muted, fontSize: 12, cursor: "pointer", padding: 0, fontFamily: font }}>
+          ← Back to E-Commerce
+        </button>
+        <button onClick={() => { setDeleteError(""); setConfirmDelete(true); }}
+          title="Delete this pre-order"
+          style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 11, fontWeight: 600, padding: "5px 12px", cursor: "pointer", fontFamily: font }}
+          onMouseEnter={e => { e.currentTarget.style.color = T.red; e.currentTarget.style.borderColor = T.red; }}
+          onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
+          Delete pre-order
+        </button>
+      </div>
+      {deleteError && (
+        <div style={{ fontSize: 12, color: T.red, background: T.redDim, border: `1px solid ${T.red}44`, borderRadius: 6, padding: "8px 12px" }}>
+          {deleteError}
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ ...card, padding: "16px 20px", borderLeft: `3px solid ${tone}` }}>
@@ -685,6 +721,17 @@ export default function PreorderDetail() {
           </div>
         );
       })()}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete this pre-order?"
+        message={preorder.source_job_id
+          ? `"${preorder.name}" was pushed to production — the linked Labs job stays, but the pre-order record and its product list are permanently removed. This can't be undone.`
+          : `"${preorder.name}" and its product list will be permanently deleted. This can't be undone.`}
+        confirmLabel={deleting ? "Deleting…" : "Delete"}
+        onConfirm={deletePreorder}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }
