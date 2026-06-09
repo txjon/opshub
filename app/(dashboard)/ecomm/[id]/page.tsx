@@ -1,7 +1,8 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import Papa from "papaparse";
 import { createClient } from "@/lib/supabase/client";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { T, font, mono } from "@/lib/theme";
@@ -113,6 +114,14 @@ export default function PreorderDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string>("");
+  // Import products from a Shopify product-export CSV (the standard
+  // first step — products are built in Shopify, then announced here).
+  // Maps Title→name, combined Option values→sizes, Variant Price→retail,
+  // Handle→storefront URL. Blanks / garment_type / color / decoration
+  // are NOT pulled — they live in the Labs job / stay in the name.
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [preorderId]);
 
@@ -165,6 +174,81 @@ export default function PreorderDetail() {
     if (!preorder) return;
     setPreorder(p => p ? { ...p, [field]: value } as Preorder : p);
     await supabase.from("fulfillment_projects").update({ [field]: value }).eq("id", preorderId);
+  }
+
+  async function importFromCsv(file: File) {
+    if (importing) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const text = await file.text();
+      // papaparse handles quoted multi-line fields (the Body HTML) that
+      // would wreck a naive line split.
+      const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+      const rows = parsed.data || [];
+
+      // Shopify repeats the Handle across a product's variant rows; the
+      // product-level fields (Title) sit on the first row only.
+      const byHandle: Record<string, Record<string, string>[]> = {};
+      for (const r of rows) {
+        const handle = (r["Handle"] || "").trim();
+        if (!handle) continue;
+        (byHandle[handle] ||= []).push(r);
+      }
+
+      const existing = new Set(products.map(p => p.name.toLowerCase().trim()));
+      const domain = (preorder?.store_account || "").replace(/^https?:\/\//, "").replace(/\/+$/, "");
+      const toInsert: any[] = [];
+      let order = products.length;
+      let skipped = 0;
+
+      for (const [handle, group] of Object.entries(byHandle)) {
+        const name = (group.find(r => (r["Title"] || "").trim())?.["Title"] || "").trim();
+        if (!name) { continue; }
+        if (existing.has(name.toLowerCase())) { skipped++; continue; }
+        const priceRow = group.find(r => (r["Variant Price"] || "").trim());
+        const retail = priceRow ? parseFloat(priceRow["Variant Price"]) : NaN;
+        // Combine each variant's option values into one label — handles
+        // pants (Waist × Inseam → "28 / 30 (Short)"), tees (Size), and
+        // single-variant items. "Default Title" = Shopify's no-variant
+        // placeholder, dropped.
+        const sizes: string[] = [];
+        for (const r of group) {
+          const combo = [r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
+            .map(v => (v || "").trim())
+            .filter(v => v && v !== "Default Title")
+            .join(" / ");
+          if (combo && !sizes.includes(combo)) sizes.push(combo);
+        }
+        toInsert.push({
+          preorder_id: preorderId,
+          name,
+          sizes,
+          retail_price: isNaN(retail) ? null : retail,
+          shopify_product_url: domain ? `https://${domain}/products/${handle}` : null,
+          sort_order: order++,
+          // Came from a Shopify export → it's built in Shopify by
+          // definition. Mark it so the "building" gate reflects reality
+          // and Abigail isn't re-checking boxes for what Shopify proved.
+          is_built_in_shopify: true,
+          built_in_shopify_at: new Date().toISOString(),
+        });
+      }
+
+      if (toInsert.length === 0) {
+        setImportResult(skipped > 0 ? `Nothing new — ${skipped} product(s) already imported.` : "No products found in that CSV.");
+        setImporting(false);
+        return;
+      }
+      const { data: inserted, error } = await (supabase.from("preorder_products") as any).insert(toInsert).select();
+      if (error) throw error;
+      setProducts(prev => [...prev, ...((inserted || []) as any[]).map(r => ({ ...r, sizes: r.sizes || [] }))]);
+      setImportResult(`Imported ${(inserted as any[])?.length ?? toInsert.length} product${((inserted as any[])?.length ?? toInsert.length) === 1 ? "" : "s"}${skipped ? ` · skipped ${skipped} already present` : ""}.`);
+    } catch (e: any) {
+      setImportResult("Import failed: " + (e?.message || String(e)));
+    } finally {
+      setImporting(false);
+    }
   }
 
   async function addProduct() {
@@ -511,11 +595,21 @@ export default function PreorderDetail() {
             {productCount > 0 ? `Shopify build: ${builtCount}/${productCount}` : "—"}
           </span>
           <span style={{ flex: 1 }} />
+          <input ref={csvInputRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) importFromCsv(f); e.target.value = ""; }} />
+          <button onClick={() => csvInputRef.current?.click()} disabled={importing}
+            title="Import products from a Shopify product-export CSV"
+            style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: importing ? "default" : "pointer", fontFamily: font }}>
+            {importing ? "Importing…" : "Import Shopify CSV"}
+          </button>
           <button onClick={() => setShowAddProduct(v => !v)}
             style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", fontFamily: font }}>
             {showAddProduct ? "Cancel" : "+ Add product"}
           </button>
         </div>
+        {importResult && (
+          <div style={{ fontSize: 11, color: importResult.startsWith("Imported") ? T.green : T.amber, marginBottom: 8 }}>{importResult}</div>
+        )}
 
         {showAddProduct && (
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12, marginBottom: 12, display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 80px", gap: 8, alignItems: "end" }}>
