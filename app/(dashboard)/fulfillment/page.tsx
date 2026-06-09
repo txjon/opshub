@@ -90,12 +90,28 @@ export default function FulfillmentPage() {
     // is loose here (any phase except cancelled) because we want to
     // surface completed intakes too — that's the whole point of the
     // history feed.
-    const { data: jobs } = await supabase
-      .from("jobs")
-      .select("id, job_number, title, shipping_route, type_meta, client_id, clients(name), items(id, name, blank_vendor, shipping_route, received_at_hpd, received_at_hpd_at, webstore_entered_at, ship_tracking, ship_qtys, received_qtys, sample_qtys, sort_order, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code)))")
-      .eq("shipping_route", "stage")
-      .neq("phase", "cancelled")
-      .gte("updated_at", thirtyDaysAgo);
+    const JOB_SELECT = "id, job_number, title, shipping_route, type_meta, client_id, clients(name), items(id, name, blank_vendor, shipping_route, received_at_hpd, received_at_hpd_at, webstore_entered_at, ship_tracking, ship_qtys, received_qtys, sample_qtys, sort_order, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code)))";
+    // Stage fulfillment is normally a whole-job route, but an item can be
+    // overridden to "stage" on a non-stage job (migration 076). Fetch both:
+    // jobs whose default route is stage, plus jobs that carry a per-item
+    // stage override. The per-item `eff === "stage"` filter in the loop
+    // below narrows to the right items in either set.
+    const { data: overrideItemRows } = await supabase
+      .from("items").select("job_id").eq("shipping_route", "stage");
+    const overrideJobIds = Array.from(new Set((overrideItemRows || []).map((r: any) => r.job_id).filter(Boolean)));
+    const [stageJobsRes, overrideJobsRes] = await Promise.all([
+      supabase.from("jobs").select(JOB_SELECT)
+        .eq("shipping_route", "stage").neq("phase", "cancelled").gte("updated_at", thirtyDaysAgo),
+      overrideJobIds.length
+        ? supabase.from("jobs").select(JOB_SELECT)
+            .in("id", overrideJobIds).neq("shipping_route", "stage")
+            .neq("phase", "cancelled").gte("updated_at", thirtyDaysAgo)
+        : Promise.resolve({ data: [] as any[] }),
+    ]);
+    // Merge + dedupe by id (a job can't match both branches, but guard anyway).
+    const jobs = Array.from(
+      new Map([...(stageJobsRes.data || []), ...(overrideJobsRes.data || [])].map((j: any) => [j.id, j])).values()
+    );
 
     // Bucket items into shipments by (decorator, tracking) and filter
     // to those with at least one item received in the 30-day window.
@@ -114,7 +130,7 @@ export default function FulfillmentPage() {
     const cutoff = Date.now() - 30 * 86400000;
 
     for (const j of (jobs || []) as any[]) {
-      const jobRoute = j.shipping_route || "stage";
+      const jobRoute = j.shipping_route || "ship_through";
       const clientName = j.clients?.name || "—";
       const displayNum = j.type_meta?.qb_invoice_number || j.type_meta?.stripe_invoice_number || j.job_number;
       for (const it of (j.items || [])) {
