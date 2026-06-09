@@ -11,16 +11,22 @@ type Item = any;
 export default async function DistroDashboard() {
   const supabase = await createClient();
 
-  // Active warehouse-relevant jobs (non-drop-ship, not complete/cancelled/on_hold)
+  // Active warehouse-relevant jobs (not complete/cancelled/on_hold). We fetch
+  // ALL routes — including drop_ship jobs — because an item can be overridden
+  // to ship_through/stage on a drop_ship job (migration 076). Items whose
+  // EFFECTIVE route is drop_ship are filtered out per-item below.
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("id, title, job_number, phase, shipping_route, fulfillment_status, fulfillment_tracking, target_ship_date, type_meta, clients(name), items(id, name, pipeline_stage, pipeline_timestamps, received_at_hpd, received_at_hpd_at, ship_tracking, ship_qtys, received_qtys, sample_qtys, receiving_data, decorator_assignments(decorators(short_code, name)), buy_sheet_lines(qty_ordered))")
+    .select("id, title, job_number, phase, shipping_route, fulfillment_status, fulfillment_tracking, target_ship_date, type_meta, clients(name), items(id, name, shipping_route, pipeline_stage, pipeline_timestamps, received_at_hpd, received_at_hpd_at, ship_tracking, ship_qtys, received_qtys, sample_qtys, receiving_data, decorator_assignments(decorators(short_code, name)), buy_sheet_lines(qty_ordered))")
     .not("phase", "in", '("complete","cancelled","on_hold")')
-    .not("shipping_route", "eq", "drop_ship")
     .order("target_ship_date", { ascending: true, nullsFirst: false });
 
   const allJobs: Job[] = jobs || [];
   const allItems: Item[] = allJobs.flatMap(j => j.items || []);
+
+  // Per-item effective shipping route (migration 076): the item override wins,
+  // else the job route, else the app default. drop_ship items never come to HPD.
+  const effRoute = (j: Job, it: Item) => (it as any).shipping_route || j.shipping_route || "ship_through";
 
   // Active fulfillment projects (separate from jobs — standalone stage projects)
   const { data: fulfillmentProjects } = await supabase
@@ -40,7 +46,7 @@ export default async function DistroDashboard() {
   // ── Incoming (in transit from decorator to HPD)
   const incomingByJob: { job: Job; items: Item[] }[] = [];
   for (const j of allJobs) {
-    const items = (j.items || []).filter((it: Item) => it.pipeline_stage === "shipped" && !it.received_at_hpd);
+    const items = (j.items || []).filter((it: Item) => effRoute(j, it) !== "drop_ship" && it.pipeline_stage === "shipped" && !it.received_at_hpd);
     if (items.length > 0) incomingByJob.push({ job: j, items });
   }
   // Today vs this week vs overdue
@@ -49,27 +55,25 @@ export default async function DistroDashboard() {
   )).length;
 
   // ── Ready to ship out (ship_through, all items received, not yet shipped)
-  const readyToShip: Job[] = allJobs.filter(j =>
-    j.shipping_route === "ship_through" &&
-    (j.items || []).length > 0 &&
-    (j.items || []).every((it: Item) => it.received_at_hpd) &&
-    j.fulfillment_status !== "shipped"
-  );
+  // Gate only on the ship-through-effective items being received — drop_ship
+  // items on the same job never get received, so they must not block "ready".
+  const readyToShip: Job[] = allJobs.filter(j => {
+    const stItems = (j.items || []).filter((it: Item) => effRoute(j, it) === "ship_through");
+    return stItems.length > 0 && stItems.every((it: Item) => it.received_at_hpd) && j.fulfillment_status !== "shipped";
+  });
 
   // ── Fulfillment: stage-route jobs with all items received (inventory parked at HPD)
-  const stagedJobs: Job[] = allJobs.filter(j =>
-    j.shipping_route === "stage" &&
-    (j.items || []).length > 0 &&
-    (j.items || []).every((it: Item) => it.received_at_hpd) &&
-    j.fulfillment_status !== "shipped"
-  );
+  const stagedJobs: Job[] = allJobs.filter(j => {
+    const stItems = (j.items || []).filter((it: Item) => effRoute(j, it) === "stage");
+    return stItems.length > 0 && stItems.every((it: Item) => it.received_at_hpd) && j.fulfillment_status !== "shipped";
+  });
 
   const activeFulfillmentCount = (fulfillmentProjects || []).length + stagedJobs.length;
 
   // ── Staged inventory total (units) — continuing qty (delivered − samples)
   // is what's actually available to pack and ship.
   const stagedUnits = stagedJobs.reduce((a, j) =>
-    a + (j.items || []).reduce((b: number, it: Item) => {
+    a + (j.items || []).filter((it: Item) => effRoute(j, it) === "stage").reduce((b: number, it: Item) => {
       const continuing = deductSamples(it.received_qtys, it.sample_qtys);
       const total = Object.values(continuing).reduce((x: number, q: any) => x + (Number(q) || 0), 0);
       return b + total;
@@ -193,8 +197,9 @@ export default async function DistroDashboard() {
           {readyToShip.length === 0 ? (
             <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>Nothing ready</div>
           ) : readyToShip.slice(0, 8).map(j => {
-            const itemCount = (j.items || []).length;
-            const totalUnits = (j.items || []).reduce((a: number, it: Item) => {
+            const stItems = (j.items || []).filter((it: Item) => effRoute(j, it) === "ship_through");
+            const itemCount = stItems.length;
+            const totalUnits = stItems.reduce((a: number, it: Item) => {
               const continuing = deductSamples(it.received_qtys, it.sample_qtys);
               return a + Object.values(continuing).reduce((x: number, q: any) => x + (Number(q) || 0), 0);
             }, 0);
@@ -249,7 +254,7 @@ export default async function DistroDashboard() {
                 );
               })}
               {stagedJobs.slice(0, 3).map(j => {
-                const units = (j.items || []).reduce((a: number, it: Item) => {
+                const units = (j.items || []).filter((it: Item) => effRoute(j, it) === "stage").reduce((a: number, it: Item) => {
                   const continuing = deductSamples(it.received_qtys, it.sample_qtys);
                   return a + Object.values(continuing).reduce((x: number, q: any) => x + (Number(q) || 0), 0);
                 }, 0);
