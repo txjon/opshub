@@ -20,10 +20,16 @@ type ProdItem = {
   decorator_id: string | null; decorator_assignment_id: string | null;
   target_ship_date: string | null; total_units: number;
   garment_type: string | null;
+  shipping_route: string | null;
   sizes: string[]; qtys: Record<string, number>;
   ship_qtys: Record<string, number>; ship_notes: string;
   client_eta: string | null; client_eta_note: string | null;
 };
+
+// Per-item shipping_route (migration 076) wins over the job's route in every
+// status/notify/address surface. Null on the item = fall back to the job route.
+const resolveRoute = (itemRoute?: string | null, jobRoute?: string | null) =>
+  itemRoute || jobRoute || "ship_through";
 
 type ShipmentNotificationRecord = {
   type: string;
@@ -315,6 +321,7 @@ export default function ProductionPage() {
         target_ship_date: vendorShipDate,
         total_units: totalUnits, sizes, qtys,
         garment_type: it.garment_type ?? null,
+        shipping_route: it.shipping_route || null,
         ship_qtys: it.ship_qtys || {}, ship_notes: it.ship_notes || "",
         client_eta: it.client_eta || null, client_eta_note: it.client_eta_note || null,
       };
@@ -475,7 +482,7 @@ export default function ProductionPage() {
 
     // Route-aware post-ship flow (drop_ship only — ship_through handled by warehouse page)
     const { data: jobRow } = await supabase.from("jobs").select("shipping_route, title, clients(name)").eq("id", item.job_id).single();
-    const route = (jobRow as any)?.shipping_route;
+    const route = resolveRoute(item.shipping_route, (jobRow as any)?.shipping_route);
     const clientName = (jobRow as any)?.clients?.name || "";
     const jobTitle = (jobRow as any)?.title || "";
 
@@ -578,9 +585,10 @@ export default function ProductionPage() {
     decoratorId: string | null;
     decoratorName: string;
     tracking: string;
+    route?: string;
   }) {
     const { project, decoratorId, decoratorName, tracking } = args;
-    const route = project.shippingRoute || "ship_through";
+    const route = args.route || project.shippingRoute || "ship_through";
     const contacts = route === "drop_ship" ? await loadJobContacts(project.jobId) : [];
     setNotifyState({
       jobId: project.jobId,
@@ -1569,7 +1577,8 @@ export default function ProductionPage() {
                                         (r.tracking || null) === (item.ship_tracking || null)
                                       );
                                       const canNotify = !!item.ship_tracking && !!project.invoiceNumber;
-                                      const label = notified ? "Notified ✓" : (project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse");
+                                      const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
+                                      const label = notified ? "Notified ✓" : (itemRoute === "drop_ship" ? "Notify customer" : "Notify warehouse");
                                       const bg = notified ? T.greenDim : T.accent;
                                       const color = notified ? T.green : "#fff";
                                       const border = notified ? `1px solid ${T.green}66` : "none";
@@ -1582,6 +1591,7 @@ export default function ProductionPage() {
                                             decoratorId: item.decorator_id,
                                             decoratorName: item.decorator_name || "",
                                             tracking: item.ship_tracking || "",
+                                            route: itemRoute,
                                           });
                                         }}
                                           disabled={!canNotify}
@@ -1708,7 +1718,7 @@ export default function ProductionPage() {
                   "disappeared" past production.) Links back to the project's
                   Overview tab where the route can be changed. */}
               {(() => {
-                const route = project.shippingRoute || "ship_through";
+                const route = resolveRoute(item.shipping_route, project.shippingRoute);
                 const routeLabel = route === "drop_ship" ? "DROP SHIP · direct to customer"
                   : route === "stage" ? "STAGE · fulfill from HPD"
                   : "SHIP-THROUGH · forward from HPD";
@@ -1817,7 +1827,8 @@ export default function ProductionPage() {
                     r.decoratorId === item.decorator_id &&
                     (r.tracking || null) === (item.ship_tracking || null)
                   );
-                  const baseLabel = project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
+                  const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
+                  const baseLabel = itemRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
                   const label = notified ? "Notified ✓" : baseLabel;
                   const bg = notified ? T.greenDim : (canNotify ? T.accent : T.surface);
                   const color = notified ? T.green : (canNotify ? "#fff" : T.faint);
@@ -1832,6 +1843,7 @@ export default function ProductionPage() {
                           decoratorId: item.decorator_id,
                           decoratorName: item.decorator_name || "",
                           tracking: item.ship_tracking || "",
+                          route: itemRoute,
                         });
                       }}
                       title={!project.invoiceNumber ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
@@ -1902,12 +1914,20 @@ export default function ProductionPage() {
                   by accident when the project is actually stage / ship-through.
                   Mirrors the badge in the single-item Ship modal above. */}
               {(() => {
-                const route = project.shippingRoute || "ship_through";
-                const routeLabel = route === "drop_ship" ? "DROP SHIP · direct to customer"
+                // Route is per-item (migration 076), and a batch can span jobs,
+                // so resolve across the selection. Mixed routes can't be honestly
+                // represented by one badge or one notify — flag it so the operator
+                // ships deliberately. Each item still ships under its own route
+                // (markShipped resolves per item in the loop below).
+                const routes = Array.from(new Set(liveItems.map(it => resolveRoute(it.shipping_route, project.shippingRoute))));
+                const mixed = routes.length > 1;
+                const route = routes[0];
+                const routeLabel = mixed ? "MIXED ROUTES · review before notifying"
+                  : route === "drop_ship" ? "DROP SHIP · direct to customer"
                   : route === "stage" ? "STAGE · fulfill from HPD"
                   : "SHIP-THROUGH · forward from HPD";
-                const routeColor = route === "drop_ship" ? T.amber : route === "stage" ? T.purple : T.accent;
-                const routeBg = route === "drop_ship" ? T.amberDim : route === "stage" ? T.purpleDim : T.accentDim;
+                const routeColor = mixed || route === "drop_ship" ? T.amber : route === "stage" ? T.purple : T.accent;
+                const routeBg = mixed || route === "drop_ship" ? T.amberDim : route === "stage" ? T.purpleDim : T.accentDim;
                 return (
                   <div style={{
                     marginBottom: 16,
@@ -2039,24 +2059,28 @@ export default function ProductionPage() {
                         r.decoratorId === dg.decoratorId &&
                         (r.tracking || null) === (batchTracking || null)
                       );
-                      const baseLabel = project.shippingRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
+                      const batchRoutes = Array.from(new Set(liveItems.map(it => resolveRoute(it.shipping_route, project.shippingRoute))));
+                      const mixedRoute = batchRoutes.length > 1;
+                      const notifyOk = canNotify && !mixedRoute;
+                      const baseLabel = mixedRoute ? "Mixed routes" : batchRoutes[0] === "drop_ship" ? "Notify customer" : "Notify warehouse";
                       const label = notified ? "Notified ✓" : baseLabel;
-                      const bg = notified ? T.greenDim : (canNotify ? T.accent : T.surface);
-                      const color = notified ? T.green : (canNotify ? "#fff" : T.faint);
+                      const bg = notified ? T.greenDim : (notifyOk ? T.accent : T.surface);
+                      const color = notified ? T.green : (notifyOk ? "#fff" : T.faint);
                       const border = notified ? `1px solid ${T.green}66` : "none";
                       return (
                         <button
-                          disabled={!canNotify}
+                          disabled={!notifyOk}
                           onClick={() => {
-                            if (!canNotify) return;
+                            if (!notifyOk) return;
                             openNotifyDialog({
                               project,
                               decoratorId: dg.decoratorId,
                               decoratorName: dg.decoratorName,
                               tracking: batchTracking,
+                              route: batchRoutes[0],
                             });
                           }}
-                          title={!project.invoiceNumber ? "Generate invoice first" : (!batchTracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
+                          title={mixedRoute ? "These items have different shipping routes — notify each from its own job/row" : !project.invoiceNumber ? "Generate invoice first" : (!batchTracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
                           style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
                           {label}
                         </button>

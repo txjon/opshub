@@ -234,7 +234,6 @@ export async function GET(
     const costingData = job.costing_data as any;
     const costingSummary = job.costing_summary as any;
     const variancePushed = !!((job.type_meta as any)?.qb_variance_pushed_at || (job.type_meta as any)?.stripe_variance_pushed_at);
-    const prefersReceived = job.shipping_route === "ship_through" || job.shipping_route === "stage";
     const quoteItems: any[] = [];
 
     if (costingData?.costProds) {
@@ -247,6 +246,9 @@ export async function GET(
         if (variancePushed && item) {
           const received = (item.received_qtys || {}) as Record<string, number>;
           const shipped = (item.ship_qtys || {}) as Record<string, number>;
+          // Per-item route wins over the job route (migration 076).
+          const itemRoute = (item as any).shipping_route || job.shipping_route;
+          const prefersReceived = itemRoute === "ship_through" || itemRoute === "stage";
           const firstChoice = prefersReceived ? received : shipped;
           const secondChoice = prefersReceived ? shipped : received;
           const ordered = cp.qtys || {};

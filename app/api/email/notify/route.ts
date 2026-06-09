@@ -536,7 +536,7 @@ export async function POST(req: NextRequest) {
         greeting,
         bodyHtml: customMessageHtml + bodyHtml,
         extraHtml: trackingBlock(trackingNumber || null, carrier || null),
-        cta: route === "drop_ship" && portalUrl ? { label: "Open project portal →", url: portalUrl, style: "outline" } : route !== "drop_ship" ? { label: "Open warehouse", url: `${await appBaseUrl()}/warehouse`, style: "outline" } : undefined,
+        cta: route === "drop_ship" && portalUrl ? { label: "Open project portal →", url: portalUrl, style: "outline" } : route !== "drop_ship" ? { label: "Open receiving →", url: `${await appBaseUrl()}/receiving`, style: "outline" } : undefined,
         closing,
       });
 

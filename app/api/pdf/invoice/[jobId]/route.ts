@@ -187,7 +187,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const { data: items } = await supabase
       .from("items")
-      .select("id, name, blank_vendor, blank_sku, sell_per_unit, garment_type, ship_qtys, received_qtys, client_eta, buy_sheet_lines(size, qty_ordered)")
+      .select("id, name, blank_vendor, blank_sku, sell_per_unit, garment_type, shipping_route, ship_qtys, received_qtys, client_eta, buy_sheet_lines(size, qty_ordered)")
       .eq("job_id", jobId)
       .order("sort_order");
 
@@ -227,7 +227,6 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // After variance push, use shipped/received per-size qtys for the invoice
     // line items so PDF matches what's been billed in QB. Before: use quote qtys.
     const variancePushed = !!((job.type_meta as any)?.qb_variance_pushed_at || (job.type_meta as any)?.stripe_variance_pushed_at);
-    const prefersReceived = (job as any).shipping_route === "ship_through" || (job as any).shipping_route === "stage";
 
     let prods: any[] = [];
     if (costProds.length > 0) {
@@ -239,6 +238,11 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         if (variancePushed && dbItem) {
           const received = (dbItem.received_qtys || {}) as Record<string, number>;
           const shipped = (dbItem.ship_qtys || {}) as Record<string, number>;
+          // Per-item route wins over the job route (migration 076): a ship_through/
+          // stage item bills received qty; a drop_ship item bills shipped qty, even
+          // when the job's default route differs.
+          const itemRoute = (dbItem as any).shipping_route || (job as any).shipping_route;
+          const prefersReceived = itemRoute === "ship_through" || itemRoute === "stage";
           const firstChoice = prefersReceived ? received : shipped;
           const secondChoice = prefersReceived ? shipped : received;
           effectiveQtys = {};
