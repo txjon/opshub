@@ -6,6 +6,20 @@ import { T, font, mono } from "@/lib/theme";
 import { useWarehouse, type WarehouseItem } from "@/lib/use-warehouse";
 import { useShipments, type Shipment } from "@/lib/use-shipments";
 
+// Pre-order open/close are timestamptz but treated as wall-clock Pacific
+// (single-TZ business): format by slicing the YYYY-MM-DDTHH:mm parts so no
+// timezone conversion can shift the hour. e.g. "Jun 14 · 9a", "Jun 16 · 9a".
+function fmtWindow(s: string | null): string {
+  if (!s) return "";
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+  if (!m) return s;
+  const [, y, mo, da, hh, mm] = m;
+  const datePart = new Date(+y, +mo - 1, +da).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (hh === undefined) return datePart;
+  let h = +hh; const ap = h >= 12 ? "p" : "a"; h = h % 12 || 12;
+  return `${datePart} · ${mm === "00" ? `${h}${ap}` : `${h}:${mm}${ap}`}`;
+}
+
 type PreorderStatus = "planning" | "building" | "open" | "closed" | "producing" | "fulfilling" | "complete";
 
 type EcommProject = {
@@ -379,12 +393,12 @@ export default function EcommPage() {
             {newForm.mode === "preorder" && (
               <>
                 <div>
-                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Open date</label>
-                  <input type="date" style={ic} value={newForm.open_date} onChange={e => setNewForm(f => ({ ...f, open_date: e.target.value }))} />
+                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Opens <span style={{ color: T.faint }}>(PT)</span></label>
+                  <input type="datetime-local" style={ic} value={newForm.open_date} onChange={e => setNewForm(f => ({ ...f, open_date: e.target.value }))} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Close date</label>
-                  <input type="date" style={ic} value={newForm.close_date} onChange={e => setNewForm(f => ({ ...f, close_date: e.target.value }))} />
+                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Closes <span style={{ color: T.faint }}>(PT)</span></label>
+                  <input type="datetime-local" style={ic} value={newForm.close_date} onChange={e => setNewForm(f => ({ ...f, close_date: e.target.value }))} />
                 </div>
               </>
             )}
@@ -483,13 +497,13 @@ export default function EcommPage() {
                     {proj.mode === "preorder" && proj.open_date && (
                       <div>
                         <div style={{ color: T.faint, fontSize: 9 }}>Opens</div>
-                        <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{new Date(proj.open_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                        <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{fmtWindow(proj.open_date)}</div>
                       </div>
                     )}
                     {proj.mode === "preorder" && proj.close_date && (
                       <div>
                         <div style={{ color: T.faint, fontSize: 9 }}>Closes</div>
-                        <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{new Date(proj.close_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                        <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>{fmtWindow(proj.close_date)}</div>
                       </div>
                     )}
                     {proj.target_ship_date && (

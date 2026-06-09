@@ -454,12 +454,12 @@ export default function PreorderDetail() {
         <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Lifecycle</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
           <div>
-            <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Opens</label>
-            <input type="date" style={ic} value={preorder.open_date || ""} onChange={e => updateField("open_date", e.target.value || null)} />
+            <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Opens <span style={{ color: T.faint }}>(PT)</span></label>
+            <input type="datetime-local" style={ic} value={(preorder.open_date || "").slice(0, 16)} onChange={e => updateField("open_date", e.target.value || null)} />
           </div>
           <div>
-            <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Closes</label>
-            <input type="date" style={ic} value={preorder.close_date || ""} onChange={e => updateField("close_date", e.target.value || null)} />
+            <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Closes <span style={{ color: T.faint }}>(PT)</span></label>
+            <input type="datetime-local" style={ic} value={(preorder.close_date || "").slice(0, 16)} onChange={e => updateField("close_date", e.target.value || null)} />
           </div>
           <div>
             <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Target ship date</label>
@@ -472,7 +472,8 @@ export default function PreorderDetail() {
                 today when close isn't set yet so Taylor can still
                 stamp a date during scoping. */}
             {(() => {
-              const baseIso = preorder.close_date || new Date().toISOString().slice(0, 10);
+              // slice(0,10) → the date part whether close_date is a date or a full timestamp
+              const baseIso = preorder.close_date ? preorder.close_date.slice(0, 10) : new Date().toISOString().slice(0, 10);
               const baseLabel = preorder.close_date ? "from close" : "from today";
               const offsets = [3, 4, 5, 6];
               return (
