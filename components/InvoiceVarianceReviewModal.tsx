@@ -49,7 +49,7 @@ export function InvoiceVarianceReviewModal({
       setLoading(true);
       const { data: items } = await supabase
         .from("items")
-        .select("id, name, blank_vendor, sell_per_unit, ship_qtys, received_qtys, buy_sheet_lines(size, qty_ordered)")
+        .select("id, name, blank_vendor, sell_per_unit, shipping_route, ship_qtys, received_qtys, buy_sheet_lines(size, qty_ordered)")
         .eq("job_id", jobId)
         .order("sort_order");
 
@@ -65,8 +65,12 @@ export function InvoiceVarianceReviewModal({
         const shipped = (it.ship_qtys || {}) as Record<string, number>;
         const hasReceived = Object.keys(received).length > 0;
         const hasShipped = Object.keys(shipped).length > 0;
-        const firstChoice = prefersReceived ? received : shipped;
-        const secondChoice = prefersReceived ? shipped : received;
+        // Per-item route wins over the job route (migration 076), so a
+        // ship_through item on a drop_ship job is reviewed on received qty.
+        const itemRoute = it.shipping_route || shippingRoute;
+        const itemPrefersReceived = itemRoute === "ship_through" || itemRoute === "stage";
+        const firstChoice = itemPrefersReceived ? received : shipped;
+        const secondChoice = itemPrefersReceived ? shipped : received;
 
         const actualPerSize: Record<string, number> = {};
         for (const sz of Object.keys(orderedPerSize)) {
@@ -82,7 +86,7 @@ export function InvoiceVarianceReviewModal({
             : fromOrdered;
         }
         // Determine which source actually contributed the majority of data for the UI label
-        (it as any)._actualSourceLabel = prefersReceived
+        (it as any)._actualSourceLabel = itemPrefersReceived
           ? (hasReceived ? "HPD received" : (hasShipped ? "decorator shipped" : "ordered"))
           : (hasShipped ? "decorator shipped" : (hasReceived ? "HPD received" : "ordered"));
 

@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     // Pull job + client + billing/primary contact + items
     const { data: job } = await supabase
       .from("jobs")
-      .select("id, title, job_number, payment_terms, target_ship_date, shipping_route, type_meta, client_id, clients(id, name), items(id, name, garment_type, mockup_color, sell_per_unit, blank_vendor, ship_qtys, received_qtys, sample_qtys, buy_sheet_lines(size, qty_ordered)), job_contacts(role_on_job, contacts(id, name, email))")
+      .select("id, title, job_number, payment_terms, target_ship_date, shipping_route, type_meta, client_id, clients(id, name), items(id, name, garment_type, mockup_color, sell_per_unit, blank_vendor, shipping_route, ship_qtys, received_qtys, sample_qtys, buy_sheet_lines(size, qty_ordered)), job_contacts(role_on_job, contacts(id, name, email))")
       .eq("id", jobId)
       .single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
@@ -69,7 +69,6 @@ export async function POST(req: NextRequest) {
     // Build Stripe line items. Ordered qtys by default; the variance flow bills
     // actual received→shipped→ordered qtys (minus samples), with optional
     // per-item billable overrides from the review screen. Mirrors /api/qb/invoice.
-    const prefersReceived = (job as any).shipping_route === "ship_through" || (job as any).shipping_route === "stage";
     const lineItems: StripeLineItem[] = [];
     for (const item of ((job as any).items || [])) {
       const sellPerUnit = parseFloat(item.sell_per_unit) || 0;
@@ -80,6 +79,9 @@ export async function POST(req: NextRequest) {
       if (isVariance) {
         const received = (item.received_qtys || {}) as Record<string, number>;
         const shipped = (item.ship_qtys || {}) as Record<string, number>;
+        // Per-item route wins over the job route (migration 076).
+        const itemRoute = item.shipping_route || (job as any).shipping_route;
+        const prefersReceived = itemRoute === "ship_through" || itemRoute === "stage";
         const firstChoice = prefersReceived ? received : shipped;
         const secondChoice = prefersReceived ? shipped : received;
         for (const l of lines) {

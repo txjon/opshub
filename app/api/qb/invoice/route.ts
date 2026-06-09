@@ -138,13 +138,16 @@ export async function POST(req: NextRequest) {
     // useShippedQtys: use best-available qty (received_qtys → ship_qtys → ordered) with
     // priority flipped by shipping route. Drop-ship prefers decorator-reported ship_qtys;
     // ship_through/stage prefer HPD's received_qtys (warehouse confirmed).
-    const prefersReceived = (job as any).shipping_route === "ship_through" || (job as any).shipping_route === "stage";
     const lineItems: QBLineItem[] = [];
 
     for (const item of (items || [])) {
       const lines = (item as any).buy_sheet_lines || [];
       const received = ((item as any).received_qtys || {}) as Record<string, number>;
       const shipped = ((item as any).ship_qtys || {}) as Record<string, number>;
+      // Per-item route wins over the job route (migration 076): a ship_through/
+      // stage item bills received qty, a drop_ship item bills shipped qty.
+      const itemRoute = (item as any).shipping_route || (job as any).shipping_route;
+      const prefersReceived = itemRoute === "ship_through" || itemRoute === "stage";
       const firstChoice = prefersReceived ? received : shipped;
       const secondChoice = prefersReceived ? shipped : received;
 

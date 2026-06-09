@@ -43,7 +43,9 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
     const route = job.shipping_route || "ship_through";
-    const isDropShip = route === "drop_ship";
+    // Drop-ship vs to-HPD qty basis is resolved PER ITEM (migration 076): an
+    // item's shipping_route override wins over the job's `route`.
+    const itemIsDropShip = (it: any) => (it.shipping_route || route) === "drop_ship";
 
     // Optional filters — limit the slip to one decorator and/or one tracking number
     const decoratorFilter = req.nextUrl.searchParams.get("decoratorId");
@@ -77,8 +79,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       // way, fall through to the other source if primary is empty, then to ordered.
       const received = (item.received_qtys || {}) as Record<string, number>;
       const shipped = (item.ship_qtys || {}) as Record<string, number>;
-      const firstChoice = isDropShip ? shipped : received;
-      const secondChoice = isDropShip ? received : shipped;
+      const firstChoice = itemIsDropShip(item) ? shipped : received;
+      const secondChoice = itemIsDropShip(item) ? received : shipped;
       const orderedQtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
       const deliveredQtys: Record<string, number> = {};
       for (const l of lines) {
@@ -97,7 +99,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       //    the decorator's inbound tracking number.
       //  - Ship-through OUTBOUND slip (HPD \u2192 customer, no tracking
       //    filter) \u2192 use job.fulfillment_tracking.
-      const tracking = isDropShip
+      const tracking = itemIsDropShip(item)
         ? (item.ship_tracking || "\u2014")
         : (trackingFilter
             ? (item.ship_tracking || trackingFilter || "\u2014")
@@ -150,8 +152,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         const lines = it.buy_sheet_lines || [];
         const received = (it.received_qtys || {}) as Record<string, number>;
         const shipped = (it.ship_qtys || {}) as Record<string, number>;
-        const firstChoice = isDropShip ? shipped : received;
-        const secondChoice = isDropShip ? received : shipped;
+        const firstChoice = itemIsDropShip(it) ? shipped : received;
+        const secondChoice = itemIsDropShip(it) ? received : shipped;
         const delivered: Record<string, number> = {};
         for (const l of lines) {
           delivered[l.size] = firstChoice[l.size] !== undefined ? firstChoice[l.size] : (secondChoice[l.size] !== undefined ? secondChoice[l.size] : (l.qty_ordered || 0));
