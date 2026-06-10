@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -10,6 +10,31 @@ import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { MockupPeek } from "@/components/MockupPeek";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
+
+// One ad-hoc "pull a sample" instruction on an item. Free-form — there is no
+// fixed catalog of pulls. Entered on Production at ship time, then checked off
+// on Receiving (pulled flips true, which feeds sample_qtys per size).
+//   qtys   — per-size counts to pull, e.g. { L: 1 } or { S:1, M:1, L:1 } for a run
+//   for    — who the sample is for
+//   to     — where it needs to go
+//   pulled — set true on Receiving when the warehouse pulls it
+type SamplePull = { qtys: Record<string, number>; for: string; to: string; pulled?: boolean };
+
+// Tolerant read of the JSONB. Handles the in-development single-size shape
+// ({ qty, size }) so early test rows don't read as empty after the model
+// moved to a per-size qtys map.
+function normalizePulls(raw: any): SamplePull[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((p: any) => ({
+    qtys: p && p.qtys && typeof p.qtys === "object"
+      ? p.qtys
+      : (p && p.size ? { [p.size]: parseInt(p.qty, 10) || 1 } : {}),
+    for: (p && p.for) || "",
+    to: (p && p.to) || "",
+    pulled: !!(p && p.pulled),
+  }));
+}
+const pullTotal = (p: SamplePull) => Object.values(p.qtys || {}).reduce((a, n) => a + (n || 0), 0);
 
 type ProdItem = {
   id: string; name: string; job_id: string; letter: string;
@@ -24,6 +49,7 @@ type ProdItem = {
   sizes: string[]; qtys: Record<string, number>;
   ship_qtys: Record<string, number>; ship_notes: string;
   client_eta: string | null; client_eta_note: string | null;
+  sample_pulls: SamplePull[];
 };
 
 // Per-item shipping_route (migration 076) wins over the job's route in every
@@ -127,6 +153,10 @@ export default function ProductionPage() {
   const shipModalSlipInputRef = useRef<HTMLInputElement | null>(null);
   const batchModalSlipInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimers = useRef<Record<string, any>>({});
+  // Latest unsaved sample-pulls array per item, so onBlur can flush the
+  // pending debounced write immediately (same bulletproof-save pattern as
+  // the text fields, but the payload is a whole array not a string).
+  const pendingSamplePulls = useRef<Record<string, SamplePull[]>>({});
   const now = new Date();
 
   useEffect(() => { loadAll(); }, []);
@@ -324,6 +354,7 @@ export default function ProductionPage() {
         shipping_route: it.shipping_route || null,
         ship_qtys: it.ship_qtys || {}, ship_notes: it.ship_notes || "",
         client_eta: it.client_eta || null, client_eta_note: it.client_eta_note || null,
+        sample_pulls: normalizePulls(it.sample_pulls),
       };
 
       if (!projectMap[it.job_id]) {
@@ -634,6 +665,106 @@ export default function ProductionPage() {
     const key = `${field}_${itemId}`;
     if (saveTimers.current[key]) { clearTimeout(saveTimers.current[key]); delete saveTimers.current[key]; }
     persistField(itemId, field, value);
+  }
+
+  // Sample pulls are a whole-array JSONB write, so they get their own save
+  // path. updateField is string-only. Local state updates immediately; the
+  // array persists debounced, and onBlur flushes the pending write.
+  async function persistSamplePulls(itemId: string, pulls: SamplePull[]) {
+    const { error } = await supabase.from("items").update({ sample_pulls: pulls }).eq("id", itemId);
+    if (error) console.error("[production sample_pulls save error]", { itemId, error });
+  }
+  function saveSamplePulls(itemId: string, pulls: SamplePull[]) {
+    setProjects(prev => prev.map(p => ({
+      ...p, decoratorGroups: p.decoratorGroups.map(dg => ({
+        ...dg, items: dg.items.map(it => it.id === itemId ? { ...it, sample_pulls: pulls } : it)
+      }))
+    })));
+    pendingSamplePulls.current[itemId] = pulls;
+    const key = `sample_pulls_${itemId}`;
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(() => {
+      persistSamplePulls(itemId, pulls);
+      delete pendingSamplePulls.current[itemId];
+    }, 800);
+  }
+  function flushSamplePulls(itemId: string) {
+    const key = `sample_pulls_${itemId}`;
+    if (saveTimers.current[key]) { clearTimeout(saveTimers.current[key]); delete saveTimers.current[key]; }
+    const pending = pendingSamplePulls.current[itemId];
+    if (pending) { persistSamplePulls(itemId, pending); delete pendingSamplePulls.current[itemId]; }
+  }
+
+  // Per-item sample-pulls editor (Production list rows). Each pull is a row in
+  // a per-size grid: type a qty under each size, then who it's for and where it
+  // goes. One row covers a single garment ({ L: 1 }) or a full size run.
+  function samplePullsEditor(item: ProdItem) {
+    const pulls = item.sample_pulls || [];
+    const sizes = item.sizes.length > 0 ? item.sizes : ["OS"];
+    const cell = { padding: "3px 5px", fontSize: 11 } as const;
+    const setText = (idx: number, field: "for" | "to", value: string) =>
+      saveSamplePulls(item.id, pulls.map((p, i) => i === idx ? { ...p, [field]: value } : p));
+    const setQty = (idx: number, sz: string, value: string) => {
+      const n = parseInt(value, 10);
+      saveSamplePulls(item.id, pulls.map((p, i) => {
+        if (i !== idx) return p;
+        const q = { ...p.qtys };
+        if (!n || n <= 0) delete q[sz]; else q[sz] = n;
+        return { ...p, qtys: q };
+      }));
+    };
+    const cols = `repeat(${sizes.length}, 34px) minmax(70px,1fr) minmax(84px,1.3fr) 16px`;
+    return (
+      <div onClick={e => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 5, width: "100%", maxWidth: 540, overflowX: "auto" }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Sample pulls (internal)</span>
+        {pulls.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: cols, gap: 4, alignItems: "center" }}>
+            {/* header */}
+            {sizes.map(sz => (
+              <span key={`h-${sz}`} style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", textAlign: "center", fontFamily: mono }}>{sz}</span>
+            ))}
+            <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", paddingLeft: 2 }}>For</span>
+            <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", paddingLeft: 2 }}>To</span>
+            <span />
+            {/* rows */}
+            {pulls.map((p, idx) => (
+              <Fragment key={idx}>
+                {sizes.map(sz => {
+                  const v = p.qtys?.[sz];
+                  return (
+                    <input key={sz} value={v ? String(v) : ""} placeholder="·" inputMode="numeric"
+                      onChange={e => setQty(idx, sz, e.target.value)} onBlur={() => flushSamplePulls(item.id)}
+                      style={{ ...ic, ...cell, width: 34, textAlign: "center", fontFamily: mono, color: v ? T.amber : T.faint, borderColor: v ? T.amber : T.border }} />
+                  );
+                })}
+                <input value={p.for || ""} placeholder="for who"
+                  onChange={e => setText(idx, "for", e.target.value)} onBlur={() => flushSamplePulls(item.id)}
+                  style={{ ...ic, ...cell, minWidth: 0 }} />
+                <input value={p.to || ""} placeholder="where to"
+                  onChange={e => setText(idx, "to", e.target.value)} onBlur={() => flushSamplePulls(item.id)}
+                  style={{ ...ic, ...cell, minWidth: 0 }} />
+                <button onClick={() => { saveSamplePulls(item.id, pulls.filter((_, i) => i !== idx)); flushSamplePulls(item.id); }}
+                  title="Remove pull"
+                  style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+              </Fragment>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button onClick={() => saveSamplePulls(item.id, [...pulls, { qtys: {}, for: "", to: "" }])}
+            style={{ fontSize: 11, fontWeight: 600, color: T.accent, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
+            + Add pull
+          </button>
+          {item.sizes.length > 1 && (
+            <button onClick={() => saveSamplePulls(item.id, [...pulls, { qtys: Object.fromEntries(item.sizes.map(sz => [sz, 1])), for: "", to: "" }])}
+              title="Adds a pull with one of every size"
+              style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
+              + Size run
+            </button>
+          )}
+        </div>
+      </div>
+    );
   }
 
   async function handlePackingSlipUpload(input: File | File[] | FileList, project: ProjectGroup, dgItems: ProdItem[]) {
@@ -1508,20 +1639,11 @@ export default function ProductionPage() {
                                         style={{ ...ic, width: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
                                     </div>
                                   </div>
-                                  {/* Right sub-col: note textarea. alignSelf:
-                                      stretch + minHeight matching the TRK+ETA
-                                      stack so the block visually balances.
-                                      alignItems:stretch on the parent alone
-                                      didn't take because <textarea> has its
-                                      own intrinsic rows height — alignSelf
-                                      forces the flex item to ignore that. */}
-                                  <textarea
-                                    value={item.client_eta_note || ""}
-                                    placeholder="note (shown to client)"
-                                    onClick={e => e.stopPropagation()}
-                                    onChange={e => { e.stopPropagation(); updateField(item.id, "client_eta_note", e.target.value); }}
-                                    onBlur={e => flushField(item.id, "client_eta_note", e.target.value)}
-                                    style={{ ...ic, width: 320, minHeight: !isShipped ? 52 : 24, alignSelf: "stretch", padding: "4px 6px", fontSize: 11, lineHeight: 1.35, resize: "vertical", boxSizing: "border-box" }} />
+                                  {/* Right sub-col: sample-pulls editor. The
+                                      warehouse reads these on Receiving along
+                                      with the ETA — which samples to pull, for
+                                      who, and where they go. Add as needed. */}
+                                  {samplePullsEditor(item)}
                                 </div>
                               </div>
                               {/* Per-size ship qty grid — inline with title */}

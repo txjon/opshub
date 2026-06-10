@@ -187,16 +187,15 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Postage & Insurance line — postage-only or combined
+    // Postage & Insurance line — postage-only or combined.
+    // NOTE: never put the markup % in the client-facing description — that
+    // exposes HPD's margin on the carrier cost. The shipment count stays so
+    // the client can reconcile against their packing-slip count.
     if (isPostage || isCombined) {
-      // Markup % is in hpd_fee_pct for postage-only and postage_markup_pct
-      // for combined. Display in the QB line description either way so
-      // the client can verify the rate against the carrier cost.
-      const markupPct = ((isCombined ? Number((report as any).postage_markup_pct) : Number(report.hpd_fee_pct)) || 0) * 100;
       lineItems.push({
         description: isBulkPostage
           ? `Postage reimbursement — ${postagePeriod}`
-          : `Postage & Insurance — ${postagePeriod} (${shipments.toFixed(0)} shipments, ${markupPct.toFixed(1)}% markup on carrier cost)`,
+          : `Postage & Insurance — ${postagePeriod} (${shipments.toFixed(0)} shipments)`,
         qty: 1,
         unitPrice: Math.round(postageBilled * 100) / 100,
         itemName: "Postage",

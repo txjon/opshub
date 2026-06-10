@@ -35,6 +35,19 @@ export default async function DistroDashboard() {
     .in("status", ["staging", "active"])
     .order("created_at", { ascending: false });
 
+  // Scheduled drops — pre-orders not yet pushed to production. The floor's
+  // forward radar: what's coming and roughly when, so a big drop isn't a
+  // surprise at the dock. Once pushed (status 'producing') a drop leaves
+  // this list and appears under "In production → HPD" below.
+  const { data: scheduledDropsRaw } = await supabase
+    .from("fulfillment_projects")
+    .select("id, name, preorder_status, open_date, close_date, target_ship_date, clients(name), preorder_products(id, sizes)")
+    .eq("mode", "preorder")
+    .in("preorder_status", ["planning", "building", "open", "closed"])
+    .order("close_date", { ascending: true, nullsFirst: false });
+  // Only dated drops are "on the schedule" — an undated shell isn't.
+  const scheduledDrops = (scheduledDropsRaw || []).filter((d: any) => d.close_date || d.open_date);
+
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
   const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
@@ -53,6 +66,14 @@ export default async function DistroDashboard() {
   const incomingToday = incomingByJob.filter(g => g.items.some((it: Item) =>
     it.pipeline_timestamps?.shipped && daysBetween(it.pipeline_timestamps.shipped, now) <= 3
   )).length;
+
+  // ── In production → heading to HPD (at the decorator, pre-shipment).
+  // The wave forming behind "incoming". drop_ship items never come to HPD.
+  const inProductionByJob: { job: Job; items: Item[] }[] = [];
+  for (const j of allJobs) {
+    const items = (j.items || []).filter((it: Item) => effRoute(j, it) !== "drop_ship" && it.pipeline_stage === "in_production");
+    if (items.length > 0) inProductionByJob.push({ job: j, items });
+  }
 
   // ── Ready to ship out (ship_through, all items received, not yet shipped)
   // Gate only on the ship-through-effective items being received — drop_ship
@@ -272,6 +293,89 @@ export default async function DistroDashboard() {
                 );
               })}
             </>
+          )}
+        </div>
+
+      </div>
+
+      {/* ── Forward radar: what's coming. Subordinate to the act-now board
+            above — muted headers, placed below — so it informs without
+            burying the work that needs doing now. ── */}
+      <div style={{ marginTop: 4, marginBottom: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>On the schedule</div>
+        <div style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>Forming upstream — not on the floor yet. Plan capacity from here.</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+
+        {/* ── Drops scheduled (pre-orders, pre-production) ── */}
+        <div style={{ ...card, padding: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.muted }}>Drops scheduled</div>
+              <div style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>Pre-orders heading toward production</div>
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: scheduledDrops.length > 0 ? T.text : T.faint }}>{scheduledDrops.length}</div>
+          </div>
+          {scheduledDrops.length === 0 ? (
+            <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>No drops scheduled</div>
+          ) : scheduledDrops.slice(0, 6).map((d: any) => {
+            const products = (d.preorder_products || []).length;
+            const variants = (d.preorder_products || []).reduce((a: number, p: any) => a + (Array.isArray(p.sizes) ? p.sizes.length : 0), 0);
+            return (
+              <Link key={d.id} href={`/ecomm/${d.id}`} style={{ textDecoration: "none", color: T.text }}>
+                <div style={{ padding: "8px 10px", marginBottom: 6, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 600 }}>
+                    {(d.clients as any)?.name || "—"} · {d.name}
+                  </div>
+                  <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
+                    {products} product{products !== 1 ? "s" : ""}{variants > 0 ? ` · ${variants} variants` : ""}
+                  </div>
+                  <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
+                    {d.open_date ? <>opens <span style={{ color: fmtDateColor(d.open_date) }}>{fmtDate(d.open_date)}</span></> : null}
+                    {d.close_date ? <> · closes <span style={{ color: fmtDateColor(d.close_date) }}>{fmtDate(d.close_date)}</span></> : null}
+                    {d.target_ship_date ? <> · ship-by {fmtDate(d.target_ship_date)}</> : null}
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+          {scheduledDrops.length > 6 && (
+            <Link href="/ecomm" style={{ display: "block", textAlign: "center", fontSize: 10, color: T.muted, padding: "6px 0" }}>+{scheduledDrops.length - 6} more</Link>
+          )}
+        </div>
+
+        {/* ── In production → heading to HPD ── */}
+        <div style={{ ...card, padding: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.muted }}>In production → HPD</div>
+              <div style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>At the decorator, not shipped yet</div>
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: inProductionByJob.length > 0 ? T.text : T.faint }}>{inProductionByJob.length}</div>
+          </div>
+          {inProductionByJob.length === 0 ? (
+            <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>Nothing in production</div>
+          ) : inProductionByJob.slice(0, 6).map(({ job, items }) => {
+            const decorators = Array.from(new Set(items.flatMap((it: Item) =>
+              (it.decorator_assignments || []).map((da: any) => da.decorators?.short_code || da.decorators?.name)
+            ).filter(Boolean)));
+            return (
+              <Link key={job.id} href="/production" style={{ textDecoration: "none", color: T.text }}>
+                <div style={{ padding: "8px 10px", marginBottom: 6, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 600 }}>
+                    {(job.clients as any)?.name || "—"} · {job.title}
+                  </div>
+                  <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
+                    {items.length} item{items.length !== 1 ? "s" : ""}
+                    {decorators.length > 0 ? ` · at ${decorators.join(", ")}` : ""}
+                    <span style={{ color: fmtDateColor(job.target_ship_date), marginLeft: 6 }}>· ship {fmtDate(job.target_ship_date)}</span>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+          {inProductionByJob.length > 6 && (
+            <Link href="/production" style={{ display: "block", textAlign: "center", fontSize: 10, color: T.muted, padding: "6px 0" }}>+{inProductionByJob.length - 6} more</Link>
           )}
         </div>
 

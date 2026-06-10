@@ -39,6 +39,13 @@ export type WarehouseItem = {
   received_qtys: Record<string, number>;
   sample_qtys: Record<string, number>;
   ship_notes: string;
+  // Internal sample-pull instructions set on Production: per-size counts to
+  // pull, for who, where. Checked off on Receiving — `pulled` flips true and
+  // the whole per-size map is added to sample_qtys.
+  sample_pulls: { qtys: Record<string, number>; for: string; to: string; pulled?: boolean }[];
+  // Per-item delivery ETA (manual override on Production). Receiving shows it
+  // so the warehouse sees the deadline.
+  client_eta: string | null;
   decorator_id: string | null;
   decorator_assignment_id: string | null;
   decorator_name: string | null;
@@ -64,6 +71,21 @@ export type WarehouseJob = {
   contact_phone: string;
   items: WarehouseItem[];
 };
+
+// Tolerant read of items.sample_pulls. Handles the in-development single-size
+// shape ({ qty, size }) so early test rows don't read as empty after the model
+// moved to a per-size qtys map.
+function normalizePulls(raw: any): WarehouseItem["sample_pulls"] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((p: any) => ({
+    qtys: p && p.qtys && typeof p.qtys === "object"
+      ? p.qtys
+      : (p && p.size ? { [p.size]: parseInt(p.qty, 10) || 1 } : {}),
+    for: (p && p.for) || "",
+    to: (p && p.to) || "",
+    pulled: !!(p && p.pulled),
+  }));
+}
 
 export function useWarehouse() {
   const supabase = createClient();
@@ -176,6 +198,8 @@ export function useWarehouse() {
           return {
             id: it.id, name: it.name, letter: String.fromCharCode(65 + (it.sort_order ?? 0)), blank_vendor: it.blank_vendor, blank_sku: it.blank_sku,
             job_id: it.job_id, pipeline_stage: it.pipeline_stage, ship_tracking: it.ship_tracking, ship_notes: it.ship_notes || "",
+            sample_pulls: normalizePulls(it.sample_pulls),
+            client_eta: it.client_eta || null,
             ship_date: ts.shipped || null,
             shipping_route: it.shipping_route || null,
             received_at_hpd: it.received_at_hpd || false, received_at_hpd_at: it.received_at_hpd_at,
@@ -249,6 +273,34 @@ export function useWarehouse() {
     }, 800);
   }
 
+  // Check a sample pull off on Receiving. Flips `pulled` and auto-rolls the
+  // pull qty into sample_qtys[size] (which already deducts from the continuing
+  // client qty) — so the receiver never re-enters counts by hand. Sizeless
+  // legacy pulls just toggle. Writes immediately (a checkbox is discrete).
+  async function toggleSamplePull(item: WarehouseItem, idx: number) {
+    const pulls = item.sample_pulls || [];
+    const target = pulls[idx];
+    if (!target) return;
+    const nowPulled = !target.pulled;
+    const nextPulls = pulls.map((p, i) => i === idx ? { ...p, pulled: nowPulled } : p);
+
+    // Roll the whole per-size map into sample_qtys (+ when pulled, − when
+    // un-pulled). Only sizes that actually exist on the item are counted.
+    const nextSamples = { ...(item.sample_qtys || {}) };
+    for (const [sz, n] of Object.entries(target.qtys || {})) {
+      if (!n || n <= 0 || !item.sizes.includes(sz)) continue;
+      nextSamples[sz] = Math.max(0, (nextSamples[sz] || 0) + (nowPulled ? n : -n));
+    }
+
+    setJobs(prev => prev.map(j => ({
+      ...j, items: j.items.map(it => it.id === item.id ? { ...it, sample_pulls: nextPulls, sample_qtys: nextSamples } : it),
+    })));
+    // Flush any pending per-size sample debounce so it can't clobber this write.
+    const sk = `sx_${item.id}`;
+    if (saveTimers.current[sk]) { clearTimeout(saveTimers.current[sk]); delete saveTimers.current[sk]; }
+    await supabase.from("items").update({ sample_pulls: nextPulls, sample_qtys: nextSamples }).eq("id", item.id);
+  }
+
   async function markReceived(item: WarehouseItem, opts?: { condition?: string; notes?: string; skipSideEffects?: boolean; skipClientEmail?: boolean }) {
     const now = new Date().toISOString();
 
@@ -315,6 +367,24 @@ export function useWarehouse() {
     const conditionTag = opts?.condition && opts.condition !== "good" ? ` (${opts.condition})` : "";
     const notesTag = opts?.notes ? ` — ${opts.notes}` : "";
     logJobActivity(item.job_id, `${item.name} received at warehouse${conditionTag} — ${parts.join(", ")}${notesTag}`);
+
+    // Destination trail — log WHERE each pulled sample went, not just the count,
+    // so it's a permanent record on the job feed (the count line above only
+    // says "2 samples pulled"). Only checked-off pulls with a qty are logged.
+    const pulledDest = (item.sample_pulls || [])
+      .filter(p => p.pulled && Object.values(p.qtys || {}).some(n => (n || 0) > 0))
+      .map(p => {
+        const entries = Object.entries(p.qtys || {}).filter(([, n]) => (n || 0) > 0);
+        const tot = entries.reduce((a, [, n]) => a + (n || 0), 0);
+        const sizeStr = entries.length === 1
+          ? `${entries[0][1]}×${entries[0][0]}`
+          : `${tot} pcs (${entries.map(([s, n]) => (n > 1 ? `${n}×${s}` : s)).join(", ")})`;
+        const label = [p.for?.trim(), p.to?.trim() && `(${p.to.trim()})`].filter(Boolean).join(" ");
+        return label ? `${sizeStr} → ${label}` : sizeStr;
+      });
+    if (pulledDest.length > 0) {
+      logJobActivity(item.job_id, `${item.name} samples pulled — ${pulledDest.join("; ")}`);
+    }
 
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now, receiving_data: receivingData as any } : it),
@@ -490,7 +560,7 @@ export function useWarehouse() {
 
   return {
     loading, jobs, setJobs, incoming, shipThrough, fulfillment,
-    updateReceivedQty, updateSampleQty, markReceived, bulkMarkReceived, undoReceived, returnToProduction,
+    updateReceivedQty, updateSampleQty, toggleSamplePull, markReceived, bulkMarkReceived, undoReceived, returnToProduction,
     bulkMarkWebstoreEntered, undoWebstoreEntered,
     updateFulfillment, debounceFulfillmentTracking,
     supabase, logJobActivity,
