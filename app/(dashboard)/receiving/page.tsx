@@ -10,6 +10,95 @@ import { DriveFileLink } from "@/components/DriveFileLink";
 import { DriveThumb } from "@/components/DriveThumb";
 import { MockupPeek } from "@/components/MockupPeek";
 
+// ── Internal sample pulls + delivery ETA ──────────────────────────────────
+// Set on the Production page when an item ships; the warehouse reads them
+// here. One renderer so the modal, list row, and card stay consistent.
+type Pull = WarehouseItem["sample_pulls"][number];
+function pullEntries(p: Pull) {
+  return Object.entries(p.qtys || {}).filter(([, n]) => n > 0);
+}
+function samplePullText(p: Pull) {
+  const entries = pullEntries(p);
+  const total = entries.reduce((a, [, n]) => a + n, 0);
+  const sizeStr = entries.map(([s, n]) => (n > 1 ? `${n}×${s}` : s)).join(", ");
+  const head = entries.length === 0
+    ? "sample"
+    : entries.length === 1
+      ? `${entries[0][1]}×${entries[0][0]}`
+      : `${total} pcs · ${sizeStr}`;
+  const tail = [
+    p.for?.trim() && `for ${p.for.trim()}`,
+    p.to?.trim() && `→ ${p.to.trim()}`,
+  ].filter(Boolean).join(" ");
+  return tail ? `${head} — ${tail}` : head;
+}
+function activePulls(item: WarehouseItem): { p: Pull; idx: number }[] {
+  return (item.sample_pulls || [])
+    .map((p, idx) => ({ p, idx }))
+    .filter(({ p }) => pullEntries(p).length > 0 || p.for || p.to);
+}
+function fmtEta(d: string | null) {
+  if (!d) return null;
+  const [y, m, day] = d.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !day) return d;
+  return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+// Read-only summary — list rows + collapsed cards. Shows ETA + each pull,
+// with done pulls struck through. No interaction here.
+function SamplePullsBlock({ item }: { item: WarehouseItem }) {
+  const pulls = activePulls(item);
+  const eta = fmtEta(item.client_eta);
+  if (pulls.length === 0 && !eta) return null;
+  return (
+    <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 3 }}>
+      {eta && (
+        <div style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>ETA {eta}</div>
+      )}
+      {pulls.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          <span style={{ fontSize: 9, fontWeight: 800, color: T.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>Pull samples</span>
+          {pulls.map(({ p, idx }) => (
+            <div key={idx} style={{ fontSize: 11, color: p.pulled ? T.faint : T.amber, display: "flex", gap: 5, textDecoration: p.pulled ? "line-through" : "none" }}>
+              <span style={{ flexShrink: 0 }}>{p.pulled ? "✓" : "•"}</span>
+              <span style={{ minWidth: 0, wordBreak: "break-word" }}>{samplePullText(p)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+// Interactive checklist — used in the receive modal. Checking a pull rolls its
+// qty into sample_qtys[size] via onToggle (the warehouse hook handles the math).
+function SamplePullChecklist({ item, onToggle }: { item: WarehouseItem; onToggle: (idx: number) => void }) {
+  const pulls = activePulls(item);
+  if (pulls.length === 0) return null;
+  const done = pulls.filter(({ p }) => p.pulled).length;
+  return (
+    <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, background: T.amberDim + "55", border: `1px solid ${T.amber}44` }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
+        <span style={{ fontSize: 9, fontWeight: 800, color: T.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>Pull samples</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: done === pulls.length ? T.green : T.amber, fontFamily: mono }}>{done}/{pulls.length} pulled</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {pulls.map(({ p, idx }) => {
+          const countable = pullEntries(p).some(([s, n]) => n > 0 && item.sizes.includes(s));
+          return (
+            <label key={idx} style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer" }}>
+              <input type="checkbox" checked={!!p.pulled} onChange={() => onToggle(idx)}
+                style={{ width: 15, height: 15, accentColor: T.amber, cursor: "pointer", marginTop: 1, flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: p.pulled ? T.faint : T.text, textDecoration: p.pulled ? "line-through" : "none", lineHeight: 1.3, minWidth: 0, wordBreak: "break-word" }}>
+                {samplePullText(p)}
+                {!countable && <span style={{ color: T.faint, fontStyle: "italic" }}> · no size — count manually</span>}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 type OutsideShipment = {
   id: string;
   carrier: string;
@@ -47,7 +136,7 @@ type DecoratorGroup = {
 type FileRec = { file_name: string; drive_link: string; drive_file_id: string | null; mime_type: string | null };
 
 export default function ReceivingPage() {
-  const { loading, jobs, updateReceivedQty, updateSampleQty, markReceived, bulkMarkReceived, undoReceived, returnToProduction } = useWarehouse();
+  const { loading, jobs, updateReceivedQty, updateSampleQty, toggleSamplePull, markReceived, bulkMarkReceived, undoReceived, returnToProduction } = useWarehouse();
   const supabase = createClient();
 
   // Filters / tabs
@@ -523,6 +612,44 @@ export default function ReceivingPage() {
               Multi-project shipment ({shipment.jobs.length})
             </div>
           )}
+          {/* Ship notes entered on the Production ship modal — surfaced
+              here so the receiver sees them without opening the shipment.
+              Notes are per-item; dedupe across the shipment's items. */}
+          {(() => {
+            const notes = Array.from(new Set(
+              shipment.items.map(it => (it.ship_notes || "").trim()).filter(Boolean)
+            ));
+            if (notes.length === 0) return null;
+            return (
+              <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+                {notes.map((n, i) => (
+                  <div key={i} style={{ fontSize: 11, color: T.amber, display: "flex", gap: 5 }}>
+                    <span style={{ flexShrink: 0 }}>✎</span>
+                    <span style={{ minWidth: 0, wordBreak: "break-word" }}>{n}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          {/* Sample-pull flag — full per-item detail lives in the receive
+              modal / list view; here just signal that pulls are waiting and
+              the soonest ETA so the receiver knows to open it. */}
+          {(() => {
+            const pullCount = shipment.items.reduce((n, it) => n + activePulls(it).length, 0);
+            const etas = shipment.items.map(it => it.client_eta).filter(Boolean).sort() as string[];
+            const eta = fmtEta(etas[0] || null);
+            if (pullCount === 0 && !eta) return null;
+            return (
+              <div style={{ marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {eta && <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>ETA {eta}</span>}
+                {pullCount > 0 && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: T.amber }}>
+                    ⚑ {pullCount} sample pull{pullCount === 1 ? "" : "s"}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Right: counts + action reason chip */}
@@ -632,8 +759,17 @@ export default function ReceivingPage() {
               )}
               <div style={{ width: 90, flexShrink: 0, color: job?.display_number ? T.text : T.faint, fontFamily: mono, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job?.display_number || "—"}</div>
               <div style={{ width: 150, flexShrink: 0, minWidth: 0, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job?.client_name || "No client"}</div>
-              <div onClick={() => setMockupPeek({ driveFileId: mockupMap[it.id]?.driveFileId || null, name: it.name })} title="View mockup"
-                style={{ flex: 1, minWidth: 0, paddingLeft: 10, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>{it.name}</div>
+              <div style={{ flex: 1, minWidth: 0, paddingLeft: 10 }}>
+                <div onClick={() => setMockupPeek({ driveFileId: mockupMap[it.id]?.driveFileId || null, name: it.name })} title="View mockup"
+                  style={{ fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>{it.name}</div>
+                {it.ship_notes && (
+                  <div style={{ fontSize: 11, color: T.amber, marginTop: 2, display: "flex", gap: 5 }}>
+                    <span style={{ flexShrink: 0 }}>✎</span>
+                    <span style={{ minWidth: 0, wordBreak: "break-word" }}>{it.ship_notes}</span>
+                  </div>
+                )}
+                <SamplePullsBlock item={it} />
+              </div>
               <div style={{ width: 104, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
               <div style={{ width: 84, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.muted }}>{shippedStr}</div>
               <div style={{ width: 56, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{tQty(it.qtys)}</div>
@@ -1089,6 +1225,9 @@ export default function ReceivingPage() {
                                               {item.ship_tracking && <> · <span style={{ fontFamily: mono }}>{item.ship_tracking}</span></>}
                                             </div>
                                             {item.ship_notes && <div style={{ fontSize: 11, color: T.amber, marginTop: 3 }}>{item.ship_notes}</div>}
+                                            {fmtEta(item.client_eta) && (
+                                              <div style={{ fontSize: 11, fontWeight: 600, color: T.accent, marginTop: 3 }}>ETA {fmtEta(item.client_eta)}</div>
+                                            )}
 
                                             {/* Photos */}
                                             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
@@ -1245,6 +1384,11 @@ export default function ReceivingPage() {
                                             )}
                                           </div>
                                         </div>
+
+                                        {/* Sample pulls — check each off as it's
+                                            pulled; the qty auto-rolls into the
+                                            Samples row above (sample_qtys[size]). */}
+                                        <SamplePullChecklist item={item} onToggle={idx => toggleSamplePull(item, idx)} />
 
                                         {/* Variance / samples summary */}
                                         {(hasVariance || sampleTotal > 0) && (
