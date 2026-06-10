@@ -1196,7 +1196,11 @@ export default function NewShipstationReportPage() {
     : isPostage
       ? postageSelectedCount > 0
       : salesSelectedCount > 0;
-  const salesPricingComplete = groups.every(g => groupCosts[g.key] !== undefined && groupCosts[g.key] !== "");
+  // A blank cost means the product is free ($0) — that's valid, not missing.
+  // (The cost input even normalizes a typed 0 back to blank on blur, so
+  // requiring a non-empty value here made free items impossible to advance.)
+  // The only requirement is that there's at least one product to price.
+  const salesPricingComplete = groups.length > 0;
   // Bulk postage has no pricing inputs (pure pass-through) → always complete.
   const postagePricingComplete = isBulkPostage ? true : parseMoney(markupPct) >= 0;
   const canNextFrom3 = isCombined
@@ -1654,7 +1658,7 @@ export default function NewShipstationReportPage() {
               <button onClick={() => setStage(2)} style={btnGhost}>← Back</button>
               <button disabled={!canNextFrom3} onClick={() => setStage(4)} style={{ ...btnPrimary, opacity: canNextFrom3 ? 1 : 0.4, cursor: canNextFrom3 ? "pointer" : "not-allowed" }}>Next →</button>
             </div>
-            {!canNextFrom3 && <div style={{ fontSize: 11, color: T.amber, marginTop: 8 }}>Every product needs a unit cost (enter 0 if it's free).</div>}
+            {!canNextFrom3 && <div style={{ fontSize: 11, color: T.amber, marginTop: 8 }}>Add at least one product to continue. Blank costs are treated as $0 (free).</div>}
           </div>
         </>
       )}
@@ -2166,7 +2170,7 @@ export default function NewShipstationReportPage() {
                   </tbody>
                 </table>
               </div>
-              {!salesPricingComplete && <div style={{ fontSize: 11, color: T.amber, marginTop: 6 }}>Every product needs a unit cost (enter 0 if it's free).</div>}
+              {!salesPricingComplete && <div style={{ fontSize: 11, color: T.amber, marginTop: 6 }}>Add at least one product to continue. Blank costs are treated as $0 (free).</div>}
             </div>
 
             <div style={{ borderTop: `1px solid ${T.border}` }} />
