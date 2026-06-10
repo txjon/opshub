@@ -1145,19 +1145,32 @@ export default function NewShipstationReportPage() {
   const thStyle: React.CSSProperties = { padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}` };
   const tdStyle: React.CSSProperties = { padding: "6px 10px", fontSize: 12, borderBottom: `1px solid ${T.border}`, fontFamily: mono };
 
-  const stagePill = (n: number, label: string, active: boolean, done: boolean) => (
-    <div key={n} style={{
-      display: "flex", alignItems: "center", gap: 8, flex: 1,
-      padding: "8px 12px", borderRadius: 8,
-      background: active ? T.accent + "22" : done ? T.surface : "transparent",
-      border: `1px solid ${active ? T.accent : done ? T.border : T.border}`,
-    }}>
-      <span style={{ width: 22, height: 22, borderRadius: 11, background: active ? T.accent : done ? T.green : T.surface, color: active ? "#ffffff" : done ? "#0a0e1a" : T.muted, fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", fontFamily: mono }}>
-        {done ? "✓" : n}
-      </span>
-      <span style={{ fontSize: 12, fontWeight: 600, color: active ? T.text : T.muted }}>{label}</span>
-    </div>
-  );
+  const stagePill = (n: number, label: string, active: boolean, done: boolean) => {
+    // Completed steps are clickable to jump back (e.g. Edit lands on Pricing,
+    // click "Select shipments" to drop a line). Forward nav stays gated by the
+    // Next buttons so validation isn't skipped. Stage 1 stays locked in edit
+    // mode because the source CSV isn't kept after generate.
+    const canJump = n < stage && !(isEditing && n === 1);
+    return (
+      <div
+        key={n}
+        onClick={canJump ? () => setStage(n as 1 | 2 | 3 | 4) : undefined}
+        title={canJump ? `Back to ${label}` : undefined}
+        style={{
+          display: "flex", alignItems: "center", gap: 8, flex: 1,
+          padding: "8px 12px", borderRadius: 8,
+          background: active ? T.accent + "22" : done ? T.surface : "transparent",
+          border: `1px solid ${active ? T.accent : done ? T.border : T.border}`,
+          cursor: canJump ? "pointer" : "default",
+        }}
+      >
+        <span style={{ width: 22, height: 22, borderRadius: 11, background: active ? T.accent : done ? T.green : T.surface, color: active ? "#ffffff" : done ? "#0a0e1a" : T.muted, fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", fontFamily: mono }}>
+          {done ? "✓" : n}
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: active ? T.text : T.muted }}>{label}</span>
+      </div>
+    );
+  };
 
   const isPostage = reportType === "postage";
   const isSales = reportType === "sales";
