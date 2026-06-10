@@ -370,6 +370,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     const t = r.totals || {}, pt = r.postage_totals || {};
     if (r.report_type === "combined") return (t.fee || 0) + (pt.billed || 0) + (pt.fulfillment || 0);
     if (r.report_type === "postage") return (t.billed || 0) + (t.fulfillment || 0);
+    if (r.report_type === "fulfillment") return t.fulfillment || 0;
     return t.fee || 0; // sales-only
   }
   const invoicedReports = reports.filter((r: any) => r.qb_invoice_number || r.sent_at);
@@ -1301,7 +1302,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               {invoicedReports.length===0&&<p style={{fontSize:12,color:T.muted}}>No shipping invoices yet.</p>}
               <div style={{display:"flex",flexDirection:"column",gap:4}}>
                 {invoicedReports.map((r:any)=>{
-                  const typeLabel = r.report_type==="combined"?"Full Service":r.report_type==="postage"?"Postage":"Sales";
+                  const typeLabel = r.report_type==="combined"?"Full Service":r.report_type==="postage"?"Postage":r.report_type==="fulfillment"?"Fulfillment":"Sales";
                   const billed = reportBilled(r);
                   // Paid wins, then Sent, else it's a saved QB invoice not yet emailed.
                   const status = r.paid_at?{label:"Paid",color:T.green}:r.sent_at?{label:"Sent",color:"#3a8a9e"}:{label:"Invoiced",color:T.accent};

@@ -156,6 +156,9 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       const totals = r.totals || {};
       const isPostage = r.report_type === "postage";
       const isCombined = r.report_type === "combined";
+      // Fulfillment-only: client pays their own postage, billed = the
+      // per-package fee total (totals.fulfillment).
+      const isFulfillment = r.report_type === "fulfillment";
       // What the client owes. Has to match the QB invoice line items:
       //   Sales-only  → totals.fee
       //   Postage     → totals.billed + totals.fulfillment (carrier
@@ -171,6 +174,8 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
           + (Number(post.fulfillment) || 0);
       } else if (isPostage) {
         total = (Number(totals.billed) || 0) + (Number(totals.fulfillment) || 0);
+      } else if (isFulfillment) {
+        total = Number(totals.fulfillment) || 0;
       } else {
         total = Number(totals.fee) || 0;
       }
@@ -180,7 +185,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       const bulkCount = isCombined ? (Number((r.postage_totals || {}).purchases) || 0) : (Number(totals.purchases) || 0);
       const totalQty = isCombined
         ? (Number(totals.qty) || 0) + (isBulk ? bulkCount : (Number((r.postage_totals || {}).shipments) || 0))
-        : isPostage
+        : (isPostage || isFulfillment)
           ? (isBulk ? bulkCount : (Number(totals.shipments) || 0))
           : (Number(totals.qty) || 0);
       // paid_at + paid_amount are set by the QB webhook when the client
@@ -195,7 +200,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         id: r.id,
         kind: "fulfillment" as const,
         job_number: null,
-        title: `${isCombined ? "Full Service Invoice" : isPostage ? (isBulk ? "Postage Invoice" : "Postage Report") : "Services Invoice"} — ${r.period_label}`,
+        title: `${isCombined ? "Full Service Invoice" : isFulfillment ? "Fulfillment Invoice" : isPostage ? (isBulk ? "Postage Invoice" : "Postage Report") : "Services Invoice"} — ${r.period_label}`,
         phase: "fulfillment_invoice",
         target_ship_date: null,
         created_at: r.created_at,

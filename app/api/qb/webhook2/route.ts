@@ -363,7 +363,7 @@ async function tryMatchShipstationReport(supabase: any, qbInvoiceId: string, amo
       const invoiceNum = report.qb_invoice_number || "";
       const reportLabel = report.report_type === "combined"
         ? "Full Service Invoice"
-        : report.report_type === "postage"
+        : (report.report_type === "postage" || report.report_type === "fulfillment")
           ? "Fulfillment Invoice"
           : "Services Invoice";
       const { error: sendErr } = await resend.emails.send({

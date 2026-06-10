@@ -46,10 +46,18 @@ export async function generatePostageXlsx(data: {
   perPackageFee?: number;
   lines: PostageLine[];
   totals: PostageTotals;
+  // Fulfillment-only: client pays their own postage, so the spreadsheet
+  // drops every postage cost column. Just the shipment list (date / order
+  // / recipient / items) and the per-package fee total.
+  fulfillmentOnly?: boolean;
 }): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = "House Party Distro";
   wb.created = new Date();
+
+  if (data.fulfillmentOnly) {
+    return generateFulfillmentXlsxInternal(wb, data);
+  }
 
   const ws = wb.addWorksheet("Shipments", {
     views: [{ state: "frozen", ySplit: 10 }],
@@ -224,6 +232,103 @@ export async function generatePostageXlsx(data: {
     { width: 14 },  // Shipping Cost
     { width: 12 },  // Insurance
     { width: 12 },  // Billed
+  ];
+
+  const ab = await wb.xlsx.writeBuffer();
+  return Buffer.from(ab as ArrayBuffer);
+}
+
+// Fulfillment-only spreadsheet — accompanies the FULFILLMENT INVOICE for
+// clients who pay their own postage. Just the shipment list (date / order
+// / recipient / items) and the per-package fee total. No postage cost,
+// markup, or margin columns ever reach the client.
+async function generateFulfillmentXlsxInternal(wb: ExcelJS.Workbook, data: {
+  clientName: string;
+  periodLabel: string;
+  invoiceNumber: string | null;
+  generatedOn: string;
+  perPackageFee?: number;
+  lines: PostageLine[];
+  totals: PostageTotals;
+}): Promise<Buffer> {
+  const ws = wb.addWorksheet("Fulfillment", { views: [{ state: "frozen", ySplit: 10 }] });
+
+  ws.mergeCells("A1:D1");
+  const title = ws.getCell("A1");
+  title.value = "HOUSE PARTY DISTRO — FULFILLMENT INVOICE";
+  title.font = { name: "Helvetica", size: 14, bold: true, color: { argb: "FF111111" } };
+  title.alignment = { vertical: "middle", horizontal: "left" };
+
+  ws.getCell("A2").value = "Client:";    ws.getCell("B2").value = data.clientName;
+  ws.getCell("A3").value = "Period:";    ws.getCell("B3").value = data.periodLabel;
+  ws.getCell("A4").value = "Invoice #:"; ws.getCell("B4").value = data.invoiceNumber || "—";
+  ws.getCell("A5").value = "Generated:"; ws.getCell("B5").value = data.generatedOn;
+  for (const addr of ["A2", "A3", "A4", "A5"]) ws.getCell(addr).font = { bold: true, color: { argb: "FF666666" }, size: 10 };
+  for (const addr of ["B2", "B3", "B4", "B5"]) ws.getCell(addr).font = { size: 11, color: { argb: "FF111111" } };
+
+  const fulfillment = Number(data.totals.fulfillment) || 0;
+  const shipments = Number(data.totals.shipments) || data.lines.length;
+  const items = Number(data.totals.items) || data.lines.reduce((a, r) => a + (Number(r.items_count) || 0), 0);
+  const perPkg = Number(data.perPackageFee) || 0;
+  const FMT_INT = "#,##0";
+  const FMT_USD = '"$"#,##0.00';
+
+  // Summary strip — labels row 7, values row 8, across A-D.
+  const pairs: { label: string; value: number; fmt: string }[] = [
+    { label: "Shipments",     value: shipments,   fmt: FMT_INT },
+    { label: "Items Shipped", value: items,       fmt: FMT_INT },
+    { label: "Fee / Package", value: perPkg,      fmt: FMT_USD },
+    { label: "Total Invoice", value: fulfillment, fmt: FMT_USD },
+  ];
+  pairs.forEach((p, i) => {
+    const col = i + 1;
+    const lc = ws.getCell(7, col);
+    lc.value = p.label;
+    lc.font = { bold: true, size: 9, color: { argb: "FF888888" } };
+    const vc = ws.getCell(8, col);
+    vc.value = p.value;
+    vc.numFmt = p.fmt;
+    vc.font = { bold: true, size: 12, color: { argb: i === 3 ? "FF2A7A3A" : "FF111111" } };
+  });
+
+  // Column headers at row 10.
+  const headers = ["Date", "Order #", "Recipient", "Items"];
+  const headerRow = ws.getRow(10);
+  headerRow.values = headers;
+  headerRow.eachCell(cell => {
+    cell.font = { bold: true, size: 10, color: { argb: "FFFFFFFF" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1A1A1A" } };
+    cell.alignment = { vertical: "middle", horizontal: "left" };
+    cell.border = { bottom: { style: "thin", color: { argb: "FF1A1A1A" } } };
+  });
+
+  // Data rows from row 11.
+  for (const r of data.lines) {
+    ws.addRow([
+      dateOnly(r.ship_date),
+      r.order_number || "",
+      r.recipient || "",
+      Number(r.items_count) || 0,
+    ]);
+  }
+
+  const firstDataRow = 11;
+  const lastDataRow = 10 + data.lines.length;
+  const totalsRowIdx = lastDataRow + 1;
+  ws.getCell(`A${totalsRowIdx}`).value = "TOTALS";
+  ws.getCell(`A${totalsRowIdx}`).font = { bold: true, size: 10 };
+  ws.getCell(`D${totalsRowIdx}`).value = { formula: `SUM(D${firstDataRow}:D${lastDataRow})` };
+  const dTotal = ws.getCell(`D${totalsRowIdx}`);
+  dTotal.font = { bold: true, size: 10 };
+  dTotal.numFmt = FMT_INT;
+  dTotal.border = { top: { style: "thin", color: { argb: "FF1A1A1A" } } };
+  for (let r = firstDataRow; r <= lastDataRow; r++) ws.getCell(`D${r}`).numFmt = FMT_INT;
+
+  ws.columns = [
+    { width: 12 },  // Date
+    { width: 18 },  // Order #
+    { width: 30 },  // Recipient
+    { width: 10 },  // Items
   ];
 
   const ab = await wb.xlsx.writeBuffer();
