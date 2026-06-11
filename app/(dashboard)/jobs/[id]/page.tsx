@@ -394,11 +394,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // didn't. Without this bound the back button + tab switches feel
   // broken on a flaky network.
   async function flushAllSavesWithTimeout(ms = 1500) {
+    // Each save is wrapped so a SYNCHRONOUS throw (e.g. a registered ref fn
+    // that blows up before returning a promise) becomes a rejection caught
+    // below — instead of escaping this function entirely. The old version
+    // only raced against hangs, so a sync throw bypassed the timeout, the
+    // caller's await rejected, navigation never fired, and the back button
+    // stuck on "Saving…" forever. Never let this function throw.
+    const safe = (fn?: () => any) => { try { return Promise.resolve(fn?.()); } catch (e) { return Promise.reject(e); } };
     const flushAll = Promise.all([
-      flushJobSave(),
-      saveBuySheetRef.current?.(),
-      saveCostingRef.current?.(),
-      saveBlanksRef.current?.(),
+      safe(() => flushJobSave()),
+      safe(() => saveBuySheetRef.current?.()),
+      safe(() => saveCostingRef.current?.()),
+      safe(() => saveBlanksRef.current?.()),
     ]).catch(e => { console.error("Save flush failed:", e); });
     const timeout = new Promise<void>(resolve => setTimeout(resolve, ms));
     await Promise.race([flushAll, timeout]);
@@ -573,7 +580,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         <button onClick={async ()=>{
           if (navigating) return;
           setNavigating(true);
-          await flushAllSavesWithTimeout();
+          // Guarantee navigation even if the flush rejects — otherwise a
+          // failed save leaves the button stuck on "Saving…" with no way out.
+          try { await flushAllSavesWithTimeout(); } catch (e) { console.error("nav flush failed:", e); }
           router.push("/jobs");
         }} disabled={navigating}
           style={{background:"transparent",border:"none",color:T.accent,fontSize:14,fontWeight:600,cursor:navigating?"default":"pointer",padding:"4px 8px 4px 0",fontFamily:font,display:"inline-flex",alignItems:"center",gap:2,minHeight:36,marginLeft:-4,opacity:navigating?0.55:1,transition:"opacity 0.12s"}}
