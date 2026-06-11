@@ -169,6 +169,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // handler doesn't depend on its render-time closure.
   const itemsRef = useRef<Item[]>(items);
   useEffect(() => { itemsRef.current = items; }, [items]);
+  // recalcPhase reads job/payments/proofStatus from refs so it can be a
+  // STABLE callback (empty deps). Without this it was recreated on every
+  // render, the recalc effect listing it as a dep re-ran every render, and
+  // once it wrote a phase it recreated itself → re-ran → wrote again =
+  // infinite render loop ("Maximum update depth exceeded") that wedged the
+  // page (back button stuck on "Saving…").
+  const jobRef = useRef<Job|null>(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
+  const paymentsRef = useRef<Payment[]>(payments);
+  useEffect(() => { paymentsRef.current = payments; }, [payments]);
+  const proofStatusRef = useRef(proofStatus);
+  useEffect(() => { proofStatusRef.current = proofStatus; }, [proofStatus]);
 
   // Drag-to-reorder items in the sidebar. Updates local state
   // optimistically, persists items.sort_order in the background.
@@ -394,11 +406,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // didn't. Without this bound the back button + tab switches feel
   // broken on a flaky network.
   async function flushAllSavesWithTimeout(ms = 1500) {
+    // Each save is wrapped so a SYNCHRONOUS throw (e.g. a registered ref fn
+    // that blows up before returning a promise) becomes a rejection caught
+    // below — instead of escaping this function entirely. The old version
+    // only raced against hangs, so a sync throw bypassed the timeout, the
+    // caller's await rejected, navigation never fired, and the back button
+    // stuck on "Saving…" forever. Never let this function throw.
+    const safe = (fn?: () => any) => { try { return Promise.resolve(fn?.()); } catch (e) { return Promise.reject(e); } };
     const flushAll = Promise.all([
-      flushJobSave(),
-      saveBuySheetRef.current?.(),
-      saveCostingRef.current?.(),
-      saveBlanksRef.current?.(),
+      safe(() => flushJobSave()),
+      safe(() => saveBuySheetRef.current?.()),
+      safe(() => saveCostingRef.current?.()),
+      safe(() => saveBlanksRef.current?.()),
     ]).catch(e => { console.error("Save flush failed:", e); });
     const timeout = new Promise<void>(resolve => setTimeout(resolve, ms));
     await Promise.race([flushAll, timeout]);
@@ -456,6 +475,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   }
 
   const recalcPhase = useCallback(async () => {
+    // Read live state from refs (not closure) so this callback stays stable.
+    const job = jobRef.current;
+    const items = itemsRef.current;
+    const payments = paymentsRef.current;
+    const proofStatus = proofStatusRef.current;
     if (!job || job.phase === "on_hold" || job.phase === "cancelled") return;
     const result = calculatePhase({
       job: {
@@ -506,7 +530,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         logJobActivity(job.id, `Phase → ${result.phase.replace(/_/g, " ")}`);
       }
     }
-  }, [job, items, payments, proofStatus, supabase]);
+    // Stable callback — all live state is read from refs above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Run lifecycle recalc after data loads and on state changes
   useEffect(() => {
@@ -573,7 +599,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         <button onClick={async ()=>{
           if (navigating) return;
           setNavigating(true);
-          await flushAllSavesWithTimeout();
+          // Guarantee navigation even if the flush rejects — otherwise a
+          // failed save leaves the button stuck on "Saving…" with no way out.
+          try { await flushAllSavesWithTimeout(); } catch (e) { console.error("nav flush failed:", e); }
           router.push("/jobs");
         }} disabled={navigating}
           style={{background:"transparent",border:"none",color:T.accent,fontSize:14,fontWeight:600,cursor:navigating?"default":"pointer",padding:"4px 8px 4px 0",fontFamily:font,display:"inline-flex",alignItems:"center",gap:2,minHeight:36,marginLeft:-4,opacity:navigating?0.55:1,transition:"opacity 0.12s"}}

@@ -61,10 +61,14 @@ function getStatusBuckets(job: any, T: any): StatusBucket[] {
     if (it.received_at_hpd === true) { counts.at_hpd++; continue; }
     if (it.pipeline_stage === "shipped") { counts.receiving++; continue; }
     if (it.pipeline_stage === "in_production") { counts.production++; continue; }
-    // Item not yet at decorator. If vendor assigned and PO not sent, it
-    // needs a PO. If no vendor yet, it's still in earlier setup —
-    // ignored here so the row doesn't shout pre-cost noise.
     const vendor = cpById[it.id]?.printVendor;
+    // PO already sent to this item's vendor → it's at the decorator (In
+    // Production), even if pipeline_stage hasn't been written yet. Mirrors
+    // computeItemStatus()'s po_sent rule so this list agrees with the
+    // client/portal views (where a PO-sent item reads In Production).
+    if (vendor && poSent.has(vendor)) { counts.production++; continue; }
+    // Vendor assigned but no PO yet → needs a PO. No vendor → still earlier
+    // setup, ignored here so the row doesn't shout pre-cost noise.
     if (vendor && !poSent.has(vendor)) counts.needs_po++;
   }
   const out: StatusBucket[] = [];
@@ -646,19 +650,30 @@ export default function JobsPage() {
                     Items · {job.items!.length}
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {[...(job.items || [])]
+                    {(() => {
+                      // Resolve per-item PO-sent the same way the buckets do:
+                      // item's costed printVendor ∈ type_meta.po_sent_vendors.
+                      // A PO-sent item is In Production even with a null
+                      // pipeline_stage (matches computeItemStatus / the
+                      // client + portal views).
+                      const cpById: Record<string, any> = {};
+                      for (const cp of ((job as any).costing_data?.costProds || [])) cpById[cp.id] = cp;
+                      const poSent = new Set<string>(job.type_meta?.po_sent_vendors || []);
+                      return [...(job.items || [])]
                       .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
                       .map((it: any) => {
+                        const vendor = cpById[it.id]?.printVendor;
+                        const poDone = !!vendor && poSent.has(vendor);
                         const stageLabel =
                           it.received_at_hpd ? "At HPD" :
                           it.pipeline_stage === "shipped" ? "Shipped" :
-                          it.pipeline_stage === "in_production" ? "In Production" :
+                          (it.pipeline_stage === "in_production" || poDone) ? "In Production" :
                           it.pipeline_stage === "blanks_ordered" ? "Blanks Ordered" :
                           "—";
                         const stageColor =
                           it.received_at_hpd ? T.purple :
                           it.pipeline_stage === "shipped" ? T.blue :
-                          it.pipeline_stage === "in_production" ? T.accent :
+                          (it.pipeline_stage === "in_production" || poDone) ? T.accent :
                           it.pipeline_stage === "blanks_ordered" ? T.amber :
                           T.muted;
                         return (
@@ -671,7 +686,8 @@ export default function JobsPage() {
                             </span>
                           </div>
                         );
-                      })}
+                      });
+                    })()}
                   </div>
                 </div>
               )}
