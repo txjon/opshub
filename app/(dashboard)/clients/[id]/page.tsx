@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SkeletonRows } from "@/components/Skeleton";
 import { QBCustomerChooser, type QBCurrent } from "@/components/QBCustomerChooser";
 import Link from "next/link";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Pencil } from "lucide-react";
 import { effectiveRevenue } from "@/lib/revenue";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { resolveItemStatus, STATE_LABELS, jobPhaseToItemState, type ItemState } from "@/lib/item-status";
@@ -37,6 +37,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [addingContact, setAddingContact] = useState(false);
+  const [editingContact, setEditingContact] = useState<Contact|null>(null);
   const [confirmRemove, setConfirmRemove] = useState<Contact|null>(null);
   const [confirmDeleteFile, setConfirmDeleteFile] = useState<ClientFile|null>(null);
   const [previewFile, setPreviewFile] = useState<ClientFile|null>(null);
@@ -1017,7 +1018,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
             <div>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Contacts</div>
-                <button onClick={()=>setAddingContact(!addingContact)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
+                <button onClick={()=>{setEditingContact(null);setAddingContact(!addingContact);}} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>+ Add</button>
               </div>
               {addingContact&&(
                 <div style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10,marginBottom:8}}>
@@ -1044,7 +1045,31 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               )}
               {contacts.length===0&&!addingContact&&<p style={{fontSize:12,color:T.muted}}>No contacts yet.</p>}
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                {contacts.map(c=>(
+                {contacts.map(c=> editingContact?.id===c.id ? (
+                  <div key={c.id} style={{background:T.surface,border:`1px solid ${T.accent}44`,borderRadius:8,padding:10}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+                      <input value={editingContact.name} onChange={e=>setEditingContact(p=>p&&{...p,name:e.target.value})} placeholder="Name" style={ic}/>
+                      <input value={editingContact.email||""} onChange={e=>setEditingContact(p=>p&&{...p,email:e.target.value})} placeholder="Email" style={ic}/>
+                      <input value={editingContact.phone||""} onChange={e=>setEditingContact(p=>p&&{...p,phone:e.target.value})} placeholder="Phone" style={ic}/>
+                      <input value={editingContact.role_label||""} onChange={e=>setEditingContact(p=>p&&{...p,role_label:e.target.value})} placeholder="Role (e.g. Manager)" style={ic}/>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={async()=>{
+                        const name=editingContact.name.trim();
+                        if(!name) return;
+                        await supabase.from("contacts").update({
+                          name,
+                          email:(editingContact.email||"").trim()||null,
+                          phone:(editingContact.phone||"").trim()||null,
+                          role_label:(editingContact.role_label||"").trim()||null,
+                        }).eq("id",editingContact.id);
+                        setEditingContact(null);
+                        load();
+                      }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>
+                      <button onClick={()=>setEditingContact(null)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontSize:11,padding:"5px 10px",cursor:"pointer"}}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
                   <div key={c.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:T.surface,borderRadius:6}}>
                     <div style={{width:26,height:26,borderRadius:"50%",background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:T.accent,flexShrink:0}}>
                       {c.name.split(" ").map(n=>n[0]).join("").slice(0,2)}
@@ -1053,6 +1078,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                       <div style={{fontSize:12,fontWeight:600}}>{c.name} {c.role_label&&<span style={{fontWeight:400,color:T.muted,fontSize:10}}>· {c.role_label}</span>}</div>
                       <div style={{fontSize:10,color:T.muted}}>{[c.email,c.phone].filter(Boolean).join(" · ")}</div>
                     </div>
+                    <button onClick={()=>{setAddingContact(false);setEditingContact(c);}} title="Edit contact" style={{background:"none",border:"none",color:T.faint,cursor:"pointer",display:"flex",alignItems:"center",padding:2}}
+                      onMouseEnter={e=>e.currentTarget.style.color=T.accent}
+                      onMouseLeave={e=>e.currentTarget.style.color=T.faint}><Pencil size={12}/></button>
                     <button onClick={()=>setConfirmRemove(c)} style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:11}}
                       onMouseEnter={e=>e.currentTarget.style.color=T.red}
                       onMouseLeave={e=>e.currentTarget.style.color=T.faint}>✕</button>

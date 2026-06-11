@@ -45,6 +45,13 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/set-password") || pathname.startsWith("/auth/callback");
+  // API routes run through middleware ONLY to refresh the auth token (so a
+  // POST fired after the access token lapsed doesn't 401). They must never
+  // be redirected to /login — each route does its own auth (session check,
+  // x-internal-key, webhook signature, or portal token). Without this,
+  // server-to-server internal calls (PDF/Excel/email) would get an HTML
+  // login redirect instead of running.
+  const isApiRoute = pathname.startsWith("/api");
   // Token-gated public surfaces.
   const isTokenPublic = pathname.startsWith("/portal")
     || pathname.startsWith("/staging/share")
@@ -60,7 +67,7 @@ export async function updateSession(request: NextRequest) {
 
   const isPublicRoute = isTokenPublic || isMarketingPublic || isLegacyPublic;
 
-  if (!user && !isAuthRoute && !isPublicRoute) {
+  if (!user && !isAuthRoute && !isPublicRoute && !isApiRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
