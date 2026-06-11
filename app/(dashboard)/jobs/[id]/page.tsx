@@ -169,6 +169,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // handler doesn't depend on its render-time closure.
   const itemsRef = useRef<Item[]>(items);
   useEffect(() => { itemsRef.current = items; }, [items]);
+  // recalcPhase reads job/payments/proofStatus from refs so it can be a
+  // STABLE callback (empty deps). Without this it was recreated on every
+  // render, the recalc effect listing it as a dep re-ran every render, and
+  // once it wrote a phase it recreated itself → re-ran → wrote again =
+  // infinite render loop ("Maximum update depth exceeded") that wedged the
+  // page (back button stuck on "Saving…").
+  const jobRef = useRef<Job|null>(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
+  const paymentsRef = useRef<Payment[]>(payments);
+  useEffect(() => { paymentsRef.current = payments; }, [payments]);
+  const proofStatusRef = useRef(proofStatus);
+  useEffect(() => { proofStatusRef.current = proofStatus; }, [proofStatus]);
 
   // Drag-to-reorder items in the sidebar. Updates local state
   // optimistically, persists items.sort_order in the background.
@@ -463,6 +475,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   }
 
   const recalcPhase = useCallback(async () => {
+    // Read live state from refs (not closure) so this callback stays stable.
+    const job = jobRef.current;
+    const items = itemsRef.current;
+    const payments = paymentsRef.current;
+    const proofStatus = proofStatusRef.current;
     if (!job || job.phase === "on_hold" || job.phase === "cancelled") return;
     const result = calculatePhase({
       job: {
@@ -513,7 +530,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         logJobActivity(job.id, `Phase → ${result.phase.replace(/_/g, " ")}`);
       }
     }
-  }, [job, items, payments, proofStatus, supabase]);
+    // Stable callback — all live state is read from refs above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Run lifecycle recalc after data loads and on state changes
   useEffect(() => {
