@@ -39,7 +39,7 @@ type SalesTotals = { qty: number; sales: number; cost: number; net: number; fee:
 // Older reports won't have them; readers default to 0 / sum on demand.
 type PostageTotals = { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number; fulfillment?: number; invoice_total?: number };
 
-type ReportType = "sales" | "postage" | "combined";
+type ReportType = "sales" | "postage" | "combined" | "fulfillment";
 type BulkLine = { transaction_date: string; amount: number; billed: number };
 type Report = {
   id: string;
@@ -120,6 +120,10 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   // Older reports don't have totals.fulfillment — fall back to 0.
   const isPostage = report?.report_type === "postage";
   const isCombined = report?.report_type === "combined";
+  // Fulfillment-only: client pays their own postage, we bill just the
+  // per-package fee. Renders through the postage strip/table in a stripped
+  // mode (no cost/insurance/billed columns); invoice total = fulfillment.
+  const isFulfillment = report?.report_type === "fulfillment";
   // Bulk postage pass-through — applies to either postage-only or combined.
   // The dollar math is unchanged (billed already = the reimbursement total,
   // fulfillment = 0), so only the rendering differs.
@@ -137,9 +141,12 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       const fulfillment = Number(report.totals?.fulfillment) || 0;
       return postage + fulfillment;
     }
+    if (isFulfillment) {
+      return Number(report.totals?.fulfillment) || 0;
+    }
     return Number(report.totals?.fee) || 0;
-  }, [report, isPostage, isCombined]);
-  const reportKindLabel = isCombined ? "Full Service Report" : isPostage ? "Postage Report" : "Services Invoice";
+  }, [report, isPostage, isCombined, isFulfillment]);
+  const reportKindLabel = isCombined ? "Full Service Report" : isPostage ? "Postage Report" : isFulfillment ? "Fulfillment Report" : "Services Invoice";
 
   useEffect(() => {
     if (!sendOpen || !report) return;
@@ -157,7 +164,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       }
       if (!subject) {
         const n = report.qb_invoice_number;
-        const kind = isCombined ? "Full Service Invoice" : isPostage ? "Postage Report" : "Services Invoice";
+        const kind = isCombined ? "Full Service Invoice" : isPostage ? "Postage Report" : isFulfillment ? "Fulfillment Invoice" : "Services Invoice";
         setSubject(`${kind} — ${report.clients?.name || ""} · ${report.period_label}${n ? ` · Invoice ${n}` : ""}`);
       }
     })();
@@ -320,7 +327,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
           <a href={`/reports/shipstation/new?edit=${report.id}`} style={btnGhost}>Edit</a>
           <a href={`/api/pdf/shipstation/${report.id}`} target="_blank" rel="noopener noreferrer" style={btnGhost}>Preview PDF</a>
           <a href={`/api/pdf/shipstation/${report.id}?download=1`} style={btnGhost}>Download PDF</a>
-          {(isPostage || isCombined) && (
+          {(isPostage || isCombined || isFulfillment) && (
             <a href={`/api/excel/shipstation/${report.id}`} style={btnGhost}>Download Excel</a>
           )}
           {hasQB ? (
@@ -470,10 +477,10 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
               />}
           <CombinedInvoiceBreakdown report={report} isBulkPostage={isBulkPostage} />
         </>
-      ) : isPostage ? (
+      ) : (isPostage || isFulfillment) ? (
         isBulkPostage
           ? <BulkPostageStrip totals={(report.totals || {}) as any} />
-          : <PostageTotalsStrip totals={report.totals as PostageTotals} lines={(report.line_items || []) as PostageLineItem[]} />
+          : <PostageTotalsStrip totals={report.totals as PostageTotals} lines={(report.line_items || []) as PostageLineItem[]} fulfillmentOnly={isFulfillment} />
       ) : (
         <SalesTotalsStrip totals={report.totals as SalesTotals} feePct={report.hpd_fee_pct} />
       )}
@@ -495,10 +502,10 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
                 }}
               />}
         </>
-      ) : isPostage ? (
+      ) : (isPostage || isFulfillment) ? (
         isBulkPostage
           ? <BulkPostageLedger lines={(report.line_items || []) as BulkLine[]} total={Number((report.totals || {}).billed) || 0} />
-          : <PostageLineItemsTable report={report} />
+          : <PostageLineItemsTable report={report} fulfillmentOnly={isFulfillment} />
       ) : (
         <LineItemsTable report={report} />
       )}
@@ -539,7 +546,7 @@ function SalesTotalsStrip({ totals, feePct }: { totals: SalesTotals; feePct: num
   );
 }
 
-function PostageTotalsStrip({ totals, lines }: { totals: PostageTotals; lines: PostageLineItem[] }) {
+function PostageTotalsStrip({ totals, lines, fulfillmentOnly = false }: { totals: PostageTotals; lines: PostageLineItem[]; fulfillmentOnly?: boolean }) {
   // Older postage reports were saved before totals.items existed — fall
   // back to summing items_count off the line items so historical reports
   // still show the KPI. Same defensive default for fulfillment (added
@@ -556,7 +563,14 @@ function PostageTotalsStrip({ totals, lines }: { totals: PostageTotals; lines: P
     margin: Number(totals?.margin) || 0,
     fulfillment: Number(totals?.fulfillment) || 0,
   };
-  const tiles = [
+  // Fulfillment-only: no postage is billed, so show just the invoiced
+  // figures (shipments, items, the fee, the total).
+  const tiles = fulfillmentOnly ? [
+    { label: "Shipments", value: fmtN(safe.shipments), color: T.text },
+    { label: "Items Shipped", value: fmtN(safe.items), color: T.text },
+    { label: "Fulfillment Fee", value: fmtD(safe.fulfillment), color: T.amber },
+    { label: "Total Invoice", value: fmtD(safe.fulfillment), color: T.green },
+  ] : [
     { label: "Shipments", value: fmtN(safe.shipments), color: T.text },
     { label: "Items Shipped", value: fmtN(safe.items), color: T.text },
     { label: "Shipping Income", value: fmtD(safe.paid), color: T.text },
@@ -567,7 +581,7 @@ function PostageTotalsStrip({ totals, lines }: { totals: PostageTotals; lines: P
     { label: "Fulfillment", value: fmtD(safe.fulfillment), color: T.amber },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${fulfillmentOnly ? 4 : 8}, 1fr)`, gap: 8 }}>
       {tiles.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
@@ -642,6 +656,7 @@ function PostageLineItemsTable({
   report,
   postageOverride,
   period,
+  fulfillmentOnly = false,
 }: {
   report: Report;
   // Combined reports keep postage data on dedicated columns; pass them
@@ -649,6 +664,10 @@ function PostageLineItemsTable({
   // report or the postage half of a combined report from the same code.
   postageOverride?: { lines: PostageLineItem[]; totals: PostageTotals; perPackageFee: number };
   period?: string;
+  // Fulfillment-only: hide every postage cost column (the client never
+  // sees postage) and show just date / order / recipient / items, with a
+  // fulfillment-fee-only invoice summary.
+  fulfillmentOnly?: boolean;
 }) {
   const lines = postageOverride?.lines ?? ((report.line_items || []) as PostageLineItem[]);
   const totals = postageOverride?.totals ?? ((report.totals || {}) as PostageTotals);
@@ -667,20 +686,22 @@ function PostageLineItemsTable({
         {period && <span style={{ marginLeft: 8, color: T.faint }}>· {period}</span>}
       </div>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 960 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: fulfillmentOnly ? 0 : 960 }}>
           <thead>
             <tr>
               <th style={thStyle}>Date</th>
               <th style={thStyle}>Order #</th>
               <th style={thStyle}>Recipient</th>
-              <th style={thStyle}>Service</th>
+              {!fulfillmentOnly && <th style={thStyle}>Service</th>}
               <th style={{ ...thStyle, textAlign: "right" }}>Items</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Weight</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Zone</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Paid</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Cost</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Insurance</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Billed</th>
+              {!fulfillmentOnly && <>
+                <th style={{ ...thStyle, textAlign: "right" }}>Weight</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Zone</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Paid</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Cost</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Insurance</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Billed</th>
+              </>}
             </tr>
           </thead>
           <tbody>
@@ -692,14 +713,16 @@ function PostageLineItemsTable({
                   <td style={{ ...tdStyle, color: T.muted }}>{dateOnly(r.ship_date) || "—"}</td>
                   <td style={{ ...tdStyle, color: T.text, fontWeight: 600 }}>{r.order_number || "—"}</td>
                   <td style={{ ...tdStyle, fontFamily: font }}>{r.recipient || "—"}</td>
-                  <td style={{ ...tdStyle, fontFamily: font, color: T.muted }}>{svc || "—"}</td>
+                  {!fulfillmentOnly && <td style={{ ...tdStyle, fontFamily: font, color: T.muted }}>{svc || "—"}</td>}
                   <td style={{ ...tdStyle, textAlign: "right" }}>{r.items_count ? fmtN(r.items_count) : "—"}</td>
-                  <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{weight}</td>
-                  <td style={{ ...tdStyle, textAlign: "right" }}>{r.zone || "—"}</td>
-                  <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(r.shipping_paid)}</td>
-                  <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{fmtD(r.shipping_cost)}</td>
-                  <td style={{ ...tdStyle, textAlign: "right", color: r.insurance_cost > 0 ? T.muted : T.faint }}>{r.insurance_cost > 0 ? fmtD(r.insurance_cost) : "—"}</td>
-                  <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>{fmtD(r.billed)}</td>
+                  {!fulfillmentOnly && <>
+                    <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{weight}</td>
+                    <td style={{ ...tdStyle, textAlign: "right" }}>{r.zone || "—"}</td>
+                    <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(r.shipping_paid)}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{fmtD(r.shipping_cost)}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", color: r.insurance_cost > 0 ? T.muted : T.faint }}>{r.insurance_cost > 0 ? fmtD(r.insurance_cost) : "—"}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>{fmtD(r.billed)}</td>
+                  </>}
                 </tr>
               );
             })}
@@ -711,10 +734,12 @@ function PostageLineItemsTable({
           Fulfillment is a flat HPD service charge that's billed in
           addition to postage; doesn't affect the postage Client Profit. */}
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", width: "100%", maxWidth: 480, fontSize: 12, color: T.muted, fontFamily: mono }}>
-          <span>Postage Billed (cost + insurance)</span>
-          <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(postageBilled)}</span>
-        </div>
+        {!fulfillmentOnly && (
+          <div style={{ display: "flex", justifyContent: "space-between", width: "100%", maxWidth: 480, fontSize: 12, color: T.muted, fontFamily: mono }}>
+            <span>Postage Billed (cost + insurance)</span>
+            <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(postageBilled)}</span>
+          </div>
+        )}
         {fulfillment > 0 && (
           <div style={{ display: "flex", justifyContent: "space-between", width: "100%", maxWidth: 480, fontSize: 12, color: T.muted, fontFamily: mono }}>
             <span>Fulfillment Fee {perPackage > 0 ? `(${fmtD(perPackage)} × ${fmtN(shipments)} shipments)` : ""}</span>
@@ -723,7 +748,7 @@ function PostageLineItemsTable({
         )}
         <div style={{ display: "flex", justifyContent: "space-between", width: "100%", maxWidth: 480, fontSize: 14, color: T.text, fontFamily: mono, fontWeight: 800, paddingTop: 6, borderTop: `1px solid ${T.border}`, marginTop: 4 }}>
           <span>Total Invoice</span>
-          <span>{fmtD(totalInvoice)}</span>
+          <span>{fmtD(fulfillmentOnly ? fulfillment : totalInvoice)}</span>
         </div>
       </div>
     </div>

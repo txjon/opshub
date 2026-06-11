@@ -221,6 +221,7 @@ export default function ShipStationIntegrationPage() {
                 {visibleReports.map((r: any) => {
                   const isPostage = r.report_type === "postage";
                   const isCombined = r.report_type === "combined";
+                  const isFulfillment = r.report_type === "fulfillment";
                   const totals = r.totals || {};
                   const post = r.postage_totals || {};
                   // Bulk postage is pass-through: no shipment count / margin.
@@ -229,11 +230,11 @@ export default function ShipStationIntegrationPage() {
                   const bulkCount = isCombined ? (Number(post.purchases) || 0) : (Number(totals.purchases) || 0);
                   const volume = isCombined
                     ? `${(totals.qty || 0).toLocaleString()} + ${isBulk ? `${bulkCount.toLocaleString()} buys` : `${(post.shipments || 0).toLocaleString()} ship`}`
-                    : isPostage
+                    : (isPostage || isFulfillment)
                     ? (isBulk ? `${bulkCount.toLocaleString()} buys` : `${(totals.shipments || 0).toLocaleString()} ship`)
                     : (totals.qty || 0).toLocaleString();
-                  const typeLabel = isCombined ? "Full Svc" : isPostage ? "Postage" : "Sales";
-                  const typeColor = isCombined ? T.purple : isPostage ? T.amber : T.accent;
+                  const typeLabel = isCombined ? "Full Svc" : isFulfillment ? "Fulfillment" : isPostage ? "Postage" : "Sales";
+                  const typeColor = isCombined ? T.purple : isFulfillment ? T.green : isPostage ? T.amber : T.accent;
                   return (
                     <tr key={r.id}>
                       <td style={{ ...tdStyle, color: T.muted, whiteSpace: "nowrap" }}>

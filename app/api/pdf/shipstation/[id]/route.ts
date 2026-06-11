@@ -273,8 +273,13 @@ function renderPostageReportHTML(data: {
   lines: PostageLine[];
   totals: PostageTotals;
   branding: import("@/lib/branding").PdfBranding;
+  // Fulfillment-only: client pays their own postage. Drop the postage
+  // KPIs (income/cost/insurance/billed/margin) and the postage breakdown
+  // line — the whole invoice is the per-package fee.
+  fulfillmentOnly?: boolean;
 }): string {
   const font = `'Helvetica Neue', Arial, sans-serif`;
+  const fulfillmentOnly = !!data.fulfillmentOnly;
 
   const itemsFallback = data.lines.reduce((a, r) => a + (Number(r.items_count) || 0), 0);
   const safe = {
@@ -288,7 +293,7 @@ function renderPostageReportHTML(data: {
     margin: Number(data.totals?.margin) || 0,
     fulfillment: Number(data.totals?.fulfillment) || 0,
   };
-  const totalInvoice = safe.billed + safe.fulfillment;
+  const totalInvoice = fulfillmentOnly ? safe.fulfillment : safe.billed + safe.fulfillment;
   const hasFulfillment = safe.fulfillment > 0 || data.perPackageFee > 0;
 
   // KPI tiles — mirrors the 7-tile strip on the detail page so the
@@ -348,7 +353,13 @@ function renderPostageReportHTML(data: {
        service charge without it muddying their store's postage margin. -->
   <div style="margin:16px 40px 0;font-family:${font}">
     <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary — ${escapeHtml(data.periodLabel)}</div>
-    <div style="display:grid;grid-template-columns:repeat(8,1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
+    <div style="display:grid;grid-template-columns:repeat(${fulfillmentOnly ? 4 : 8},1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
+      ${fulfillmentOnly ? `
+      ${kpiTile("Shipments", fmtN(safe.shipments))}
+      ${kpiTile("Items Shipped", fmtN(safe.items))}
+      ${kpiTile("Fulfillment Fee", fmtD(safe.fulfillment))}
+      ${kpiTileLast("Total Invoice", fmtD(safe.fulfillment), "#2a7a3a")}
+      ` : `
       ${kpiTile("Shipments", fmtN(safe.shipments))}
       ${kpiTile("Items Shipped", fmtN(safe.items))}
       ${kpiTile("Shipping Income", fmtD(safe.paid))}
@@ -357,6 +368,7 @@ function renderPostageReportHTML(data: {
       ${kpiTile("Billed Amount", fmtD(safe.billed))}
       ${kpiTile("Client Profit", fmtD(safe.margin), safe.margin >= 0 ? "#2a7a3a" : "#b3263a")}
       ${kpiTileLast("Fulfillment", fmtD(safe.fulfillment))}
+      `}
     </div>
   </div>
 
@@ -366,10 +378,11 @@ function renderPostageReportHTML(data: {
        visually unchanged. -->
   <div style="padding:20px 40px 24px;font-family:${font};display:flex;justify-content:flex-end">
     <div style="min-width:340px">
+      ${fulfillmentOnly ? "" : `
       <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#666;padding:6px 0">
         <span>Postage Billed (cost + insurance)</span>
         <span style="font-family:monospace;font-weight:600;color:#1a1a1a">${fmtD(safe.billed)}</span>
-      </div>
+      </div>`}
       ${hasFulfillment ? `
       <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#666;padding:6px 0">
         <span>Fulfillment Fee${data.perPackageFee > 0 ? ` (${fmtD(data.perPackageFee)} × ${fmtN(safe.shipments)} shipments)` : ""}</span>
@@ -938,6 +951,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const generatedOn = new Date(report.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     const isPostage = report.report_type === "postage";
     const isCombined = report.report_type === "combined";
+    const isFulfillment = report.report_type === "fulfillment";
     const isBulkPostage = (isPostage || isCombined) && (report as any).postage_mode === "bulk";
 
     // Pick bill-to email. Convention in OpsHub: client contacts are
@@ -989,7 +1003,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           totals: (report.totals || {}) as BulkTotals,
           branding,
         })
-      : isPostage
+      : (isPostage || isFulfillment)
       ? renderPostageReportHTML({
           clientName,
           clientBillingAddress,
@@ -1002,6 +1016,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           lines: (report.line_items || []) as PostageLine[],
           totals: (report.totals || { shipments: 0, items: 0, paid: 0, cost_raw: 0, cost: 0, insurance: 0, billed: 0, margin: 0 }) as PostageTotals,
           branding,
+          fulfillmentOnly: isFulfillment,
         })
       : renderSalesReportHTML({
           clientName,
@@ -1018,7 +1033,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     const pdfBuffer = await generatePDF(html);
     const slug = (clientName + "-" + report.period_label).replace(/\s+/g, "-").replace(/[^a-zA-Z0-9-]/g, "");
-    const filename = `HPD-${isCombined ? "Full-Service-Invoice" : isPostage ? (isBulkPostage ? "Postage-Invoice" : "Fulfillment-Invoice") : "Services-Invoice"}-${slug}.pdf`;
+    const filename = `HPD-${isCombined ? "Full-Service-Invoice" : isFulfillment ? "Fulfillment-Invoice" : isPostage ? (isBulkPostage ? "Postage-Invoice" : "Fulfillment-Invoice") : "Services-Invoice"}-${slug}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
     return new NextResponse(pdfBuffer, {

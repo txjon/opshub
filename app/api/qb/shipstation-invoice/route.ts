@@ -55,6 +55,9 @@ export async function POST(req: NextRequest) {
     const totals = report.totals || {};
     const isPostage = report.report_type === "postage";
     const isCombined = report.report_type === "combined";
+    // Fulfillment-only — bill just the per-package fee (shipments × rate).
+    // No sales fee, no postage line. Shipment count lives on totals.
+    const isFulfillment = report.report_type === "fulfillment";
     // Bulk postage is a pure pass-through reimbursement — billed already
     // equals the total spent, fulfillment is 0, and the line description
     // drops the shipment-count / markup language.
@@ -70,7 +73,7 @@ export async function POST(req: NextRequest) {
       ? ((report as any).postage_totals || {})
       : totals;
     const shipments = Number(postageTotalsForBilling.shipments) || 0;
-    const fulfillmentAmount = (isPostage || isCombined)
+    const fulfillmentAmount = (isPostage || isCombined || isFulfillment)
       ? Math.round(perPackageFee * shipments * 100) / 100
       : 0;
     // Sales line   → totals.fee
@@ -80,21 +83,25 @@ export async function POST(req: NextRequest) {
     const postageBilled = (isPostage || isCombined)
       ? (Number(postageTotalsForBilling.billed) || 0)
       : 0;
-    const salesFee = (isCombined || (!isPostage && !isCombined))
+    const salesFee = (isCombined || (!isPostage && !isCombined && !isFulfillment))
       ? (Number(totals.fee) || 0)
       : 0;
     const feeAmount = isCombined
       ? salesFee + postageBilled + fulfillmentAmount
       : isPostage
         ? postageBilled + fulfillmentAmount
-        : Number(totals.fee) || 0;
+        : isFulfillment
+          ? fulfillmentAmount
+          : Number(totals.fee) || 0;
     if (feeAmount <= 0) {
       return NextResponse.json({
         error: isCombined
           ? "Report has nothing to bill (sales fee + postage + fulfillment is zero or negative)"
           : isPostage
             ? "Report has nothing to bill (postage + fulfillment is zero or negative)"
-            : "Report has no HPD Fee to bill (totals.fee is zero or negative)",
+            : isFulfillment
+              ? "Report has no fulfillment fee to bill (per-package fee × shipments is zero). Set a per-package fee."
+              : "Report has no HPD Fee to bill (totals.fee is zero or negative)",
       }, { status: 400 });
     }
 
@@ -176,8 +183,8 @@ export async function POST(req: NextRequest) {
     // Combined: all three apply on one invoice.
     const lineItems: QBLineItem[] = [];
 
-    // Service Fee line — sales-only or combined
-    if (isCombined || (!isPostage && !isCombined)) {
+    // Service Fee line — sales-only or combined (never fulfillment)
+    if (isCombined || (!isPostage && !isCombined && !isFulfillment)) {
       const feePct = (Number(report.hpd_fee_pct) || 0) * 100;
       lineItems.push({
         description: `Product Sales Fulfillment — ${salesPeriod} (${feePct.toFixed(1)}% of $${Number(totals.net || 0).toFixed(2)} net sales)`,
@@ -214,11 +221,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Fulfillment-only line — the entire invoice. Client pays their own
+    // postage, so there's no postage line; just $rate × N shipments.
+    if (isFulfillment && fulfillmentAmount > 0 && shipments > 0 && perPackageFee > 0) {
+      lineItems.push({
+        description: `Fulfillment Fee — ${report.period_label} (per-package handling, ${shipments.toFixed(0)} shipments)`,
+        qty: shipments,
+        unitPrice: Math.round(perPackageFee * 100) / 100,
+        itemName: "Fulfillment",
+      });
+    }
+
     const memo = isCombined
       ? `Full Service Invoice — ${report.period_label}`
       : isPostage
         ? `Postage Report — ${report.period_label}`
-        : `Services Invoice — ${report.period_label}`;
+        : isFulfillment
+          ? `Fulfillment Invoice — ${report.period_label}`
+          : `Services Invoice — ${report.period_label}`;
 
     const shipAddr = client.shipping_address || undefined;
     const existingInvoiceId = report.qb_invoice_id;

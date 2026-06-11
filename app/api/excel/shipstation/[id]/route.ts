@@ -50,10 +50,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (error || !report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
 
     const isCombined = report.report_type === "combined";
-    if (report.report_type !== "postage" && !isCombined) {
-      return NextResponse.json({ error: "Excel export is only available for postage and Full Service reports" }, { status: 400 });
+    const isFulfillment = report.report_type === "fulfillment";
+    if (report.report_type !== "postage" && !isCombined && !isFulfillment) {
+      return NextResponse.json({ error: "Excel export is only available for postage, fulfillment, and Full Service reports" }, { status: 400 });
     }
-    const isBulkPostage = (report as any).postage_mode === "bulk";
+    // Fulfillment is always per-shipment (never bulk).
+    const isBulkPostage = !isFulfillment && (report as any).postage_mode === "bulk";
     // The spreadsheet is the postage half — use the postage period if the
     // report set one, else the invoice period.
     const postagePeriod = (report as any).postage_period_label || report.period_label;
@@ -93,8 +95,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         perPackageFee: Number((report as any).per_package_fee) || 0,
         lines: lines as PostageLine[],
         totals: totals as PostageTotals,
+        fulfillmentOnly: isFulfillment,
       });
-      filename = `HPD-${isCombined ? "Full-Service-Shipments" : "Fulfillment-Shipments"}-${slug}.xlsx`;
+      filename = `HPD-${isFulfillment ? "Fulfillment-Invoice" : isCombined ? "Full-Service-Shipments" : "Fulfillment-Shipments"}-${slug}.xlsx`;
     }
 
     return new NextResponse(new Uint8Array(buffer), {

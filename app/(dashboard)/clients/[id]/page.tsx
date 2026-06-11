@@ -32,6 +32,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [client, setClient] = useState<Client|null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
   const [files, setFiles] = useState<ClientFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -40,7 +41,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const [confirmDeleteFile, setConfirmDeleteFile] = useState<ClientFile|null>(null);
   const [previewFile, setPreviewFile] = useState<ClientFile|null>(null);
   const [itemThumbs, setItemThumbs] = useState<Record<string, string>>({});
-  const [historyView, setHistoryView] = useState<"projects"|"items">("projects");
+  const [historyView, setHistoryView] = useState<"projects"|"items"|"shipping">("projects");
   const [itemViewMode, setItemViewMode] = useState<"list"|"tiles">("list");
   // History panel can take up a lot of vertical space on long-lived
   // clients. Collapsing it gets the Working Sheet above the fold.
@@ -209,14 +210,19 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
 
   async function load() {
     setLoading(true);
-    const [cRes, ctRes, jRes] = await Promise.all([
+    const [cRes, ctRes, jRes, rRes] = await Promise.all([
       supabase.from("clients").select("*").eq("id", params.id).single(),
       supabase.from("contacts").select("*").eq("client_id", params.id).order("name"),
       supabase.from("jobs").select("*, costing_summary, type_meta, shipping_route, phase_timestamps, items(id, name, blank_vendor, blank_sku, cost_per_unit, sell_per_unit, blank_costs, sort_order, pipeline_stage, working_status, client_retail_per_unit, client_eta, notes, received_at_hpd, blanks_order_cost, archived_at, completed_at, shipping_route, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(amount, status, due_date)").eq("client_id", params.id).order("created_at", { ascending: false }),
+      // ShipStation/fulfillment invoices live in their own table but are
+      // real invoices to this client — surfaced in History + rolled into
+      // the financial summary. RLS already scopes to the active tenant.
+      supabase.from("shipstation_reports").select("id, report_type, period_label, created_at, totals, postage_totals, qb_invoice_number, qb_total_with_tax, sent_at, paid_at, paid_amount").eq("client_id", params.id).order("created_at", { ascending: false }),
     ]);
     if (cRes.data) setClient(cRes.data);
     if (ctRes.data) setContacts(ctRes.data as Contact[]);
     if (jRes.data) setJobs(jRes.data as Job[]);
+    setReports(rRes.data || []);
     setLoading(false);
     loadFiles();
     // Item thumbnails for the Working Sheet — mirrors the portal items
@@ -353,6 +359,30 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const now = new Date();
   const overdue = allPayments.filter((p: any) => p.due_date && new Date(p.due_date) < now && !["paid","void"].includes(p.status));
   const totalOverdue = overdue.reduce((a: number, p: any) => a + (p.amount || 0), 0);
+
+  // ShipStation/fulfillment invoices. Billed amount mirrors the report
+  // detail page exactly (qb_total_with_tax when synced, else fee +
+  // postage billed + fulfillment) so the numbers reconcile. Only reports
+  // that became a real invoice (QB invoice #) or were emailed to the
+  // client count toward the summary — unsent drafts don't touch revenue.
+  function reportBilled(r: any): number {
+    if (r.qb_total_with_tax != null) return Number(r.qb_total_with_tax);
+    const t = r.totals || {}, pt = r.postage_totals || {};
+    if (r.report_type === "combined") return (t.fee || 0) + (pt.billed || 0) + (pt.fulfillment || 0);
+    if (r.report_type === "postage") return (t.billed || 0) + (t.fulfillment || 0);
+    if (r.report_type === "fulfillment") return t.fulfillment || 0;
+    return t.fee || 0; // sales-only
+  }
+  const invoicedReports = reports.filter((r: any) => r.qb_invoice_number || r.sent_at);
+  const reportsRevenue = invoicedReports.reduce((a: number, r: any) => a + reportBilled(r), 0);
+  const reportsPaid = invoicedReports.filter((r: any) => r.paid_at).reduce((a: number, r: any) => a + (r.paid_amount != null ? Number(r.paid_amount) : reportBilled(r)), 0);
+  const reportsOutstanding = invoicedReports.filter((r: any) => !r.paid_at).reduce((a: number, r: any) => a + reportBilled(r), 0);
+
+  // Combined summary across projects + shipping invoices. Overdue stays
+  // project-only — shipping reports carry no due date.
+  const revAll = totalRev + reportsRevenue;
+  const paidAll = totalPaid + reportsPaid;
+  const outstandingAll = totalOutstanding + reportsOutstanding;
 
   // Item history — flatten all items across all jobs. We carry every
   // input the canonical status resolver needs (lib/item-status):
@@ -781,9 +811,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       {/* Financial summary */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
         {[
-          {label:"Total Revenue",value:totalRev>0?"$"+Math.round(totalRev).toLocaleString():"—",color:T.accent},
-          {label:"Total Paid",value:totalPaid>0?"$"+Math.round(totalPaid).toLocaleString():"—",color:T.green},
-          {label:"Outstanding",value:totalOutstanding>0?"$"+Math.round(totalOutstanding).toLocaleString():"$0",color:totalOutstanding>0?T.amber:T.faint},
+          {label:"Total Revenue",value:revAll>0?"$"+Math.round(revAll).toLocaleString():"—",color:T.accent},
+          {label:"Total Paid",value:paidAll>0?"$"+Math.round(paidAll).toLocaleString():"—",color:T.green},
+          {label:"Outstanding",value:outstandingAll>0?"$"+Math.round(outstandingAll).toLocaleString():"$0",color:outstandingAll>0?T.amber:T.faint},
           {label:"Overdue",value:totalOverdue>0?"$"+Math.round(totalOverdue).toLocaleString():"$0",color:totalOverdue>0?T.red:T.faint},
         ].map(s=>(
           <div key={s.label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 14px"}}>
@@ -1046,11 +1076,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:historyCollapsed?0:8,gap:8,flexWrap:"wrap"}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <div style={{display:"flex",gap:2,background:T.surface,borderRadius:6,padding:2}}>
-                {(["projects","items"] as const).map(v=>(
+                {(invoicedReports.length>0?(["projects","items","shipping"] as const):(["projects","items"] as const)).map(v=>(
                   <button key={v} onClick={()=>setHistoryView(v)}
                     style={{padding:"3px 10px",borderRadius:4,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
                       background:historyView===v?T.accent:"transparent",color:historyView===v?"#fff":T.muted}}>
-                    {v==="projects"?"Projects":"Items"}
+                    {v==="projects"?"Projects":v==="items"?"Items":"Shipping"}
                   </button>
                 ))}
               </div>
@@ -1073,7 +1103,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
               style={{display:"flex",alignItems:"center",gap:8,background:"transparent",border:"none",cursor:"pointer",padding:"4px 6px",borderRadius:4,fontFamily:font}}
               onMouseEnter={(e:any)=>{e.currentTarget.style.background=T.surface;}}
               onMouseLeave={(e:any)=>{e.currentTarget.style.background="transparent";}}>
-              <span style={{fontSize:10,color:T.faint}}>{historyView==="projects"?`${jobs.length} projects`:`${historicalItems.length} archived`}</span>
+              <span style={{fontSize:10,color:T.faint}}>{historyView==="projects"?`${jobs.length} projects`:historyView==="shipping"?`${invoicedReports.length} invoice${invoicedReports.length!==1?"s":""}`:`${historicalItems.length} archived`}</span>
               <span style={{fontSize:10,color:T.muted,display:"inline-block",transform:historyCollapsed?"rotate(-90deg)":"rotate(0deg)",transition:"transform 0.15s"}}>▾</span>
             </button>
           </div>
@@ -1261,6 +1291,36 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                         </div>
                       )}
                     </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {historyView==="shipping"&&(
+            <>
+              {invoicedReports.length===0&&<p style={{fontSize:12,color:T.muted}}>No shipping invoices yet.</p>}
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {invoicedReports.map((r:any)=>{
+                  const typeLabel = r.report_type==="combined"?"Full Service":r.report_type==="postage"?"Postage":r.report_type==="fulfillment"?"Fulfillment":"Sales";
+                  const billed = reportBilled(r);
+                  // Paid wins, then Sent, else it's a saved QB invoice not yet emailed.
+                  const status = r.paid_at?{label:"Paid",color:T.green}:r.sent_at?{label:"Sent",color:"#3a8a9e"}:{label:"Invoiced",color:T.accent};
+                  return(
+                    <Link key={r.id} href={`/reports/shipstation/${r.id}`}
+                      style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:T.surface,borderRadius:6,textDecoration:"none",color:T.text,transition:"background 0.1s"}}
+                      onMouseEnter={(e:any)=>e.currentTarget.style.background=T.accentDim}
+                      onMouseLeave={(e:any)=>e.currentTarget.style.background=T.surface}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{typeLabel}{r.period_label?` · ${r.period_label}`:""}</div>
+                        <div style={{fontSize:10,color:T.muted,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                          {r.qb_invoice_number?<span style={{fontFamily:mono}}>#{r.qb_invoice_number}</span>:<span style={{fontFamily:mono}}>Fulfillment invoice</span>}
+                          {` · ${new Date(r.created_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"})}`}
+                        </div>
+                      </div>
+                      <span style={{fontSize:12,fontFamily:mono,fontWeight:600,color:T.text,flexShrink:0}}>${Math.round(billed).toLocaleString()}</span>
+                      <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:status.color,whiteSpace:"nowrap",flexShrink:0,minWidth:62,textAlign:"right"}}>{status.label}</span>
+                    </Link>
                   );
                 })}
               </div>

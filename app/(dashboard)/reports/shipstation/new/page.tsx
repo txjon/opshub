@@ -122,7 +122,7 @@ function findCol(header: string[], aliases: string[]): number {
 }
 
 type Client = { id: string; name: string; hpd_fee_pct: number | null; hpd_per_package_fee: number | null };
-type ReportType = "sales" | "postage" | "combined";
+type ReportType = "sales" | "postage" | "combined" | "fulfillment";
 
 // "Full Service" combines a Sales report and a Postage report into one
 // shipstation_reports row → one PDF, one QB invoice, one email. The
@@ -184,11 +184,17 @@ export default function NewShipstationReportPage() {
   const [rawBulkRows, setRawBulkRows] = useState<ParsedBulkRow[]>([]);
 
   const isCombined = reportType === "combined";
+  // Fulfillment-only: client runs their own ShipStation and pays their own
+  // postage, so we bill ONLY the per-package fee. It reuses the postage
+  // CSV upload + shipment selection (to get the shipment count) but skips
+  // the markup and never bills postage. Always per-shipment, never bulk.
+  const isFulfillment = reportType === "fulfillment";
   const showSales = reportType === "sales" || isCombined;
-  const showPostage = reportType === "postage" || isCombined;
-  // Bulk only matters when there's a postage half. Per-shipment is the
-  // postage flavor used by all existing reports.
-  const isBulkPostage = showPostage && postageMode === "bulk";
+  const showPostage = reportType === "postage" || isCombined || isFulfillment;
+  // Bulk only matters when there's a billed-postage half. Per-shipment is
+  // the postage flavor used by all existing reports; fulfillment is always
+  // per-shipment.
+  const isBulkPostage = showPostage && postageMode === "bulk" && !isFulfillment;
 
   // Stage 4
   const [saving, setSaving] = useState(false);
@@ -242,12 +248,16 @@ export default function NewShipstationReportPage() {
 
         const isPostageOnly = r.report_type === "postage";
         const isCombinedSaved = r.report_type === "combined";
+        // Fulfillment hydrates like a per-shipment postage report (shipment
+        // rows on line_items) but with no sales side and no markup.
+        const isFulfillmentSaved = r.report_type === "fulfillment";
         const savedMode: "per_shipment" | "bulk" = r.postage_mode === "bulk" ? "bulk" : "per_shipment";
         setPostageMode(savedMode);
 
         // Sales side — sales-only and combined have line_items with
         // {sku, description, qty_sold, product_sales, unit_cost}.
-        if (!isPostageOnly) {
+        // Fulfillment has no sales side.
+        if (!isPostageOnly && !isFulfillmentSaved) {
           const lines: any[] = r.line_items || [];
           const parsed: ParsedRow[] = lines.map((l, i) => ({
             idx: i,
@@ -297,7 +307,7 @@ export default function NewShipstationReportPage() {
             included: true,
           }));
           setRawBulkRows(parsed);
-        } else if (isPostageOnly || isCombinedSaved) {
+        } else if (isPostageOnly || isCombinedSaved || isFulfillmentSaved) {
           const lines: any[] = isCombinedSaved
             ? (r.postage_line_items || [])
             : (r.line_items || []);
@@ -657,9 +667,16 @@ export default function NewShipstationReportPage() {
     }
     const margin = round2(paid - billed);
     const fulfillment = round2(perPkg * shipments);
+    // Fulfillment-only invoices bill nothing but the per-package fee.
+    // Keep shipment + item counts (they drive the fee and the KPIs) but
+    // zero every postage figure so no carrier cost/markup reaches the
+    // client's invoice or the totals downstream.
+    if (isFulfillment) {
+      return { shipments, items, paid: 0, cost_raw: 0, cost: 0, insurance: 0, billed: 0, margin: 0, fulfillment, invoice_total: fulfillment };
+    }
     const invoice_total = round2(billed + fulfillment);
     return { shipments, items, paid: round2(paid), cost_raw: round2(cost_raw), cost: round2(cost), insurance: round2(insurance), billed: round2(billed), margin, fulfillment, invoice_total };
-  }, [selectedPostageRows, markupPct, perPackageFee]);
+  }, [selectedPostageRows, markupPct, perPackageFee, isFulfillment]);
 
   // ── Bulk postage derivations ─────────────────────────────────────────────
   // Pure pass-through: the billed amount IS the sum of the included
@@ -1038,6 +1055,77 @@ export default function NewShipstationReportPage() {
           if (insErr) throw insErr;
           router.push(`/reports/shipstation/${inserted.id}`);
         }
+      } else if (reportType === "fulfillment") {
+        // Fulfillment-only — client pays their own postage, we bill only
+        // the per-package fee. Stored like a per-shipment postage report
+        // with every postage figure zeroed; totals.fulfillment is the
+        // entire invoice. Reuses the postage shipment rows for the line
+        // detail (date / order / recipient / items) but strips cost.
+        const perPkg = parseMoney(perPackageFee);
+        const line_items = selectedPostageRows.map(r => ({
+          ship_date: r.ship_date,
+          recipient: r.recipient,
+          order_number: r.order_number,
+          provider: r.provider,
+          service: r.service,
+          package_type: r.package_type,
+          items_count: r.items_count,
+          zone: r.zone,
+          shipping_paid: 0,
+          shipping_cost_raw: 0,
+          shipping_cost: 0,
+          insurance_cost: 0,
+          weight: r.weight,
+          weight_unit: r.weight_unit,
+          billed: 0,
+        }));
+
+        // Persist the per-package rate to the client so next month
+        // pre-fills. Leave hpd_fee_pct (postage markup) untouched —
+        // fulfillment never sets it.
+        if (client && (client.hpd_per_package_fee == null || Math.abs(client.hpd_per_package_fee - perPkg) > 1e-9)) {
+          await (supabase as any).from("clients").update({ hpd_per_package_fee: perPkg }).eq("id", clientId);
+        }
+
+        if (editId) {
+          const { error: updErr } = await (supabase as any)
+            .from("shipstation_reports")
+            .update({
+              report_type: "fulfillment",
+              postage_mode: "per_shipment",
+              period_label: periodLabel,
+              sales_period_label: null,
+              postage_period_label: null,
+              hpd_fee_pct: 0,
+              per_package_fee: perPkg,
+              line_items,
+              totals: postageTotals,
+              postage_line_items: null,
+              postage_totals: null,
+              postage_markup_pct: null,
+            })
+            .eq("id", editId);
+          if (updErr) throw updErr;
+          router.push(`/reports/shipstation/${editId}`);
+        } else {
+          const { data: inserted, error: insErr } = await (supabase as any)
+            .from("shipstation_reports")
+            .insert({
+              client_id: clientId,
+              report_type: "fulfillment",
+              postage_mode: "per_shipment",
+              period_label: periodLabel,
+              hpd_fee_pct: 0,
+              per_package_fee: perPkg,
+              line_items,
+              totals: postageTotals,
+              created_by: user.user?.id || null,
+            })
+            .select("id")
+            .single();
+          if (insErr) throw insErr;
+          router.push(`/reports/shipstation/${inserted.id}`);
+        }
       } else {
         // Full Service / combined — both halves saved on one row.
         // Sales side → existing line_items / totals / hpd_fee_pct.
@@ -1184,16 +1272,18 @@ export default function NewShipstationReportPage() {
   // canNextFrom* gates per type. Combined requires both halves at every
   // stage — empty CSVs / zero rows / missing prices on either side
   // block the Next button.
+  // Fulfillment reuses the postage CSV + shipment selection, so stages 1-2
+  // gate exactly like a per-shipment postage report.
   const canNextFrom1 =
     !!clientId && !!periodLabel.trim() &&
     (isCombined
       ? salesLoaded > 0 && postageLoaded > 0 && !csvError && !csvErrorPostage
-      : isPostage
+      : (isPostage || isFulfillment)
         ? postageLoaded > 0 && !csvErrorPostage
         : salesLoaded > 0 && !csvError);
   const canNextFrom2 = isCombined
     ? salesSelectedCount > 0 && postageSelectedCount > 0
-    : isPostage
+    : (isPostage || isFulfillment)
       ? postageSelectedCount > 0
       : salesSelectedCount > 0;
   // A blank cost means the product is free ($0) — that's valid, not missing.
@@ -1205,10 +1295,12 @@ export default function NewShipstationReportPage() {
   const postagePricingComplete = isBulkPostage ? true : parseMoney(markupPct) >= 0;
   const canNextFrom3 = isCombined
     ? salesPricingComplete && postagePricingComplete
-    : isPostage
-      ? postagePricingComplete
-      : salesPricingComplete;
-  const typeLabel = isCombined ? "Full Service" : isPostage ? "Postage" : "Sales";
+    : isFulfillment
+      ? parseMoney(perPackageFee) >= 0 // only input is the per-package fee
+      : isPostage
+        ? postagePricingComplete
+        : salesPricingComplete;
+  const typeLabel = isCombined ? "Full Service" : isFulfillment ? "Fulfillment" : isPostage ? "Postage" : "Sales";
   const isEditing = !!editId;
   const generateBtnLabel = saving
     ? (isEditing ? "Saving..." : "Generating...")
@@ -1244,6 +1336,7 @@ export default function NewShipstationReportPage() {
           {([
             { value: "sales", label: "Sales" },
             { value: "postage", label: "Postage" },
+            { value: "fulfillment", label: "Fulfillment" },
             { value: "combined", label: "Full Service" },
           ] as const).map(t => (
             <button
@@ -1267,7 +1360,7 @@ export default function NewShipstationReportPage() {
           or Full Service). Per-shipment is the original per-package report;
           Bulk is a pure pass-through reimbursement of bulk postage buys.
           Hidden in edit mode (mode is fixed by the saved report). */}
-      {!isEditing && showPostage && (
+      {!isEditing && showPostage && !isFulfillment && (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Postage source</span>
           <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
@@ -1300,8 +1393,8 @@ export default function NewShipstationReportPage() {
           so it stays grey. The 2/3/4 progression still applies. */}
       <div style={{ display: "flex", gap: 8 }}>
         {stagePill(1, isEditing ? "Upload (skipped)" : "Upload", stage === 1, stage > 1)}
-        {stagePill(2, isCombined ? "Select rows" : isPostage ? "Select shipments" : "Select rows", stage === 2, stage > 2)}
-        {stagePill(3, isCombined ? "Pricing" : isPostage ? "Markup %" : "Unit costs", stage === 3, stage > 3)}
+        {stagePill(2, isCombined ? "Select rows" : (isPostage || isFulfillment) ? "Select shipments" : "Select rows", stage === 2, stage > 2)}
+        {stagePill(3, isCombined ? "Pricing" : isFulfillment ? "Fulfillment fee" : isPostage ? "Markup %" : "Unit costs", stage === 3, stage > 3)}
         {stagePill(4, isEditing ? "Review + save" : "Review + generate", stage === 4, false)}
       </div>
 
@@ -1463,7 +1556,7 @@ export default function NewShipstationReportPage() {
       )}
 
       {/* ── Stage 2 — Select shipments (postage-only, per-shipment) ── */}
-      {stage === 2 && isPostage && !isBulkPostage && (
+      {stage === 2 && (isPostage || isFulfillment) && !isBulkPostage && (
         <div style={card}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: T.muted }}>
@@ -1664,10 +1757,16 @@ export default function NewShipstationReportPage() {
       )}
 
       {/* ── Stage 3 — Postage: markup % + per-package fulfillment fee ── */}
-      {stage === 3 && isPostage && !isBulkPostage && (
+      {stage === 3 && (isPostage || isFulfillment) && !isBulkPostage && (
         <>
-          <PostageTotalsStrip totals={postageTotals} />
+          <PostageTotalsStrip totals={postageTotals} fulfillmentOnly={isFulfillment} />
           <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
+            {isFulfillment && (
+              <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
+                This client runs their own ShipStation and pays their own postage. We bill <strong style={{ color: T.text }}>only the per-package fulfillment fee</strong> — no postage cost or markup appears on their invoice.
+              </div>
+            )}
+            {!isFulfillment && (<>
             <div>
               <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>HPD Markup</div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1694,6 +1793,7 @@ export default function NewShipstationReportPage() {
             </div>
 
             <div style={{ borderTop: `1px solid ${T.border}` }} />
+            </>)}
 
             <div>
               <div style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Fulfillment Fee — per package</div>
@@ -1717,7 +1817,7 @@ export default function NewShipstationReportPage() {
                 </span>
               </div>
               <div style={{ fontSize: 11, color: T.faint, marginTop: 8, lineHeight: 1.5 }}>
-                Flat HPD service charge per shipment (pick / pack / handoff). Billed as a separate line on the invoice — does not affect Client Profit on postage. Saves to client for next month.
+                Flat HPD service charge per shipment (pick / pack / handoff).{isFulfillment ? " This is the entire invoice." : " Billed as a separate line on the invoice — does not affect Client Profit on postage."} Saves to client for next month.
               </div>
             </div>
 
@@ -1792,12 +1892,12 @@ export default function NewShipstationReportPage() {
         </>
       )}
 
-      {/* ── Stage 4 — Postage Review + generate (per-shipment) ── */}
-      {stage === 4 && isPostage && !isBulkPostage && (
+      {/* ── Stage 4 — Postage / Fulfillment Review + generate (per-shipment) ── */}
+      {stage === 4 && (isPostage || isFulfillment) && !isBulkPostage && (
         <>
-          <PostageTotalsStrip totals={postageTotals} />
+          <PostageTotalsStrip totals={postageTotals} fulfillmentOnly={isFulfillment} />
           <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${isFulfillment ? 3 : 4}, 1fr)`, gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{client?.name || "—"}</div>
@@ -1806,6 +1906,7 @@ export default function NewShipstationReportPage() {
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Period</div>
                 <input value={periodLabel} onChange={e => setPeriodLabel(e.target.value)} style={{ ...input, fontSize: 13, fontWeight: 700 }} />
               </div>
+              {!isFulfillment && (
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Markup</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1819,6 +1920,7 @@ export default function NewShipstationReportPage() {
                   <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(markupPct) * 100).toFixed(1)}%)</span>
                 </div>
               </div>
+              )}
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Per Package</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1836,9 +1938,17 @@ export default function NewShipstationReportPage() {
             </div>
 
             <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.6 }}>
-              {postageTotals.shipments} shipment{postageTotals.shipments === 1 ? "" : "s"} · {fmtD(postageTotals.paid)} shipping income · postage billed {fmtD(postageTotals.billed)} · client profit {fmtD(postageTotals.margin)}
-              <br />
-              + Fulfillment fee {fmtD(postageTotals.fulfillment)} · <strong style={{ color: T.text }}>Total invoice {fmtD(postageTotals.invoice_total)}</strong>
+              {isFulfillment ? (
+                <>
+                  {postageTotals.shipments} shipment{postageTotals.shipments === 1 ? "" : "s"} · {fmtD(perPackageFee === "" ? 0 : parseMoney(perPackageFee))}/package · <strong style={{ color: T.text }}>Total invoice {fmtD(postageTotals.fulfillment)}</strong>
+                </>
+              ) : (
+                <>
+                  {postageTotals.shipments} shipment{postageTotals.shipments === 1 ? "" : "s"} · {fmtD(postageTotals.paid)} shipping income · postage billed {fmtD(postageTotals.billed)} · client profit {fmtD(postageTotals.margin)}
+                  <br />
+                  + Fulfillment fee {fmtD(postageTotals.fulfillment)} · <strong style={{ color: T.text }}>Total invoice {fmtD(postageTotals.invoice_total)}</strong>
+                </>
+              )}
             </div>
 
             {saveError && <div style={{ fontSize: 12, color: T.red, background: T.red + "11", padding: "8px 12px", borderRadius: 6 }}>{saveError}</div>}
@@ -2396,9 +2506,16 @@ function SalesTotalsStrip({ totals }: { totals: { qty: number; sales: number; co
   );
 }
 
-function PostageTotalsStrip({ totals }: { totals: { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number; fulfillment: number; invoice_total: number } }) {
+function PostageTotalsStrip({ totals, fulfillmentOnly = false }: { totals: { shipments: number; items: number; paid: number; cost_raw: number; cost: number; insurance: number; billed: number; margin: number; fulfillment: number; invoice_total: number }; fulfillmentOnly?: boolean }) {
   const fmt = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const tiles: { label: string; value: string; color?: string }[] = [
+  // Fulfillment-only: no postage is billed, so drop the income/cost/
+  // insurance/billed/margin tiles and show just what's on the invoice.
+  const tiles: { label: string; value: string; color?: string }[] = fulfillmentOnly ? [
+    { label: "Shipments", value: Number(totals.shipments).toLocaleString() },
+    { label: "Items Shipped", value: Number(totals.items || 0).toLocaleString() },
+    { label: "Fulfillment Fee", value: fmt(totals.fulfillment), color: T.amber },
+    { label: "Total Invoice", value: fmt(totals.fulfillment), color: T.green },
+  ] : [
     { label: "Shipments", value: Number(totals.shipments).toLocaleString() },
     { label: "Items Shipped", value: Number(totals.items || 0).toLocaleString() },
     { label: "Shipping Income", value: fmt(totals.paid) },
@@ -2409,7 +2526,7 @@ function PostageTotalsStrip({ totals }: { totals: { shipments: number; items: nu
     { label: "Fulfillment", value: fmt(totals.fulfillment), color: T.amber },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${fulfillmentOnly ? 4 : 8}, 1fr)`, gap: 8 }}>
       {tiles.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
