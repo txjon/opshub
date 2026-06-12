@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { GodModeClient, type ClientStat, type DecoratorStat, type CashRow, type CategoryStat } from "@/components/GodModeClient";
 import { effectiveRevenue, effectiveCost } from "@/lib/revenue";
+import { poSentToItem, isItemInProduction } from "@/lib/item-status";
 
 // Owner-only page. Email-gated (distinct from role=owner so multi-owner
 // setups don't auto-expose Jon's financial view).
@@ -226,7 +227,12 @@ export default async function GodModePage() {
       ((it.decorator_assignments || [])[0]?.decorator_id) === d.id
     );
 
-    const activeLoad = itemsForDecorator.filter((it: any) => it.pipeline_stage === "in_production").length;
+    const activeLoad = itemsForDecorator.filter((it: any) => {
+      const itJob = jobById[it.job_id];
+      const printVendor = ((itJob?.costing_data?.costProds) || []).find((cp: any) => cp.id === it.id)?.printVendor;
+      const poSent = poSentToItem({ printVendor, decoratorName: d.name, decoratorShortCode: d.short_code, poSentVendors: itJob?.type_meta?.po_sent_vendors });
+      return isItemInProduction({ pipeline_stage: it.pipeline_stage, received_at_hpd: it.received_at_hpd, poSent });
+    }).length;
 
     const turnarounds: number[] = [];
     const variances: number[] = [];

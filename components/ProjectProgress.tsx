@@ -1,5 +1,6 @@
 "use client";
 import { T, font, mono } from "@/lib/theme";
+import { poSentToItem, isItemInProduction } from "@/lib/item-status";
 
 type Step = {
   id: string;
@@ -56,7 +57,11 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
   const costProds = job.costing_data?.costProds || [];
   const vendors = [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))] as string[];
   const allPosSent = vendors.length > 0 && vendors.every((v: string) => poSentVendors.includes(v));
-  const atDecorator = items.some(it => it.pipeline_stage === "in_production");
+  const atDecorator = items.some(it => isItemInProduction({
+    pipeline_stage: it.pipeline_stage,
+    received_at_hpd: (it as any).received_at_hpd,
+    poSent: poSentToItem({ printVendor: costProds.find((cp: any) => cp.id === it.id)?.printVendor, decoratorName: (it as any).decorator, poSentVendors }),
+  }));
   const allShipped = items.length > 0 && items.every(it => it.pipeline_stage === "shipped");
 
   const isArchived = job.phase === "complete" || job.phase === "cancelled";

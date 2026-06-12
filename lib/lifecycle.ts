@@ -2,6 +2,7 @@
  * Job lifecycle v2 — auto-calculated from item data.
  * Phase labels are READ-ONLY, never manually set (except on_hold).
  */
+import { isItemInProduction } from "./item-status";
 
 export type LifecycleInput = {
   job: {
@@ -15,6 +16,11 @@ export type LifecycleInput = {
   items: {
     id: string;
     pipeline_stage: string | null;
+    // Was a PO sent to this item's vendor? Reliable "in production" signal,
+    // independent of the racy pipeline_stage advance. Callers resolve it via
+    // poSentToItem() in lib/item-status. Optional — when omitted, behavior is
+    // unchanged (raw pipeline_stage only), so existing callers don't regress.
+    po_sent?: boolean;
     blanks_order_number: string | null;
     blanks_order_cost: number | null;
     ship_tracking: string | null;
@@ -72,8 +78,10 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   const dropShipItems = items.filter(it => effectiveRoute(it) === "drop_ship");
   const toHpdItems = items.filter(it => effectiveRoute(it) !== "drop_ship");
 
-  // Count item states
-  const atDecorator = items.filter(it => it.pipeline_stage === "in_production").length;
+  // Count item states. "At decorator" counts items whose pipeline_stage says
+  // in_production OR whose vendor got a PO (po_sent) but the stage advance was
+  // missed — so a PO-sent item never silently falls out of the production count.
+  const atDecorator = items.filter(it => isItemInProduction({ pipeline_stage: it.pipeline_stage, received_at_hpd: it.received_at_hpd, poSent: !!it.po_sent })).length;
   const shippedFromDecorator = items.filter(it => it.pipeline_stage === "shipped").length;
   // For receive checks, only "to-HPD" items can satisfy the gate —
   // drop-ship items leave the HPD-side accounting once they ship.
