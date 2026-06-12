@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { T, font, mono } from "@/lib/theme";
 import Link from "next/link";
 import { deductSamples } from "@/lib/qty";
+import { poSentToItem, isItemInProduction } from "@/lib/item-status";
 
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,16 @@ export default async function DistroDashboard() {
   // The wave forming behind "incoming". drop_ship items never come to HPD.
   const inProductionByJob: { job: Job; items: Item[] }[] = [];
   for (const j of allJobs) {
-    const items = (j.items || []).filter((it: Item) => effRoute(j, it) !== "drop_ship" && it.pipeline_stage === "in_production");
+    const poSentVendors = (j as any).type_meta?.po_sent_vendors;
+    const items = (j.items || []).filter((it: Item) => effRoute(j, it) !== "drop_ship" && isItemInProduction({
+      pipeline_stage: it.pipeline_stage,
+      received_at_hpd: it.received_at_hpd,
+      poSent: poSentToItem({
+        decoratorName: (it.decorator_assignments || [])[0]?.decorators?.name,
+        decoratorShortCode: (it.decorator_assignments || [])[0]?.decorators?.short_code,
+        poSentVendors,
+      }),
+    }));
     if (items.length > 0) inProductionByJob.push({ job: j, items });
   }
 

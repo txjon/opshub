@@ -20,6 +20,7 @@ import { ProjectProgress } from "@/components/ProjectProgress";
 import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
+import { poSentToItem } from "@/lib/item-status";
 import { calculatePriority, businessDaysFromNow } from "@/lib/dates";
 import { appBaseUrlSync } from "@/lib/public-url";
 
@@ -481,6 +482,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     const payments = paymentsRef.current;
     const proofStatus = proofStatusRef.current;
     if (!job || job.phase === "on_hold" || job.phase === "cancelled") return;
+    const costProds = (job as any).costing_data?.costProds || [];
+    const poSentVendors = (job as any).type_meta?.po_sent_vendors || [];
     const result = calculatePhase({
       job: {
         job_type: job.job_type,
@@ -493,6 +496,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       items: items.map(it => ({
         id: it.id,
         pipeline_stage: it.pipeline_stage || null,
+        po_sent: poSentToItem({
+          printVendor: costProds.find((cp: any) => cp.id === it.id)?.printVendor,
+          decoratorName: (it as any).decorator_assignments?.[0]?.decorators?.name,
+          decoratorShortCode: (it as any).decorator_assignments?.[0]?.decorators?.short_code,
+          poSentVendors,
+        }),
         blanks_order_number: (it as any).blanks_order_number || null,
         blanks_order_cost: (it as any).blanks_order_cost ?? null,
         ship_tracking: (it as any).ship_tracking || null,
@@ -504,8 +513,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       })),
       payments: payments.map(p => ({ amount: p.amount, status: p.status })),
       proofStatus,
-      poSentVendors: (job as any).type_meta?.po_sent_vendors || [],
-      costingVendors: [...new Set(((job as any).costing_data?.costProds || []).map((cp: any) => cp.printVendor).filter(Boolean))],
+      poSentVendors,
+      costingVendors: [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))],
     });
     if (result.phase !== job.phase) {
       const timestamps = (job as any).phase_timestamps || {};

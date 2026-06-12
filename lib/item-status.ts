@@ -197,6 +197,44 @@ export function isHistorical(state: ItemState): boolean {
 // position of the order overall, so we map it to whichever
 // canonical state best describes where the bulk of the work
 // currently sits.
+// ── PO-sent resolution ─────────────────────────────────────────────────
+// The reliable signal that an item is at the decorator: was a PO sent to
+// its vendor? Sending a PO records the vendor in jobs.type_meta.po_sent_
+// vendors, but the per-item pipeline_stage advance is racy and can silently
+// miss items (see project_pipeline_stage_po_sent_drift) — so NEVER trust raw
+// pipeline_stage alone for "is this item in production." Resolve the item's
+// vendor from its costing printVendor and/or decorator name/short_code, then
+// match against po_sent_vendors. ONE helper so every surface agrees.
+export function poSentToItem(opts: {
+  printVendor?: string | null;
+  decoratorName?: string | null;
+  decoratorShortCode?: string | null;
+  poSentVendors?: string[] | null;
+}): boolean {
+  if (!opts.poSentVendors || opts.poSentVendors.length === 0) return false;
+  const set = new Set(opts.poSentVendors.map(s => (s || "").toLowerCase().trim()).filter(Boolean));
+  if (set.size === 0) return false;
+  return [opts.printVendor, opts.decoratorName, opts.decoratorShortCode]
+    .filter(Boolean)
+    .map(s => String(s).toLowerCase().trim())
+    .some(k => set.has(k));
+}
+
+// True when an item should read as "in production at the decorator": its
+// pipeline_stage says so, OR a PO was sent to its vendor and it hasn't moved
+// past production (not shipped from decorator, not received at HPD). Use this
+// for any "is this item in production / show it on the production board /
+// count it at decorator" decision.
+export function isItemInProduction(opts: {
+  pipeline_stage?: string | null;
+  received_at_hpd?: boolean | null;
+  poSent: boolean;
+}): boolean {
+  if (opts.received_at_hpd) return false;
+  if (opts.pipeline_stage === "shipped") return false;
+  return opts.pipeline_stage === "in_production" || opts.poSent;
+}
+
 export function jobPhaseToItemState(phase: string | null | undefined): ItemState {
   if (!phase) return "setup";
   if (phase === "complete") return "complete";

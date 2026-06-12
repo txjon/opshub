@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { calculatePhase } from "@/lib/lifecycle";
+import { poSentToItem } from "@/lib/item-status";
 import { logJobActivityServer } from "@/lib/notify-server";
 
 export const dynamic = "force-dynamic";
@@ -246,6 +247,10 @@ async function recalcPhase(db: ReturnType<typeof admin>, jobId: string) {
     items: (jobItems || []).map((it: any) => ({
       id: it.id,
       pipeline_stage: it.pipeline_stage,
+      po_sent: poSentToItem({
+        printVendor: costProds.find(cp => cp.id === it.id)?.printVendor,
+        poSentVendors: (jobData.type_meta as any)?.po_sent_vendors,
+      }),
       blanks_order_number: it.blanks_order_number,
       blanks_order_cost: it.blanks_order_cost ?? null,
       ship_tracking: it.ship_tracking,

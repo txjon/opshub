@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
+import { poSentToItem } from "@/lib/item-status";
 
 export const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -236,7 +237,7 @@ export function useWarehouse() {
     }
     const result = calculatePhase({
       job: { job_type: jobData.job_type, shipping_route: jobData.shipping_route || "ship_through", payment_terms: jobData.payment_terms, quote_approved: jobData.quote_approved || false, phase: jobData.phase, fulfillment_status: jobData.fulfillment_status || null },
-      items: (jobItems || []).map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage, blanks_order_number: it.blanks_order_number, blanks_order_cost: (it as any).blanks_order_cost ?? null, ship_tracking: it.ship_tracking, received_at_hpd: it.received_at_hpd || false, artwork_status: it.artwork_status, garment_type: it.garment_type, shipping_route: (it as any).shipping_route || null, webstore_entered_at: (it as any).webstore_entered_at || null })),
+      items: (jobItems || []).map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage, po_sent: poSentToItem({ printVendor: (jobData.costing_data?.costProds || []).find((cp: any) => cp.id === it.id)?.printVendor, poSentVendors: jobData.type_meta?.po_sent_vendors }), blanks_order_number: it.blanks_order_number, blanks_order_cost: (it as any).blanks_order_cost ?? null, ship_tracking: it.ship_tracking, received_at_hpd: it.received_at_hpd || false, artwork_status: it.artwork_status, garment_type: it.garment_type, shipping_route: (it as any).shipping_route || null, webstore_entered_at: (it as any).webstore_entered_at || null })),
       payments: (payments || []).map(p => ({ amount: p.amount, status: p.status })),
       proofStatus,
       poSentVendors: jobData.type_meta?.po_sent_vendors || [],

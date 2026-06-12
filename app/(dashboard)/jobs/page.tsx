@@ -85,16 +85,20 @@ function getItemProgress(job: any): string {
   const total = items.length;
   const phase = job.phase;
   if (phase === "complete" || phase === "cancelled") return "";
+  const poSentVendors = job.type_meta?.po_sent_vendors;
+  const costProds = job.costing_data?.costProds || [];
+  const poSentFor = (it: any) => poSentToItem({ printVendor: costProds.find((cp: any) => cp.id === it.id)?.printVendor, decoratorName: it.decorator_assignments?.[0]?.decorators?.name, decoratorShortCode: it.decorator_assignments?.[0]?.decorators?.short_code, poSentVendors });
   const received = items.filter((it: any) => it.received_at_hpd).length;
   if (received > 0 && received < total) return `${received}/${total} received`;
   const shipped = items.filter((it: any) => it.pipeline_stage === "shipped").length;
   if (shipped > 0) return `${shipped}/${total} shipped`;
-  const inProd = items.filter((it: any) => it.pipeline_stage === "in_production" || it.pipeline_stage === "shipped").length;
+  const inProd = items.filter((it: any) => isItemInProduction({ pipeline_stage: it.pipeline_stage, received_at_hpd: it.received_at_hpd, poSent: poSentFor(it) })).length;
   if (inProd > 0) return `${inProd}/${total} at decorator`;
   return "";
 }
 
 import { T, font, mono } from "@/lib/theme";
+import { poSentToItem, isItemInProduction } from "@/lib/item-status";
 import { useClientBranding } from "@/lib/branding-client";
 
 export default function JobsPage() {
