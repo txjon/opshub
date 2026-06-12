@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
 import { useClientBranding } from "@/lib/branding-client";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
@@ -599,32 +600,11 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             const meta = {...(project.type_meta||{}), po_sent_vendors: updatedVendors, po_sent_dates: poSentDates, po_ship_methods: shipMethods, po_ship_dates: poShipDates};
             await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
             if(onUpdateJob) onUpdateJob({type_meta:meta});
-            // Stamp decorator_assignments.sent_to_decorator_date ONLY for
-            // items that have never been sent. Preserving the first-send
-            // date is what powers the NEW chip on future revised POs.
-            for (const it of vItems) {
-              try {
-                const { data: da } = await supabase.from("decorator_assignments").select("id, sent_to_decorator_date").eq("item_id", it.id).limit(1).single();
-                if (da && !da.sent_to_decorator_date) {
-                  await supabase.from("decorator_assignments").update({ sent_to_decorator_date: new Date().toISOString().slice(0, 10) }).eq("id", da.id);
-                }
-              } catch {}
-            }
-            // Advance items for this vendor to in_production. Guard on
-            // "not shipped" (not on the current stage) so a stale in-memory
-            // value can't skip the write — the assignment update below is
-            // unconditional, so gating the item write here is what let the
-            // two drift (item null, assignment in_production).
-            for (const it of vItems) {
-              if (it.pipeline_stage !== "shipped") {
-                await supabase.from("items").update({ pipeline_stage: "in_production", pipeline_timestamps: { ...(it.pipeline_timestamps || {}), in_production: new Date().toISOString() } }).eq("id", it.id);
-              }
-              const costProd = costingData?.costProds?.find(cp => cp.id === it.id);
-              if (costProd?.printVendor) {
-                const { data: da } = await supabase.from("decorator_assignments").select("id").eq("item_id", it.id).limit(1).single();
-                if (da) await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", da.id);
-              }
-            }
+            // Stamp sent_to_decorator_date + advance this vendor's items to
+            // in_production — from FRESH DB data so a stale in-memory snapshot
+            // can't silently miss an item (lib/po-actions; same vendor matcher
+            // the read side uses, so write/read can't disagree).
+            await applyPoSentToVendorItems(supabase, project.id, active);
             if(onRecalcPhase) setTimeout(onRecalcPhase, 300);
           }}
         />
@@ -669,26 +649,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 const meta = {...(project.type_meta||{}), po_sent_vendors: updated};
                 await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
                 if(onUpdateJob) onUpdateJob({type_meta:meta});
-                const vendorItems = items.filter(it=>{
-                  const cp = costingData?.costProds?.find(cp=>cp.id===it.id);
-                  return cp?.printVendor===v;
-                });
-                for (const it of vendorItems) {
-                  if (it.pipeline_stage === "in_production") {
-                    const ts = { ...(it.pipeline_timestamps || {}) };
-                    delete ts.in_production;
-                    await supabase.from("items").update({ pipeline_stage: null, pipeline_timestamps: ts }).eq("id", it.id);
-                  }
-                  // Revert the assignment too, mirroring the mark-sent path —
-                  // otherwise item resets to null while the assignment stays
-                  // in_production, and the item falls off the production board.
-                  const costProd = costingData?.costProds?.find(cp => cp.id === it.id);
-                  if (costProd?.printVendor) {
-                    const { data: da } = await supabase.from("decorator_assignments").select("id").eq("item_id", it.id).limit(1).single();
-                    if (da) await supabase.from("decorator_assignments").update({ pipeline_stage: "blanks_ordered" }).eq("id", da.id);
-                  }
-                }
-                logJobActivity(project.id, `PO for ${v} unmarked as sent — ${vendorItems.length} item${vendorItems.length===1?"":"s"} reverted to pre-PO`);
+                const reverted = await revertPoSentFromVendorItems(supabase, project.id, v);
+                logJobActivity(project.id, `PO for ${v} unmarked as sent — ${reverted} item${reverted===1?"":"s"} reverted to pre-PO`);
                 if(onRecalcPhase) onRecalcPhase();
               } else {
                 // Mark as sent + advance items to in_production. Stamp
@@ -702,21 +664,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 const meta = {...(project.type_meta||{}), po_sent_vendors: updated, po_sent_dates: poSentDates};
                 await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
                 if(onUpdateJob) onUpdateJob({type_meta:meta});
-                const vendorItems = items.filter(it=>{
-                  const cp = costingData?.costProds?.find(cp=>cp.id===it.id);
-                  return cp?.printVendor===v;
-                });
-                for (const it of vendorItems) {
-                  if (it.pipeline_stage !== "shipped") {
-                    await supabase.from("items").update({ pipeline_stage: "in_production", pipeline_timestamps: { ...(it.pipeline_timestamps || {}), in_production: new Date().toISOString() } }).eq("id", it.id);
-                  }
-                  const costProd = costingData?.costProds?.find(cp => cp.id === it.id);
-                  if (costProd?.printVendor) {
-                    const { data: da } = await supabase.from("decorator_assignments").select("id").eq("item_id", it.id).limit(1).single();
-                    if (da) await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", da.id);
-                  }
-                }
-                logJobActivity(project.id, `PO for ${v} manually marked as sent (${vendorItems.length} items)`);
+                const sentCount = await applyPoSentToVendorItems(supabase, project.id, v);
+                logJobActivity(project.id, `PO for ${v} manually marked as sent (${sentCount} items)`);
                 if(onRecalcPhase) setTimeout(onRecalcPhase, 300);
               }
             }}
