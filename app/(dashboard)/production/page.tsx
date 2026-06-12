@@ -296,13 +296,22 @@ export default function ProductionPage() {
       const job = jobMap[it.job_id];
       if (!job) continue;
 
-      // Production page surfaces items that have actually been pushed
-      // to the decorator. Items still in setup (no PO sent yet) don't
-      // belong here — they're waiting on the team's PO action, which
-      // is the job-detail / Command Center surface, not Production.
-      // pipeline_stage is set to "in_production" when the PO is sent
-      // and rolls to "shipped" when tracking is entered.
-      if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped") continue;
+      // Production page surfaces items that have actually been pushed to
+      // the decorator. An item counts as in-production if its
+      // pipeline_stage says so, OR a PO was sent to its vendor — sending a
+      // PO records the vendor in type_meta.po_sent_vendors but doesn't
+      // reliably write pipeline_stage, so a PO-sent item can sit at a null
+      // stage and would otherwise vanish here (e.g. HPD-2606-012 "Pepper").
+      // Mirrors computeItemStatus' po_sent rule so this page agrees with
+      // the project list + client/portal views.
+      const _tm = (job as any).type_meta || {};
+      const _poSentVendors = new Set<string>(((_tm.po_sent_vendors || []) as string[]).map(s => (s || "").toLowerCase().trim()));
+      const _asg = it.decorator_assignments?.[0];
+      const _cp = ((job as any)?.costing_data?.costProds || []).find((cp: any) => cp?.id === it.id);
+      const _vendorKeys = [_asg?.decorators?.name, _asg?.decorators?.short_code, _cp?.printVendor]
+        .filter(Boolean).map((s: string) => s.toLowerCase().trim());
+      const poSentToVendor = _vendorKeys.some(v => _poSentVendors.has(v));
+      if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped" && !poSentToVendor) continue;
       // Once an item has been received at HPD, it has moved past the
       // production stage from this vendor's POV (it's in receiving /
       // fulfillment / outbound now). Drop it so the decorator chip
