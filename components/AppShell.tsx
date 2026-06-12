@@ -10,7 +10,7 @@ type Department = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings
 
 const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   owner: [
-    { href: "/insights", label: "Insights" },
+    // Insights merged into God Mode ("Overview") — /insights now redirects there.
     { href: "/reports", label: "Reports" },
     { href: "/integrations", label: "Integrations" },
   ],

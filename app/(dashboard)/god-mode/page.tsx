@@ -22,6 +22,7 @@ export default async function GodModePage() {
     decoratorsRes,
     clientsRes,
     proofFilesRes,
+    ssReportsRes,
   ] = await Promise.all([
     supabase.from("jobs")
       .select("id, title, phase, client_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at")
@@ -32,10 +33,16 @@ export default async function GodModePage() {
     supabase.from("payment_records")
       .select("id, job_id, type, amount, status, due_date, paid_date, created_at"),
     supabase.from("decorators").select("id, name, short_code"),
-    supabase.from("clients").select("id, name"),
+    supabase.from("clients").select("id, name, default_terms"),
     supabase.from("item_files")
       .select("item_id, stage, approval, created_at")
       .eq("stage", "proof"),
+    // ShipStation/fulfillment invoices live in their own table. Revenue and
+    // profit here are margin-accurate: revenue = what the client was billed,
+    // cost = the carrier postage we actually paid out — so postage markup +
+    // fulfillment fees show as real profit, pure pass-through nets to zero.
+    supabase.from("shipstation_reports")
+      .select("id, client_id, report_type, postage_mode, period_label, totals, postage_totals, qb_invoice_number, qb_total_with_tax, qb_tax_amount, paid_at, paid_amount, sent_at, created_at"),
   ]);
 
   const jobs = jobsRes.data || [];
@@ -44,6 +51,45 @@ export default async function GodModePage() {
   const decorators = decoratorsRes.data || [];
   const clients = clientsRes.data || [];
   const proofFiles = proofFilesRes.data || [];
+  // Only reports that became a real invoice (QB invoice # or emailed to the
+  // client) count as revenue — unsent drafts don't.
+  const ssReports: any[] = (ssReportsRes.data || []).filter((r: any) => r.qb_invoice_number || r.sent_at);
+
+  // ── ShipStation revenue/cost — margin-accurate per report ──
+  const num = (x: any) => Number(x) || 0;
+  function ssRevCost(r: any): { revenue: number; cost: number } {
+    const t = r.totals || {};
+    const pt = r.postage_totals || {};
+    if (r.report_type === "combined") {
+      return { revenue: num(t.fee) + num(pt.billed) + num(pt.fulfillment), cost: num(pt.cost_raw) + num(pt.insurance) };
+    }
+    if (r.report_type === "postage") {
+      return { revenue: num(t.billed) + num(t.fulfillment), cost: num(t.cost_raw) + num(t.insurance) };
+    }
+    if (r.report_type === "fulfillment") {
+      return { revenue: num(t.fulfillment), cost: 0 };
+    }
+    return { revenue: num(t.fee), cost: 0 }; // sales — pure commission
+  }
+  const ssTypeLabel = (rt: string) => rt === "combined" ? "Full Service" : rt === "postage" ? "Postage" : rt === "fulfillment" ? "Fulfillment" : "Sales";
+
+  // Aggregate per client + keep per-report rows for the drill-downs.
+  type SsRow = { reportId: string; period: string; type: string; createdAt: string; revenue: number; cost: number; marginPct: number; paid: number; outstanding: number; shipments: number };
+  const ssByClient: Record<string, { revenue: number; cost: number; rows: SsRow[] }> = {};
+  for (const r of ssReports) {
+    const { revenue, cost } = ssRevCost(r);
+    const t = r.totals || {}, pt = r.postage_totals || {};
+    const shipments = num(t.shipments) + num(pt.shipments);
+    const paid = r.paid_at ? revenue : 0;
+    const g = ssByClient[r.client_id] || (ssByClient[r.client_id] = { revenue: 0, cost: 0, rows: [] });
+    g.revenue += revenue;
+    g.cost += cost;
+    g.rows.push({
+      reportId: r.id, period: r.period_label || "—", type: ssTypeLabel(r.report_type), createdAt: r.created_at,
+      revenue, cost, marginPct: revenue > 0 ? (revenue - cost) / revenue : 0,
+      paid, outstanding: Math.max(0, revenue - paid), shipments,
+    });
+  }
 
   // Lookup maps
   const clientById: Record<string, any> = Object.fromEntries(clients.map(c => [c.id, c]));
@@ -75,8 +121,12 @@ export default async function GodModePage() {
   const ytdCutoff = new Date(now.getFullYear(), 0, 1);
   const allClientStats: ClientStat[] = clients.map(c => {
     const clientJobs = revenueJobs.filter(j => j.client_id === c.id);
-    const lifetimeRev = clientJobs.reduce((s, j) => s + effectiveRevenue(j), 0);
-    const totalCost = clientJobs.reduce((s, j) => s + effectiveCost(j), 0);
+    const jobRev = clientJobs.reduce((s, j) => s + effectiveRevenue(j), 0);
+    const jobCost = clientJobs.reduce((s, j) => s + effectiveCost(j), 0);
+    // Fold in ShipStation/fulfillment invoices (margin-accurate).
+    const ss = ssByClient[c.id] || { revenue: 0, cost: 0, rows: [] };
+    const lifetimeRev = jobRev + ss.revenue;
+    const totalCost = jobCost + ss.cost;
     const avgMarginPct = lifetimeRev > 0 ? (lifetimeRev - totalCost) / lifetimeRev : 0;
 
     let lastJobAt: Date | null = null;
@@ -147,17 +197,24 @@ export default async function GodModePage() {
     const clientJobs = revenueJobs.filter(j => j.client_id === c.clientId).sort((a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
-    clientJobsDetail[c.clientId] = clientJobs.map(j => {
-      const grossRev = effectiveRevenue(j);
-      const tCost = effectiveCost(j);
-      const marginPct = grossRev > 0 ? (grossRev - tCost) / grossRev : 0;
-      const paid = (paymentsByJob[j.id] || []).filter(p => p.status === "paid").reduce((s, p) => s + p.amount, 0);
-      const qbTotal = (j.type_meta as any)?.qb_total_with_tax || grossRev;
-      return {
-        jobId: j.id, title: j.title, phase: j.phase, createdAt: j.created_at,
-        grossRev, totalCost: tCost, marginPct, paid, outstanding: Math.max(0, qbTotal - paid),
-      };
-    });
+    clientJobsDetail[c.clientId] = [
+      ...clientJobs.map(j => {
+        const grossRev = effectiveRevenue(j);
+        const tCost = effectiveCost(j);
+        const marginPct = grossRev > 0 ? (grossRev - tCost) / grossRev : 0;
+        const paid = (paymentsByJob[j.id] || []).filter(p => p.status === "paid").reduce((s, p) => s + p.amount, 0);
+        const qbTotal = (j.type_meta as any)?.qb_total_with_tax || grossRev;
+        return {
+          jobId: j.id, title: j.title, phase: j.phase, createdAt: j.created_at,
+          grossRev, totalCost: tCost, marginPct, paid, outstanding: Math.max(0, qbTotal - paid),
+        };
+      }),
+      // ShipStation/fulfillment invoices as their own rows (link to the report).
+      ...((ssByClient[c.clientId]?.rows) || []).map(r => ({
+        jobId: "", reportId: r.reportId, title: `${r.type} · ${r.period}`, phase: "invoice", createdAt: r.createdAt,
+        grossRev: r.revenue, totalCost: r.cost, marginPct: r.marginPct, paid: r.paid, outstanding: r.outstanding,
+      })),
+    ];
   }
 
   // ── 2. DECORATOR SCORECARD ────────────────────────────────────────────
@@ -272,6 +329,24 @@ export default async function GodModePage() {
     forecast.push(row);
   }
 
+  // ShipStation/fulfillment invoices not yet paid → expected inflow too.
+  // No payment_records or ship date on these, so the expected date is the
+  // invoice date + the client's default terms.
+  for (const r of ssReports) {
+    if (r.paid_at) continue;
+    const ssTotal = num(r.qb_total_with_tax) || ssRevCost(r).revenue; // actual billable, incl tax
+    if (ssTotal <= 0) continue;
+    const client = clientById[r.client_id];
+    const delay = termsDays[(client?.default_terms) as string] ?? 30;
+    const expectedDate = new Date(new Date(r.created_at).getTime() + delay * msPerDay);
+    forecast.push({
+      jobId: "", reportId: r.id, jobTitle: `${ssTypeLabel(r.report_type)} · ${r.period_label || "—"}`,
+      clientName: client?.name || "Unknown", amount: ssTotal,
+      expectedIso: expectedDate.toISOString(), invoiceNum: r.qb_invoice_number || null,
+      _date: expectedDate,
+    } as any);
+  }
+
   const weekBuckets: number[] = Array(13).fill(0);
   const cashByWeek: Record<number, CashRow[]> = {};
   for (let i = 0; i < 13; i++) cashByWeek[i] = [];
@@ -284,7 +359,7 @@ export default async function GodModePage() {
     if (weekIdx >= 0 && weekIdx < 13) {
       weekBuckets[weekIdx] += f.amount;
       cashByWeek[weekIdx].push({
-        jobId: f.jobId, jobTitle: f.jobTitle, clientName: f.clientName,
+        jobId: f.jobId, reportId: f.reportId, jobTitle: f.jobTitle, clientName: f.clientName,
         amount: f.amount, expectedIso: f.expectedIso, invoiceNum: f.invoiceNum,
       });
     }
@@ -302,7 +377,7 @@ export default async function GodModePage() {
     .sort((a, b) => a._date.getTime() - b._date.getTime())
     .slice(0, 20)
     .map(f => ({
-      jobId: f.jobId, jobTitle: f.jobTitle, clientName: f.clientName,
+      jobId: f.jobId, reportId: f.reportId, jobTitle: f.jobTitle, clientName: f.clientName,
       amount: f.amount, expectedIso: f.expectedIso, invoiceNum: f.invoiceNum,
     }));
 
@@ -423,6 +498,128 @@ export default async function GodModePage() {
     categoryItemsDetail[c.garmentType] = c.items.sort((a, b) => b.revenue - a.revenue);
   }
 
+  // ── 6. OPERATIONS (merged in from the old Insights page) ──────────────
+  const opsActive = jobs.filter(j => !["complete", "cancelled"].includes(j.phase));
+  const completedJobs = jobs.filter(j => j.phase === "complete");
+
+  // AR aging — jobs + unpaid ShipStation invoices, bucketed by oldest due date.
+  const arBuckets = { current: 0, d30: 0, d60: 0, d90plus: 0 };
+  const bucketize = (owed: number, daysOld: number) => {
+    if (owed <= 0) return;
+    if (daysOld <= 0) arBuckets.current += owed;
+    else if (daysOld <= 30) arBuckets.d30 += owed;
+    else if (daysOld <= 60) arBuckets.d60 += owed;
+    else arBuckets.d90plus += owed;
+  };
+  for (const j of opsActive) {
+    const rev = effectiveRevenue(j);
+    if (rev <= 0) continue;
+    const jobPaid = (paymentsByJob[j.id] || []).filter(p => p.status === "paid").reduce((s, p) => s + (p.amount || 0), 0);
+    const owed = rev - jobPaid;
+    if (owed <= 0) continue;
+    const unpaid = (paymentsByJob[j.id] || []).filter(p => p.status !== "paid" && p.due_date);
+    const oldestDue = unpaid.length
+      ? unpaid.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0].due_date
+      : j.created_at;
+    bucketize(owed, oldestDue ? daysBetween(oldestDue, now) : 0);
+  }
+  for (const r of ssReports) {
+    if (r.paid_at) continue;
+    const owed = num(r.qb_total_with_tax) || ssRevCost(r).revenue;
+    if (owed <= 0) continue;
+    const delay = termsDays[(clientById[r.client_id]?.default_terms) as string] ?? 30;
+    const due = new Date(new Date(r.created_at).getTime() + delay * msPerDay);
+    bucketize(owed, daysBetween(due.toISOString(), now));
+  }
+
+  // Production health — phase cycle times, bottleneck, stalled items.
+  const phaseTimes: Record<string, number[]> = {};
+  for (const j of completedJobs) {
+    const pts = (j.phase_timestamps as any) || {};
+    const phaseSeq = ["intake", "pending", "ready", "production", "complete"];
+    for (let i = 0; i < phaseSeq.length - 1; i++) {
+      if (pts[phaseSeq[i]] && pts[phaseSeq[i + 1]]) {
+        const d = daysBetween(pts[phaseSeq[i]], pts[phaseSeq[i + 1]]);
+        if (d >= 0 && d < 365) (phaseTimes[phaseSeq[i]] ||= []).push(d);
+      }
+    }
+  }
+  const avgPhaseTimes: Record<string, number> = {};
+  for (const [p, arr] of Object.entries(phaseTimes)) avgPhaseTimes[p] = arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+  const fullCycles = completedJobs
+    .filter(j => (j.phase_timestamps as any)?.intake && (j.phase_timestamps as any)?.complete)
+    .map(j => daysBetween((j.phase_timestamps as any).intake, (j.phase_timestamps as any).complete))
+    .filter(d => d >= 0 && d < 365);
+  const avgCycleTime = fullCycles.length ? Math.round(fullCycles.reduce((a, b) => a + b, 0) / fullCycles.length) : 0;
+  const bnEntry = Object.entries(avgPhaseTimes).sort((a, b) => b[1] - a[1])[0];
+  const bottleneck = bnEntry ? { phase: bnEntry[0], days: bnEntry[1] } : null;
+  const phaseCounts: Record<string, number> = {};
+  for (const j of opsActive) phaseCounts[j.phase] = (phaseCounts[j.phase] || 0) + 1;
+  const stalled = items
+    .filter(it => {
+      const ts = (it.pipeline_timestamps as any) || {};
+      return it.pipeline_stage && ts[it.pipeline_stage] && daysBetween(ts[it.pipeline_stage], now) >= 7;
+    })
+    .map(it => {
+      const job = jobById[it.job_id];
+      return {
+        itemId: it.id, name: it.name, jobId: it.job_id, jobTitle: job?.title || "—",
+        clientName: job ? (clientById[job.client_id]?.name || "—") : "—",
+        stage: it.pipeline_stage, days: daysBetween(((it.pipeline_timestamps as any) || {})[it.pipeline_stage], now),
+      };
+    })
+    .sort((a, b) => b.days - a.days);
+
+  // Payment attention — overdue + upcoming (next 30 days).
+  const todayStr = now.toISOString().split("T")[0];
+  const in30Str = new Date(now.getTime() + 30 * msPerDay).toISOString().split("T")[0];
+  const mapPay = (p: any) => {
+    const job = jobById[p.job_id];
+    return {
+      id: p.id, jobId: p.job_id, jobTitle: job?.title || "—",
+      clientName: job ? (clientById[job.client_id]?.name || "—") : "—",
+      amount: p.amount || 0, dueDate: p.due_date,
+    };
+  };
+  const overduePayments = payments
+    .filter(p => p.due_date && p.status !== "paid" && p.status !== "void" && p.due_date < todayStr)
+    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+    .map(p => ({ ...mapPay(p), daysOver: daysBetween(p.due_date, now) }));
+  const upcomingDue = payments
+    .filter(p => p.due_date && p.status !== "paid" && p.status !== "void" && p.due_date >= todayStr && p.due_date <= in30Str)
+    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+    .map(mapPay);
+
+  const operations = {
+    arBuckets,
+    production: { phaseCounts, avgPhaseTimes, avgCycleTime, bottleneck, stalled },
+    payments: { overdue: overduePayments, upcoming: upcomingDue },
+  };
+
+  // Shipping & Fulfillment as its own category so this section reconciles
+  // with total revenue (margin = postage markup + fulfillment fees).
+  const ssCatRev = Object.values(ssByClient).reduce((s, g) => s + g.revenue, 0);
+  const ssCatCost = Object.values(ssByClient).reduce((s, g) => s + g.cost, 0);
+  if (ssCatRev > 0) {
+    const ssAllRows = Object.values(ssByClient).flatMap(g => g.rows);
+    categories.push({
+      garmentType: "Shipping & Fulfillment",
+      revenue: ssCatRev, cost: ssCatCost,
+      units: ssAllRows.reduce((s, r) => s + r.shipments, 0),
+      marginPct: ssCatRev > 0 ? (ssCatRev - ssCatCost) / ssCatRev : 0,
+      jobCount: ssAllRows.length,
+      exactCostCoverage: 1,
+    });
+    categories.sort((a, b) => b.revenue - a.revenue);
+    categoryItemsDetail["Shipping & Fulfillment"] = Object.entries(ssByClient)
+      .flatMap(([cid, g]) => g.rows.map(r => ({
+        itemId: r.reportId, name: `${r.type} · ${r.period}`, jobTitle: r.type,
+        clientName: clientById[cid]?.name || "—",
+        units: r.shipments, revenue: r.revenue, cost: r.cost, marginPct: r.marginPct, exact: true,
+      })))
+      .sort((a, b) => b.revenue - a.revenue);
+  }
+
   return (
     <GodModeClient
       totalExpectedInflow={totalExpectedInflow}
@@ -435,6 +632,7 @@ export default async function GodModePage() {
       upcomingPayments={upcomingPayments}
       pareto={{ top: top8020, restCount, restProfit, totalProfit }}
       categories={categories}
+      operations={operations}
       details={{
         clientJobs: clientJobsDetail,
         decoratorItems: decoratorItemsDetail,
