@@ -135,10 +135,9 @@ export function ArtReferencesGrid({
   emptyState,
   protectImages,
 }: ArtReferencesGridProps) {
-  // Collapses the deliverable stack to just the most recent upload by
-  // default. Older versions live behind the "Show N earlier versions"
-  // button so the conversation stays anchored to the current state.
-  const [showOlder, setShowOlder] = useState(false);
+  // Desktop = references on a left rail, work in a grid to the right.
+  // Mobile stacks them (work first). 820px gives the rail + work room.
+  const isDesktop = useIsDesktop(820);
 
   if (files.length === 0) {
     return emptyState ? <>{emptyState}</> : null;
@@ -147,96 +146,88 @@ export function ArtReferencesGrid({
   const ordered = sortFiles(files);
   const canDeleteFn = canDelete ?? ((f: RefFile) => f.uploader_role === viewerRole);
 
-  // Split into two zones — deliverables (the actual creative work) and
-  // references (context). Deliverables collapse to JUST the most recent
-  // one by default — older versions hide behind a toggle. Jon's call
-  // (2026-05-17): the latest is what matters; stacking 5 cards of every
-  // draft + revision was visual noise and pushed the conversation down.
-  //
-  // "Most recent" = newest by created_at across ALL deliverable kinds
-  // (final, revision, first_draft, wip, print_ready). The kind-rank
-  // sort still matters for the older list when expanded.
+  // Two zones: references (context) on a left rail, work (the creative
+  // deliverables) in the main grid to the right. Jon's call (2026-06-12):
+  // show ALL work versions, each with its full chat at the bottom of the
+  // image, so the whole history reads on one page. The older-versions
+  // collapse was retired with this — its reason (giant stacked cards)
+  // is gone now that work sits in a sized grid.
   const deliverables = ordered.filter(f => f.kind !== "reference");
   const refs = ordered.filter(f => f.kind === "reference");
-  const newestDeliverable = [...deliverables].sort((a, b) =>
-    (b.created_at || "").localeCompare(a.created_at || "")
-  )[0];
-  const olderDeliverables = deliverables.filter(f => f.id !== newestDeliverable?.id);
-  const visibleDeliverables = newestDeliverable
-    ? [newestDeliverable, ...(showOlder ? olderDeliverables : [])]
-    : [];
+
+  const sectionHeaderStyle: React.CSSProperties = {
+    fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase",
+    color: C.faint, paddingBottom: 4, borderBottom: `1px solid ${C.border}`,
+  };
+
+  // References rail — left on desktop, below work on mobile. A single
+  // column of context tiles.
+  const refsRail = refs.length > 0 ? (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={sectionHeaderStyle}>References · {refs.length}</div>
+      {/* Grid, not a plain stack — gives one column inside the 260px rail,
+          but a tidy multi-tile grid when references stand alone or on
+          mobile, so a lone reference never blows up to full width. */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+        gap: 12, alignItems: "start",
+      }}>
+        {refs.map(f => (
+          <FileCard
+            key={f.id}
+            file={f}
+            viewerRole={viewerRole}
+            readOnly={!!readOnly}
+            onPostComment={onPostComment}
+            onDelete={onDelete && canDeleteFn(f) ? onDelete : undefined}
+            protectImages={false}
+          />
+        ))}
+      </div>
+    </div>
+  ) : null;
+
+  // Work feed — right on desktop, top on mobile. Every version, framed
+  // image with its full chat stacked below, in a sized grid so the whole
+  // history reads on one page.
+  const workFeed = deliverables.length > 0 ? (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {refs.length > 0 && <div style={sectionHeaderStyle}>Work · {deliverables.length}</div>}
+      <div style={{
+        display: "grid",
+        // Fixed 260px tiles on desktop — same footprint as a reference —
+        // so a single work card doesn't balloon to fill the column.
+        // Fills the width as a single column on mobile.
+        gridTemplateColumns: isDesktop ? "repeat(auto-fill, 260px)" : "repeat(auto-fill, minmax(240px, 1fr))",
+        gap: 12, alignItems: "start",
+      }}>
+        {deliverables.map(f => (
+          <FileCard
+            key={f.id}
+            file={f}
+            viewerRole={viewerRole}
+            readOnly={!!readOnly}
+            onPostComment={onPostComment}
+            onDelete={onDelete && canDeleteFn(f) ? onDelete : undefined}
+            variant="deliverable"
+            forceStacked
+            protectImages={!!protectImages}
+          />
+        ))}
+      </div>
+    </div>
+  ) : null;
+
+  // Two-column split only when both zones exist on desktop; otherwise a
+  // single stacked column (work first).
+  const splitLayout = isDesktop && refs.length > 0 && deliverables.length > 0;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, fontFamily: C.font }}>
-      {deliverables.length > 0 && (
-        <div style={{
-          display: "flex", flexDirection: "column", gap: 12,
-        }}>
-          {visibleDeliverables.map(f => (
-            <FileCard
-              key={f.id}
-              file={f}
-              viewerRole={viewerRole}
-              readOnly={!!readOnly}
-              onPostComment={onPostComment}
-              onDelete={onDelete && canDeleteFn(f) ? onDelete : undefined}
-              variant="deliverable"
-              protectImages={!!protectImages}
-            />
-          ))}
-          {olderDeliverables.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowOlder(v => !v)}
-              style={{
-                alignSelf: "center",
-                padding: "6px 14px",
-                background: "transparent",
-                color: C.muted,
-                border: `1px solid ${C.border}`,
-                borderRadius: 999,
-                fontSize: 11, fontWeight: 600,
-                cursor: "pointer", fontFamily: C.font,
-              }}
-              aria-expanded={showOlder}
-            >
-              {showOlder
-                ? `Hide older versions`
-                : `Show ${olderDeliverables.length} earlier version${olderDeliverables.length === 1 ? "" : "s"}`}
-            </button>
-          )}
-        </div>
-      )}
-
-      {refs.length > 0 && (
-        <>
-          {deliverables.length > 0 && (
-            <div style={{
-              fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase",
-              color: C.faint, paddingTop: 4, borderTop: `1px solid ${C.border}`,
-            }}>
-              References · {refs.length}
-            </div>
-          )}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-            gap: 12, alignItems: "start",
-          }}>
-            {refs.map(f => (
-              <FileCard
-                key={f.id}
-                file={f}
-                viewerRole={viewerRole}
-                readOnly={!!readOnly}
-                onPostComment={onPostComment}
-                onDelete={onDelete && canDeleteFn(f) ? onDelete : undefined}
-                protectImages={false}
-              />
-            ))}
-          </div>
-        </>
-      )}
+    <div style={splitLayout
+      ? { display: "grid", gridTemplateColumns: "260px minmax(0, 1fr)", gap: 20, alignItems: "start", fontFamily: C.font }
+      : { display: "flex", flexDirection: "column", gap: 16, fontFamily: C.font }}>
+      {splitLayout ? <>{refsRail}{workFeed}</> : <>{workFeed}{refsRail}</>}
     </div>
   );
 }
@@ -262,6 +253,7 @@ function FileCard({
   onDelete,
   variant = "reference",
   protectImages = false,
+  forceStacked = false,
 }: {
   file: RefFile;
   viewerRole: ViewerRole;
@@ -275,6 +267,9 @@ function FileCard({
   /** Watermark + lock-down for client-facing deliverable previews.
    *  Caller already filters non-deliverable kinds out before passing. */
   protectImages?: boolean;
+  /** Force the image-over-chat stacked layout even for deliverables —
+   *  used in the work grid where each tile is too narrow for side-by-side. */
+  forceStacked?: boolean;
 }) {
   const label = formatFileLabel(file.kind, file.kind_ordinal).toUpperCase();
   const accent = KIND_ACCENT[file.kind] || KIND_ACCENT.reference;
@@ -290,7 +285,7 @@ function FileCard({
 
   const canPost = !readOnly && !!onPostComment;
   const hasThread = canPost || localComments.length > 0;
-  const sideBySide = variant === "deliverable" && isDesktop && hasThread;
+  const sideBySide = variant === "deliverable" && isDesktop && hasThread && !forceStacked;
 
   // Drive direct-download URL — opens "save file" prompt without a
   // separate Drive UI step. Lets designers pull files into their tools.
