@@ -84,7 +84,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { action } = await req.json() as { action: ActionKind };
+    const { action, confirmApproved } = await req.json() as { action: ActionKind; confirmApproved?: boolean };
     const db = admin();
     const { data: brief, error: loadErr } = await db
       .from("art_briefs")
@@ -94,19 +94,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (loadErr || !brief) return NextResponse.json({ error: loadErr?.message || "Not found" }, { status: 404 });
 
     // Recall: pull the brief back from the designer. Reverts to draft.
-    // Blocked if designer has already uploaded work (protects their effort).
+    // Allowed even after the designer has uploaded work — designers are paid
+    // monthly (not per design), so uploaded art doesn't gate a recall.
     if (action === "recall") {
       if (!brief.sent_to_designer_at) {
         return NextResponse.json({ error: "Brief hasn't been sent to a designer" }, { status: 409 });
       }
-      const { count: designerUploads } = await db
-        .from("art_brief_files")
-        .select("id", { count: "exact", head: true })
-        .eq("brief_id", params.id)
-        .eq("uploader_role", "designer");
-      if ((designerUploads || 0) > 0) {
+      // Guard: recalling a brief the client already APPROVED silently
+      // resets it to draft and erases the approval state. Make it a
+      // deliberate, confirmed act — not a one-click accident.
+      const APPROVED_STATES = ["final_approved", "pending_prep", "production_ready", "delivered"];
+      const wasApproved = APPROVED_STATES.includes(brief.state);
+      if (wasApproved && !confirmApproved) {
         return NextResponse.json({
-          error: "Designer has already uploaded work on this brief. Recall blocked to protect their files.",
+          error: `This brief is "${brief.state.replace(/_/g, " ")}" — the client already approved it. Recalling resets it to draft and removes that approval.`,
+          needsApprovalConfirm: true,
+          approvedState: brief.state,
         }, { status: 409 });
       }
       const { data: updated, error: updErr } = await db
@@ -121,6 +124,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         .select("*")
         .single();
       if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+      // Durable trail — log the recall and the state it came from so an
+      // approval can never be silently erased again. (The client's
+      // "✓ Approved" marker also survives, so the history shows both.)
+      try {
+        await db.from("art_brief_messages").insert({
+          brief_id: params.id,
+          sender_role: "hpd",
+          sender_name: "HPD",
+          message: wasApproved
+            ? `Recalled by HPD from "${brief.state.replace(/_/g, " ")}" — client approval reset`
+            : `Recalled by HPD from "${brief.state.replace(/_/g, " ")}"`,
+          visibility: "hpd_designer",
+        });
+      } catch {}
       return NextResponse.json({ brief: updated, action });
     }
 

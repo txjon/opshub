@@ -721,21 +721,33 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
   }
 
   async function handleRecall() {
-    if (!window.confirm("Recall this design request from the designer? It'll disappear from their portal and you'll need to re-send (to the same or a different designer). Blocked if they've already uploaded work.")) return;
+    if (!window.confirm("Recall this design request from the designer? It'll disappear from their portal and you'll need to re-send (to the same or a different designer).")) return;
+    await doRecall(false);
+  }
+
+  async function doRecall(confirmApproved: boolean) {
     const res = await fetch(`/api/art-briefs/${brief.id}/action`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "recall" }),
+      body: JSON.stringify({ action: "recall", confirmApproved }),
     });
     if (res.ok) {
       setSentAt(null);
       setAssignedDesignerId(null);
       setForm(p => ({ ...p, state: "draft" }));
       setChanged(true);
-    } else {
-      const err = await res.json().catch(() => ({}));
-      alert(err.error || "Recall failed");
+      return;
     }
+    const err = await res.json().catch(() => ({}));
+    // Brief was client-approved — recalling wipes that approval. Require a
+    // second, explicit confirm before proceeding.
+    if (res.status === 409 && err.needsApprovalConfirm) {
+      if (window.confirm(`⚠ The client already APPROVED this brief (${String(err.approvedState || "").replace(/_/g, " ")}).\n\nRecalling resets it to draft and removes that approval. Recall anyway?`)) {
+        await doRecall(true);
+      }
+      return;
+    }
+    alert(err.error || "Recall failed");
   }
 
   const ic = { width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, boxSizing: "border-box" as const };
