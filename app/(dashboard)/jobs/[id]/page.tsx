@@ -11,7 +11,6 @@ import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
 import { JobItemsList } from "./JobItemsList.jsx";
 import { useIsMobile } from "@/lib/useIsMobile";
-import { EmailThread } from "@/components/EmailThread";
 import { ProductBuilder } from "./ProductBuilder";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -79,6 +78,22 @@ type Job = {
   client_id:string|null; clients?:{name:string}|null; is_inventory?:boolean;
 };
 
+// Overview drill-in modal — a tile's summary opens this; the existing section
+// editor renders inside untouched. Click backdrop or × to close.
+function OvModal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9998, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.bg, borderRadius: 14, width: "100%", maxWidth: 1100, boxShadow: "0 16px 48px rgba(0,0,0,0.45)", marginBottom: 40 }}>
+        <div style={{ position: "sticky", top: 0, background: T.bg, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: `1px solid ${T.border}`, borderRadius: "14px 14px 0 0", zIndex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{title}</div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: 18 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function JobDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const supabase = createClient();
@@ -113,6 +128,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [items, setItems] = useState<Item[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  // Overview section chip — reflows the dense Overview into God Mode / Reports
+  // style: hero band + facts always on, heavy detail behind chips.
+  const [ovSection, setOvSection] = useState<null|"details"|"billing"|"items"|"activity">(null);
   const [loading, setLoading] = useState(true);
   const initialLoadDone = useRef(false);
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
@@ -908,7 +926,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               OR any item.sell_per_unit set) trust totalRev even if it's
               0 — don't fake a "~1.43× cost" estimate. The estimate is
               only for jobs that haven't been priced yet. */}
-          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, 1fr)",gap:6,marginBottom:12}}>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(6, 1fr)",gap:8,marginBottom:10}}>
             {(() => {
               const pricingKnown = !!cs || items.some((it:any) => it.sell_per_unit != null);
               const estRev = !pricingKnown && totalCost > 0 ? totalCost * 1.43 : null;
@@ -920,20 +938,92 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               // an $80.46 invoice, which led Taylor to mark a partial
               // $80 payment as "Full Payment" because $80 looked like
               // the total.
-              const fmt$ = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              const fmt$ = (n: number) => "$" + n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+              const units = items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
               return [
                 { label: "Revenue", value: showRev ? fmt$(effRev) : "—", color: T.text },
-                { label: "Cost", value: totalCost > 0 ? fmt$(totalCost) : "—" },
+                { label: "Cost", value: totalCost > 0 ? fmt$(totalCost) : "—", color: T.muted },
                 { label: "Profit", value: totalCost > 0 ? fmt$(profit) : "—", color: profit >= 0 ? T.green : T.red },
                 { label: "Margin", value: totalCost > 0 && effRev > 0 ? marginPct.toFixed(1) + "%" : "—", color: marginPct >= 30 ? T.green : marginPct >= 20 ? T.amber : T.red },
+                { label: "Units", value: units > 0 ? units.toLocaleString() : "—", color: T.text },
+                { label: "Paid", value: totalPaid > 0 ? fmt$(totalPaid) : "—", color: totalPaid > 0 ? T.green : T.faint },
               ];
             })().map(s=>(
-              <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 12px"}}>
-                <div style={{fontSize:9,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em"}}>{s.label}</div>
-                <div style={{fontSize:14,fontWeight:700,color:(s as any).color||T.text,fontFamily:mono}}>{s.value}</div>
+              <div key={s.label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"6px 12px",boxShadow:"0 1px 2px rgba(16,18,32,0.05)"}}>
+                <div style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>{s.label}</div>
+                <div style={{fontSize:16,fontWeight:800,color:(s as any).color||T.text,fontFamily:mono,letterSpacing:"-0.02em"}}>{s.value}</div>
               </div>
             ))}
           </div>
+
+          {/* Section tiles — command-center style, packed with as much live
+              summary as fits so you rarely open them. Click opens the OvModal
+              editor. These sit above the production strip. */}
+          {(() => {
+            const tm:any = (job as any).type_meta||{};
+            const route = (job as any).shipping_route||"ship_through";
+            const routeLabel = route==="drop_ship"?"Drop ship":route==="stage"?"Stage":"Ship-through";
+            const termsLabel = job.payment_terms ? job.payment_terms.replace(/_/g," ").replace(/\b\w/g,(c:string)=>c.toUpperCase()) : "—";
+            const priLabel = (job.priority||"normal").toUpperCase();
+            const priColor = job.priority==="hot"?T.red:job.priority==="rush"?T.amber:T.green;
+            const shipRaw = job.target_ship_date||null;
+            let shipLabel="—", shipSub:string|null=null, shipColor:string=T.muted;
+            if (job.phase==="complete"){shipLabel="Complete";shipColor=T.green;}
+            else if (job.phase==="cancelled"){shipLabel="Cancelled";shipColor=T.red;}
+            else if (["fulfillment","shipping","receiving"].includes(job.phase)){shipLabel="At HPD";shipColor=T.green;}
+            else if (shipRaw){const d=new Date(shipRaw);const days=Math.ceil((d.getTime()-Date.now())/86400000);shipSub=d.toLocaleDateString("en-US",{month:"short",day:"numeric"});shipLabel=days<0?`${Math.abs(days)}d over`:days===0?"Today":`In ${days}d`;shipColor=days<0?T.red:days<=3?T.amber:T.text;}
+            const invoiceTotal=Number(tm.qb_total_with_tax)||Number((job as any)?.costing_summary?.grossRev)||0;
+            const paidSum=(payments||[]).filter((p:any)=>p.status==="paid"||p.status==="partial").reduce((a:number,p:any)=>a+(Number(p.amount)||0),0);
+            const balance=Math.max(0,invoiceTotal-paidSum);
+            const payState=paidSum>0.01&&balance<=0.01?"Paid":paidSum>0.01?"Partial":invoiceTotal>0?"Unpaid":"No invoice";
+            const payColor=payState==="Paid"?T.green:payState==="Partial"?T.amber:invoiceTotal>0?T.red:T.muted;
+            const units=items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
+            const tileStyle:React.CSSProperties={textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:font,boxShadow:"0 1px 2px rgba(16,18,32,0.05)",transition:"all 0.12s",display:"flex",flexDirection:"column",gap:11,minHeight:158};
+            const Hd=({label}:{label:string})=>(<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}><span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>{label}</span><span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span></div>);
+            const Fact=({label,value,color}:{label:string;value:any;color?:string})=>(<div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}><span style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600}}>{label}</span><span style={{fontSize:13,fontWeight:600,color:color||T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</span></div>);
+            const hov=(e:any,on:boolean)=>{e.currentTarget.style.borderColor=on?T.accent:T.border;e.currentTarget.style.transform=on?"translateY(-1px)":"none";};
+            return (
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:10,marginBottom:10,alignItems:"stretch"}}>
+                <button onClick={()=>setOvSection("details")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                  <Hd label="Details" />
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+                    <Fact label="Ships" value={shipLabel+(shipSub?` · ${shipSub}`:"")} color={shipColor} />
+                    <Fact label="Route" value={routeLabel} />
+                    <Fact label="Terms" value={termsLabel} />
+                    <Fact label="Priority" value={priLabel} color={priColor} />
+                  </div>
+                </button>
+                <button onClick={()=>setOvSection("items")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                  <Hd label="Items" />
+                  <div style={{fontSize:16,fontWeight:800,color:T.text}}>{items.length} item{items.length!==1?"s":""}<span style={{fontSize:12,fontWeight:600,color:T.muted}}> · {units.toLocaleString()} units</span></div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {items.length===0 && <span style={{fontSize:12,color:T.muted}}>No items yet</span>}
+                    {items.slice(0,5).map((it:any)=>(
+                      <div key={it.id} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12.5,minWidth:0}}>
+                        <span style={{fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name||"Untitled"}</span>
+                        <span style={{color:T.faint,flexShrink:0,fontFamily:mono}}>{tQty(it.qtys||{})}</span>
+                      </div>
+                    ))}
+                    {items.length>5 && <span style={{fontSize:11,color:T.faint}}>+{items.length-5} more</span>}
+                  </div>
+                </button>
+                <button onClick={()=>setOvSection("billing")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                  <Hd label="Billing & Contacts" />
+                  <div style={{fontSize:16,fontWeight:800,color:payColor}}>{payState}{invoiceTotal>0 && <span style={{fontSize:12,fontWeight:600,color:T.muted}}> · ${Math.round(paidSum).toLocaleString()} / ${Math.round(invoiceTotal).toLocaleString()}</span>}</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    {contacts.length===0 && <span style={{fontSize:12,color:T.muted}}>No contacts</span>}
+                    {contacts.slice(0,3).map((c:any)=>(
+                      <div key={c.id} style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
+                        <span style={{fontWeight:600,color:T.text,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}{(c.role_on_job==="primary"||c.role_on_job==="billing") && <span style={{fontWeight:400,color:T.faint,textTransform:"capitalize"}}> · {c.role_on_job}</span>}</span>
+                        {c.email && <span style={{fontSize:11.5,color:T.accent,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</span>}
+                      </div>
+                    ))}
+                    {contacts.length>3 && <span style={{fontSize:11,color:T.faint}}>+{contacts.length-3} more</span>}
+                  </div>
+                </button>
+              </div>
+            );
+          })()}
 
           {/* Production strip — mirrors the per-project row on /production.
               Same visual + decorator chip behavior; clicking a chip
@@ -947,10 +1037,17 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             if (!job || !["production","receiving","fulfillment","shipping","complete"].includes(job.phase)) return null;
             // Group items by decorator (matches shapeProjectGroup in /production).
             type DG = { decoratorId: string|null; decoratorName: string; shortCode: string; items: any[]; inProduction: number; shipped: number; totalUnits: number; };
+            const poSentVendors = (job as any).type_meta?.po_sent_vendors || [];
+            const costProds = (job as any).costing_data?.costProds || [];
             const groups: DG[] = [];
             for (const it of items) {
-              if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped") continue;
               const assignment = (it as any).decorator_assignments?.[0];
+              // Include PO-sent items even if pipeline_stage drifted null (the
+              // stage advance is racy — see project_pipeline_stage_po_sent_drift).
+              // Mirrors the /production page so the strip never silently hides a
+              // vendor that's actually in production.
+              const poSent = poSentToItem({ printVendor: costProds.find((c: any) => c?.id === it.id)?.printVendor, decoratorName: assignment?.decorators?.name, decoratorShortCode: assignment?.decorators?.short_code, poSentVendors });
+              if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped" && !poSent) continue;
               const decName = assignment?.decorators?.name || it.decorator || "Unassigned";
               const decId = assignment?.decorator_id || assignment?.decorators?.id || null;
               const shortCode = assignment?.decorators?.short_code || "";
@@ -1021,95 +1118,48 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             );
           })()}
 
-          {/* Key Facts bar — ship date, payment status, route, terms.
-              Promotes the time-critical numbers above the fold so they
-              can't get buried in the Shipping details card below. */}
-          {(() => {
-            const tm = (job as any).type_meta || {};
-            const shipDateRaw = job.target_ship_date || null;
-            let shipLabel = "—", shipSub: string | null = null, shipColor: string = T.muted;
-            // Terminal phases bypass the "X days over" countdown — the
-            // ship date already happened (or was cancelled), so showing
-            // "12d over" on a complete / fulfillment / shipping job
-            // reads wrong. Once items reach HPD (fulfillment / shipping
-            // for stage / ship_through routes), the decorator-side
-            // deadline is met and the countdown should retire.
-            const completedAt = (job as any).phase_timestamps?.complete || null;
-            const cancelledAt = (job as any).phase_timestamps?.cancelled || null;
-            if (job.phase === "complete") {
-              shipLabel = "Complete";
-              shipColor = T.green;
-              shipSub = completedAt
-                ? new Date(completedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                : (shipDateRaw ? new Date(shipDateRaw).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null);
-            } else if (job.phase === "cancelled") {
-              shipLabel = "Cancelled";
-              shipColor = T.red;
-              shipSub = cancelledAt ? new Date(cancelledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
-            } else if (job.phase === "fulfillment" || job.phase === "shipping" || job.phase === "receiving") {
-              // All receive-side phases retire the countdown — items are
-              // partly or fully at HPD, so the production deadline is met
-              // (or about to be). "At HPD" reads correctly even when a
-              // straggler item is still in transit.
-              shipLabel = "At HPD";
-              shipColor = T.green;
-              shipSub = shipDateRaw ? new Date(shipDateRaw).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
-            } else if (shipDateRaw) {
-              const d = new Date(shipDateRaw);
-              const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
-              shipSub = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-              shipLabel = days < 0 ? `${Math.abs(days)}d over` : days === 0 ? "Today" : `In ${days}d`;
-              shipColor = days < 0 ? T.red : days <= 3 ? T.amber : T.text;
-            }
-            const invoiceTotal = Number(tm.qb_total_with_tax) || Number((job as any)?.costing_summary?.grossRev) || 0;
-            const paidSum = (payments || []).filter((p: any) => p.status === "paid" || p.status === "partial").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
-            const balance = Math.max(0, invoiceTotal - paidSum);
-            const isPaid = paidSum > 0.01 && balance <= 0.01;
-            const isPartial = paidSum > 0.01 && balance > 0.01;
-            const payLabel = isPaid ? "Paid" : isPartial ? "Partial" : invoiceTotal > 0 ? "Unpaid" : "—";
-            const paySub = invoiceTotal > 0 ? `$${Number(paidSum).toLocaleString()} of $${Number(invoiceTotal).toLocaleString()}` : null;
-            const payColor = isPaid ? T.green : isPartial ? T.amber : invoiceTotal > 0 ? T.red : T.muted;
-            const route = (job as any).shipping_route || "ship_through";
-            const routeLabel = route === "drop_ship" ? "Drop Ship" : route === "stage" ? "Stage" : "Ship-Through";
-            const termsLabel = job.payment_terms ? job.payment_terms.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—";
-            const priLabel = (job.priority || "normal").toUpperCase();
-            const priColor = job.priority === "hot" ? T.red : job.priority === "rush" ? T.amber : T.green;
-            const cellStyle: React.CSSProperties = { flex: 1, minWidth: 120, padding: "2px 16px", display: "flex", flexDirection: "column", gap: 2 };
-            const labelStyle: React.CSSProperties = { fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.08em", textTransform: "uppercase" };
-            const valueStyle: React.CSSProperties = { fontSize: 15, fontWeight: 700, lineHeight: 1.1, fontFamily: font };
-            const subStyle: React.CSSProperties = { fontSize: 10, color: T.faint };
-            return (
-              <div style={{ display: "flex", flexWrap: "wrap", padding: "12px 0", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 10, alignItems: "stretch" }}>
-                <div style={cellStyle}>
-                  <span style={labelStyle}>Ships</span>
-                  <span style={{ ...valueStyle, color: shipColor }}>{shipLabel}</span>
-                  {shipSub && <span style={subStyle}>{shipSub}</span>}
+          {/* Documents — always-visible action row (Quote / Invoice / Packing
+              Slip / Art / PO / Portal). Sits below the production strip. */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Documents</div>
+            {(()=>{
+              const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
+              const qbInvNum = (job as any).type_meta?.qb_invoice_number;
+              const hasItems = items.length > 0;
+              const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
+              const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
+                <button key={label}
+                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
+                  disabled={!available}
+                  title={available?undefined:"Not available yet"}
+                  style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap"}}
+                  onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                  {label}
+                </button>
+              );
+              return (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
+                  {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
+                  {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
+                  {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
+                  {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
+                  {docVendors.length === 0 && docBtn("PO", null, false)}
+                  {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
+                  {(job as any).portal_token && (
+                    <button onClick={()=>setPortalOpen(true)}
+                      style={{marginLeft:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+                      Client Portal
+                    </button>
+                  )}
                 </div>
-                <div style={{ width: 1, background: T.border }} />
-                <div style={cellStyle}>
-                  <span style={labelStyle}>Payment</span>
-                  <span style={{ ...valueStyle, color: payColor }}>{payLabel}</span>
-                  {paySub && <span style={subStyle}>{paySub}</span>}
-                </div>
-                <div style={{ width: 1, background: T.border }} />
-                <div style={cellStyle}>
-                  <span style={labelStyle}>Route</span>
-                  <span style={{ ...valueStyle, color: T.text }}>{routeLabel}</span>
-                </div>
-                <div style={{ width: 1, background: T.border }} />
-                <div style={cellStyle}>
-                  <span style={labelStyle}>Terms</span>
-                  <span style={{ ...valueStyle, color: T.text }}>{termsLabel}</span>
-                </div>
-                <div style={{ width: 1, background: T.border }} />
-                <div style={cellStyle}>
-                  <span style={labelStyle}>Priority</span>
-                  <span style={{ ...valueStyle, color: priColor }}>{priLabel}</span>
-                </div>
-              </div>
-            );
-          })()}
+              );
+            })()}
+          </div>
 
+          {ovSection==="details" && (<OvModal title="Details" onClose={()=>setOvSection(null)}>
           {/* Shipping + Project info — 3 equal columns. Project info
               on the left (what + who); From-client middle; HPD plan
               right. Contacts swapped out to its own card below the
@@ -1194,58 +1244,20 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     <option value="stage">Stage (fulfillment from HPD)</option>
                   </select>
                 </div>
-                <label style={{display:"flex",alignItems:"flex-start",gap:7,cursor:"pointer",marginTop:2}}>
-                  <input type="checkbox" checked={!!(job as any).is_inventory} onChange={e=>upd("is_inventory",e.target.checked)} style={{marginTop:2,cursor:"pointer"}}/>
-                  <span style={{fontSize:11,color:T.muted,lineHeight:1.35}}>Inventory / stock buy <span style={{color:T.faint,fontWeight:400}}>(bulk blanks for future jobs). Excluded from revenue &amp; margin; cost rides the jobs that sell them.</span></span>
-                </label>
                 <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
                   <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
+                </div>
+                <div style={{display:"flex",alignItems:"flex-start",gap:7,marginTop:2}}>
+                  <input type="checkbox" checked={!!(job as any).is_inventory} onChange={e=>upd("is_inventory",e.target.checked)} style={{marginTop:2,cursor:"pointer",flexShrink:0}}/>
+                  <span style={{fontSize:11,color:T.muted,lineHeight:1.35}}>Inventory / stock buy <span style={{color:T.faint,fontWeight:400}}>(bulk blanks for future jobs). Excluded from revenue &amp; margin; cost rides the jobs that sell them.</span></span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Documents — full-width action bar, no longer nested
-              inside Project info. Treated as actions, not setup data. */}
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
-            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Documents</div>
-            {(()=>{
-              const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
-              const qbInvNum = (job as any).type_meta?.qb_invoice_number;
-              const hasItems = items.length > 0;
-              const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
-              const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
-                <button key={label}
-                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
-                  disabled={!available}
-                  title={available?undefined:"Not available yet"}
-                  style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap"}}
-                  onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
-                  onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
-                  {label}
-                </button>
-              );
-              return (
-                <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
-                  {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
-                  {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
-                  {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
-                  {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
-                  {docVendors.length === 0 && docBtn("PO", null, false)}
-                  {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
-                  {(job as any).portal_token && (
-                    <button onClick={()=>setPortalOpen(true)}
-                      style={{marginLeft:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
-                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-                      Client Portal
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
+          </OvModal>)}
 
+          {ovSection==="billing" && (<OvModal title="Billing & Contacts" onClose={()=>setOvSection(null)}>
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"stretch"}}>
             {/* Left column: Contacts (moved from the top 3-col block
                 so it sits next to Payments — Project info now lives
@@ -1413,15 +1425,24 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
             </div>
           </div>
+          </OvModal>)}
 
+          {ovSection==="items" && (<OvModal title="Items" onClose={()=>setOvSection(null)}>
           {/* Items — worksheet-style row (name · qty · status · ETA).
               ETA writes to items.client_eta — the same column the
               client-detail worksheet, ProductionTab, and /production
               all edit. All four surfaces stay in sync via that column. */}
           <JobItemsList items={items} job={job} isMobile={isMobile} onChange={reloadItems} />
+          </OvModal>)}
 
-          {/* Hold + Delete — small action links, bottom-right */}
+          {/* Action row — Activity Log (left) + Hold / Duplicate / Delete (right). */}
           <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}}>
+            <button onClick={()=>setOvSection("activity")}
+              style={{marginRight:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+              Activity Log
+            </button>
             {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
               <button onClick={()=>{upd("phase","on_hold");}}
                 style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
@@ -1466,17 +1487,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             </button>
           </div>
 
-          {/* Project activity (left) + outbound emails (right).
-              Activity feed reads job_activity rows (auto entries + team
-              comments). EmailThread covers what's been sent. They sit
-              side-by-side on desktop, stack on mobile.
-              Inbound routing via a shared reply-to is unreliable
-              (replies get tagged to the wrong job), so we suppress
-              inbound here until per-job reply addressing is rebuilt. */}
-          <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
+          {/* Activity — collapsed into a modal, opened by the Activity Log
+              button in the action row above. (The outbound-email test panel was
+              removed; email events already post to this activity feed.) */}
+          {ovSection==="activity" && (<OvModal title="Activity" onClose={()=>setOvSection(null)}>
             <JobActivityPanel jobId={job.id} currentUserId={currentUserId} profiles={teamProfiles} />
-            <EmailThread jobId={job.id} title="Emails sent from OpsHub" outboundOnly />
-          </div>
+          </OvModal>)}
 
           {/* Client portal preview modal — iframes the client's
               read-only view of this job so you can see exactly what
@@ -1815,7 +1831,7 @@ function ArtFilesModal({ job, items, onClose }: { job: any; items: any[]; onClos
           <button onClick={onClose}
             style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 6px" }}>✕</button>
         </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
           {loading && <div style={{ fontSize: 12, color: T.muted, textAlign: "center", padding: 30 }}>Loading…</div>}
           {!loading && items.length === 0 && (
             <div style={{ fontSize: 12, color: T.faint, textAlign: "center", padding: 30 }}>No items on this project.</div>
@@ -1824,20 +1840,26 @@ function ArtFilesModal({ job, items, onClose }: { job: any; items: any[]; onClos
             const files = (filesByItem[it.id] || []).filter((f: any) => f.stage === "mockup" || f.stage === "proof" || f.stage === "print_ready");
             if (files.length === 0) return null;
             return (
-              <div key={it.id} style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{it.name}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+              <div key={it.id} style={{ marginBottom: 26 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12, textAlign: "center" }}>{it.name}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, 220px)", justifyContent: "center", gap: 14 }}>
                   {files.map((f: any) => (
-                    <a key={f.id} href={`/api/files/thumbnail?id=${f.drive_file_id}`} target="_blank" rel="noopener noreferrer"
-                      style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden", textDecoration: "none", color: T.text, display: "flex", flexDirection: "column" }}>
-                      <div style={{ background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", height: 120, overflow: "hidden" }}>
+                    <div key={f.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                      <a href={`/api/files/thumbnail?id=${f.drive_file_id}`} target="_blank" rel="noopener noreferrer"
+                        title="Open preview"
+                        style={{ background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", height: 170, overflow: "hidden", textDecoration: "none" }}>
                         <img src={`/api/files/thumbnail?id=${f.drive_file_id}&thumb=1`} alt={f.file_name}
                           style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}/>
+                      </a>
+                      <div style={{ padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderTop: `1px solid ${T.border}` }}>
+                        <span style={{ fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>{f.stage.replace(/_/g, " ")}</span>
+                        <a href={`/api/files/thumbnail?id=${f.drive_file_id}&dl=1`} download
+                          title="Download file"
+                          style={{ fontSize: 10, fontWeight: 700, color: T.accent, textDecoration: "none", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                          ↓ Download
+                        </a>
                       </div>
-                      <div style={{ padding: "6px 8px", fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>
-                        {f.stage.replace(/_/g, " ")}
-                      </div>
-                    </a>
+                    </div>
                   ))}
                 </div>
               </div>
