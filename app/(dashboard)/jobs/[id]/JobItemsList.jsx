@@ -38,7 +38,7 @@ const ITEM_STATE_COLORS = {
 
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
-export function JobItemsList({ items, job, isMobile, onChange }) {
+export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onClearVendor }) {
   const supabase = createClient();
   const [localEta, setLocalEta] = useState({});
   const saveTimers = useRef({});
@@ -152,6 +152,18 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
 
   const totalUnits = items.reduce((a, it) => a + tQty(it.qtys || {}), 0);
 
+  // Group by decorator/vendor. When a production vendor chip opened this modal,
+  // vendorFilter scopes it to just that vendor; otherwise all vendors show.
+  const itemVendor = (it) => it.decorator_assignments?.[0]?.decorators?.name || it.decorator || "Unassigned";
+  const shownItems = vendorFilter ? items.filter(it => itemVendor(it) === vendorFilter) : items;
+  const vendorGroups = [];
+  const groupIndex = {};
+  for (const it of shownItems) {
+    const v = itemVendor(it);
+    if (groupIndex[v] === undefined) { groupIndex[v] = vendorGroups.length; vendorGroups.push([v, []]); }
+    vendorGroups[groupIndex[v]][1].push(it);
+  }
+
   // Column template tuned for the four columns. On mobile we drop to
   // a two-row stack so the ETA input keeps a tappable width.
   const cols = isMobile
@@ -161,9 +173,17 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", marginTop: 10 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Items</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Items</span>
+          {vendorFilter && (
+            <button onClick={() => onClearVendor && onClearVendor()}
+              style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 5, border: `1px solid ${T.accent}55`, background: T.accentDim, color: T.accent, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+              {vendorFilter} <span style={{ fontSize: 12, lineHeight: 1 }}>×</span>
+            </button>
+          )}
+        </div>
         <span style={{ fontSize: 10, color: T.muted }}>
-          {items.length} items · {totalUnits.toLocaleString()} units
+          {shownItems.length} items · {shownItems.reduce((a, it) => a + tQty(it.qtys || {}), 0).toLocaleString()} units
         </span>
       </div>
 
@@ -181,8 +201,17 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {items.map(item => {
+      {vendorGroups.length === 0 && (
+        <div style={{ fontSize: 12, color: T.muted, padding: "8px 10px" }}>No items{vendorFilter ? ` for ${vendorFilter}` : ""}.</div>
+      )}
+      {vendorGroups.map(([vendorName, vItems]) => (
+        <div key={vendorName} style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "2px 10px 5px" }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: T.text }}>{vendorName}</span>
+            <span style={{ fontSize: 9.5, color: T.faint, fontFamily: mono }}>{vItems.length} item{vItems.length !== 1 ? "s" : ""} · {vItems.reduce((a, it) => a + tQty(it.qtys || {}), 0).toLocaleString()} units</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {vItems.map(item => {
           const qty = tQty(item.qtys || {});
           const decoratorName = item.decorator || null;
           const decoratorShort = item.decorator_assignments?.[0]?.decorators?.short_code || null;
@@ -345,8 +374,10 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
               </div>
             </div>
           );
-        })}
-      </div>
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

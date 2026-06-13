@@ -131,6 +131,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // Overview section chip — reflows the dense Overview into God Mode / Reports
   // style: hero band + facts always on, heavy detail behind chips.
   const [ovSection, setOvSection] = useState<null|"details"|"billing"|"items"|"activity">(null);
+  const [ovItemsVendor, setOvItemsVendor] = useState<string|null>(null);
   const [loading, setLoading] = useState(true);
   const initialLoadDone = useRef(false);
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
@@ -993,7 +994,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     <Fact label="Priority" value={priLabel} color={priColor} />
                   </div>
                 </button>
-                <button onClick={()=>setOvSection("items")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                <button onClick={()=>{setOvSection("items");setOvItemsVendor(null);}} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
                   <Hd label="Items" />
                   <div style={{fontSize:16,fontWeight:800,color:T.text}}>{items.length} item{items.length!==1?"s":""}<span style={{fontSize:12,fontWeight:600,color:T.muted}}> · {units.toLocaleString()} units</span></div>
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -1096,7 +1097,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     }
                     return (
                       <button key={decKey}
-                        onClick={() => setOvSection("items")}
+                        onClick={() => { setOvSection("items"); setOvItemsVendor(g.decoratorName); }}
                         style={{
                           display: "flex", alignItems: "center", gap: 6,
                           padding: "7px 14px", borderRadius: 6, background: T.surface,
@@ -1432,7 +1433,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               ETA writes to items.client_eta — the same column the
               client-detail worksheet, ProductionTab, and /production
               all edit. All four surfaces stay in sync via that column. */}
-          <JobItemsList items={items} job={job} isMobile={isMobile} onChange={reloadItems} />
+          <JobItemsList items={items} job={job} isMobile={isMobile} onChange={reloadItems} vendorFilter={ovItemsVendor} onClearVendor={()=>setOvItemsVendor(null)} />
           </OvModal>)}
 
           {/* Action row — Activity Log (left) + Hold / Duplicate / Delete (right). */}
