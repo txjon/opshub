@@ -950,12 +950,82 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 { label: "Paid", value: totalPaid > 0 ? fmt$(totalPaid) : "—", color: totalPaid > 0 ? T.green : T.faint },
               ];
             })().map(s=>(
-              <div key={s.label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 14px",boxShadow:"0 1px 2px rgba(16,18,32,0.05)"}}>
-                <div style={{fontSize:9.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:6}}>{s.label}</div>
-                <div style={{fontSize:20,fontWeight:800,color:(s as any).color||T.text,fontFamily:mono,letterSpacing:"-0.02em"}}>{s.value}</div>
+              <div key={s.label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"6px 12px",boxShadow:"0 1px 2px rgba(16,18,32,0.05)"}}>
+                <div style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>{s.label}</div>
+                <div style={{fontSize:16,fontWeight:800,color:(s as any).color||T.text,fontFamily:mono,letterSpacing:"-0.02em"}}>{s.value}</div>
               </div>
             ))}
           </div>
+
+          {/* Section tiles — command-center style, packed with as much live
+              summary as fits so you rarely open them. Click opens the OvModal
+              editor. These sit above the production strip. */}
+          {(() => {
+            const tm:any = (job as any).type_meta||{};
+            const route = (job as any).shipping_route||"ship_through";
+            const routeLabel = route==="drop_ship"?"Drop ship":route==="stage"?"Stage":"Ship-through";
+            const termsLabel = job.payment_terms ? job.payment_terms.replace(/_/g," ").replace(/\b\w/g,(c:string)=>c.toUpperCase()) : "—";
+            const priLabel = (job.priority||"normal").toUpperCase();
+            const priColor = job.priority==="hot"?T.red:job.priority==="rush"?T.amber:T.green;
+            const shipRaw = job.target_ship_date||null;
+            let shipLabel="—", shipSub:string|null=null, shipColor:string=T.muted;
+            if (job.phase==="complete"){shipLabel="Complete";shipColor=T.green;}
+            else if (job.phase==="cancelled"){shipLabel="Cancelled";shipColor=T.red;}
+            else if (["fulfillment","shipping","receiving"].includes(job.phase)){shipLabel="At HPD";shipColor=T.green;}
+            else if (shipRaw){const d=new Date(shipRaw);const days=Math.ceil((d.getTime()-Date.now())/86400000);shipSub=d.toLocaleDateString("en-US",{month:"short",day:"numeric"});shipLabel=days<0?`${Math.abs(days)}d over`:days===0?"Today":`In ${days}d`;shipColor=days<0?T.red:days<=3?T.amber:T.text;}
+            const invoiceTotal=Number(tm.qb_total_with_tax)||Number((job as any)?.costing_summary?.grossRev)||0;
+            const paidSum=(payments||[]).filter((p:any)=>p.status==="paid"||p.status==="partial").reduce((a:number,p:any)=>a+(Number(p.amount)||0),0);
+            const balance=Math.max(0,invoiceTotal-paidSum);
+            const payState=paidSum>0.01&&balance<=0.01?"Paid":paidSum>0.01?"Partial":invoiceTotal>0?"Unpaid":"No invoice";
+            const payColor=payState==="Paid"?T.green:payState==="Partial"?T.amber:invoiceTotal>0?T.red:T.muted;
+            const units=items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
+            const tileStyle:React.CSSProperties={textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:font,boxShadow:"0 1px 2px rgba(16,18,32,0.05)",transition:"all 0.12s",display:"flex",flexDirection:"column",gap:11,minHeight:158};
+            const Hd=({label}:{label:string})=>(<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}><span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>{label}</span><span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span></div>);
+            const Fact=({label,value,color}:{label:string;value:any;color?:string})=>(<div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}><span style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600}}>{label}</span><span style={{fontSize:13,fontWeight:600,color:color||T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</span></div>);
+            const hov=(e:any,on:boolean)=>{e.currentTarget.style.borderColor=on?T.accent:T.border;e.currentTarget.style.transform=on?"translateY(-1px)":"none";};
+            return (
+              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:10,marginBottom:10,alignItems:"stretch"}}>
+                <button onClick={()=>setOvSection("details")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                  <Hd label="Details" />
+                  <div style={{fontSize:16,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{job.clients?.name||"No client"}</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+                    <Fact label="Ships" value={shipLabel+(shipSub?` · ${shipSub}`:"")} color={shipColor} />
+                    <Fact label="Route" value={routeLabel} />
+                    <Fact label="Terms" value={termsLabel} />
+                    <Fact label="Priority" value={priLabel} color={priColor} />
+                  </div>
+                </button>
+                <button onClick={()=>setOvSection("billing")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                  <Hd label="Billing & Contacts" />
+                  <div style={{fontSize:16,fontWeight:800,color:payColor}}>{payState}{invoiceTotal>0 && <span style={{fontSize:12,fontWeight:600,color:T.muted}}> · ${Math.round(paidSum).toLocaleString()} / ${Math.round(invoiceTotal).toLocaleString()}</span>}</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {contacts.length===0 && <span style={{fontSize:12,color:T.muted}}>No contacts</span>}
+                    {contacts.slice(0,4).map((c:any)=>(
+                      <div key={c.id} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12.5,minWidth:0}}>
+                        <span style={{fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                        <span style={{color:T.faint,flexShrink:0,textTransform:"capitalize"}}>{c.role_on_job}</span>
+                      </div>
+                    ))}
+                    {contacts.length>4 && <span style={{fontSize:11,color:T.faint}}>+{contacts.length-4} more</span>}
+                  </div>
+                </button>
+                <button onClick={()=>setOvSection("items")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                  <Hd label="Items" />
+                  <div style={{fontSize:16,fontWeight:800,color:T.text}}>{items.length} item{items.length!==1?"s":""}<span style={{fontSize:12,fontWeight:600,color:T.muted}}> · {units.toLocaleString()} units</span></div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {items.length===0 && <span style={{fontSize:12,color:T.muted}}>No items yet</span>}
+                    {items.slice(0,5).map((it:any)=>(
+                      <div key={it.id} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12.5,minWidth:0}}>
+                        <span style={{fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name||"Untitled"}</span>
+                        <span style={{color:T.faint,flexShrink:0,fontFamily:mono}}>{tQty(it.qtys||{})}</span>
+                      </div>
+                    ))}
+                    {items.length>5 && <span style={{fontSize:11,color:T.faint}}>+{items.length-5} more</span>}
+                  </div>
+                </button>
+              </div>
+            );
+          })()}
 
           {/* Production strip — mirrors the per-project row on /production.
               Same visual + decorator chip behavior; clicking a chip
@@ -1042,129 +1112,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </div>
             );
           })()}
-
-          {/* Key Facts bar — ship date, payment status, route, terms.
-              Promotes the time-critical numbers above the fold so they
-              can't get buried in the Shipping details card below. */}
-          {(() => {
-            const tm = (job as any).type_meta || {};
-            const shipDateRaw = job.target_ship_date || null;
-            let shipLabel = "—", shipSub: string | null = null, shipColor: string = T.muted;
-            // Terminal phases bypass the "X days over" countdown — the
-            // ship date already happened (or was cancelled), so showing
-            // "12d over" on a complete / fulfillment / shipping job
-            // reads wrong. Once items reach HPD (fulfillment / shipping
-            // for stage / ship_through routes), the decorator-side
-            // deadline is met and the countdown should retire.
-            const completedAt = (job as any).phase_timestamps?.complete || null;
-            const cancelledAt = (job as any).phase_timestamps?.cancelled || null;
-            if (job.phase === "complete") {
-              shipLabel = "Complete";
-              shipColor = T.green;
-              shipSub = completedAt
-                ? new Date(completedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                : (shipDateRaw ? new Date(shipDateRaw).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null);
-            } else if (job.phase === "cancelled") {
-              shipLabel = "Cancelled";
-              shipColor = T.red;
-              shipSub = cancelledAt ? new Date(cancelledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
-            } else if (job.phase === "fulfillment" || job.phase === "shipping" || job.phase === "receiving") {
-              // All receive-side phases retire the countdown — items are
-              // partly or fully at HPD, so the production deadline is met
-              // (or about to be). "At HPD" reads correctly even when a
-              // straggler item is still in transit.
-              shipLabel = "At HPD";
-              shipColor = T.green;
-              shipSub = shipDateRaw ? new Date(shipDateRaw).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
-            } else if (shipDateRaw) {
-              const d = new Date(shipDateRaw);
-              const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
-              shipSub = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-              shipLabel = days < 0 ? `${Math.abs(days)}d over` : days === 0 ? "Today" : `In ${days}d`;
-              shipColor = days < 0 ? T.red : days <= 3 ? T.amber : T.text;
-            }
-            const invoiceTotal = Number(tm.qb_total_with_tax) || Number((job as any)?.costing_summary?.grossRev) || 0;
-            const paidSum = (payments || []).filter((p: any) => p.status === "paid" || p.status === "partial").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
-            const balance = Math.max(0, invoiceTotal - paidSum);
-            const isPaid = paidSum > 0.01 && balance <= 0.01;
-            const isPartial = paidSum > 0.01 && balance > 0.01;
-            const payLabel = isPaid ? "Paid" : isPartial ? "Partial" : invoiceTotal > 0 ? "Unpaid" : "—";
-            const paySub = invoiceTotal > 0 ? `$${Number(paidSum).toLocaleString()} of $${Number(invoiceTotal).toLocaleString()}` : null;
-            const payColor = isPaid ? T.green : isPartial ? T.amber : invoiceTotal > 0 ? T.red : T.muted;
-            const route = (job as any).shipping_route || "ship_through";
-            const routeLabel = route === "drop_ship" ? "Drop Ship" : route === "stage" ? "Stage" : "Ship-Through";
-            const termsLabel = job.payment_terms ? job.payment_terms.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "—";
-            const priLabel = (job.priority || "normal").toUpperCase();
-            const priColor = job.priority === "hot" ? T.red : job.priority === "rush" ? T.amber : T.green;
-            const cellStyle: React.CSSProperties = { flex: 1, minWidth: 120, padding: "2px 16px", display: "flex", flexDirection: "column", gap: 2 };
-            const labelStyle: React.CSSProperties = { fontSize: 9, fontWeight: 700, color: T.muted, letterSpacing: "0.08em", textTransform: "uppercase" };
-            const valueStyle: React.CSSProperties = { fontSize: 15, fontWeight: 700, lineHeight: 1.1, fontFamily: font };
-            const subStyle: React.CSSProperties = { fontSize: 10, color: T.faint };
-            return (
-              <div style={{ display: "flex", flexWrap: "wrap", padding: "12px 0", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, marginBottom: 10, alignItems: "stretch" }}>
-                <div style={cellStyle}>
-                  <span style={labelStyle}>Ships</span>
-                  <span style={{ ...valueStyle, color: shipColor }}>{shipLabel}</span>
-                  {shipSub && <span style={subStyle}>{shipSub}</span>}
-                </div>
-                <div style={{ width: 1, background: T.border }} />
-                <div style={cellStyle}>
-                  <span style={labelStyle}>Payment</span>
-                  <span style={{ ...valueStyle, color: payColor }}>{payLabel}</span>
-                  {paySub && <span style={subStyle}>{paySub}</span>}
-                </div>
-                <div style={{ width: 1, background: T.border }} />
-                <div style={cellStyle}>
-                  <span style={labelStyle}>Route</span>
-                  <span style={{ ...valueStyle, color: T.text }}>{routeLabel}</span>
-                </div>
-                <div style={{ width: 1, background: T.border }} />
-                <div style={cellStyle}>
-                  <span style={labelStyle}>Terms</span>
-                  <span style={{ ...valueStyle, color: T.text }}>{termsLabel}</span>
-                </div>
-                <div style={{ width: 1, background: T.border }} />
-                <div style={cellStyle}>
-                  <span style={labelStyle}>Priority</span>
-                  <span style={{ ...valueStyle, color: priColor }}>{priLabel}</span>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Section tiles — command-center style. Each shows a live
-              summary; click opens a focused edit modal (OvModal). */}
-          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:10,marginBottom:10}}>
-            {(() => {
-              const tm:any = (job as any).type_meta||{};
-              const route = (job as any).shipping_route||"ship_through";
-              const routeLabel = route==="drop_ship"?"Drop ship":route==="stage"?"Stage":"Ship-through";
-              const shipStr = job.target_ship_date ? new Date(job.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "no date";
-              const invoiceTotal = Number(tm.qb_total_with_tax)||Number((job as any)?.costing_summary?.grossRev)||0;
-              const paidSum = (payments||[]).filter((p:any)=>p.status==="paid"||p.status==="partial").reduce((a:number,p:any)=>a+(Number(p.amount)||0),0);
-              const balance = Math.max(0, invoiceTotal-paidSum);
-              const payState = paidSum>0.01&&balance<=0.01?"Paid":paidSum>0.01?"Partial":invoiceTotal>0?"Unpaid":"No invoice";
-              const payColor = payState==="Paid"?T.green:payState==="Partial"?T.amber:invoiceTotal>0?T.red:T.muted;
-              const units = items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
-              return [
-                { key:"details", title:"Details", head:job.clients?.name||"No client", sub:`${routeLabel} · ships ${shipStr}`, color:T.text },
-                { key:"billing", title:"Billing & Contacts", head:payState, sub:`${contacts.length} contact${contacts.length!==1?"s":""}`, color:payColor },
-                { key:"items", title:"Items", head:`${items.length} item${items.length!==1?"s":""}`, sub:`${units.toLocaleString()} units`, color:T.text },
-              ];
-            })().map(t=>(
-              <button key={t.key} onClick={()=>setOvSection(t.key as any)}
-                style={{textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:font,boxShadow:"0 1px 2px rgba(16,18,32,0.05)",transition:"all 0.12s",display:"flex",flexDirection:"column",gap:6}}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.transform="translateY(-1px)";}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform="none";}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                  <span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>{t.title}</span>
-                  <span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span>
-                </div>
-                <div style={{fontSize:15,fontWeight:700,color:t.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.head}</div>
-                <div style={{fontSize:12,color:T.muted}}>{t.sub}</div>
-              </button>
-            ))}
-          </div>
 
           {ovSection==="details" && (<OvModal title="Details" onClose={()=>setOvSection(null)}>
           {/* Shipping + Project info — 3 equal columns. Project info
