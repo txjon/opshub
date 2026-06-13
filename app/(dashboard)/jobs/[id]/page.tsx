@@ -987,26 +987,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:10,marginBottom:10,alignItems:"stretch"}}>
                 <button onClick={()=>setOvSection("details")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
                   <Hd label="Details" />
-                  <div style={{fontSize:16,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{job.clients?.name||"No client"}</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
                     <Fact label="Ships" value={shipLabel+(shipSub?` · ${shipSub}`:"")} color={shipColor} />
                     <Fact label="Route" value={routeLabel} />
                     <Fact label="Terms" value={termsLabel} />
                     <Fact label="Priority" value={priLabel} color={priColor} />
-                  </div>
-                </button>
-                <button onClick={()=>setOvSection("billing")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
-                  <Hd label="Billing & Contacts" />
-                  <div style={{fontSize:16,fontWeight:800,color:payColor}}>{payState}{invoiceTotal>0 && <span style={{fontSize:12,fontWeight:600,color:T.muted}}> · ${Math.round(paidSum).toLocaleString()} / ${Math.round(invoiceTotal).toLocaleString()}</span>}</div>
-                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                    {contacts.length===0 && <span style={{fontSize:12,color:T.muted}}>No contacts</span>}
-                    {contacts.slice(0,4).map((c:any)=>(
-                      <div key={c.id} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12.5,minWidth:0}}>
-                        <span style={{fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
-                        <span style={{color:T.faint,flexShrink:0,textTransform:"capitalize"}}>{c.role_on_job}</span>
-                      </div>
-                    ))}
-                    {contacts.length>4 && <span style={{fontSize:11,color:T.faint}}>+{contacts.length-4} more</span>}
                   </div>
                 </button>
                 <button onClick={()=>setOvSection("items")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
@@ -1021,6 +1006,20 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                       </div>
                     ))}
                     {items.length>5 && <span style={{fontSize:11,color:T.faint}}>+{items.length-5} more</span>}
+                  </div>
+                </button>
+                <button onClick={()=>setOvSection("billing")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                  <Hd label="Billing & Contacts" />
+                  <div style={{fontSize:16,fontWeight:800,color:payColor}}>{payState}{invoiceTotal>0 && <span style={{fontSize:12,fontWeight:600,color:T.muted}}> · ${Math.round(paidSum).toLocaleString()} / ${Math.round(invoiceTotal).toLocaleString()}</span>}</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    {contacts.length===0 && <span style={{fontSize:12,color:T.muted}}>No contacts</span>}
+                    {contacts.slice(0,3).map((c:any)=>(
+                      <div key={c.id} style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
+                        <span style={{fontWeight:600,color:T.text,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}{(c.role_on_job==="primary"||c.role_on_job==="billing") && <span style={{fontWeight:400,color:T.faint,textTransform:"capitalize"}}> · {c.role_on_job}</span>}</span>
+                        {c.email && <span style={{fontSize:11.5,color:T.accent,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</span>}
+                      </div>
+                    ))}
+                    {contacts.length>3 && <span style={{fontSize:11,color:T.faint}}>+{contacts.length-3} more</span>}
                   </div>
                 </button>
               </div>
