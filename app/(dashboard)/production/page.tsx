@@ -6,6 +6,7 @@ import Link from "next/link";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
+import { shipItemFromDecorator } from "@/lib/po-actions";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { MockupPeek } from "@/components/MockupPeek";
 
@@ -494,52 +495,15 @@ export default function ProductionPage() {
   // items and would otherwise reload N times — pass `skipReload: true`
   // for each item in the loop and call loadAll() once at the end.
   async function markShipped(item: ProdItem, opts?: { skipReload?: boolean }) {
-    const ts = new Date().toISOString();
-    // Only stamp `shipped` on the FIRST transition. Re-running Mark
-    // Shipped (e.g. correcting tracking after the fact) used to bump
-    // the timestamp to "now" which broke shipment grouping when items
-    // were grouped by ship_date as a fallback for empty tracking.
-    // First-set-wins gives us a stable date that survives revisions.
-    const existing = item.pipeline_timestamps || {};
-    const timestamps = { ...existing, shipped: existing.shipped || ts };
-    // Flush ALL pending debounces for this item
+    // Flush ALL pending debounces for this item so the latest tracking / qtys
+    // are on the item object before the write.
     for (const key of Object.keys(saveTimers.current).filter(k => k.includes(item.id))) {
       clearTimeout(saveTimers.current[key]);
       delete saveTimers.current[key];
     }
-    const shipQtysToSave = item.ship_qtys && Object.keys(item.ship_qtys).length > 0 ? item.ship_qtys : null;
-    await supabase.from("items").update({
-      pipeline_stage: "shipped", pipeline_timestamps: timestamps,
-      ship_notes: item.ship_notes || null, ship_tracking: item.ship_tracking || null,
-      ship_qtys: shipQtysToSave,
-      received_at_hpd: false, received_at_hpd_at: null, received_qtys: null,
-    }).eq("id", item.id);
-    if (item.decorator_assignment_id) {
-      await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
-    }
-    logJobActivity(item.job_id, `${item.name} shipped from decorator${item.ship_tracking ? ` — tracking: ${item.ship_tracking}` : ""}`);
-    notifyTeam(`Item shipped from decorator — ${item.name} incoming to warehouse`, "production", item.job_id, "job");
-
-    // Route-aware post-ship flow (drop_ship only — ship_through handled by warehouse page)
-    const { data: jobRow } = await supabase.from("jobs").select("shipping_route, title, clients(name)").eq("id", item.job_id).single();
-    const route = resolveRoute(item.shipping_route, (jobRow as any)?.shipping_route);
-    const clientName = (jobRow as any)?.clients?.name || "";
-    const jobTitle = (jobRow as any)?.title || "";
-
-    if (route === "drop_ship") {
-      // Shipment update emails are manually fired per tracking number from
-      // the "Send shipment update" button (sendShipmentUpdate below) — no
-      // auto-fire on markShipped so partial shipments don't leave the
-      // client in the dark.
-
-      // Invoice-ready notification when ALL job items shipped
-      const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage").eq("job_id", item.job_id);
-      const allShipped = (jobItems || []).every((it: any) => it.id === item.id ? true : it.pipeline_stage === "shipped");
-      if (allShipped) {
-        await createInvoiceReadyNotification(item.job_id, jobTitle, clientName);
-        logJobActivity(item.job_id, "All items shipped — invoice ready to update with shipped qtys");
-      }
-    }
+    // Canonical ship effect lives in lib/po-actions (shared with the job
+    // Overview items modal) so the two surfaces can never drift.
+    await shipItemFromDecorator(supabase, item);
     if (!opts?.skipReload) loadAll();
   }
 

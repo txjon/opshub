@@ -9,6 +9,7 @@
 // and write/read can never disagree.
 
 import { poSentToItem } from "./item-status";
+import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 
 async function fetchVendorItems(supabase: any, jobId: string, vendor: string): Promise<any[]> {
   const [{ data: job }, { data: items }] = await Promise.all([
@@ -73,4 +74,39 @@ export async function revertPoSentFromVendorItems(supabase: any, jobId: string, 
     reverted++;
   }
   return reverted;
+}
+
+// Mark a single item shipped FROM THE DECORATOR — the canonical effect, shared by
+// the /production board and the job Overview items modal so the two can never
+// drift. Sets pipeline_stage=shipped (first-set-wins timestamp), persists
+// tracking/notes/qtys, clears any received-at-HPD state, syncs the
+// decorator_assignment, logs activity + notifies the team, and on drop_ship logs
+// "invoice ready" once every item on the job has shipped. The CALLER owns UI
+// concerns (debounce flush, optimistic state, reload) — pass an item carrying the
+// latest ship_tracking / ship_qtys / ship_notes.
+export async function shipItemFromDecorator(supabase: any, item: any): Promise<void> {
+  const ts = new Date().toISOString();
+  const existing = item.pipeline_timestamps || {};
+  const timestamps = { ...existing, shipped: existing.shipped || ts };
+  const shipQtysToSave = item.ship_qtys && Object.keys(item.ship_qtys).length > 0 ? item.ship_qtys : null;
+  await supabase.from("items").update({
+    pipeline_stage: "shipped", pipeline_timestamps: timestamps,
+    ship_notes: item.ship_notes || null, ship_tracking: item.ship_tracking || null,
+    ship_qtys: shipQtysToSave,
+    received_at_hpd: false, received_at_hpd_at: null, received_qtys: null,
+  }).eq("id", item.id);
+  if (item.decorator_assignment_id) {
+    await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
+  }
+  logJobActivity(item.job_id, `${item.name} shipped from decorator${item.ship_tracking ? ` — tracking: ${item.ship_tracking}` : ""}`);
+  notifyTeam(`Item shipped from decorator — ${item.name} incoming to warehouse`, "production", item.job_id, "job");
+
+  // drop_ship: once the whole job has shipped, log invoice-ready (matches board).
+  const { data: jobRow } = await supabase.from("jobs").select("shipping_route").eq("id", item.job_id).single();
+  const route = item.shipping_route || (jobRow as any)?.shipping_route || "ship_through";
+  if (route === "drop_ship") {
+    const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage").eq("job_id", item.job_id);
+    const allShipped = (jobItems || []).every((x: any) => x.id === item.id ? true : x.pipeline_stage === "shipped");
+    if (allShipped) logJobActivity(item.job_id, "All items shipped — invoice ready to update with shipped qtys");
+  }
 }

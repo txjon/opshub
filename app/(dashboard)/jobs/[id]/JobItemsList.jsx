@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { resolveItemStatus, STATE_LABELS } from "@/lib/item-status";
 import { etaCountdown } from "@/lib/eta";
+import { shipItemFromDecorator } from "@/lib/po-actions";
 
 // Map the eta countdown semantic band onto the internal T palette.
 // Mirrors the portal's color mapping (which uses C) so the urgency
@@ -42,6 +43,8 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
   const [localEta, setLocalEta] = useState({});
   const saveTimers = useRef({});
   const pendingSaves = useRef({});
+  const [localTrack, setLocalTrack] = useState({});
+  const [shipping, setShipping] = useState({});
 
   // Seed local ETA state for any new item. Existing entries are
   // preserved so an in-flight edit doesn't get clobbered by a parent
@@ -104,6 +107,32 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
     if (typeof fn === "function") return fn();
   }
 
+  // Mark an item shipped from the decorator, in-context. Routes through the
+  // SAME canonical effect the /production board uses (lib/po-actions) so the
+  // two can't drift. Optional tracking comes from the per-item input.
+  async function shipItem(item) {
+    if (shipping[item.id]) return;
+    setShipping(p => ({ ...p, [item.id]: true }));
+    const tracking = (localTrack[item.id] ?? item.ship_tracking ?? "").trim() || null;
+    try {
+      await shipItemFromDecorator(supabase, {
+        id: item.id,
+        name: item.name,
+        job_id: job?.id,
+        pipeline_timestamps: item.pipeline_timestamps,
+        ship_qtys: item.ship_qtys,
+        ship_notes: item.ship_notes,
+        ship_tracking: tracking,
+        decorator_assignment_id: item.decorator_assignment_id,
+        shipping_route: item.shipping_route,
+      });
+      if (onChange) onChange();
+    } catch (e) {
+      console.error(`[job-items-list] ship failed for ${item.id}:`, e);
+      setShipping(p => ({ ...p, [item.id]: false }));
+    }
+  }
+
   // Resolve the same po_sent signal the worksheet uses, so an item
   // whose decorator has had a PO sent shows In Production here even
   // if pipeline_stage hasn't been updated yet.
@@ -127,7 +156,7 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
   // a two-row stack so the ETA input keeps a tappable width.
   const cols = isMobile
     ? "minmax(0, 1fr)"
-    : "minmax(0, 1fr) 70px 100px 140px";
+    : "minmax(0, 1fr) 54px 88px 108px 188px";
 
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", marginTop: 10 }}>
@@ -148,6 +177,7 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
           <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "right" }}>Qty</div>
           <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Status</div>
           <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>ETA</div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Ship</div>
         </div>
       )}
 
@@ -235,6 +265,21 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
                     )}
                   </div>
                 </div>
+                {(state === "in_production" || state === "shipped") && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ship</span>
+                    {state === "shipped" ? (
+                      <span style={{ fontSize: 12, fontWeight: 700, color: T.green }}>✓ Shipped{item.ship_tracking ? ` · ${item.ship_tracking}` : ""}</span>
+                    ) : (
+                      <div style={{ display: "flex", gap: 6, flex: "1 1 0", justifyContent: "flex-end" }}>
+                        <input value={localTrack[item.id] ?? (item.ship_tracking || "")} onChange={e => setLocalTrack(p => ({ ...p, [item.id]: e.target.value }))} placeholder="Tracking #"
+                          style={{ padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 12, fontFamily: mono, outline: "none", flex: "1 1 0", minWidth: 0 }} />
+                        <button onClick={() => shipItem(item)} disabled={!!shipping[item.id]}
+                          style={{ padding: "8px 12px", border: "none", borderRadius: 6, background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>{shipping[item.id] ? "…" : "Ship"}</button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           }
@@ -273,6 +318,29 @@ export function JobItemsList({ items, job, isMobile, onChange }) {
                   <span style={{ fontSize: 9, fontWeight: 700, color: cdColor, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                     {cd.text}
                   </span>
+                )}
+              </div>
+              {/* Ship — mark in-production items shipped (+ optional tracking) */}
+              <div onClick={e => e.stopPropagation()}>
+                {state === "shipped" ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.05em" }}>✓ Shipped</span>
+                    {item.ship_tracking && <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.ship_tracking}</span>}
+                  </div>
+                ) : state === "in_production" ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <input
+                      value={localTrack[item.id] ?? (item.ship_tracking || "")}
+                      onChange={e => setLocalTrack(p => ({ ...p, [item.id]: e.target.value }))}
+                      placeholder="Tracking # (opt)"
+                      style={{ padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.card, color: T.text, fontSize: 10, fontFamily: mono, outline: "none", width: "100%", boxSizing: "border-box" }} />
+                    <button onClick={() => shipItem(item)} disabled={!!shipping[item.id]}
+                      style={{ padding: "3px 8px", border: "none", borderRadius: 4, background: T.green, color: "#fff", fontSize: 10, fontWeight: 700, fontFamily: font, cursor: shipping[item.id] ? "default" : "pointer", opacity: shipping[item.id] ? 0.6 : 1 }}>
+                      {shipping[item.id] ? "Shipping…" : "Mark shipped"}
+                    </button>
+                  </div>
+                ) : (
+                  <span style={{ fontSize: 11, color: T.faint }}>—</span>
                 )}
               </div>
             </div>

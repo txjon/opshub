@@ -1096,7 +1096,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     }
                     return (
                       <button key={decKey}
-                        onClick={() => router.push(`/production?openProject=${job.id}&decorator=${encodeURIComponent(decKey)}&returnTo=overview`)}
+                        onClick={() => setOvSection("items")}
                         style={{
                           display: "flex", alignItems: "center", gap: 6,
                           padding: "7px 14px", borderRadius: 6, background: T.surface,
