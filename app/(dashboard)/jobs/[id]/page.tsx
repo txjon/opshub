@@ -11,7 +11,6 @@ import { PaymentTab } from "./PaymentTab";
 import { ApprovalsTab } from "./ApprovalsTab";
 import { JobItemsList } from "./JobItemsList.jsx";
 import { useIsMobile } from "@/lib/useIsMobile";
-import { EmailThread } from "@/components/EmailThread";
 import { ProductBuilder } from "./ProductBuilder";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -131,7 +130,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   // Overview section chip — reflows the dense Overview into God Mode / Reports
   // style: hero band + facts always on, heavy detail behind chips.
-  const [ovSection, setOvSection] = useState<null|"details"|"billing"|"items">(null);
+  const [ovSection, setOvSection] = useState<null|"details"|"billing"|"items"|"activity">(null);
   const [loading, setLoading] = useState(true);
   const initialLoadDone = useRef(false);
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
@@ -1436,8 +1435,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           <JobItemsList items={items} job={job} isMobile={isMobile} onChange={reloadItems} />
           </OvModal>)}
 
-          {/* Hold + Delete — small action links, bottom-right */}
+          {/* Action row — Activity Log (left) + Hold / Duplicate / Delete (right). */}
           <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}}>
+            <button onClick={()=>setOvSection("activity")}
+              style={{marginRight:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+              Activity Log
+            </button>
             {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
               <button onClick={()=>{upd("phase","on_hold");}}
                 style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
@@ -1482,17 +1487,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             </button>
           </div>
 
-          {/* Project activity (left) + outbound emails (right).
-              Activity feed reads job_activity rows (auto entries + team
-              comments). EmailThread covers what's been sent. They sit
-              side-by-side on desktop, stack on mobile.
-              Inbound routing via a shared reply-to is unreliable
-              (replies get tagged to the wrong job), so we suppress
-              inbound here until per-job reply addressing is rebuilt. */}
-          <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, alignItems: "start" }}>
+          {/* Activity — collapsed into a modal, opened by the Activity Log
+              button in the action row above. (The outbound-email test panel was
+              removed; email events already post to this activity feed.) */}
+          {ovSection==="activity" && (<OvModal title="Activity" onClose={()=>setOvSection(null)}>
             <JobActivityPanel jobId={job.id} currentUserId={currentUserId} profiles={teamProfiles} />
-            <EmailThread jobId={job.id} title="Emails sent from OpsHub" outboundOnly />
-          </div>
+          </OvModal>)}
 
           {/* Client portal preview modal — iframes the client's
               read-only view of this job so you can see exactly what
