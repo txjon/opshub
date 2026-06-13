@@ -39,7 +39,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   const [filesRes, msgsRes] = await Promise.all([
     ctx.db.from("art_brief_files").select("*").eq("brief_id", params.briefId).order("created_at"),
     ctx.db.from("art_brief_messages").select("*").eq("brief_id", params.briefId)
-      .neq("visibility", "hpd_only")  // hide internal HPD notes from client
+      // Clients see ONLY client-visible messages. hpd_designer (HPD↔designer)
+      // and hpd_only are both internal — excluding only hpd_only leaked the
+      // HPD↔designer notes (incl. system markers) into the client view.
+      .eq("visibility", "all")
       .order("created_at"),
   ]);
 
