@@ -99,25 +99,35 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     return;
   }
 
-  const amount = payment.TotalAmt || 0;
-  console.log("[QB Webhook2] Payment amount:", amount, "CustomerRef:", payment.CustomerRef?.value);
+  const totalAmt = payment.TotalAmt || 0;
+  console.log("[QB Webhook2] Payment total:", totalAmt, "CustomerRef:", payment.CustomerRef?.value);
 
-  // Find linked invoice IDs
-  const invoiceRefs = (payment.Line || [])
+  // Allocate per invoice. A single QB payment can cover MANY invoices, and each
+  // payment Line carries the Amount applied to the invoice it links to. Use that
+  // per-line amount, NOT payment.TotalAmt — otherwise a lump payment is recorded
+  // in full against every invoice (the FOG $270K-onto-5-jobs bug).
+  const allocations: { invoiceId: string; amount: number }[] = (payment.Line || [])
     .filter((l: any) => l.LinkedTxn)
-    .flatMap((l: any) => l.LinkedTxn)
-    .filter((lt: any) => lt.TxnType === "Invoice")
-    .map((lt: any) => lt.TxnId);
+    .flatMap((l: any) =>
+      (l.LinkedTxn as any[])
+        .filter((lt: any) => lt.TxnType === "Invoice")
+        .map((lt: any) => ({ invoiceId: lt.TxnId, amount: Number(l.Amount) || 0 }))
+    );
+  // Single-invoice fallback: if QB didn't itemize the line amount, the whole
+  // payment applies to that one invoice.
+  if (allocations.length === 1 && !(allocations[0].amount > 0)) {
+    allocations[0].amount = totalAmt;
+  }
 
-  console.log("[QB Webhook2] Linked invoice IDs:", invoiceRefs.join(", ") || "NONE");
+  console.log("[QB Webhook2] Linked invoices:", allocations.map(a => `${a.invoiceId}=${a.amount}`).join(", ") || "NONE");
 
-  if (invoiceRefs.length === 0) {
+  if (allocations.length === 0) {
     // Fallback: try to match by customer name or payment memo
     console.error("[QB Webhook2] No linked invoices found — payment cannot be matched");
     return;
   }
 
-  for (const qbInvoiceId of invoiceRefs) {
+  for (const { invoiceId: qbInvoiceId, amount } of allocations) {
     // Primary match: by qb_invoice_id
     let { data: jobs } = await supabase
       .from("jobs")
