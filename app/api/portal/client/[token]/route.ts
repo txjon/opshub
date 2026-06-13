@@ -52,7 +52,12 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           .select("id, brief_id, drive_file_id, preview_drive_file_id, drive_link, kind, uploader_role, created_at, annotation_updated_at, client_annotation, designer_annotation, hpd_annotation, shared_with_client_at")
           .in("brief_id", ids),
         db.from("art_brief_messages")
-          .select("brief_id, sender_role, created_at, message"),
+          .select("brief_id, sender_role, created_at, message")
+          // Scope to this client's briefs + client-visible messages only.
+          // Was unscoped + unfiltered, so internal hpd_designer/hpd_only
+          // markers bumped the client's "new" feed and showed their text.
+          .in("brief_id", ids)
+          .eq("visibility", "all"),
         db.from("art_brief_file_comments")
           .select("brief_id, file_id, sender_role, created_at, body")
           .in("brief_id", ids),
