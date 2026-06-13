@@ -1026,47 +1026,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             );
           })()}
 
-          {/* Documents — always-visible action row (Quote / Invoice / Packing
-              Slip / Art / PO / Portal). One-click actions, so not buried in a modal. */}
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
-            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Documents</div>
-            {(()=>{
-              const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
-              const qbInvNum = (job as any).type_meta?.qb_invoice_number;
-              const hasItems = items.length > 0;
-              const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
-              const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
-                <button key={label}
-                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
-                  disabled={!available}
-                  title={available?undefined:"Not available yet"}
-                  style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap"}}
-                  onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
-                  onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
-                  {label}
-                </button>
-              );
-              return (
-                <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
-                  {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
-                  {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
-                  {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
-                  {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
-                  {docVendors.length === 0 && docBtn("PO", null, false)}
-                  {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
-                  {(job as any).portal_token && (
-                    <button onClick={()=>setPortalOpen(true)}
-                      style={{marginLeft:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
-                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-                      Client Portal
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-
           {/* Production strip — mirrors the per-project row on /production.
               Same visual + decorator chip behavior; clicking a chip
               deep-links to /production with the modal pre-opened on this
@@ -1152,6 +1111,47 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               </div>
             );
           })()}
+
+          {/* Documents — always-visible action row (Quote / Invoice / Packing
+              Slip / Art / PO / Portal). Sits below the production strip. */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Documents</div>
+            {(()=>{
+              const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
+              const qbInvNum = (job as any).type_meta?.qb_invoice_number;
+              const hasItems = items.length > 0;
+              const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
+              const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
+                <button key={label}
+                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
+                  disabled={!available}
+                  title={available?undefined:"Not available yet"}
+                  style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap"}}
+                  onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                  {label}
+                </button>
+              );
+              return (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
+                  {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
+                  {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
+                  {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
+                  {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
+                  {docVendors.length === 0 && docBtn("PO", null, false)}
+                  {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
+                  {(job as any).portal_token && (
+                    <button onClick={()=>setPortalOpen(true)}
+                      style={{marginLeft:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+                      onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+                      Client Portal
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
 
           {ovSection==="details" && (<OvModal title="Details" onClose={()=>setOvSection(null)}>
           {/* Shipping + Project info — 3 equal columns. Project info
