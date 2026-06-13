@@ -113,6 +113,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [items, setItems] = useState<Item[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  // Overview section chip — reflows the dense Overview into God Mode / Reports
+  // style: hero band + facts always on, heavy detail behind chips.
+  const [ovSection, setOvSection] = useState<"details"|"billing"|"items">("details");
   const [loading, setLoading] = useState(true);
   const initialLoadDone = useRef(false);
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
@@ -908,7 +911,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               OR any item.sell_per_unit set) trust totalRev even if it's
               0 — don't fake a "~1.43× cost" estimate. The estimate is
               only for jobs that haven't been priced yet. */}
-          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4, 1fr)",gap:6,marginBottom:12}}>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(6, 1fr)",gap:8,marginBottom:10}}>
             {(() => {
               const pricingKnown = !!cs || items.some((it:any) => it.sell_per_unit != null);
               const estRev = !pricingKnown && totalCost > 0 ? totalCost * 1.43 : null;
@@ -920,17 +923,20 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               // an $80.46 invoice, which led Taylor to mark a partial
               // $80 payment as "Full Payment" because $80 looked like
               // the total.
-              const fmt$ = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              const fmt$ = (n: number) => "$" + n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+              const units = items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
               return [
                 { label: "Revenue", value: showRev ? fmt$(effRev) : "—", color: T.text },
-                { label: "Cost", value: totalCost > 0 ? fmt$(totalCost) : "—" },
+                { label: "Cost", value: totalCost > 0 ? fmt$(totalCost) : "—", color: T.muted },
                 { label: "Profit", value: totalCost > 0 ? fmt$(profit) : "—", color: profit >= 0 ? T.green : T.red },
                 { label: "Margin", value: totalCost > 0 && effRev > 0 ? marginPct.toFixed(1) + "%" : "—", color: marginPct >= 30 ? T.green : marginPct >= 20 ? T.amber : T.red },
+                { label: "Units", value: units > 0 ? units.toLocaleString() : "—", color: T.text },
+                { label: "Paid", value: totalPaid > 0 ? fmt$(totalPaid) : "—", color: totalPaid > 0 ? T.green : T.faint },
               ];
             })().map(s=>(
-              <div key={s.label} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,padding:"6px 12px"}}>
-                <div style={{fontSize:9,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em"}}>{s.label}</div>
-                <div style={{fontSize:14,fontWeight:700,color:(s as any).color||T.text,fontFamily:mono}}>{s.value}</div>
+              <div key={s.label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 14px",boxShadow:"0 1px 2px rgba(16,18,32,0.05)"}}>
+                <div style={{fontSize:9.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:700,marginBottom:6}}>{s.label}</div>
+                <div style={{fontSize:20,fontWeight:800,color:(s as any).color||T.text,fontFamily:mono,letterSpacing:"-0.02em"}}>{s.value}</div>
               </div>
             ))}
           </div>
@@ -1110,6 +1116,20 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             );
           })()}
 
+          {/* Section chips — Details / Billing / Items. Hero + Key Facts
+              stay above; Activity stays below. Reflowed so the page reads
+              like a dashboard, not a wall of cards. */}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+            {([["details","Details"],["billing","Billing & Contacts"],["items","Items"]] as const).map(([key,label])=>(
+              <button key={key} onClick={()=>setOvSection(key)}
+                style={{padding:"7px 15px",borderRadius:8,fontSize:12.5,fontWeight:700,fontFamily:font,cursor:"pointer",
+                  border:`1px solid ${ovSection===key?T.accent:T.border}`,background:ovSection===key?T.accent:T.card,color:ovSection===key?"#fff":T.muted}}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {ovSection==="details" && (<>
           {/* Shipping + Project info — 3 equal columns. Project info
               on the left (what + who); From-client middle; HPD plan
               right. Contacts swapped out to its own card below the
@@ -1245,7 +1265,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               );
             })()}
           </div>
+          </>)}
 
+          {ovSection==="billing" && (
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"stretch"}}>
             {/* Left column: Contacts (moved from the top 3-col block
                 so it sits next to Payments — Project info now lives
@@ -1413,12 +1435,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
             </div>
           </div>
+          )}
 
+          {ovSection==="items" && (<>
           {/* Items — worksheet-style row (name · qty · status · ETA).
               ETA writes to items.client_eta — the same column the
               client-detail worksheet, ProductionTab, and /production
               all edit. All four surfaces stay in sync via that column. */}
           <JobItemsList items={items} job={job} isMobile={isMobile} onChange={reloadItems} />
+          </>)}
 
           {/* Hold + Delete — small action links, bottom-right */}
           <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}}>
