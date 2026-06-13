@@ -1831,7 +1831,7 @@ function ArtFilesModal({ job, items, onClose }: { job: any; items: any[]; onClos
           <button onClick={onClose}
             style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 6px" }}>✕</button>
         </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
           {loading && <div style={{ fontSize: 12, color: T.muted, textAlign: "center", padding: 30 }}>Loading…</div>}
           {!loading && items.length === 0 && (
             <div style={{ fontSize: 12, color: T.faint, textAlign: "center", padding: 30 }}>No items on this project.</div>
@@ -1840,20 +1840,26 @@ function ArtFilesModal({ job, items, onClose }: { job: any; items: any[]; onClos
             const files = (filesByItem[it.id] || []).filter((f: any) => f.stage === "mockup" || f.stage === "proof" || f.stage === "print_ready");
             if (files.length === 0) return null;
             return (
-              <div key={it.id} style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{it.name}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+              <div key={it.id} style={{ marginBottom: 26 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12, textAlign: "center" }}>{it.name}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, 220px)", justifyContent: "center", gap: 14 }}>
                   {files.map((f: any) => (
-                    <a key={f.id} href={`/api/files/thumbnail?id=${f.drive_file_id}`} target="_blank" rel="noopener noreferrer"
-                      style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden", textDecoration: "none", color: T.text, display: "flex", flexDirection: "column" }}>
-                      <div style={{ background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", height: 120, overflow: "hidden" }}>
+                    <div key={f.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                      <a href={`/api/files/thumbnail?id=${f.drive_file_id}`} target="_blank" rel="noopener noreferrer"
+                        title="Open preview"
+                        style={{ background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", height: 170, overflow: "hidden", textDecoration: "none" }}>
                         <img src={`/api/files/thumbnail?id=${f.drive_file_id}&thumb=1`} alt={f.file_name}
                           style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}/>
+                      </a>
+                      <div style={{ padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderTop: `1px solid ${T.border}` }}>
+                        <span style={{ fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>{f.stage.replace(/_/g, " ")}</span>
+                        <a href={`/api/files/thumbnail?id=${f.drive_file_id}&dl=1`} download
+                          title="Download file"
+                          style={{ fontSize: 10, fontWeight: 700, color: T.accent, textDecoration: "none", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                          ↓ Download
+                        </a>
                       </div>
-                      <div style={{ padding: "6px 8px", fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>
-                        {f.stage.replace(/_/g, " ")}
-                      </div>
-                    </a>
+                    </div>
                   ))}
                 </div>
               </div>
