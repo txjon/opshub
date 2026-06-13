@@ -8,7 +8,7 @@ import { SkeletonRows } from "@/components/Skeleton";
 import { QBCustomerChooser, type QBCurrent } from "@/components/QBCustomerChooser";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Pencil } from "lucide-react";
-import { effectiveRevenue } from "@/lib/revenue";
+import { effectiveRevenue, pnlJobs } from "@/lib/revenue";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { resolveItemStatus, STATE_LABELS, jobPhaseToItemState, type ItemState } from "@/lib/item-status";
 
@@ -348,8 +348,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   );
   if (!client) return <div style={{padding:"2rem",color:T.muted,fontSize:13}}>Client not found.</div>;
 
-  const totalRev = jobs.reduce((a,j) => a + effectiveRevenue(j), 0);
-  const totalUnits = jobs.reduce((a,j) => a + (j.items||[]).reduce((b: number,it: any) => b + (it.buy_sheet_lines||[]).reduce((c: number,l: any) => c + (l.qty_ordered||0), 0), 0), 0);
+  // P&L rollups exclude bulk inventory jobs (their cost rides the jobs that
+  // sell the stock); the project + item history below still shows them.
+  const pnl = pnlJobs(jobs);
+  const totalRev = pnl.reduce((a,j) => a + effectiveRevenue(j), 0);
+  const totalUnits = pnl.reduce((a,j) => a + (j.items||[]).reduce((b: number,it: any) => b + (it.buy_sheet_lines||[]).reduce((c: number,l: any) => c + (l.qty_ordered||0), 0), 0), 0);
   const activeJobs = jobs.filter(j => !["complete","cancelled"].includes(j.phase));
 
   // Financial summary across all projects

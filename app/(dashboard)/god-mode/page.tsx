@@ -26,7 +26,7 @@ export default async function GodModePage() {
     ssReportsRes,
   ] = await Promise.all([
     supabase.from("jobs")
-      .select("id, title, phase, client_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at")
+      .select("id, title, phase, client_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at, is_inventory")
       .order("created_at", { ascending: false }),
     supabase.from("items")
       .select("id, job_id, name, pipeline_stage, pipeline_timestamps, sell_per_unit, cost_per_unit, cost_per_unit_all_in, garment_type, ship_qtys, buy_sheet_lines(qty_ordered), decorator_assignments(decorator_id)")
@@ -116,7 +116,9 @@ export default async function GodModePage() {
   const daysBetween = (a: string | Date, b: string | Date) =>
     Math.round((new Date(b).getTime() - new Date(a).getTime()) / msPerDay);
 
-  const revenueJobs = jobs.filter(j => j.phase !== "cancelled");
+  // Exclude bulk inventory/stock-buy jobs from all P&L — their cost rides the
+  // future jobs that decorate + sell the stock (see lib/revenue pnlJobs).
+  const revenueJobs = jobs.filter(j => j.phase !== "cancelled" && !(j as any).is_inventory);
 
   // ── 1. CLIENT HEALTH ──────────────────────────────────────────────────
   const ytdCutoff = new Date(now.getFullYear(), 0, 1);
