@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { effectiveRevenue, effectiveCost } from "@/lib/revenue";
+import { effectiveRevenue, effectiveCost, pnlJobs } from "@/lib/revenue";
 import { ssRevCost, ssReportLabel, isInvoicedReport, ssShipments, RANGE_OPTIONS, resolveRange, inRange, type RangePreset } from "@/lib/analytics";
 
 const fmtD = (n: number) => "$" + Math.round(n || 0).toLocaleString();
@@ -60,7 +60,7 @@ export default function ReportsPage() {
   useEffect(() => {
     Promise.all([
       supabase.from("jobs")
-        .select("id, title, phase, job_type, job_number, priority, created_at, target_ship_date, clients(name), costing_summary, type_meta, items(id, buy_sheet_lines(qty_ordered)), payment_records(amount, status, type, due_date, paid_date, created_at, invoice_number)")
+        .select("id, title, phase, job_type, job_number, priority, created_at, is_inventory, target_ship_date, clients(name), costing_summary, type_meta, items(id, buy_sheet_lines(qty_ordered)), payment_records(amount, status, type, due_date, paid_date, created_at, invoice_number)")
         .order("created_at", { ascending: false }),
       supabase.from("shipstation_reports")
         .select("id, client_id, report_type, postage_mode, period_label, totals, postage_totals, qb_invoice_number, qb_total_with_tax, paid_at, paid_amount, sent_at, created_at, clients(name)")
@@ -73,7 +73,9 @@ export default function ReportsPage() {
   }, []);
 
   const range = useMemo(() => resolveRange(preset, customStart, customEnd), [preset, customStart, customEnd]);
-  const rJobs = useMemo(() => jobs.filter(j => inRange(j.created_at, range.start, range.end)), [jobs, range]);
+  // pnlJobs() drops bulk inventory/stock-buy jobs — their cost rides the jobs
+  // that sell the stock, so they never count toward revenue/cost/margin here.
+  const rJobs = useMemo(() => pnlJobs(jobs).filter(j => inRange(j.created_at, range.start, range.end)), [jobs, range]);
   const rSs = useMemo(() => ssReports.filter(r => isInvoicedReport(r) && inRange(r.created_at, range.start, range.end)), [ssReports, range]);
 
   // KPI strip — revenue/cost booked in range (jobs + ShipStation), plus cash
@@ -182,7 +184,7 @@ export default function ReportsPage() {
           { label: "Cost", value: fmtD(kpi.cost), color: T.muted },
           { label: "Profit", value: fmtD(kpi.rev - kpi.cost), color: T.green },
           { label: "Margin", value: fmtPct(kpi.margin), color: marginColor(kpi.margin) },
-          { label: "Collected", value: fmtD(kpi.collected), color: T.green },
+          { label: "Collected (incl. tax)", value: fmtD(kpi.collected), color: T.green },
         ].map(s => (
           <div key={s.label} style={card}>
             <div style={{ fontSize: 9.5, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 7 }}>{s.label}</div>
@@ -331,7 +333,7 @@ export default function ReportsPage() {
       </div>
 
       <div style={{ fontSize: 10, color: T.faint, fontFamily: mono, lineHeight: 1.6 }}>
-        Revenue = effectiveRevenue (costing_summary.grossRev, QB fallback) for jobs + billed amount for ShipStation invoices · cost = effectiveCost + carrier postage · filtered by record date within {range.label}.
+        Revenue = effectiveRevenue (costing_summary.grossRev, QB fallback) for jobs + billed amount for ShipStation invoices · cost = effectiveCost + carrier postage · filtered by record date within {range.label}. Revenue is pre-tax; Collected is tax-inclusive cash received, so it can run above Revenue by sales tax. Bulk inventory purchases are excluded.
       </div>
     </div>
   );

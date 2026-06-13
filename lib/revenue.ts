@@ -57,3 +57,15 @@ export function effectiveMarginPct(job: JobForRevenue | null | undefined): numbe
   if (rev <= 0) return 0;
   return (rev - effectiveCost(job)) / rev;
 }
+
+// ── Inventory jobs ─────────────────────────────────────────────────────────
+// A job flagged `is_inventory` is a bulk stock/blank purchase (e.g. blank hats
+// bought to decorate + sell across future jobs), NOT a client sale. Its cost
+// rides the future jobs that actually sell the stock (normal costing), so it
+// must be excluded from every P&L rollup — counting it would drag margin now
+// AND double-count later when those jobs carry the per-unit blank cost. The job
+// still exists for receiving / warehouse / PO so the stock can be ordered.
+export const isInventoryJob = (job: any): boolean => !!job?.is_inventory;
+export function pnlJobs<T>(jobs: T[] | null | undefined): T[] {
+  return (jobs || []).filter((j: any) => !j?.is_inventory);
+}

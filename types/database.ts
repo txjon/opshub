@@ -62,10 +62,11 @@ export type Database = {
           fulfillment_status: "staged" | "packing" | "shipped" | null;
           fulfillment_tracking: string | null;
           phase_timestamps: Json;
+          is_inventory: boolean;
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database["public"]["Tables"]["jobs"]["Row"], "id" | "created_at" | "updated_at">;
+        Insert: Omit<Database["public"]["Tables"]["jobs"]["Row"], "id" | "created_at" | "updated_at" | "is_inventory"> & { is_inventory?: boolean };
         Update: Partial<Database["public"]["Tables"]["jobs"]["Insert"]>;
       };
       items: {
