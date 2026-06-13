@@ -1244,12 +1244,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     <option value="stage">Stage (fulfillment from HPD)</option>
                   </select>
                 </div>
-                <label style={{display:"flex",alignItems:"flex-start",gap:7,cursor:"pointer",marginTop:2}}>
-                  <input type="checkbox" checked={!!(job as any).is_inventory} onChange={e=>upd("is_inventory",e.target.checked)} style={{marginTop:2,cursor:"pointer"}}/>
-                  <span style={{fontSize:11,color:T.muted,lineHeight:1.35}}>Inventory / stock buy <span style={{color:T.faint,fontWeight:400}}>(bulk blanks for future jobs). Excluded from revenue &amp; margin; cost rides the jobs that sell them.</span></span>
-                </label>
                 <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>
                   <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={job.type_meta?.shipping_notes||""} onChange={e=>upd("type_meta",{...job.type_meta,shipping_notes:e.target.value})}/>
+                </div>
+                <div style={{display:"flex",alignItems:"flex-start",gap:7,marginTop:2}}>
+                  <input type="checkbox" checked={!!(job as any).is_inventory} onChange={e=>upd("is_inventory",e.target.checked)} style={{marginTop:2,cursor:"pointer",flexShrink:0}}/>
+                  <span style={{fontSize:11,color:T.muted,lineHeight:1.35}}>Inventory / stock buy <span style={{color:T.faint,fontWeight:400}}>(bulk blanks for future jobs). Excluded from revenue &amp; margin; cost rides the jobs that sell them.</span></span>
                 </div>
               </div>
             </div>
