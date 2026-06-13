@@ -79,6 +79,22 @@ type Job = {
   client_id:string|null; clients?:{name:string}|null; is_inventory?:boolean;
 };
 
+// Overview drill-in modal — a tile's summary opens this; the existing section
+// editor renders inside untouched. Click backdrop or × to close.
+function OvModal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9998, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflowY: "auto" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.bg, borderRadius: 14, width: "100%", maxWidth: 1100, boxShadow: "0 16px 48px rgba(0,0,0,0.45)", marginBottom: 40 }}>
+        <div style={{ position: "sticky", top: 0, background: T.bg, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: `1px solid ${T.border}`, borderRadius: "14px 14px 0 0", zIndex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{title}</div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: 18 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function JobDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const supabase = createClient();
@@ -115,7 +131,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   // Overview section chip — reflows the dense Overview into God Mode / Reports
   // style: hero band + facts always on, heavy detail behind chips.
-  const [ovSection, setOvSection] = useState<"details"|"billing"|"items">("details");
+  const [ovSection, setOvSection] = useState<null|"details"|"billing"|"items">(null);
   const [loading, setLoading] = useState(true);
   const initialLoadDone = useRef(false);
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
@@ -1116,20 +1132,41 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             );
           })()}
 
-          {/* Section chips — Details / Billing / Items. Hero + Key Facts
-              stay above; Activity stays below. Reflowed so the page reads
-              like a dashboard, not a wall of cards. */}
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-            {([["details","Details"],["billing","Billing & Contacts"],["items","Items"]] as const).map(([key,label])=>(
-              <button key={key} onClick={()=>setOvSection(key)}
-                style={{padding:"7px 15px",borderRadius:8,fontSize:12.5,fontWeight:700,fontFamily:font,cursor:"pointer",
-                  border:`1px solid ${ovSection===key?T.accent:T.border}`,background:ovSection===key?T.accent:T.card,color:ovSection===key?"#fff":T.muted}}>
-                {label}
+          {/* Section tiles — command-center style. Each shows a live
+              summary; click opens a focused edit modal (OvModal). */}
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:10,marginBottom:10}}>
+            {(() => {
+              const tm:any = (job as any).type_meta||{};
+              const route = (job as any).shipping_route||"ship_through";
+              const routeLabel = route==="drop_ship"?"Drop ship":route==="stage"?"Stage":"Ship-through";
+              const shipStr = job.target_ship_date ? new Date(job.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "no date";
+              const invoiceTotal = Number(tm.qb_total_with_tax)||Number((job as any)?.costing_summary?.grossRev)||0;
+              const paidSum = (payments||[]).filter((p:any)=>p.status==="paid"||p.status==="partial").reduce((a:number,p:any)=>a+(Number(p.amount)||0),0);
+              const balance = Math.max(0, invoiceTotal-paidSum);
+              const payState = paidSum>0.01&&balance<=0.01?"Paid":paidSum>0.01?"Partial":invoiceTotal>0?"Unpaid":"No invoice";
+              const payColor = payState==="Paid"?T.green:payState==="Partial"?T.amber:invoiceTotal>0?T.red:T.muted;
+              const units = items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
+              return [
+                { key:"details", title:"Details", head:job.clients?.name||"No client", sub:`${routeLabel} · ships ${shipStr}`, color:T.text },
+                { key:"billing", title:"Billing & Contacts", head:payState, sub:`${contacts.length} contact${contacts.length!==1?"s":""}`, color:payColor },
+                { key:"items", title:"Items", head:`${items.length} item${items.length!==1?"s":""}`, sub:`${units.toLocaleString()} units`, color:T.text },
+              ];
+            })().map(t=>(
+              <button key={t.key} onClick={()=>setOvSection(t.key as any)}
+                style={{textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:font,boxShadow:"0 1px 2px rgba(16,18,32,0.05)",transition:"all 0.12s",display:"flex",flexDirection:"column",gap:6}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.transform="translateY(-1px)";}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform="none";}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>{t.title}</span>
+                  <span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span>
+                </div>
+                <div style={{fontSize:15,fontWeight:700,color:t.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.head}</div>
+                <div style={{fontSize:12,color:T.muted}}>{t.sub}</div>
               </button>
             ))}
           </div>
 
-          {ovSection==="details" && (<>
+          {ovSection==="details" && (<OvModal title="Details" onClose={()=>setOvSection(null)}>
           {/* Shipping + Project info — 3 equal columns. Project info
               on the left (what + who); From-client middle; HPD plan
               right. Contacts swapped out to its own card below the
@@ -1265,9 +1302,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               );
             })()}
           </div>
-          </>)}
+          </OvModal>)}
 
-          {ovSection==="billing" && (
+          {ovSection==="billing" && (<OvModal title="Billing & Contacts" onClose={()=>setOvSection(null)}>
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:10,alignItems:"stretch"}}>
             {/* Left column: Contacts (moved from the top 3-col block
                 so it sits next to Payments — Project info now lives
@@ -1435,15 +1472,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
             </div>
           </div>
-          )}
+          </OvModal>)}
 
-          {ovSection==="items" && (<>
+          {ovSection==="items" && (<OvModal title="Items" onClose={()=>setOvSection(null)}>
           {/* Items — worksheet-style row (name · qty · status · ETA).
               ETA writes to items.client_eta — the same column the
               client-detail worksheet, ProductionTab, and /production
               all edit. All four surfaces stay in sync via that column. */}
           <JobItemsList items={items} job={job} isMobile={isMobile} onChange={reloadItems} />
-          </>)}
+          </OvModal>)}
 
           {/* Hold + Delete — small action links, bottom-right */}
           <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}}>
