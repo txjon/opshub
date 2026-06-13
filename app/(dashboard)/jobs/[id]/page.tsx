@@ -1038,10 +1038,17 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             if (!job || !["production","receiving","fulfillment","shipping","complete"].includes(job.phase)) return null;
             // Group items by decorator (matches shapeProjectGroup in /production).
             type DG = { decoratorId: string|null; decoratorName: string; shortCode: string; items: any[]; inProduction: number; shipped: number; totalUnits: number; };
+            const poSentVendors = (job as any).type_meta?.po_sent_vendors || [];
+            const costProds = (job as any).costing_data?.costProds || [];
             const groups: DG[] = [];
             for (const it of items) {
-              if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped") continue;
               const assignment = (it as any).decorator_assignments?.[0];
+              // Include PO-sent items even if pipeline_stage drifted null (the
+              // stage advance is racy — see project_pipeline_stage_po_sent_drift).
+              // Mirrors the /production page so the strip never silently hides a
+              // vendor that's actually in production.
+              const poSent = poSentToItem({ printVendor: costProds.find((c: any) => c?.id === it.id)?.printVendor, decoratorName: assignment?.decorators?.name, decoratorShortCode: assignment?.decorators?.short_code, poSentVendors });
+              if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped" && !poSent) continue;
               const decName = assignment?.decorators?.name || it.decorator || "Unassigned";
               const decId = assignment?.decorator_id || assignment?.decorators?.id || null;
               const shortCode = assignment?.decorators?.short_code || "";
