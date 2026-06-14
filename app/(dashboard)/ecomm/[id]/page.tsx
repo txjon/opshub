@@ -798,7 +798,7 @@ export default function PreorderDetail() {
                   style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: pushing ? "not-allowed" : "pointer", padding: "0 6px", lineHeight: 1, opacity: pushing ? 0.4 : 1 }}>×</button>
               </div>
 
-              <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
                 <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
                   Import the Shopify products export to auto-fill sold qtys — pre-order inventory goes negative as orders land,
                   so sold = |inventory|. Buffer % and samples add on top; totals round up. A new Labs project is created with
@@ -833,7 +833,7 @@ export default function PreorderDetail() {
                   const th: React.CSSProperties = { position: "sticky", top: 0, background: T.surface, fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", padding: "8px 10px", textAlign: "left", zIndex: 1, borderBottom: `1px solid ${T.border}` };
                   const cellInput: React.CSSProperties = { ...ic, width: "100%", padding: "4px 6px", textAlign: "center", fontFamily: mono, fontWeight: 600, boxSizing: "border-box" };
                   return (
-                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8 }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                         <thead>
                           <tr>
