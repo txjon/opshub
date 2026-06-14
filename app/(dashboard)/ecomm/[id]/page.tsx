@@ -826,56 +826,56 @@ export default function PreorderDetail() {
                   <span style={{ fontSize: 11, color: T.muted }}>per variant: total = sold × (1 + buffer/100) + samples, rounded up</span>
                 </div>
 
-                {/* Per-product size grids */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {products.map(p => (
-                    <div key={p.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{p.name}</div>
-                      <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                        {p.blank_vendor || "—"}
-                        {p.blank_sku && <span style={{ marginLeft: 8, fontFamily: mono }}>{p.blank_sku}</span>}
-                      </div>
-                      {sizesFor(p).length === 0 ? (
-                        <div style={{ fontSize: 11, color: T.amber, marginTop: 8 }}>No sizes set on this product — skip or add sizes first.</div>
-                      ) : (
-                        <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: `repeat(${sizesFor(p).length}, 1fr)`, gap: 6 }}>
-                          {sizesFor(p).map(sz => {
+                {/* Spreadsheet — one row per variant. Product name shows on the
+                    first size of each group; sold + samples are inline cells. */}
+                {(() => {
+                  const bufferPct = parseFloat(pushBuffer) || 0;
+                  const th: React.CSSProperties = { position: "sticky", top: 0, background: T.surface, fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", padding: "8px 10px", textAlign: "left", zIndex: 1, borderBottom: `1px solid ${T.border}` };
+                  const cellInput: React.CSSProperties = { ...ic, width: "100%", padding: "4px 6px", textAlign: "center", fontFamily: mono, fontWeight: 600, boxSizing: "border-box" };
+                  return (
+                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            <th style={th}>Product</th>
+                            <th style={th}>Size</th>
+                            <th style={{ ...th, textAlign: "center", width: 74 }}>Sold</th>
+                            <th style={{ ...th, textAlign: "center", width: 74, color: T.amber }}>Samples</th>
+                            <th style={{ ...th, textAlign: "right", width: 62 }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {products.flatMap(p => sizesFor(p).map((sz, si) => {
                             const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
                             const samples = parseInt(sampleQtys[p.id]?.[sz] || "0", 10) || 0;
-                            const bufferPct = parseFloat(pushBuffer) || 0;
                             const total = calcTotal(sold, bufferPct, samples);
                             return (
-                              <div key={sz} style={{ display: "flex", flexDirection: "column", gap: 4, padding: 8, background: T.card, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, fontFamily: mono, textAlign: "center" }}>{sz}</div>
-                                <input type="text" inputMode="numeric" title="Sold (from the report, or type)"
-                                  value={soldQtys[p.id]?.[sz] || ""}
-                                  onChange={e => {
-                                    const v = e.target.value.replace(/[^0-9]/g, "");
-                                    setSoldQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } }));
-                                  }}
-                                  onFocus={e => (e.target as HTMLInputElement).select()}
-                                  placeholder="sold"
-                                  style={{ ...ic, padding: "5px 6px", textAlign: "center", fontFamily: mono, fontWeight: 600 }} />
-                                <input type="text" inputMode="numeric" title="Samples — added on top of sold + buffer"
-                                  value={sampleQtys[p.id]?.[sz] || ""}
-                                  onChange={e => {
-                                    const v = e.target.value.replace(/[^0-9]/g, "");
-                                    setSampleQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } }));
-                                  }}
-                                  onFocus={e => (e.target as HTMLInputElement).select()}
-                                  placeholder="smpl"
-                                  style={{ ...ic, padding: "4px 6px", textAlign: "center", fontFamily: mono, fontSize: 11, color: T.amber }} />
-                                <div style={{ fontSize: 10, color: total > sold ? T.green : T.faint, fontFamily: mono, textAlign: "center", fontWeight: 600 }}>
-                                  → {total}
-                                </div>
-                              </div>
+                              <tr key={p.id + "_" + sz} style={{ borderTop: `1px solid ${si === 0 ? T.border : T.surface}` }}>
+                                <td style={{ padding: "4px 10px", fontWeight: 700, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 320 }}>{si === 0 ? p.name : ""}</td>
+                                <td style={{ padding: "4px 10px", fontFamily: mono, color: T.muted, whiteSpace: "nowrap" }}>{sz}</td>
+                                <td style={{ padding: "3px 6px" }}>
+                                  <input type="text" inputMode="numeric" title="Sold"
+                                    value={soldQtys[p.id]?.[sz] || ""}
+                                    onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ""); setSoldQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } })); }}
+                                    onFocus={e => (e.target as HTMLInputElement).select()}
+                                    placeholder="0" style={cellInput} />
+                                </td>
+                                <td style={{ padding: "3px 6px" }}>
+                                  <input type="text" inputMode="numeric" title="Samples — added on top of sold + buffer"
+                                    value={sampleQtys[p.id]?.[sz] || ""}
+                                    onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ""); setSampleQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } })); }}
+                                    onFocus={e => (e.target as HTMLInputElement).select()}
+                                    placeholder="0" style={{ ...cellInput, fontSize: 11, color: T.amber }} />
+                                </td>
+                                <td style={{ padding: "4px 10px", textAlign: "right", fontFamily: mono, fontWeight: 600, color: total > sold ? T.green : T.faint }}>{total}</td>
+                              </tr>
                             );
-                          })}
-                        </div>
-                      )}
+                          }))}
+                        </tbody>
+                      </table>
                     </div>
-                  ))}
-                </div>
+                  );
+                })()}
 
                 {/* Summary */}
                 <div style={{ padding: "10px 14px", borderRadius: 8, background: T.accentDim, border: `1px solid ${T.accent}44`, fontSize: 13, color: T.text }}>
