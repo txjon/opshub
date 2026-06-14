@@ -840,6 +840,7 @@ export default function PreorderDetail() {
                             <th style={th}>Product</th>
                             <th style={th}>Size</th>
                             <th style={{ ...th, textAlign: "center", width: 74 }}>Sold</th>
+                            <th style={{ ...th, textAlign: "center", width: 62 }}>Buffer</th>
                             <th style={{ ...th, textAlign: "center", width: 74, color: T.amber }}>Samples</th>
                             <th style={{ ...th, textAlign: "right", width: 62 }}>Total</th>
                           </tr>
@@ -848,7 +849,8 @@ export default function PreorderDetail() {
                           {products.flatMap(p => sizesFor(p).map((sz, si) => {
                             const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
                             const samples = parseInt(sampleQtys[p.id]?.[sz] || "0", 10) || 0;
-                            const total = calcTotal(sold, bufferPct, samples);
+                            const bufferUnits = calcTotal(sold, bufferPct, 0) - sold; // units the buffer % adds
+                            const total = sold + bufferUnits + samples;
                             return (
                               <tr key={p.id + "_" + sz} style={{ borderTop: `1px solid ${si === 0 ? T.border : T.surface}` }}>
                                 <td style={{ padding: "4px 10px", fontWeight: 700, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 320 }}>{si === 0 ? p.name : ""}</td>
@@ -860,6 +862,7 @@ export default function PreorderDetail() {
                                     onFocus={e => (e.target as HTMLInputElement).select()}
                                     placeholder="0" style={cellInput} />
                                 </td>
+                                <td style={{ padding: "4px 6px", textAlign: "center", fontFamily: mono, color: bufferUnits > 0 ? T.muted : T.faint }} title={`${pushBuffer || 0}% buffer`}>{bufferUnits > 0 ? `+${bufferUnits}` : "—"}</td>
                                 <td style={{ padding: "3px 6px" }}>
                                   <input type="text" inputMode="numeric" title="Samples — added on top of sold + buffer"
                                     value={sampleQtys[p.id]?.[sz] || ""}
