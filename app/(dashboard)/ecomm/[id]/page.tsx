@@ -225,6 +225,8 @@ export default function PreorderDetail() {
             .join(" / ");
           if (combo && !sizes.includes(combo)) sizes.push(combo);
         }
+        // Single-variant item (only Shopify's "Default Title") → one "One Size" line.
+        if (sizes.length === 0) sizes.push("One Size");
         toInsert.push({
           preorder_id: preorderId,
           name,
@@ -285,10 +287,11 @@ export default function PreorderDetail() {
         for (const r of group) {
           const combo = [r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
             .map(v => (v || "").trim()).filter(v => v && v !== "Default Title").join(" / ");
-          if (!combo || !p.sizes.includes(combo)) { unmatchedVariants++; continue; }
+          const sizeKey = combo || "One Size"; // single-variant row (Default Title) → the "One Size" line
+          if (!sizesFor(p).includes(sizeKey)) { unmatchedVariants++; continue; }
           const invQty = parseInt(r["Variant Inventory Qty"] || "0", 10) || 0;
           const sold = invQty < 0 ? -invQty : 0; // continue-selling pre-order: negative inventory = sold
-          next[p.id][combo] = String(sold);
+          next[p.id][sizeKey] = String(sold);
           matched++;
         }
       }
@@ -297,7 +300,7 @@ export default function PreorderDetail() {
         const merged: Record<string, Record<string, string>> = {};
         for (const p of products) {
           merged[p.id] = { ...(prev[p.id] || {}) };
-          for (const sz of p.sizes) {
+          for (const sz of sizesFor(p)) {
             if (next[p.id]?.[sz] !== undefined) merged[p.id][sz] = next[p.id][sz];
           }
         }
@@ -357,17 +360,22 @@ export default function PreorderDetail() {
     const seed: Record<string, Record<string, string>> = {};
     for (const p of products) {
       seed[p.id] = {};
-      for (const sz of p.sizes) seed[p.id][sz] = "";
+      for (const sz of sizesFor(p)) seed[p.id][sz] = "";
     }
     setSoldQtys(seed);
     const seedSamples: Record<string, Record<string, string>> = {};
-    for (const p of products) { seedSamples[p.id] = {}; for (const sz of p.sizes) seedSamples[p.id][sz] = ""; }
+    for (const p of products) { seedSamples[p.id] = {}; for (const sz of sizesFor(p)) seedSamples[p.id][sz] = ""; }
     setSampleQtys(seedSamples);
     setSoldImportResult("");
     setPushBuffer(String(preorder?.buffer_pct ?? 5));
     setPushError("");
     setPushOpen(true);
   }
+
+  // Single-variant Shopify items (only "Default Title") import with no sizes.
+  // Treat any size-less product as one "One Size" line everywhere sizes are read,
+  // so the hat tallies like everything else — no re-import or backfill needed.
+  const sizesFor = (p: any): string[] => (p?.sizes?.length ? p.sizes : ["One Size"]);
 
   function calcTotal(sold: number, bufferPct: number, samples: number = 0): number {
     const base = sold <= 0 ? 0 : Math.ceil(sold * (1 + bufferPct / 100));
@@ -379,7 +387,7 @@ export default function PreorderDetail() {
     const rows: { product: PreorderProduct; sizes: { size: string; sold: number; total: number }[]; totalUnits: number }[] = [];
     let grand = 0;
     for (const p of products) {
-      const sizeRows = p.sizes.map(sz => {
+      const sizeRows = sizesFor(p).map(sz => {
         const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
         const samples = parseInt(sampleQtys[p.id]?.[sz] || "0", 10) || 0;
         const total = calcTotal(sold, bufferPct, samples);
@@ -731,7 +739,7 @@ export default function PreorderDetail() {
                   <div style={{ fontSize: 11, color: T.muted, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
                     {p.blank_vendor && <span>{p.blank_vendor}</span>}
                     {p.blank_sku && <span style={{ fontFamily: mono }}>{p.blank_sku}</span>}
-                    {p.sizes.length > 0 && <span style={{ fontFamily: mono }}>{p.sizes.join(" · ")}</span>}
+                    {sizesFor(p).length > 0 && <span style={{ fontFamily: mono }}>{sizesFor(p).join(" · ")}</span>}
                     {p.retail_price != null && <span style={{ color: T.text, fontWeight: 600 }}>${p.retail_price.toFixed(2)}</span>}
                   </div>
                   {p.is_built_in_shopify && p.built_in_shopify_at && (
@@ -827,11 +835,11 @@ export default function PreorderDetail() {
                         {p.blank_vendor || "—"}
                         {p.blank_sku && <span style={{ marginLeft: 8, fontFamily: mono }}>{p.blank_sku}</span>}
                       </div>
-                      {p.sizes.length === 0 ? (
+                      {sizesFor(p).length === 0 ? (
                         <div style={{ fontSize: 11, color: T.amber, marginTop: 8 }}>No sizes set on this product — skip or add sizes first.</div>
                       ) : (
-                        <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: `repeat(${p.sizes.length}, 1fr)`, gap: 6 }}>
-                          {p.sizes.map(sz => {
+                        <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: `repeat(${sizesFor(p).length}, 1fr)`, gap: 6 }}>
+                          {sizesFor(p).map(sz => {
                             const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
                             const samples = parseInt(sampleQtys[p.id]?.[sz] || "0", 10) || 0;
                             const bufferPct = parseFloat(pushBuffer) || 0;
