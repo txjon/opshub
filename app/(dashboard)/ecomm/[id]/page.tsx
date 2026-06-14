@@ -107,6 +107,11 @@ export default function PreorderDetail() {
   const [pushBuffer, setPushBuffer] = useState<string>("");
   const [pushing, setPushing] = useState(false);
   const [pushError, setPushError] = useState<string>("");
+  // Build #1: sold-report import (twin of the product import) + samples column.
+  const [sampleQtys, setSampleQtys] = useState<Record<string, Record<string, string>>>({});
+  const [soldImporting, setSoldImporting] = useState(false);
+  const [soldImportResult, setSoldImportResult] = useState<string>("");
+  const soldCsvInputRef = useRef<HTMLInputElement>(null);
   // Delete a pre-order (incl. stale/test entries). preorder_products
   // cascade via FK (mig 079). The .select() after delete returns the
   // removed rows — an empty array means nothing deleted (RLS / already
@@ -251,6 +256,64 @@ export default function PreorderDetail() {
     }
   }
 
+  // Sold-report import — the twin of importFromCsv. Same Shopify products export
+  // (re-pulled now that orders are in): pre-order variants continue-sell so their
+  // "Variant Inventory Qty" goes NEGATIVE; sold = |negative|. Matches rows back to
+  // the imported products by Title→name and the combined Option label→size, then
+  // fills the push grid. No new matcher key needed — it's the same export shape.
+  async function importSoldFromCsv(file: File) {
+    if (soldImporting) return;
+    setSoldImporting(true);
+    setSoldImportResult("");
+    try {
+      const text = await file.text();
+      const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+      const rows = parsed.data || [];
+      const byName: Record<string, PreorderProduct> = {};
+      for (const p of products) byName[p.name.toLowerCase().trim()] = p;
+      const byHandle: Record<string, Record<string, string>[]> = {};
+      for (const r of rows) { const h = (r["Handle"] || "").trim(); if (h) (byHandle[h] ||= []).push(r); }
+
+      const next: Record<string, Record<string, string>> = {};
+      let matched = 0, unmatchedVariants = 0;
+      const unmatchedProducts = new Set<string>();
+      for (const group of Object.values(byHandle)) {
+        const name = (group.find(r => (r["Title"] || "").trim())?.["Title"] || "").trim();
+        const p = byName[name.toLowerCase()];
+        if (!p) { if (name) unmatchedProducts.add(name); continue; }
+        next[p.id] ||= {};
+        for (const r of group) {
+          const combo = [r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
+            .map(v => (v || "").trim()).filter(v => v && v !== "Default Title").join(" / ");
+          if (!combo || !p.sizes.includes(combo)) { unmatchedVariants++; continue; }
+          const invQty = parseInt(r["Variant Inventory Qty"] || "0", 10) || 0;
+          const sold = invQty < 0 ? -invQty : 0; // continue-selling pre-order: negative inventory = sold
+          next[p.id][combo] = String(sold);
+          matched++;
+        }
+      }
+
+      setSoldQtys(prev => {
+        const merged: Record<string, Record<string, string>> = {};
+        for (const p of products) {
+          merged[p.id] = { ...(prev[p.id] || {}) };
+          for (const sz of p.sizes) {
+            if (next[p.id]?.[sz] !== undefined) merged[p.id][sz] = next[p.id][sz];
+          }
+        }
+        return merged;
+      });
+      const parts = [`Filled ${matched} variant${matched === 1 ? "" : "s"} from the sold report`];
+      if (unmatchedProducts.size) parts.push(`${unmatchedProducts.size} CSV product(s) not in this pre-order`);
+      if (unmatchedVariants) parts.push(`${unmatchedVariants} variant row(s) didn't match a size`);
+      setSoldImportResult(parts.join(" · ") + ".");
+    } catch (e: any) {
+      setSoldImportResult("Sold import failed: " + (e?.message || String(e)));
+    } finally {
+      setSoldImporting(false);
+    }
+  }
+
   async function addProduct() {
     if (!newProduct.name.trim()) return;
     const sizesArr = newProduct.sizes.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
@@ -297,14 +360,18 @@ export default function PreorderDetail() {
       for (const sz of p.sizes) seed[p.id][sz] = "";
     }
     setSoldQtys(seed);
+    const seedSamples: Record<string, Record<string, string>> = {};
+    for (const p of products) { seedSamples[p.id] = {}; for (const sz of p.sizes) seedSamples[p.id][sz] = ""; }
+    setSampleQtys(seedSamples);
+    setSoldImportResult("");
     setPushBuffer(String(preorder?.buffer_pct ?? 5));
     setPushError("");
     setPushOpen(true);
   }
 
-  function calcTotal(sold: number, bufferPct: number): number {
-    if (sold <= 0) return 0;
-    return Math.ceil(sold * (1 + bufferPct / 100));
+  function calcTotal(sold: number, bufferPct: number, samples: number = 0): number {
+    const base = sold <= 0 ? 0 : Math.ceil(sold * (1 + bufferPct / 100));
+    return base + (samples > 0 ? samples : 0);
   }
 
   function pushSummary() {
@@ -314,7 +381,8 @@ export default function PreorderDetail() {
     for (const p of products) {
       const sizeRows = p.sizes.map(sz => {
         const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
-        const total = calcTotal(sold, bufferPct);
+        const samples = parseInt(sampleQtys[p.id]?.[sz] || "0", 10) || 0;
+        const total = calcTotal(sold, bufferPct, samples);
         grand += total;
         return { size: sz, sold, total };
       });
@@ -724,9 +792,21 @@ export default function PreorderDetail() {
 
               <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
                 <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
-                  Paste sold quantities from the Shopify pre-order report per variant. Buffer % is applied to each row;
-                  totals round up. A new Labs project is created with these qtys, the buy sheet is pre-filled, and the
-                  pre-order is linked to the Labs job.
+                  Import the Shopify products export to auto-fill sold qtys — pre-order inventory goes negative as orders land,
+                  so sold = |inventory|. Buffer % and samples add on top; totals round up. A new Labs project is created with
+                  these qtys, the buy sheet pre-filled, and the pre-order linked to the Labs job.
+                </div>
+
+                {/* Sold-report import — twin of the product import; reads the
+                    Variant Inventory Qty column (negative = sold). */}
+                <input ref={soldCsvInputRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) importSoldFromCsv(f); (e.currentTarget as HTMLInputElement).value = ""; }} />
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <button onClick={() => soldCsvInputRef.current?.click()} disabled={soldImporting || products.length === 0}
+                    style={{ padding: "7px 14px", background: T.accent, color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: soldImporting ? "default" : "pointer", fontFamily: font, opacity: soldImporting ? 0.6 : 1 }}>
+                    {soldImporting ? "Reading…" : "Import Shopify sold report (CSV)"}
+                  </button>
+                  {soldImportResult && <span style={{ fontSize: 11.5, color: T.muted }}>{soldImportResult}</span>}
                 </div>
 
                 {/* Buffer */}
@@ -735,7 +815,7 @@ export default function PreorderDetail() {
                   <input type="number" step="0.5" min="0" value={pushBuffer}
                     onChange={e => setPushBuffer(e.target.value)}
                     style={{ ...ic, width: 80, padding: "4px 8px" }} />
-                  <span style={{ fontSize: 11, color: T.muted }}>applied per variant; total = sold × (1 + buffer / 100), rounded up</span>
+                  <span style={{ fontSize: 11, color: T.muted }}>per variant: total = sold × (1 + buffer/100) + samples, rounded up</span>
                 </div>
 
                 {/* Per-product size grids */}
@@ -753,20 +833,30 @@ export default function PreorderDetail() {
                         <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: `repeat(${p.sizes.length}, 1fr)`, gap: 6 }}>
                           {p.sizes.map(sz => {
                             const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
+                            const samples = parseInt(sampleQtys[p.id]?.[sz] || "0", 10) || 0;
                             const bufferPct = parseFloat(pushBuffer) || 0;
-                            const total = calcTotal(sold, bufferPct);
+                            const total = calcTotal(sold, bufferPct, samples);
                             return (
                               <div key={sz} style={{ display: "flex", flexDirection: "column", gap: 4, padding: 8, background: T.card, borderRadius: 6, border: `1px solid ${T.border}` }}>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, fontFamily: mono, textAlign: "center" }}>{sz}</div>
-                                <input type="text" inputMode="numeric"
+                                <input type="text" inputMode="numeric" title="Sold (from the report, or type)"
                                   value={soldQtys[p.id]?.[sz] || ""}
                                   onChange={e => {
                                     const v = e.target.value.replace(/[^0-9]/g, "");
                                     setSoldQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } }));
                                   }}
                                   onFocus={e => (e.target as HTMLInputElement).select()}
-                                  placeholder="0"
+                                  placeholder="sold"
                                   style={{ ...ic, padding: "5px 6px", textAlign: "center", fontFamily: mono, fontWeight: 600 }} />
+                                <input type="text" inputMode="numeric" title="Samples — added on top of sold + buffer"
+                                  value={sampleQtys[p.id]?.[sz] || ""}
+                                  onChange={e => {
+                                    const v = e.target.value.replace(/[^0-9]/g, "");
+                                    setSampleQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } }));
+                                  }}
+                                  onFocus={e => (e.target as HTMLInputElement).select()}
+                                  placeholder="smpl"
+                                  style={{ ...ic, padding: "4px 6px", textAlign: "center", fontFamily: mono, fontSize: 11, color: T.amber }} />
                                 <div style={{ fontSize: 10, color: total > sold ? T.green : T.faint, fontFamily: mono, textAlign: "center", fontWeight: 600 }}>
                                   → {total}
                                 </div>
