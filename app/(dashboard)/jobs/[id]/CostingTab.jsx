@@ -1876,7 +1876,18 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         // costs back to the catalog value (the per-item revert bug).
         const blankReassigned = (bi.blank_vendor && bi.blank_vendor !== cp.style) || (bi.blank_sku && bi.blank_sku !== cp.color);
         if (bi.blank_vendor && bi.blank_vendor !== cp.style) { updates.style = bi.blank_vendor; updates.color = bi.blank_sku || cp.color; }
-        if (blankReassigned && bi.blankCosts && Object.keys(bi.blankCosts).length > 0) { updates.blankCosts = bi.blankCosts; updates.blankCostPerUnit = Object.values(bi.blankCosts).filter(v=>v>0).reduce((a,v,_,arr)=>a+v/arr.length,0); }
+        // Pull the item's blank costs when the blank was reassigned, OR when
+        // costing has no real cost yet but the item does — e.g. a re-assign to the
+        // SAME vendor after the cost was wiped (blankReassigned stays false but the
+        // item now carries the supplier price). Never overwrite a real refined cost
+        // on an unchanged blank (the per-item revert bug), and never pull all-zeros.
+        const cpHasRealCost = cp.blankCosts && Object.values(cp.blankCosts).some(v => (Number(v) || 0) > 0);
+        const biHasRealCost = bi.blankCosts && Object.values(bi.blankCosts).some(v => (Number(v) || 0) > 0);
+        if ((blankReassigned || !cpHasRealCost) && biHasRealCost) {
+          updates.blankCosts = bi.blankCosts;
+          const rv = Object.values(bi.blankCosts).filter(v => (Number(v) || 0) > 0);
+          updates.blankCostPerUnit = rv.length ? rv.reduce((a, v) => a + Number(v), 0) / rv.length : 0;
+        }
         return { ...cp, ...updates };
       });
       return newItems.length > 0 ? [...updated, ...newItems] : updated;
