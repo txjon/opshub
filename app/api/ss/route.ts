@@ -20,6 +20,14 @@ export async function GET(request: NextRequest) {
   const headers = {
     "Authorization": getAuthHeader(),
     "Content-Type": "application/json",
+    // S&S sits behind Cloudflare, which started 403-blocking requests that
+    // lack a real browser User-Agent (the default Node/undici UA gets
+    // challenged). Without this header every endpoint returns a Cloudflare
+    // error page instead of data. Discovered 2026-06-15 when the whole
+    // catalog stopped loading in the UI.
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Accept": "application/json",
   };
 
   try {
