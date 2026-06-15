@@ -260,26 +260,45 @@ export default function PreorderDetail() {
     }
   }
 
-  // Sold-report import — the twin of importFromCsv. Same Shopify products export
-  // (re-pulled now that orders are in): pre-order variants continue-sell so their
-  // "Variant Inventory Qty" goes NEGATIVE; sold = |negative|. Matches rows back to
-  // the imported products by Title→name and the combined Option label→size, then
-  // fills the push grid. No new matcher key needed — it's the same export shape.
-  async function importSoldFromCsv(file: File) {
+  // Sold-report import. Reads sold quantities from EITHER Shopify export:
+  //  • products export — "Variant Inventory Qty" (continue-selling pre-order → NEGATIVE = sold)
+  //  • inventory export — "Committed" (units in open orders = sold). Multi-location stores
+  //    OMIT the qty column from the products export, so the inventory export is the reliable
+  //    cross-store source. Either way: match rows to the imported products by Title→name and
+  //    the combined Option label→size (case-insensitive — inventory uppercases sizes), then
+  //    fill the push grid. A full-catalogue export is fine; non-pre-order rows are ignored.
+  async function importSoldFromCsv(files: File[]) {
     if (soldImporting) return;
     setSoldImporting(true);
     setSoldImportResult("");
     try {
-      const text = await file.text();
-      const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
-      const rows = parsed.data || [];
+      // Read every selected file and concatenate the rows. Multi-location stores
+      // export one location at a time (no "All locations" option), so select all the
+      // per-location exports at once — rows for the same variant are summed below.
+      let rows: Record<string, string>[] = [];
+      let fields: string[] = [];
+      for (const file of files) {
+        const parsed = Papa.parse<Record<string, string>>(await file.text(), { header: true, skipEmptyLines: true });
+        rows = rows.concat(parsed.data || []);
+        if (!fields.length) fields = parsed.meta?.fields || [];
+      }
+      // Sold-quantity source — auto-detect which export this is:
+      const hasProdQty = fields.includes("Variant Inventory Qty");      // products export
+      const committedCol = fields.find(f => /^committed/i.test(f));      // inventory export (preferred)
+      const availableCol = fields.find(f => /^available/i.test(f));      // inventory export (fallback)
+      const soldFromRow = (r: Record<string, string>): number => {
+        if (hasProdQty) { const q = parseInt(r["Variant Inventory Qty"] || "0", 10) || 0; return q < 0 ? -q : 0; }
+        if (committedCol) { const c = parseInt(r[committedCol] || "0", 10) || 0; return c > 0 ? c : 0; } // "not stocked" → NaN → 0
+        if (availableCol) { const a = parseInt(r[availableCol] || "0", 10) || 0; return a < 0 ? -a : 0; }
+        return 0;
+      };
       const byName: Record<string, PreorderProduct> = {};
       for (const p of products) byName[p.name.toLowerCase().trim()] = p;
       const byHandle: Record<string, Record<string, string>[]> = {};
       for (const r of rows) { const h = (r["Handle"] || "").trim(); if (h) (byHandle[h] ||= []).push(r); }
 
       const next: Record<string, Record<string, string>> = {};
-      let matched = 0, unmatchedVariants = 0;
+      let matched = 0, unmatchedVariants = 0, soldTotal = 0;
       const unmatchedProducts = new Set<string>();
       for (const group of Object.values(byHandle)) {
         const name = (group.find(r => (r["Title"] || "").trim())?.["Title"] || "").trim();
@@ -290,11 +309,18 @@ export default function PreorderDetail() {
           const combo = [r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
             .map(v => (v || "").trim()).filter(v => v && v !== "Default Title").join(" / ");
           const sizeKey = combo || "One Size"; // single-variant row (Default Title) → the "One Size" line
-          if (!sizesFor(p).includes(sizeKey)) { unmatchedVariants++; continue; }
-          const invQty = parseInt(r["Variant Inventory Qty"] || "0", 10) || 0;
-          const sold = invQty < 0 ? -invQty : 0; // continue-selling pre-order: negative inventory = sold
-          next[p.id][sizeKey] = String(sold);
-          matched++;
+          // Case-insensitive size match — the inventory export uppercases sizes (S/M/L)
+          // while the products import may have stored them lowercase. Key the fill by the
+          // product's OWN label so the push grid lines up.
+          const matchSize = sizesFor(p).find(s => s.toLowerCase() === sizeKey.toLowerCase());
+          if (!matchSize) { unmatchedVariants++; continue; }
+          const sold = soldFromRow(r);
+          // SUM across rows for the same variant — a multi-location inventory export
+          // has one row per location, so the variant's true sold is the total across
+          // all of them (overwriting would only keep the last location).
+          if (next[p.id][matchSize] === undefined) matched++;
+          next[p.id][matchSize] = String((parseInt(next[p.id][matchSize] || "0", 10) || 0) + sold);
+          soldTotal += sold;
         }
       }
 
@@ -308,7 +334,7 @@ export default function PreorderDetail() {
       setSoldQtys(merged);
       // Pre-fill the editable Buffer column from the freshly imported sold × %.
       setBufferQtys(seedBuffers(merged, parseFloat(pushBuffer) || 0));
-      const parts = [`Filled ${matched} variant${matched === 1 ? "" : "s"} from the sold report`];
+      const parts = [`Filled ${matched} variant${matched === 1 ? "" : "s"} (${soldTotal.toLocaleString()} unit${soldTotal === 1 ? "" : "s"} sold) from ${files.length} file${files.length === 1 ? "" : "s"}`];
       if (unmatchedProducts.size) parts.push(`${unmatchedProducts.size} CSV product(s) not in this pre-order`);
       if (unmatchedVariants) parts.push(`${unmatchedVariants} variant row(s) didn't match a size`);
       setSoldImportResult(parts.join(" · ") + ".");
@@ -824,19 +850,23 @@ export default function PreorderDetail() {
 
               <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
                 <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
-                  Import the Shopify products export to auto-fill sold qtys — pre-order inventory goes negative as orders land,
-                  so sold = |inventory|. Buffer % and samples add on top; totals round up. A new Labs project is created with
-                  these qtys, the buy sheet pre-filled, and the pre-order linked to the Labs job.
+                  Import a Shopify export to auto-fill sold qtys. Single-location stores can use the products export
+                  (pre-order inventory goes negative as orders land). Multi-location stores use the inventory export
+                  (Committed column = sold); export each location and select them all here, they're summed per variant.
+                  A full-catalogue export is fine; only this pre-order's items get filled. Buffer % and samples add on
+                  top; totals round up. A new Labs project is created with these qtys, the buy sheet pre-filled, and the
+                  pre-order linked to the Labs job.
                 </div>
 
-                {/* Sold-report import — twin of the product import; reads the
-                    Variant Inventory Qty column (negative = sold). */}
-                <input ref={soldCsvInputRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
-                  onChange={e => { const f = e.target.files?.[0]; if (f) importSoldFromCsv(f); (e.currentTarget as HTMLInputElement).value = ""; }} />
+                {/* Sold-report import — reads sold from the products export
+                    (Variant Inventory Qty, negative) or the inventory export
+                    (Committed). Auto-detected in importSoldFromCsv. */}
+                <input ref={soldCsvInputRef} type="file" accept=".csv,text/csv" multiple style={{ display: "none" }}
+                  onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) importSoldFromCsv(fs); (e.currentTarget as HTMLInputElement).value = ""; }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <button onClick={() => soldCsvInputRef.current?.click()} disabled={soldImporting || products.length === 0}
                     style={{ padding: "7px 14px", background: T.accent, color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: soldImporting ? "default" : "pointer", fontFamily: font, opacity: soldImporting ? 0.6 : 1 }}>
-                    {soldImporting ? "Reading…" : "Import Shopify sold report (CSV)"}
+                    {soldImporting ? "Reading…" : "Import sold report (one or more CSVs)"}
                   </button>
                   {soldImportResult && <span style={{ fontSize: 11.5, color: T.muted }}>{soldImportResult}</span>}
                 </div>
