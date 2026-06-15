@@ -109,6 +109,7 @@ export default function PreorderDetail() {
   const [pushError, setPushError] = useState<string>("");
   // Build #1: sold-report import (twin of the product import) + samples column.
   const [sampleQtys, setSampleQtys] = useState<Record<string, Record<string, string>>>({});
+  const [bufferQtys, setBufferQtys] = useState<Record<string, Record<string, string>>>({});
   const [soldImporting, setSoldImporting] = useState(false);
   const [soldImportResult, setSoldImportResult] = useState<string>("");
   const soldCsvInputRef = useRef<HTMLInputElement>(null);
@@ -296,16 +297,16 @@ export default function PreorderDetail() {
         }
       }
 
-      setSoldQtys(prev => {
-        const merged: Record<string, Record<string, string>> = {};
-        for (const p of products) {
-          merged[p.id] = { ...(prev[p.id] || {}) };
-          for (const sz of sizesFor(p)) {
-            if (next[p.id]?.[sz] !== undefined) merged[p.id][sz] = next[p.id][sz];
-          }
+      const merged: Record<string, Record<string, string>> = {};
+      for (const p of products) {
+        merged[p.id] = { ...(soldQtys[p.id] || {}) };
+        for (const sz of sizesFor(p)) {
+          if (next[p.id]?.[sz] !== undefined) merged[p.id][sz] = next[p.id][sz];
         }
-        return merged;
-      });
+      }
+      setSoldQtys(merged);
+      // Pre-fill the editable Buffer column from the freshly imported sold × %.
+      setBufferQtys(seedBuffers(merged, parseFloat(pushBuffer) || 0));
       const parts = [`Filled ${matched} variant${matched === 1 ? "" : "s"} from the sold report`];
       if (unmatchedProducts.size) parts.push(`${unmatchedProducts.size} CSV product(s) not in this pre-order`);
       if (unmatchedVariants) parts.push(`${unmatchedVariants} variant row(s) didn't match a size`);
@@ -366,6 +367,7 @@ export default function PreorderDetail() {
     const seedSamples: Record<string, Record<string, string>> = {};
     for (const p of products) { seedSamples[p.id] = {}; for (const sz of sizesFor(p)) seedSamples[p.id][sz] = ""; }
     setSampleQtys(seedSamples);
+    setBufferQtys(seedBuffers(seed, parseFloat(pushBuffer) || 0));
     setSoldImportResult("");
     setPushBuffer(String(preorder?.buffer_pct ?? 5));
     setPushError("");
@@ -377,10 +379,26 @@ export default function PreorderDetail() {
   // so the hat tallies like everything else — no re-import or backfill needed.
   const sizesFor = (p: any): string[] => (p?.sizes?.length ? p.sizes : ["One Size"]);
 
-  function calcTotal(sold: number, bufferPct: number, samples: number = 0): number {
-    const base = sold <= 0 ? 0 : Math.ceil(sold * (1 + bufferPct / 100));
-    return base + (samples > 0 ? samples : 0);
-  }
+  // Default buffer UNITS the % adds on top of sold (the pre-fill for the editable
+  // Buffer column). Rounds up so a 5% buffer on a small run still yields ≥1.
+  const bufferFor = (sold: number, pct: number): number =>
+    sold > 0 && pct > 0 ? Math.ceil(sold * (1 + pct / 100)) - sold : 0;
+
+  // Re-seed every Buffer cell from current sold × pct (used on sold-import and on
+  // % change). Overwrites prior values — the % is the master rate; per-cell edits
+  // are overrides that live until the next re-seed.
+  const seedBuffers = (soldState: Record<string, Record<string, string>>, pct: number) => {
+    const seeded: Record<string, Record<string, string>> = {};
+    for (const p of products) {
+      seeded[p.id] = {};
+      for (const sz of sizesFor(p)) {
+        const s = parseInt(soldState[p.id]?.[sz] || "0", 10) || 0;
+        const b = bufferFor(s, pct);
+        seeded[p.id][sz] = b > 0 ? String(b) : "";
+      }
+    }
+    return seeded;
+  };
 
   function pushSummary() {
     const bufferPct = parseFloat(pushBuffer) || 0;
@@ -390,7 +408,8 @@ export default function PreorderDetail() {
       const sizeRows = sizesFor(p).map(sz => {
         const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
         const samples = parseInt(sampleQtys[p.id]?.[sz] || "0", 10) || 0;
-        const total = calcTotal(sold, bufferPct, samples);
+        const buffer = parseInt(bufferQtys[p.id]?.[sz] || "0", 10) || 0;
+        const total = sold + buffer + samples;
         grand += total;
         return { size: sz, sold, total };
       });
@@ -821,15 +840,14 @@ export default function PreorderDetail() {
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "10px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8 }}>
                   <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Buffer %</span>
                   <input type="number" step="0.5" min="0" value={pushBuffer}
-                    onChange={e => setPushBuffer(e.target.value)}
+                    onChange={e => { const val = e.target.value; setPushBuffer(val); setBufferQtys(seedBuffers(soldQtys, parseFloat(val) || 0)); }}
                     style={{ ...ic, width: 80, padding: "4px 8px" }} />
-                  <span style={{ fontSize: 11, color: T.muted }}>per variant: total = sold × (1 + buffer/100) + samples, rounded up</span>
+                  <span style={{ fontSize: 11, color: T.muted }}>pre-fills the Buffer column · total = sold + buffer + samples · edit any cell</span>
                 </div>
 
                 {/* Spreadsheet — one row per variant. Product name shows on the
                     first size of each group; sold + samples are inline cells. */}
                 {(() => {
-                  const bufferPct = parseFloat(pushBuffer) || 0;
                   const th: React.CSSProperties = { position: "sticky", top: 0, background: T.surface, fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", padding: "8px 10px", textAlign: "left", zIndex: 1, borderBottom: `1px solid ${T.border}` };
                   const cellInput: React.CSSProperties = { ...ic, width: "100%", padding: "4px 6px", textAlign: "center", fontFamily: mono, fontWeight: 600, boxSizing: "border-box" };
                   return (
@@ -849,7 +867,7 @@ export default function PreorderDetail() {
                           {products.flatMap(p => sizesFor(p).map((sz, si) => {
                             const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
                             const samples = parseInt(sampleQtys[p.id]?.[sz] || "0", 10) || 0;
-                            const bufferUnits = calcTotal(sold, bufferPct, 0) - sold; // units the buffer % adds
+                            const bufferUnits = parseInt(bufferQtys[p.id]?.[sz] || "0", 10) || 0;
                             const total = sold + bufferUnits + samples;
                             return (
                               <tr key={p.id + "_" + sz} style={{ borderTop: `1px solid ${si === 0 ? T.border : T.surface}` }}>
@@ -862,7 +880,13 @@ export default function PreorderDetail() {
                                     onFocus={e => (e.target as HTMLInputElement).select()}
                                     placeholder="0" style={cellInput} />
                                 </td>
-                                <td style={{ padding: "4px 6px", textAlign: "center", fontFamily: mono, color: bufferUnits > 0 ? T.muted : T.faint }} title={`${pushBuffer || 0}% buffer`}>{bufferUnits > 0 ? `+${bufferUnits}` : "—"}</td>
+                                <td style={{ padding: "3px 6px" }}>
+                                  <input type="text" inputMode="numeric" title="Buffer units — pre-filled from the %, edit any cell"
+                                    value={bufferQtys[p.id]?.[sz] || ""}
+                                    onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ""); setBufferQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } })); }}
+                                    onFocus={e => (e.target as HTMLInputElement).select()}
+                                    placeholder="0" style={{ ...cellInput, color: T.muted }} />
+                                </td>
                                 <td style={{ padding: "3px 6px" }}>
                                   <input type="text" inputMode="numeric" title="Samples — added on top of sold + buffer"
                                     value={sampleQtys[p.id]?.[sz] || ""}
@@ -885,7 +909,7 @@ export default function PreorderDetail() {
                   <strong>{summary.grandTotal.toLocaleString()}</strong> total units to produce across{" "}
                   <strong>{summary.rows.filter(r => r.totalUnits > 0).length}</strong> item{summary.rows.filter(r => r.totalUnits > 0).length === 1 ? "" : "s"}
                   {summary.bufferPct > 0 && (
-                    <span style={{ color: T.muted }}> · includes {summary.bufferPct}% buffer</span>
+                    <span style={{ color: T.muted }}> · buffer pre-filled at {summary.bufferPct}%</span>
                   )}
                 </div>
 
