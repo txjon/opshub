@@ -260,11 +260,13 @@ export default function PreorderDetail() {
     }
   }
 
-  // Sold-report import — the twin of importFromCsv. Same Shopify products export
-  // (re-pulled now that orders are in): pre-order variants continue-sell so their
-  // "Variant Inventory Qty" goes NEGATIVE; sold = |negative|. Matches rows back to
-  // the imported products by Title→name and the combined Option label→size, then
-  // fills the push grid. No new matcher key needed — it's the same export shape.
+  // Sold-report import. Reads sold quantities from EITHER Shopify export:
+  //  • products export — "Variant Inventory Qty" (continue-selling pre-order → NEGATIVE = sold)
+  //  • inventory export — "Committed" (units in open orders = sold). Multi-location stores
+  //    OMIT the qty column from the products export, so the inventory export is the reliable
+  //    cross-store source. Either way: match rows to the imported products by Title→name and
+  //    the combined Option label→size (case-insensitive — inventory uppercases sizes), then
+  //    fill the push grid. A full-catalogue export is fine; non-pre-order rows are ignored.
   async function importSoldFromCsv(file: File) {
     if (soldImporting) return;
     setSoldImporting(true);
@@ -273,13 +275,24 @@ export default function PreorderDetail() {
       const text = await file.text();
       const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
       const rows = parsed.data || [];
+      // Sold-quantity source — auto-detect which export this is:
+      const fields = parsed.meta?.fields || [];
+      const hasProdQty = fields.includes("Variant Inventory Qty");      // products export
+      const committedCol = fields.find(f => /^committed/i.test(f));      // inventory export (preferred)
+      const availableCol = fields.find(f => /^available/i.test(f));      // inventory export (fallback)
+      const soldFromRow = (r: Record<string, string>): number => {
+        if (hasProdQty) { const q = parseInt(r["Variant Inventory Qty"] || "0", 10) || 0; return q < 0 ? -q : 0; }
+        if (committedCol) { const c = parseInt(r[committedCol] || "0", 10) || 0; return c > 0 ? c : 0; } // "not stocked" → NaN → 0
+        if (availableCol) { const a = parseInt(r[availableCol] || "0", 10) || 0; return a < 0 ? -a : 0; }
+        return 0;
+      };
       const byName: Record<string, PreorderProduct> = {};
       for (const p of products) byName[p.name.toLowerCase().trim()] = p;
       const byHandle: Record<string, Record<string, string>[]> = {};
       for (const r of rows) { const h = (r["Handle"] || "").trim(); if (h) (byHandle[h] ||= []).push(r); }
 
       const next: Record<string, Record<string, string>> = {};
-      let matched = 0, unmatchedVariants = 0;
+      let matched = 0, unmatchedVariants = 0, soldTotal = 0;
       const unmatchedProducts = new Set<string>();
       for (const group of Object.values(byHandle)) {
         const name = (group.find(r => (r["Title"] || "").trim())?.["Title"] || "").trim();
@@ -290,10 +303,14 @@ export default function PreorderDetail() {
           const combo = [r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
             .map(v => (v || "").trim()).filter(v => v && v !== "Default Title").join(" / ");
           const sizeKey = combo || "One Size"; // single-variant row (Default Title) → the "One Size" line
-          if (!sizesFor(p).includes(sizeKey)) { unmatchedVariants++; continue; }
-          const invQty = parseInt(r["Variant Inventory Qty"] || "0", 10) || 0;
-          const sold = invQty < 0 ? -invQty : 0; // continue-selling pre-order: negative inventory = sold
-          next[p.id][sizeKey] = String(sold);
+          // Case-insensitive size match — the inventory export uppercases sizes (S/M/L)
+          // while the products import may have stored them lowercase. Key the fill by the
+          // product's OWN label so the push grid lines up.
+          const matchSize = sizesFor(p).find(s => s.toLowerCase() === sizeKey.toLowerCase());
+          if (!matchSize) { unmatchedVariants++; continue; }
+          const sold = soldFromRow(r);
+          next[p.id][matchSize] = String(sold);
+          soldTotal += sold;
           matched++;
         }
       }
@@ -308,7 +325,7 @@ export default function PreorderDetail() {
       setSoldQtys(merged);
       // Pre-fill the editable Buffer column from the freshly imported sold × %.
       setBufferQtys(seedBuffers(merged, parseFloat(pushBuffer) || 0));
-      const parts = [`Filled ${matched} variant${matched === 1 ? "" : "s"} from the sold report`];
+      const parts = [`Filled ${matched} variant${matched === 1 ? "" : "s"} (${soldTotal.toLocaleString()} unit${soldTotal === 1 ? "" : "s"} sold) from the report`];
       if (unmatchedProducts.size) parts.push(`${unmatchedProducts.size} CSV product(s) not in this pre-order`);
       if (unmatchedVariants) parts.push(`${unmatchedVariants} variant row(s) didn't match a size`);
       setSoldImportResult(parts.join(" · ") + ".");
@@ -824,13 +841,16 @@ export default function PreorderDetail() {
 
               <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
                 <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
-                  Import the Shopify products export to auto-fill sold qtys — pre-order inventory goes negative as orders land,
-                  so sold = |inventory|. Buffer % and samples add on top; totals round up. A new Labs project is created with
-                  these qtys, the buy sheet pre-filled, and the pre-order linked to the Labs job.
+                  Import a Shopify export to auto-fill sold qtys. Single-location stores can use the products export
+                  (pre-order inventory goes negative as orders land). Multi-location stores use the inventory export,
+                  which reads the Committed column. A full-catalogue export is fine; only this pre-order's items get
+                  filled. Buffer % and samples add on top; totals round up. A new Labs project is created with these
+                  qtys, the buy sheet pre-filled, and the pre-order linked to the Labs job.
                 </div>
 
-                {/* Sold-report import — twin of the product import; reads the
-                    Variant Inventory Qty column (negative = sold). */}
+                {/* Sold-report import — reads sold from the products export
+                    (Variant Inventory Qty, negative) or the inventory export
+                    (Committed). Auto-detected in importSoldFromCsv. */}
                 <input ref={soldCsvInputRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
                   onChange={e => { const f = e.target.files?.[0]; if (f) importSoldFromCsv(f); (e.currentTarget as HTMLInputElement).value = ""; }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
