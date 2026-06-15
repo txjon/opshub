@@ -1946,10 +1946,16 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           const cp = costProds[cpIdx];
           const r2 = results.find(r => r._idx === cpIdx);
           const itemUpdates = {};
-          if (cp.blankCosts && Object.keys(cp.blankCosts).length > 0) {
-            const costValues = Object.values(cp.blankCosts).filter(v => v > 0);
+          // Only persist blank costs when at least one size has a real (>0) cost.
+          // Writing an all-zero map here clobbered the supplier costs that
+          // ProductBuilder (the blank-assign source of truth) had just saved,
+          // whenever this tab's buyItems snapshot was momentarily stale — silently
+          // wiping the carried-over blank pricing. An all-zero map = "no data",
+          // never authoritative, so it must not overwrite.
+          const costValues = (cp.blankCosts ? Object.values(cp.blankCosts) : []).filter(v => (Number(v) || 0) > 0);
+          if (costValues.length > 0) {
             itemUpdates.blank_costs = cp.blankCosts;
-            itemUpdates.cost_per_unit = costValues.length > 0 ? Math.round(costValues.reduce((a, v) => a + v, 0) / costValues.length * 100) / 100 : null;
+            itemUpdates.cost_per_unit = Math.round(costValues.reduce((a, v) => a + (Number(v) || 0), 0) / costValues.length * 100) / 100;
           }
           // Save the calculated sell_per_unit when either (a) there's an
           // explicit override (including $0 — replacements at no charge),
