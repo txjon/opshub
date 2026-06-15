@@ -6,6 +6,8 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { DriveThumb } from "@/components/DriveThumb";
+import SizeGridInput from "@/components/SizeGridInput";
+import { parseSizeMatrix } from "@/lib/size-grid";
 import { parsePsd } from "./ProcessingTab";
 import MoveItemDialog from "@/components/MoveItemDialog";
 import { DriveFileLink } from "@/components/DriveFileLink";
@@ -1732,6 +1734,24 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
               below instead of fighting for the same line. */}
           {item.sizes.length > 0 && item.sizes[0] !== "OSFA" && (
             <div>
+              {(() => { const dimMatrix = parseSizeMatrix(item.sizes, null); return dimMatrix ? (
+                <>
+                  <SizeGridInput
+                    sizes={item.sizes}
+                    getValue={sz => { const lv = getLocalQty(item.id, sz); return lv !== null ? lv : (item.qtys[sz] || 0); }}
+                    onChange={(sz, v) => { setLocalQty(item.id, sz, v); scheduleCommit(idx, item.id, sz); }}
+                    onCommit={sz => commitQty(idx, item.id, sz)}
+                    disabled={costingLocked} ic={ic}
+                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: T.text }}>{item.totalQty}</span>
+                    <span style={{ fontSize: 11, color: T.muted }}>units</span>
+                    <span style={{ flex: 1 }} />
+                    {!costingLocked && <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", cursor: "pointer", fontFamily: font, minHeight: 36 }}>Distribute</button>}
+                    {!costingLocked && <button onClick={() => setEditSizesItemId(item.id)} style={{ fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", cursor: "pointer", fontFamily: font, minHeight: 36 }} title="Add or remove sizes without changing the blank">Edit sizes</button>}
+                  </div>
+                </>
+              ) : (<>
               <div style={{
                 display: "flex", alignItems: "flex-end", gap: 8,
                 overflowX: isMobile ? "auto" : "visible",
@@ -1792,6 +1812,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                 </button>}
               </div>
             )}
+              </>); })()}
             {distRow === idx && (
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
                 <input type="text" inputMode="numeric" value={distTotal} onChange={e => setDistTotal(e.target.value)} onKeyDown={e => e.key === "Enter" && handleDist(idx)} placeholder="Total qty" autoFocus style={{ ...ic, width: 80, textAlign: "center" }} />
