@@ -53,7 +53,7 @@ export default function SizeGrid({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, overflowX: "auto" }}>
+    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 24, overflowX: "auto" }}>
       {matrix.groups.map((g, gi) => (
         <div key={gi}>
           {g.name && (
