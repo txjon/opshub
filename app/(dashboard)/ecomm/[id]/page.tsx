@@ -107,6 +107,12 @@ export default function PreorderDetail() {
   const [pushBuffer, setPushBuffer] = useState<string>("");
   const [pushing, setPushing] = useState(false);
   const [pushError, setPushError] = useState<string>("");
+  // Build #1: sold-report import (twin of the product import) + samples column.
+  const [sampleQtys, setSampleQtys] = useState<Record<string, Record<string, string>>>({});
+  const [bufferQtys, setBufferQtys] = useState<Record<string, Record<string, string>>>({});
+  const [soldImporting, setSoldImporting] = useState(false);
+  const [soldImportResult, setSoldImportResult] = useState<string>("");
+  const soldCsvInputRef = useRef<HTMLInputElement>(null);
   // Delete a pre-order (incl. stale/test entries). preorder_products
   // cascade via FK (mig 079). The .select() after delete returns the
   // removed rows — an empty array means nothing deleted (RLS / already
@@ -220,6 +226,8 @@ export default function PreorderDetail() {
             .join(" / ");
           if (combo && !sizes.includes(combo)) sizes.push(combo);
         }
+        // Single-variant item (only Shopify's "Default Title") → one "One Size" line.
+        if (sizes.length === 0) sizes.push("One Size");
         toInsert.push({
           preorder_id: preorderId,
           name,
@@ -248,6 +256,65 @@ export default function PreorderDetail() {
       setImportResult("Import failed: " + (e?.message || String(e)));
     } finally {
       setImporting(false);
+    }
+  }
+
+  // Sold-report import — the twin of importFromCsv. Same Shopify products export
+  // (re-pulled now that orders are in): pre-order variants continue-sell so their
+  // "Variant Inventory Qty" goes NEGATIVE; sold = |negative|. Matches rows back to
+  // the imported products by Title→name and the combined Option label→size, then
+  // fills the push grid. No new matcher key needed — it's the same export shape.
+  async function importSoldFromCsv(file: File) {
+    if (soldImporting) return;
+    setSoldImporting(true);
+    setSoldImportResult("");
+    try {
+      const text = await file.text();
+      const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+      const rows = parsed.data || [];
+      const byName: Record<string, PreorderProduct> = {};
+      for (const p of products) byName[p.name.toLowerCase().trim()] = p;
+      const byHandle: Record<string, Record<string, string>[]> = {};
+      for (const r of rows) { const h = (r["Handle"] || "").trim(); if (h) (byHandle[h] ||= []).push(r); }
+
+      const next: Record<string, Record<string, string>> = {};
+      let matched = 0, unmatchedVariants = 0;
+      const unmatchedProducts = new Set<string>();
+      for (const group of Object.values(byHandle)) {
+        const name = (group.find(r => (r["Title"] || "").trim())?.["Title"] || "").trim();
+        const p = byName[name.toLowerCase()];
+        if (!p) { if (name) unmatchedProducts.add(name); continue; }
+        next[p.id] ||= {};
+        for (const r of group) {
+          const combo = [r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
+            .map(v => (v || "").trim()).filter(v => v && v !== "Default Title").join(" / ");
+          const sizeKey = combo || "One Size"; // single-variant row (Default Title) → the "One Size" line
+          if (!sizesFor(p).includes(sizeKey)) { unmatchedVariants++; continue; }
+          const invQty = parseInt(r["Variant Inventory Qty"] || "0", 10) || 0;
+          const sold = invQty < 0 ? -invQty : 0; // continue-selling pre-order: negative inventory = sold
+          next[p.id][sizeKey] = String(sold);
+          matched++;
+        }
+      }
+
+      const merged: Record<string, Record<string, string>> = {};
+      for (const p of products) {
+        merged[p.id] = { ...(soldQtys[p.id] || {}) };
+        for (const sz of sizesFor(p)) {
+          if (next[p.id]?.[sz] !== undefined) merged[p.id][sz] = next[p.id][sz];
+        }
+      }
+      setSoldQtys(merged);
+      // Pre-fill the editable Buffer column from the freshly imported sold × %.
+      setBufferQtys(seedBuffers(merged, parseFloat(pushBuffer) || 0));
+      const parts = [`Filled ${matched} variant${matched === 1 ? "" : "s"} from the sold report`];
+      if (unmatchedProducts.size) parts.push(`${unmatchedProducts.size} CSV product(s) not in this pre-order`);
+      if (unmatchedVariants) parts.push(`${unmatchedVariants} variant row(s) didn't match a size`);
+      setSoldImportResult(parts.join(" · ") + ".");
+    } catch (e: any) {
+      setSoldImportResult("Sold import failed: " + (e?.message || String(e)));
+    } finally {
+      setSoldImporting(false);
     }
   }
 
@@ -294,27 +361,55 @@ export default function PreorderDetail() {
     const seed: Record<string, Record<string, string>> = {};
     for (const p of products) {
       seed[p.id] = {};
-      for (const sz of p.sizes) seed[p.id][sz] = "";
+      for (const sz of sizesFor(p)) seed[p.id][sz] = "";
     }
     setSoldQtys(seed);
+    const seedSamples: Record<string, Record<string, string>> = {};
+    for (const p of products) { seedSamples[p.id] = {}; for (const sz of sizesFor(p)) seedSamples[p.id][sz] = ""; }
+    setSampleQtys(seedSamples);
+    setBufferQtys(seedBuffers(seed, parseFloat(pushBuffer) || 0));
+    setSoldImportResult("");
     setPushBuffer(String(preorder?.buffer_pct ?? 5));
     setPushError("");
     setPushOpen(true);
   }
 
-  function calcTotal(sold: number, bufferPct: number): number {
-    if (sold <= 0) return 0;
-    return Math.ceil(sold * (1 + bufferPct / 100));
-  }
+  // Single-variant Shopify items (only "Default Title") import with no sizes.
+  // Treat any size-less product as one "One Size" line everywhere sizes are read,
+  // so the hat tallies like everything else — no re-import or backfill needed.
+  const sizesFor = (p: any): string[] => (p?.sizes?.length ? p.sizes : ["One Size"]);
+
+  // Default buffer UNITS the % adds on top of sold (the pre-fill for the editable
+  // Buffer column). Rounds up so a 5% buffer on a small run still yields ≥1.
+  const bufferFor = (sold: number, pct: number): number =>
+    sold > 0 && pct > 0 ? Math.ceil(sold * (1 + pct / 100)) - sold : 0;
+
+  // Re-seed every Buffer cell from current sold × pct (used on sold-import and on
+  // % change). Overwrites prior values — the % is the master rate; per-cell edits
+  // are overrides that live until the next re-seed.
+  const seedBuffers = (soldState: Record<string, Record<string, string>>, pct: number) => {
+    const seeded: Record<string, Record<string, string>> = {};
+    for (const p of products) {
+      seeded[p.id] = {};
+      for (const sz of sizesFor(p)) {
+        const s = parseInt(soldState[p.id]?.[sz] || "0", 10) || 0;
+        const b = bufferFor(s, pct);
+        seeded[p.id][sz] = b > 0 ? String(b) : "";
+      }
+    }
+    return seeded;
+  };
 
   function pushSummary() {
     const bufferPct = parseFloat(pushBuffer) || 0;
     const rows: { product: PreorderProduct; sizes: { size: string; sold: number; total: number }[]; totalUnits: number }[] = [];
     let grand = 0;
     for (const p of products) {
-      const sizeRows = p.sizes.map(sz => {
+      const sizeRows = sizesFor(p).map(sz => {
         const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
-        const total = calcTotal(sold, bufferPct);
+        const samples = parseInt(sampleQtys[p.id]?.[sz] || "0", 10) || 0;
+        const buffer = parseInt(bufferQtys[p.id]?.[sz] || "0", 10) || 0;
+        const total = sold + buffer + samples;
         grand += total;
         return { size: sz, sold, total };
       });
@@ -663,7 +758,7 @@ export default function PreorderDetail() {
                   <div style={{ fontSize: 11, color: T.muted, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
                     {p.blank_vendor && <span>{p.blank_vendor}</span>}
                     {p.blank_sku && <span style={{ fontFamily: mono }}>{p.blank_sku}</span>}
-                    {p.sizes.length > 0 && <span style={{ fontFamily: mono }}>{p.sizes.join(" · ")}</span>}
+                    {sizesFor(p).length > 0 && <span style={{ fontFamily: mono }}>{sizesFor(p).join(" · ")}</span>}
                     {p.retail_price != null && <span style={{ color: T.text, fontWeight: 600 }}>${p.retail_price.toFixed(2)}</span>}
                   </div>
                   {p.is_built_in_shopify && p.built_in_shopify_at && (
@@ -722,69 +817,137 @@ export default function PreorderDetail() {
                   style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: pushing ? "not-allowed" : "pointer", padding: "0 6px", lineHeight: 1, opacity: pushing ? 0.4 : 1 }}>×</button>
               </div>
 
-              <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
                 <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
-                  Paste sold quantities from the Shopify pre-order report per variant. Buffer % is applied to each row;
-                  totals round up. A new Labs project is created with these qtys, the buy sheet is pre-filled, and the
-                  pre-order is linked to the Labs job.
+                  Import the Shopify products export to auto-fill sold qtys — pre-order inventory goes negative as orders land,
+                  so sold = |inventory|. Buffer % and samples add on top; totals round up. A new Labs project is created with
+                  these qtys, the buy sheet pre-filled, and the pre-order linked to the Labs job.
+                </div>
+
+                {/* Sold-report import — twin of the product import; reads the
+                    Variant Inventory Qty column (negative = sold). */}
+                <input ref={soldCsvInputRef} type="file" accept=".csv,text/csv" style={{ display: "none" }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) importSoldFromCsv(f); (e.currentTarget as HTMLInputElement).value = ""; }} />
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <button onClick={() => soldCsvInputRef.current?.click()} disabled={soldImporting || products.length === 0}
+                    style={{ padding: "7px 14px", background: T.accent, color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: soldImporting ? "default" : "pointer", fontFamily: font, opacity: soldImporting ? 0.6 : 1 }}>
+                    {soldImporting ? "Reading…" : "Import Shopify sold report (CSV)"}
+                  </button>
+                  {soldImportResult && <span style={{ fontSize: 11.5, color: T.muted }}>{soldImportResult}</span>}
                 </div>
 
                 {/* Buffer */}
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "10px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8 }}>
                   <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Buffer %</span>
                   <input type="number" step="0.5" min="0" value={pushBuffer}
-                    onChange={e => setPushBuffer(e.target.value)}
+                    onChange={e => { const val = e.target.value; setPushBuffer(val); setBufferQtys(seedBuffers(soldQtys, parseFloat(val) || 0)); }}
                     style={{ ...ic, width: 80, padding: "4px 8px" }} />
-                  <span style={{ fontSize: 11, color: T.muted }}>applied per variant; total = sold × (1 + buffer / 100), rounded up</span>
+                  <span style={{ fontSize: 11, color: T.muted }}>pre-fills the Buffer column · total = sold + buffer + samples · edit any cell</span>
                 </div>
 
-                {/* Per-product size grids */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {products.map(p => (
-                    <div key={p.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 12 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{p.name}</div>
-                      <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                        {p.blank_vendor || "—"}
-                        {p.blank_sku && <span style={{ marginLeft: 8, fontFamily: mono }}>{p.blank_sku}</span>}
-                      </div>
-                      {p.sizes.length === 0 ? (
-                        <div style={{ fontSize: 11, color: T.amber, marginTop: 8 }}>No sizes set on this product — skip or add sizes first.</div>
-                      ) : (
-                        <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: `repeat(${p.sizes.length}, 1fr)`, gap: 6 }}>
-                          {p.sizes.map(sz => {
-                            const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
-                            const bufferPct = parseFloat(pushBuffer) || 0;
-                            const total = calcTotal(sold, bufferPct);
-                            return (
-                              <div key={sz} style={{ display: "flex", flexDirection: "column", gap: 4, padding: 8, background: T.card, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, fontFamily: mono, textAlign: "center" }}>{sz}</div>
-                                <input type="text" inputMode="numeric"
-                                  value={soldQtys[p.id]?.[sz] || ""}
-                                  onChange={e => {
-                                    const v = e.target.value.replace(/[^0-9]/g, "");
-                                    setSoldQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } }));
-                                  }}
-                                  onFocus={e => (e.target as HTMLInputElement).select()}
-                                  placeholder="0"
-                                  style={{ ...ic, padding: "5px 6px", textAlign: "center", fontFamily: mono, fontWeight: 600 }} />
-                                <div style={{ fontSize: 10, color: total > sold ? T.green : T.faint, fontFamily: mono, textAlign: "center", fontWeight: 600 }}>
-                                  → {total}
-                                </div>
-                              </div>
-                            );
+                {/* Spreadsheet — one row per variant. Product name shows on the
+                    first size of each group; sold + samples are inline cells. */}
+                {(() => {
+                  const th: React.CSSProperties = { position: "sticky", top: 0, background: T.surface, fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", padding: "8px 10px", textAlign: "left", zIndex: 1, borderBottom: `1px solid ${T.border}` };
+                  const cellInput: React.CSSProperties = { ...ic, width: "100%", padding: "4px 6px", textAlign: "center", fontFamily: mono, fontWeight: 600, boxSizing: "border-box" };
+                  const subNum: React.CSSProperties = { padding: "6px 6px", textAlign: "center", fontFamily: mono, fontWeight: 700 };
+                  const subRow: React.CSSProperties = { borderTop: `1px solid ${T.border}`, background: T.surface };
+                  // Grand-total pre-pass across every variant (sums each column).
+                  const g = { sold: 0, buffer: 0, samples: 0, total: 0 };
+                  for (const p of products) for (const sz of sizesFor(p)) {
+                    g.sold += parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
+                    g.buffer += parseInt(bufferQtys[p.id]?.[sz] || "0", 10) || 0;
+                    g.samples += parseInt(sampleQtys[p.id]?.[sz] || "0", 10) || 0;
+                  }
+                  g.total = g.sold + g.buffer + g.samples;
+                  return (
+                    <div style={{ border: `1px solid ${T.border}`, borderRadius: 8 }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            <th style={th}>Product</th>
+                            <th style={th}>Size</th>
+                            <th style={{ ...th, textAlign: "center", width: 74 }}>Sold</th>
+                            <th style={{ ...th, textAlign: "center", width: 62 }}>Buffer</th>
+                            <th style={{ ...th, textAlign: "center", width: 74, color: T.amber }}>Samples</th>
+                            <th style={{ ...th, textAlign: "right", width: 62 }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {products.flatMap(p => {
+                            const sub = { sold: 0, buffer: 0, samples: 0, total: 0 };
+                            const rows = sizesFor(p).map((sz, si) => {
+                              const sold = parseInt(soldQtys[p.id]?.[sz] || "0", 10) || 0;
+                              const samples = parseInt(sampleQtys[p.id]?.[sz] || "0", 10) || 0;
+                              const bufferUnits = parseInt(bufferQtys[p.id]?.[sz] || "0", 10) || 0;
+                              const total = sold + bufferUnits + samples;
+                              sub.sold += sold; sub.buffer += bufferUnits; sub.samples += samples; sub.total += total;
+                              return (
+                                <tr key={p.id + "_" + sz} style={{ borderTop: `1px solid ${si === 0 ? T.border : T.surface}` }}>
+                                  <td style={{ padding: "4px 10px", fontWeight: 700, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 320 }}>{si === 0 ? p.name : ""}</td>
+                                  <td style={{ padding: "4px 10px", fontFamily: mono, color: T.muted, whiteSpace: "nowrap" }}>{sz}</td>
+                                  <td style={{ padding: "3px 6px" }}>
+                                    <input type="text" inputMode="numeric" title="Sold"
+                                      value={soldQtys[p.id]?.[sz] || ""}
+                                      onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ""); setSoldQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } })); }}
+                                      onFocus={e => (e.target as HTMLInputElement).select()}
+                                      placeholder="0" style={cellInput} />
+                                  </td>
+                                  <td style={{ padding: "3px 6px" }}>
+                                    <input type="text" inputMode="numeric" title="Buffer units — pre-filled from the %, edit any cell"
+                                      value={bufferQtys[p.id]?.[sz] || ""}
+                                      onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ""); setBufferQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } })); }}
+                                      onFocus={e => (e.target as HTMLInputElement).select()}
+                                      placeholder="0" style={{ ...cellInput, color: T.muted }} />
+                                  </td>
+                                  <td style={{ padding: "3px 6px" }}>
+                                    <input type="text" inputMode="numeric" title="Samples — added on top of sold + buffer"
+                                      value={sampleQtys[p.id]?.[sz] || ""}
+                                      onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ""); setSampleQtys(prev => ({ ...prev, [p.id]: { ...(prev[p.id] || {}), [sz]: v } })); }}
+                                      onFocus={e => (e.target as HTMLInputElement).select()}
+                                      placeholder="0" style={{ ...cellInput, fontSize: 11, color: T.amber }} />
+                                  </td>
+                                  <td style={{ padding: "4px 10px", textAlign: "right", fontFamily: mono, fontWeight: 600, color: total > sold ? T.green : T.faint }}>{total}</td>
+                                </tr>
+                              );
+                            });
+                            // Per-item subtotal — only when the item has >1 size (a 1-size
+                            // item's row already IS its total, so don't echo it).
+                            if (sizesFor(p).length > 1) {
+                              rows.push(
+                                <tr key={p.id + "_sub"} style={subRow}>
+                                  <td style={{ padding: "6px 10px" }} />
+                                  <td style={{ padding: "6px 10px", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Subtotal</td>
+                                  <td style={{ ...subNum, color: T.text }}>{sub.sold}</td>
+                                  <td style={{ ...subNum, color: T.muted }}>{sub.buffer}</td>
+                                  <td style={{ ...subNum, color: T.amber }}>{sub.samples}</td>
+                                  <td style={{ padding: "6px 10px", textAlign: "right", fontFamily: mono, fontWeight: 700, color: sub.total > 0 ? T.green : T.faint }}>{sub.total}</td>
+                                </tr>
+                              );
+                            }
+                            return rows;
                           })}
-                        </div>
-                      )}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ borderTop: `2px solid ${T.border}`, background: T.surface }}>
+                            <td colSpan={2} style={{ padding: "9px 10px", fontSize: 11, fontWeight: 800, color: T.text, textTransform: "uppercase", letterSpacing: "0.06em" }}>Grand total</td>
+                            <td style={{ ...subNum, fontWeight: 800, fontSize: 13, color: T.text }}>{g.sold}</td>
+                            <td style={{ ...subNum, fontWeight: 800, fontSize: 13, color: T.muted }}>{g.buffer}</td>
+                            <td style={{ ...subNum, fontWeight: 800, fontSize: 13, color: T.amber }}>{g.samples}</td>
+                            <td style={{ padding: "9px 10px", textAlign: "right", fontFamily: mono, fontWeight: 800, fontSize: 15, color: T.green }}>{g.total}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
                     </div>
-                  ))}
-                </div>
+                  );
+                })()}
 
                 {/* Summary */}
                 <div style={{ padding: "10px 14px", borderRadius: 8, background: T.accentDim, border: `1px solid ${T.accent}44`, fontSize: 13, color: T.text }}>
                   <strong>{summary.grandTotal.toLocaleString()}</strong> total units to produce across{" "}
                   <strong>{summary.rows.filter(r => r.totalUnits > 0).length}</strong> item{summary.rows.filter(r => r.totalUnits > 0).length === 1 ? "" : "s"}
                   {summary.bufferPct > 0 && (
-                    <span style={{ color: T.muted }}> · includes {summary.bufferPct}% buffer</span>
+                    <span style={{ color: T.muted }}> · buffer pre-filled at {summary.bufferPct}%</span>
                   )}
                 </div>
 
