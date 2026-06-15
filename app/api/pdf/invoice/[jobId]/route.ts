@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 import { getPdfBranding, type PdfBranding } from "@/lib/branding";
+import { parseSizeMatrix, sizeMatrixHtml } from "@/lib/size-grid";
 
 // Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
 
@@ -30,27 +31,45 @@ function renderInvoiceHTML(data: {
 
   const itemRows = data.prods.map((p, pi) => {
     const activeSizes = (p.sizes || []).filter(sz => (p.qtys?.[sz] || 0) > 0);
-    const sizeGrid = activeSizes.map(sz =>
-      `<div style="font-size:10px;color:#444;font-family:monospace;white-space:nowrap"><span style="color:#999;margin-right:3px">${sz}</span>${p.qtys[sz].toLocaleString()}</div>`
-    ).join("");
+    const dimM = parseSizeMatrix(activeSizes, p.qtys);
 
-    return `<tr style="border-bottom:0.5px solid #eeeeee">
-      <td style="padding:12px 12px 12px 0;vertical-align:top">
+    const nameCell = `<td style="padding:12px 12px 12px 0;vertical-align:top">
         <div style="display:flex;align-items:baseline;gap:7px">
           <span style="font-size:10px;font-weight:700;color:#bbb;font-family:monospace;flex-shrink:0">${String.fromCharCode(65 + pi)}</span>
           <span style="font-size:13px;font-weight:700;color:#1a1a1a">${p.name || "Item " + (pi + 1)}</span>
         </div>
         ${p.style ? `<div style="font-size:10px;color:#555;margin-top:2px;padding-left:17px">${p.style}</div>` : ""}
         ${p.color ? `<div style="font-size:10px;color:#888;padding-left:17px">${p.color}</div>` : ""}
-      </td>
+      </td>`;
+    const qtyCell = `<td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:600;color:#1a1a1a">${(p.totalQty || 0).toLocaleString()}</td>`;
+    const unitCell = `<td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;color:#666">${p.sellPerUnit > 0 ? fmtD(p.sellPerUnit) : "—"}</td>`;
+    const subCell = `<td style="padding:12px 0 12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:700;color:#1a1a1a">${p.grossRev > 0 ? fmtD(p.grossRev) : "—"}</td>`;
+
+    // Dimensional pants → compact "fits · N sizes" in the Sizes column, then a
+    // full-width cut-ticket grid block below the line (client picked full grid).
+    if (dimM) {
+      const fits = dimM.groups.map(g => g.name).filter(Boolean).join(", ");
+      const summary = [fits, `${activeSizes.length} sizes`].filter(Boolean).join(" · ");
+      const gridHtml = sizeMatrixHtml(activeSizes, p.qtys, { mono: "monospace" });
+      return `<tr>
+      ${nameCell}
+      <td style="padding:12px 8px;vertical-align:top"><span style="font-size:10px;color:#666;font-family:monospace">${summary}</span></td>
+      ${qtyCell}${unitCell}${subCell}
+    </tr>
+    <tr style="border-bottom:0.5px solid #eeeeee"><td colspan="5" style="padding:0 8px 14px 0">${gridHtml}</td></tr>`;
+    }
+
+    const sizeGrid = activeSizes.map(sz =>
+      `<div style="font-size:10px;color:#444;font-family:monospace;white-space:nowrap"><span style="color:#999;margin-right:3px">${sz}</span>${p.qtys[sz].toLocaleString()}</div>`
+    ).join("");
+    return `<tr style="border-bottom:0.5px solid #eeeeee">
+      ${nameCell}
       <td style="padding:12px 8px;vertical-align:top">
         <div style="display:grid;grid-template-columns:repeat(3,minmax(52px,1fr));gap:3px 6px">
           ${sizeGrid}
         </div>
       </td>
-      <td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:600;color:#1a1a1a">${(p.totalQty || 0).toLocaleString()}</td>
-      <td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;color:#666">${p.sellPerUnit > 0 ? fmtD(p.sellPerUnit) : "—"}</td>
-      <td style="padding:12px 0 12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:700;color:#1a1a1a">${p.grossRev > 0 ? fmtD(p.grossRev) : "—"}</td>
+      ${qtyCell}${unitCell}${subCell}
     </tr>`;
   }).join("");
 
