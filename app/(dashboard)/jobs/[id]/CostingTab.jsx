@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
+import { parseSizeMatrix, splitColHead } from "@/lib/size-grid";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { DecorationPanel } from "./DecorationPanel";
@@ -864,7 +865,14 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         Decoration for column space. */}
                     {(() => {
                       const blanksExpanded = !!p._blanksExpanded;
-                      const sizeSummary = (p.sizes || []).filter(sz => (p.qtys?.[sz] || 0) > 0).map(sz => `${sz}:${p.qtys[sz]}`).join(" · ");
+                      // Many-variant (dimensional) blanks would enumerate 60+ size:qty pairs and
+                      // overflow the strip. Summarize instead — fits + active size count; the full
+                      // breakdown is one click away in the modal grid. Simple sizes keep the list.
+                      const __dimM = parseSizeMatrix(p.sizes, p.qtys);
+                      const __activeSizes = (p.sizes || []).filter(sz => (p.qtys?.[sz] || 0) > 0);
+                      const sizeSummary = __dimM
+                        ? [__dimM.groups.map(g => g.name).filter(Boolean).join(", "), `${__activeSizes.length} sizes`].filter(Boolean).join(" · ")
+                        : __activeSizes.map(sz => `${sz}:${p.qtys[sz]}`).join(" · ");
                       const marginColor = r ? (r.margin_pct >= 0.30 ? T.green : r.margin_pct >= 0.20 ? T.amber : T.red) : T.muted;
                       return (
                     <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:isMobile?0:20,...(costingLocked?{pointerEvents:"none",opacity:0.6}:{})}}>
@@ -895,7 +903,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         </div>
                         {/* Sizes — on mobile sits on its own row below the
                             identity; on desktop stays inline to the right. */}
-                        {sizeSummary && <span style={{fontSize:isMobile?11:12,color:isMobile?T.muted:T.text,fontFamily:mono,fontWeight:isMobile?500:700,flexShrink:0,whiteSpace:isMobile?"normal":"nowrap",overflow:isMobile?"visible":"hidden",textOverflow:isMobile?"clip":"ellipsis"}}>{sizeSummary}</span>}
+                        {sizeSummary && <span style={{fontSize:isMobile?11:12,color:isMobile?T.muted:T.text,fontFamily:mono,fontWeight:isMobile?500:700,flexShrink:1,minWidth:0,whiteSpace:isMobile?"normal":"nowrap",overflow:isMobile?"visible":"hidden",textOverflow:isMobile?"clip":"ellipsis"}}>{sizeSummary}</span>}
                         {!isMobile && <span style={{fontSize:12,color:T.faint,flexShrink:0,lineHeight:1}}>›</span>}
                       </div>
 
@@ -958,6 +966,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           the height now so the grid renders directly. */}
                       <div>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Size breakdown</div>
+                      {(() => { const __m = parseSizeMatrix(p.sizes, null); if(!__m) return (
                       <div style={{borderRadius:8,border:"1px solid "+T.border,overflow:"hidden"}}>
                           <table style={{borderCollapse:"collapse",width:"100%",fontSize:12}}>
                             <thead>
@@ -1008,6 +1017,71 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             </tbody>
                           </table>
                       </div>
+                      );
+                      // Dimensional pants → cut-ticket cost grid (qty reference + editable $ per cell).
+                      const __lk = {};
+                      (p.sizes||[]).forEach(sz=>{const q=String(sz).split(" / ").map(s=>s.trim()); if(q.length>=3)__lk[`${q[0]}~${q[1]}~${q.slice(2).join(" / ")}`]=sz; else if(q.length===2)__lk[`~${q[0]}~${q[1]}`]=sz;});
+                      const __costs=(p.sizes||[]).map(sz=>getCostDisplay(p.id,sz,p.blankCosts?.[sz]||0));
+                      const __allVal=(__costs.length>0&&__costs.every(c=>c===__costs[0]))?__costs[0]:"";
+                      const __grandCost=Object.entries(p.blankCosts||{}).reduce((a,[sz,bc])=>a+bc*(p.qtys?.[sz]||0)*1.035,0);
+                      const GH={padding:"3px 7px",fontSize:9,fontWeight:700,color:T.muted,textAlign:"center",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"};
+                      return (
+                        <div>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+                            <span style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Cost / all sizes</span>
+                            <span style={{display:"flex",alignItems:"center",gap:2}}>
+                              <span style={{fontSize:11,color:T.faint,fontFamily:mono}}>$</span>
+                              <input type="text" inputMode="decimal" value={__allVal} placeholder="0.00"
+                                onChange={e=>{const raw=e.target.value; if(/^\d*\.?\d*$/.test(raw)) (p.sizes||[]).forEach(sz=>setCostLocal(p.id,sz,raw));}}
+                                onBlur={()=>(p.sizes||[]).forEach(sz=>commitCost(i,p,sz))}
+                                style={{width:64,textAlign:"right",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 8px",color:T.text,fontSize:12,fontFamily:mono}}/>
+                            </span>
+                            <span style={{fontSize:10,color:T.faint}}>fills every cell; override individually below</span>
+                          </div>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:18,alignItems:"flex-start",overflowX:"auto"}}>
+                            {__m.groups.map((g,gi)=>(
+                              <div key={gi}>
+                                {g.name&&<div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:T.muted,marginBottom:3}}>{g.name}</div>}
+                                <table style={{borderCollapse:"collapse"}}>
+                                  <thead><tr>
+                                    <th style={{...GH,textAlign:"left"}}>Waist</th>
+                                    {g.cols.map((c,ci)=>{const sc=splitColHead(c);return <th key={ci} style={GH}>{sc[0]}{sc[1]&&<div style={{fontSize:7.5,fontWeight:600,color:T.faint}}>{sc[1]}</div>}</th>;})}
+                                  </tr></thead>
+                                  <tbody>
+                                    {g.rows.map((r,ri)=>(
+                                      <tr key={ri}>
+                                        <td style={{padding:"2px 8px",fontSize:11,fontWeight:700,fontFamily:mono,color:T.text,borderRight:`1px solid ${T.border}`,whiteSpace:"nowrap"}}>{r.label}</td>
+                                        {g.cols.map((c,ci)=>{const label=__lk[`${g.name??""}~${r.label}~${c}`]; if(!label) return <td key={ci} style={{padding:"2px 4px",textAlign:"center",color:T.faint,fontSize:11}}>·</td>; const qty=p.qtys?.[label]||0; const bc=p.blankCosts?.[label]||0; return (
+                                          <td key={ci} style={{padding:"2px 4px"}}>
+                                            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                                              <span style={{fontSize:8.5,color:T.faint,fontFamily:mono,lineHeight:1}}>{qty||"·"}</span>
+                                              <span style={{display:"flex",alignItems:"center",gap:1}}>
+                                                <span style={{fontSize:9,color:T.faint,fontFamily:mono}}>$</span>
+                                                <input type="text" inputMode="decimal" value={getCostDisplay(p.id,label,bc)} placeholder="0.00"
+                                                  onChange={e=>{const raw=e.target.value; if(/^\d*\.?\d*$/.test(raw)) setCostLocal(p.id,label,raw);}}
+                                                  onBlur={()=>commitCost(i,p,label)}
+                                                  data-costfield onKeyDown={e=>{if(e.key==="Enter"){commitCost(i,p,label);focusNext(e,false);}if(e.key==="Tab"){commitCost(i,p,label);focusNext(e,e.shiftKey);}}}
+                                                  style={{width:40,textAlign:"right",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontFamily:mono}}/>
+                                              </span>
+                                            </div>
+                                          </td>
+                                        );})}
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:10,marginTop:10,paddingTop:8,borderTop:`1px solid ${T.border}`}}>
+                            <span style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"}}>Total</span>
+                            <span style={{fontSize:13,fontWeight:800,fontFamily:mono,color:T.text}}>{p.totalQty||0}</span><span style={{fontSize:10,color:T.muted}}>units</span>
+                            <span style={{flex:1}}/>
+                            <span style={{fontSize:13,fontWeight:800,fontFamily:mono,color:T.accent}}>{fmtD(__grandCost)}</span><span style={{fontSize:10,color:T.muted}}>blanks</span>
+                          </div>
+                        </div>
+                      );
+                      })()}
                       </div>
                       <div>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Production notes</div>
