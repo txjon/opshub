@@ -865,7 +865,14 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         Decoration for column space. */}
                     {(() => {
                       const blanksExpanded = !!p._blanksExpanded;
-                      const sizeSummary = (p.sizes || []).filter(sz => (p.qtys?.[sz] || 0) > 0).map(sz => `${sz}:${p.qtys[sz]}`).join(" · ");
+                      // Many-variant (dimensional) blanks would enumerate 60+ size:qty pairs and
+                      // overflow the strip. Summarize instead — fits + active size count; the full
+                      // breakdown is one click away in the modal grid. Simple sizes keep the list.
+                      const __dimM = parseSizeMatrix(p.sizes, p.qtys);
+                      const __activeSizes = (p.sizes || []).filter(sz => (p.qtys?.[sz] || 0) > 0);
+                      const sizeSummary = __dimM
+                        ? [__dimM.groups.map(g => g.name).filter(Boolean).join(", "), `${__activeSizes.length} sizes`].filter(Boolean).join(" · ")
+                        : __activeSizes.map(sz => `${sz}:${p.qtys[sz]}`).join(" · ");
                       const marginColor = r ? (r.margin_pct >= 0.30 ? T.green : r.margin_pct >= 0.20 ? T.amber : T.red) : T.muted;
                       return (
                     <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:isMobile?0:20,...(costingLocked?{pointerEvents:"none",opacity:0.6}:{})}}>
@@ -896,7 +903,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         </div>
                         {/* Sizes — on mobile sits on its own row below the
                             identity; on desktop stays inline to the right. */}
-                        {sizeSummary && <span style={{fontSize:isMobile?11:12,color:isMobile?T.muted:T.text,fontFamily:mono,fontWeight:isMobile?500:700,flexShrink:0,whiteSpace:isMobile?"normal":"nowrap",overflow:isMobile?"visible":"hidden",textOverflow:isMobile?"clip":"ellipsis"}}>{sizeSummary}</span>}
+                        {sizeSummary && <span style={{fontSize:isMobile?11:12,color:isMobile?T.muted:T.text,fontFamily:mono,fontWeight:isMobile?500:700,flexShrink:1,minWidth:0,whiteSpace:isMobile?"normal":"nowrap",overflow:isMobile?"visible":"hidden",textOverflow:isMobile?"clip":"ellipsis"}}>{sizeSummary}</span>}
                         {!isMobile && <span style={{fontSize:12,color:T.faint,flexShrink:0,lineHeight:1}}>›</span>}
                       </div>
 
