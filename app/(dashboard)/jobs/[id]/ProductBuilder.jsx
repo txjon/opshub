@@ -306,7 +306,11 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       const blankSizes = blankData.sizes || [];
       const oldTotal = Object.values(it.qtys || {}).reduce((a, v) => a + (v || 0), 0);
       let sizes, qtys;
-      if (blankData.qtys && Object.keys(blankData.qtys).length) {
+      // A blank only "carries" quantities when its qtys actually SUM to > 0. The
+      // pickers seed a zero-filled qtys object ({S:0,M:0,…}) for the blank's sizes;
+      // that must NOT be treated as authoritative or it overwrites the order with 0.
+      const blankQtySum = blankData.qtys ? Object.values(blankData.qtys).reduce((a, v) => a + (v || 0), 0) : 0;
+      if (blankQtySum > 0) {
         sizes = blankSizes; qtys = blankData.qtys;
       } else {
         const exact = Object.fromEntries(blankSizes.map(sz => [sz, it.qtys?.[sz] || 0]));
