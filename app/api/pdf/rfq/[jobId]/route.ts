@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 import { getPdfBranding } from "@/lib/branding";
+import { sizeMatrixHtml } from "@/lib/size-grid";
 
 // RFQ PDF — mirrors PO layout (so the cohesive look carries when the
 // same decorator later receives the actual PO) but strips per-line cost
@@ -100,8 +101,11 @@ function renderRFQHTML(data: any): string {
   const mono = `ui-monospace, monospace`;
 
   const itemBlocks = data.items.map((item: any) => {
-    const lines = sortSizes(Object.keys(item.qtys).filter((sz: string) => (item.qtys[sz] || 0) > 0));
+    const sizeLabels = Object.keys(item.qtys || {});
+    const lines = sortSizes(sizeLabels.filter((sz: string) => (item.qtys[sz] || 0) > 0));
     const sizeStr = lines.map((sz: string) => `${sz} ${item.qtys[sz]}`).join("  ·  ");
+    // Pants (Fit/Waist/Inseam) pivot into a cut-ticket grid; simple sizes stay inline.
+    const sizeGridHtml = sizeMatrixHtml(sizeLabels, item.qtys, { mono });
     const incoming = item.incoming_goods || (item.supplier ? "Blanks from " + item.supplier : "");
     const decoSpec: { label: string; detail: string }[] = item.decoSpec || [];
 
@@ -128,9 +132,9 @@ function renderRFQHTML(data: any): string {
         ${item.blank_vendor ? `<div><span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#bbb;margin-right:4px">Brand</span>${item.blank_vendor}</div>` : ""}
         ${item.blank_sku ? `<div><span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#bbb;margin-right:4px">Color</span>${item.blank_sku}</div>` : ""}
       </div>
-      ${sizeStr ? `<div style="font-size:9px;color:#555;padding:3px 8px;background:#f7f7f7;border-radius:3px;margin-bottom:4px">
+      ${sizeGridHtml || (sizeStr ? `<div style="font-size:9px;color:#555;padding:3px 8px;background:#f7f7f7;border-radius:3px;margin-bottom:4px">
         <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#aaa;margin-right:6px">Sizes</span>${sizeStr}
-      </div>` : ""}
+      </div>` : "")}
       ${item.drive_link ? `<div style="font-size:9px;margin-bottom:4px;padding:3px 8px;background:#f0f5ff;border-radius:3px">
         <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin-right:6px">Art / reference</span>
         <a href="${item.drive_link}" style="color:#1a56db">${item.drive_link}</a>

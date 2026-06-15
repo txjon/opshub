@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { sortSizes } from "@/lib/theme";
+import SizeGrid from "@/components/SizeGrid";
 import { C, fmtDate, fmtDateLong, fmtMoney, daysUntil } from "./_shared/theme";
 import { MobileSheet } from "./_shared/MobileSheet";
 import {
@@ -524,7 +525,6 @@ function OrderDetail(props: {
       {/* Items */}
       {order.items.map(item => {
         const sortedSizes = sortSizes(item.sizes).filter(s => (item.qtys[s] || 0) > 0);
-        const sizeStr = sortedSizes.map(sz => `${sz} ${item.qtys[sz]}`).join("  ·  ");
         const stage = vendorStageFor(item.pipelineStage);
         const isShipped = stage === "shipped" || stage === "complete" || !!item.shipTracking;
 
@@ -556,13 +556,13 @@ function OrderDetail(props: {
             )}
 
             {/* Sizes */}
-            {sizeStr && (
+            {sortedSizes.length > 0 && (
               <div style={{
-                fontSize: 11, color: C.muted, padding: "4px 8px", background: C.bg,
+                padding: "6px 8px", background: C.bg,
                 borderRadius: 4, marginBottom: 6, border: `1px solid ${C.border}`,
               }}>
-                <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.faint, marginRight: 6 }}>Sizes</span>
-                {sizeStr}
+                <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: C.faint, marginBottom: 4 }}>Sizes</div>
+                <SizeGrid labels={item.sizes} qtys={item.qtys} palette={{ text: C.text, muted: C.muted, faint: C.faint, border: C.border, surface: C.card, accent: C.accent }} mono={C.mono} />
               </div>
             )}
 

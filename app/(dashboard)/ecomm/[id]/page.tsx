@@ -5,6 +5,7 @@ import Link from "next/link";
 import Papa from "papaparse";
 import { createClient } from "@/lib/supabase/client";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import SizeGrid from "@/components/SizeGrid";
 import { T, font, mono } from "@/lib/theme";
 
 // Pre-order detail page. Shows the full lifecycle workflow:
@@ -758,9 +759,13 @@ export default function PreorderDetail() {
                   <div style={{ fontSize: 11, color: T.muted, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
                     {p.blank_vendor && <span>{p.blank_vendor}</span>}
                     {p.blank_sku && <span style={{ fontFamily: mono }}>{p.blank_sku}</span>}
-                    {sizesFor(p).length > 0 && <span style={{ fontFamily: mono }}>{sizesFor(p).join(" · ")}</span>}
                     {p.retail_price != null && <span style={{ color: T.text, fontWeight: 600 }}>${p.retail_price.toFixed(2)}</span>}
                   </div>
+                  {sizesFor(p).length > 0 && (
+                    <div style={{ marginTop: 6 }}>
+                      <SizeGrid labels={sizesFor(p)} palette={{ text: T.text, muted: T.muted, faint: T.faint, border: T.border, surface: T.surface, accent: T.green }} mono={mono} />
+                    </div>
+                  )}
                   {p.is_built_in_shopify && p.built_in_shopify_at && (
                     <div style={{ fontSize: 10, color: T.green, marginTop: 4, fontWeight: 600 }}>
                       ✓ Built in Shopify · {new Date(p.built_in_shopify_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
