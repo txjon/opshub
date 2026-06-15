@@ -1732,7 +1732,30 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                 {!isMobile && <span style={{ fontSize: 10, color: T.faint, marginLeft: "auto" }}>click to change</span>}
               </>
             ) : (
-              <span style={{ fontSize: 14, fontWeight: 700, color: T.accent }}>Assign Blank →</span>
+              <>
+                <span style={{ fontSize: 14, fontWeight: 700, color: T.accent }}>Assign Blank →</span>
+                {/* Custom / cut-and-sew items have no catalog blank but still
+                    need a QuickBooks Product/Service mapping for invoicing.
+                    Expose the type selector here so a blank isn't required
+                    just to set the QB category. */}
+                <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>QB type</span>
+                  <select value={item.garment_type || ""} disabled={costingLocked} onClick={e => e.stopPropagation()}
+                    onChange={e => {
+                      e.stopPropagation();
+                      if (costingLocked) return;
+                      const next = e.target.value || null;
+                      const FLEECE_TYPES = ["crewneck", "hoodie", "jacket"];
+                      onUpdateItem(item.id, { garment_type: next, is_fleece: !!(next && FLEECE_TYPES.includes(next)) });
+                    }}
+                    style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, background: T.card, color: item.garment_type ? T.text : T.muted, border: `1px solid ${item.garment_type ? T.accent : T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
+                    <option value="">set type</option>
+                    {["bandana", "banner", "beanie", "crewneck", "custom", "flag", "hat", "hoodie", "jacket", "koozie", "lighter", "longsleeve", "pants", "patch", "pin", "poster", "samples", "shorts", "socks", "sticker", "tee", "tote", "towel", "water_bottle"].map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </span>
+              </>
             )}
           </div>
 

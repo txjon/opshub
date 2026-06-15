@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { parseSizeMatrix, splitColHead } from "@/lib/size-grid";
+import SizeGridInput from "@/components/SizeGridInput";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { DecorationPanel } from "./DecorationPanel";
@@ -662,23 +663,40 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</div>
                             <div style={{fontSize:10,color:T.muted,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()} total</div>
                           </div>
-                          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                            {(p.sizes||[]).map(sz=>(
-                              <div key={sz} style={{display:"flex",alignItems:"center",gap:5,background:T.card,border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 6px"}}>
-                                <span style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:mono,minWidth:24}}>{sz}</span>
-                                <input type="text" inputMode="numeric" pattern="[0-9]*" value={p.qtys?.[sz]||""} placeholder="0"
-                                  onChange={e=>{
-                                    const q=parseInt(e.target.value)||0;
-                                    const newQtys={...(p.qtys||{}),[sz]:q};
-                                    const newTotal=Object.values(newQtys).reduce((a,v)=>a+v,0);
-                                    updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});
-                                    if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}
-                                  }}
-                                  onFocus={e=>e.target.select()}
-                                  style={{width:48,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,padding:"2px 4px"}}/>
+                          {(() => {
+                            const onSizeQty = (sz, raw) => {
+                              const q = parseInt(raw) || 0;
+                              const newQtys = { ...(p.qtys||{}), [sz]: q };
+                              const newTotal = Object.values(newQtys).reduce((a,v)=>a+(v||0),0);
+                              updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});
+                              if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}
+                            };
+                            // Dimensional (pant-style) sizes pivot into the compact cut-ticket
+                            // grid so a 50+ variant custom item doesn't bury the cost controls.
+                            if (parseSizeMatrix(p.sizes, null)) return (
+                              <SizeGridInput
+                                sizes={p.sizes}
+                                getValue={sz => p.qtys?.[sz] ?? ""}
+                                onChange={(sz, v) => onSizeQty(sz, v)}
+                                onCommit={() => {}}
+                                disabled={costingLocked}
+                                ic={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontFamily: mono, outline: "none" }}
+                              />
+                            );
+                            return (
+                              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                                {(p.sizes||[]).map(sz=>(
+                                  <div key={sz} style={{display:"flex",alignItems:"center",gap:5,background:T.card,border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 6px"}}>
+                                    <span style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:mono,minWidth:24}}>{sz}</span>
+                                    <input type="text" inputMode="numeric" pattern="[0-9]*" value={p.qtys?.[sz]||""} placeholder="0"
+                                      onChange={e=>onSizeQty(sz, e.target.value)}
+                                      onFocus={e=>e.target.select()}
+                                      style={{width:48,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,padding:"2px 4px"}}/>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
+                            );
+                          })()}
                         </div>
                       )}
 
@@ -1858,7 +1876,18 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         // costs back to the catalog value (the per-item revert bug).
         const blankReassigned = (bi.blank_vendor && bi.blank_vendor !== cp.style) || (bi.blank_sku && bi.blank_sku !== cp.color);
         if (bi.blank_vendor && bi.blank_vendor !== cp.style) { updates.style = bi.blank_vendor; updates.color = bi.blank_sku || cp.color; }
-        if (blankReassigned && bi.blankCosts && Object.keys(bi.blankCosts).length > 0) { updates.blankCosts = bi.blankCosts; updates.blankCostPerUnit = Object.values(bi.blankCosts).filter(v=>v>0).reduce((a,v,_,arr)=>a+v/arr.length,0); }
+        // Pull the item's blank costs when the blank was reassigned, OR when
+        // costing has no real cost yet but the item does — e.g. a re-assign to the
+        // SAME vendor after the cost was wiped (blankReassigned stays false but the
+        // item now carries the supplier price). Never overwrite a real refined cost
+        // on an unchanged blank (the per-item revert bug), and never pull all-zeros.
+        const cpHasRealCost = cp.blankCosts && Object.values(cp.blankCosts).some(v => (Number(v) || 0) > 0);
+        const biHasRealCost = bi.blankCosts && Object.values(bi.blankCosts).some(v => (Number(v) || 0) > 0);
+        if ((blankReassigned || !cpHasRealCost) && biHasRealCost) {
+          updates.blankCosts = bi.blankCosts;
+          const rv = Object.values(bi.blankCosts).filter(v => (Number(v) || 0) > 0);
+          updates.blankCostPerUnit = rv.length ? rv.reduce((a, v) => a + Number(v), 0) / rv.length : 0;
+        }
         return { ...cp, ...updates };
       });
       return newItems.length > 0 ? [...updated, ...newItems] : updated;
@@ -1928,10 +1957,16 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           const cp = costProds[cpIdx];
           const r2 = results.find(r => r._idx === cpIdx);
           const itemUpdates = {};
-          if (cp.blankCosts && Object.keys(cp.blankCosts).length > 0) {
-            const costValues = Object.values(cp.blankCosts).filter(v => v > 0);
+          // Only persist blank costs when at least one size has a real (>0) cost.
+          // Writing an all-zero map here clobbered the supplier costs that
+          // ProductBuilder (the blank-assign source of truth) had just saved,
+          // whenever this tab's buyItems snapshot was momentarily stale — silently
+          // wiping the carried-over blank pricing. An all-zero map = "no data",
+          // never authoritative, so it must not overwrite.
+          const costValues = (cp.blankCosts ? Object.values(cp.blankCosts) : []).filter(v => (Number(v) || 0) > 0);
+          if (costValues.length > 0) {
             itemUpdates.blank_costs = cp.blankCosts;
-            itemUpdates.cost_per_unit = costValues.length > 0 ? Math.round(costValues.reduce((a, v) => a + v, 0) / costValues.length * 100) / 100 : null;
+            itemUpdates.cost_per_unit = Math.round(costValues.reduce((a, v) => a + (Number(v) || 0), 0) / costValues.length * 100) / 100;
           }
           // Save the calculated sell_per_unit when either (a) there's an
           // explicit override (including $0 — replacements at no charge),
