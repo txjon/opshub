@@ -309,9 +309,12 @@ export default function PreorderDetail() {
           const matchSize = sizesFor(p).find(s => s.toLowerCase() === sizeKey.toLowerCase());
           if (!matchSize) { unmatchedVariants++; continue; }
           const sold = soldFromRow(r);
-          next[p.id][matchSize] = String(sold);
+          // SUM across rows for the same variant — a multi-location inventory export
+          // has one row per location, so the variant's true sold is the total across
+          // all of them (overwriting would only keep the last location).
+          if (next[p.id][matchSize] === undefined) matched++;
+          next[p.id][matchSize] = String((parseInt(next[p.id][matchSize] || "0", 10) || 0) + sold);
           soldTotal += sold;
-          matched++;
         }
       }
 
