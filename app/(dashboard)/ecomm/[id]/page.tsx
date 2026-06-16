@@ -6,7 +6,7 @@ import Papa from "papaparse";
 import { createClient } from "@/lib/supabase/client";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import SizeGrid from "@/components/SizeGrid";
-import { T, font, mono } from "@/lib/theme";
+import { T, font, mono, canonicalSize } from "@/lib/theme";
 
 // Pre-order detail page. Shows the full lifecycle workflow:
 //   planning → building → open → closed → producing → fulfilling → complete
@@ -271,10 +271,12 @@ export default function PreorderDetail() {
         // placeholder, dropped.
         const sizes: string[] = [];
         for (const r of group) {
-          const combo = [r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
+          // canonicalSize uppercases recognized size tokens (s→S, 2xl→2XL);
+          // multi-part pants labels ("Relaxed / 32 / 34") pass through untouched.
+          const combo = canonicalSize([r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
             .map(v => (v || "").trim())
             .filter(v => v && v !== "Default Title")
-            .join(" / ");
+            .join(" / "));
           if (combo && !sizes.includes(combo)) sizes.push(combo);
         }
         // Single-variant item (only Shopify's "Default Title") → one "One Size" line.
