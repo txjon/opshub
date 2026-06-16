@@ -75,6 +75,22 @@ const STATUS_OWNERS: Record<PreorderStatus, string> = {
   complete: "Done",
 };
 
+// Strip a "pre-order" marker from a product name when it becomes a Labs item.
+// Handles the variants Shopify gives us — Pre-Order, Preorder, Pre Order,
+// PreOrder — plus a wrapping separator/parens, anywhere in the string. The
+// e-comm product keeps its name; only the pushed Labs item is cleaned.
+function stripPreorderName(name: string): string {
+  const cleaned = String(name || "")
+    .replace(/\s*[(\[]?\s*pre[\s_-]*order\s*[)\]]?\s*/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .replace(/[\s_–—-]+$/g, "")
+    .replace(/^[\s_–—-]+/g, "")
+    .trim();
+  // Degenerate case (name was only "Pre-Order") → keep the original.
+  return cleaned || String(name || "").trim();
+}
+
 function toneFor(s: PreorderStatus | null) {
   if (!s) return T.border;
   const map: Record<PreorderStatus, string> = {
@@ -568,9 +584,11 @@ export default function PreorderDetail() {
       const mockupTargets: { itemId: string; name: string; imageUrl: string }[] = [];
       for (let i = 0; i < productsToCreate.length; i++) {
         const r = productsToCreate[i];
+        // Drop the "pre-order" marker — the Labs item is just the product.
+        const itemName = stripPreorderName(r.product.name);
         const { data: newItem, error: itemErr } = await (supabase.from("items") as any).insert({
           job_id: newJobId,
-          name: r.product.name,
+          name: itemName,
           blank_vendor: r.product.blank_vendor,
           blank_sku: r.product.blank_sku,
           status: "tbd",
@@ -579,7 +597,8 @@ export default function PreorderDetail() {
         }).select("id").single();
         if (itemErr || !newItem) throw new Error(itemErr?.message || "Failed to create item");
         const itemId = (newItem as any).id;
-        if (r.product.image_url) mockupTargets.push({ itemId, name: r.product.name, imageUrl: r.product.image_url });
+        // Use the cleaned name so the Drive folder + "{name} mockup" file match the item.
+        if (r.product.image_url) mockupTargets.push({ itemId, name: itemName, imageUrl: r.product.image_url });
 
         const lines = r.sizes
           .filter(s => s.total > 0)
