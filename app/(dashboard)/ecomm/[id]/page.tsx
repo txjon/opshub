@@ -121,6 +121,13 @@ export default function PreorderDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string>("");
+  // Undo a push — returns the pre-order to "closed" and unlinks the Labs
+  // job so sold qtys can be re-imported and re-pushed. The Labs job itself
+  // is NOT touched (Jon may have cancelled it deliberately). Without this
+  // the producing state is a one-way dead end (NextActionButton only
+  // advances), which strands the pre-order if a push is cancelled.
+  const [confirmRevert, setConfirmRevert] = useState(false);
+  const [reverting, setReverting] = useState(false);
   // Import products from a Shopify product-export CSV (the standard
   // first step — products are built in Shopify, then announced here).
   // Maps Title→name, combined Option values→sizes, Variant Price→retail,
@@ -175,6 +182,17 @@ export default function PreorderDetail() {
       setDeleting(false); setConfirmDelete(false); return;
     }
     router.push("/ecomm");
+  }
+
+  async function revertPush() {
+    if (!preorder || reverting) return;
+    setReverting(true);
+    await (supabase.from("fulfillment_projects") as any)
+      .update({ preorder_status: "closed", source_job_id: null })
+      .eq("id", preorderId);
+    setPreorder(p => p ? { ...p, preorder_status: "closed", source_job_id: null } : p);
+    setReverting(false);
+    setConfirmRevert(false);
   }
 
   async function updateField(field: keyof Preorder, value: any) {
@@ -586,10 +604,17 @@ export default function PreorderDetail() {
     }
     if (s === "producing") {
       return (
-        <button onClick={() => advanceStatus("fulfilling")}
-          style={{ background: T.purple, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>
-          → Fulfilling (received + in Shopify)
-        </button>
+        <>
+          <button onClick={() => advanceStatus("fulfilling")}
+            style={{ background: T.purple, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>
+            → Fulfilling (received + in Shopify)
+          </button>
+          <button onClick={() => setConfirmRevert(true)}
+            title="Undo the push — unlink the Labs job and return to Closed so you can re-import sold qtys and re-push"
+            style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.muted, fontSize: 12, fontWeight: 600, padding: "8px 16px", cursor: "pointer", fontFamily: font }}>
+            ↩ Undo push
+          </button>
+        </>
       );
     }
     if (s === "fulfilling") {
@@ -1024,6 +1049,15 @@ export default function PreorderDetail() {
         confirmLabel={deleting ? "Deleting…" : "Delete"}
         onConfirm={deletePreorder}
         onCancel={() => setConfirmDelete(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmRevert}
+        title="Undo push?"
+        message={`This returns "${preorder.name}" to Closed and unlinks the Labs job so you can re-import sold qtys and push again. The Labs job itself is not deleted. Sold/buffer/sample quantities aren't stored on the pre-order, so nothing else is lost.`}
+        confirmLabel={reverting ? "Reverting…" : "Undo push"}
+        onConfirm={revertPush}
+        onCancel={() => setConfirmRevert(false)}
       />
     </div>
   );
