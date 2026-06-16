@@ -30,7 +30,7 @@ const leadingNum = (s: string): number | null => {
 const cmpSize = (a: string, b: string): number => {
   const na = leadingNum(a), nb = leadingNum(b);
   if (na != null && nb != null) return na - nb || a.localeCompare(b);
-  const ia = SIZE_ORDER.indexOf(a), ib = SIZE_ORDER.indexOf(b);
+  const ia = SIZE_ORDER.indexOf(String(a).toUpperCase()), ib = SIZE_ORDER.indexOf(String(b).toUpperCase()); // case-insensitive: Shopify sizes are lowercase
   if (ia !== -1 || ib !== -1) {
     if (ia === -1) return 1;
     if (ib === -1) return -1;

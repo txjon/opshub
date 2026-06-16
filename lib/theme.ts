@@ -30,7 +30,9 @@ export const SIZE_ORDER = [
 
 export const sortSizes = (sizes: string[]) =>
   [...sizes].sort((a, b) => {
-    const ai = SIZE_ORDER.indexOf(a), bi = SIZE_ORDER.indexOf(b);
+    // Case-insensitive: Shopify gives lowercase sizes ("s","m","2xl"); SIZE_ORDER
+    // is uppercase. Without this they miss the order and alpha-sort to a scramble.
+    const ai = SIZE_ORDER.indexOf(String(a).toUpperCase()), bi = SIZE_ORDER.indexOf(String(b).toUpperCase());
     if (ai === -1 && bi === -1) return a.localeCompare(b);
     if (ai === -1) return 1;
     if (bi === -1) return -1;
