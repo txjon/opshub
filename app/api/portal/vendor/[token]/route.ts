@@ -173,7 +173,7 @@ export async function GET(
           decoLines,
           itemTotal,
           mockupThumb: mockupByItem[item.id] ? `/api/files/thumbnail?id=${mockupByItem[item.id]}` : null,
-          blanksOrdered: ((item as any).blanks_order_cost ?? 0) > 0,
+          blanksOrdered: (item as any).blanks_order_cost != null,
         };
       });
 
@@ -334,7 +334,7 @@ export async function GET(
           decoLines,
           itemTotal,
           mockupThumb: cMockupByItem[item.id] ? `/api/files/thumbnail?id=${cMockupByItem[item.id]}` : null,
-          blanksOrdered: ((item as any).blanks_order_cost ?? 0) > 0,
+          blanksOrdered: (item as any).blanks_order_cost != null,
         };
       });
 

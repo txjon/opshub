@@ -823,7 +823,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <div ref={dropProvided.innerRef} {...dropProvided.droppableProps}>
                   {items.map((item: any, i: number) => {
                     const proofOk = proofStatus[item.id]?.allApproved || item.artwork_status === "approved";
-                    const hasBlanks = ((item as any).blanks_order_cost ?? 0) > 0;
+                    const hasBlanks = (item as any).blanks_order_cost != null;
                     const stage = item.pipeline_stage;
                     const isSelected = selectedItemId === item.id;
                     return (

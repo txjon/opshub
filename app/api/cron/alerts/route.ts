@@ -122,9 +122,9 @@ export async function GET(req: NextRequest) {
       }
 
       // ── BLANKS NOT ORDERED (ready phase) ──
-      // Order total > 0 = ordered. Order # field was removed from UI.
+      // Non-null order total = ordered (0 = free/client-supplied blanks).
       if (job.phase === "ready") {
-        const unordered = items.filter(i => ((i as any).blanks_order_cost ?? 0) <= 0);
+        const unordered = items.filter(i => (i as any).blanks_order_cost == null);
         if (unordered.length > 0) {
           alerts.push({
             priority: 2,
@@ -139,7 +139,7 @@ export async function GET(req: NextRequest) {
       if (job.phase === "ready" || job.phase === "production") {
         const poSent = (job.type_meta as any)?.po_sent_vendors || [];
         const hasItems = items.length > 0;
-        const allBlanksOrdered = items.every(i => ((i as any).blanks_order_cost ?? 0) > 0);
+        const allBlanksOrdered = items.every(i => (i as any).blanks_order_cost != null);
         if (hasItems && allBlanksOrdered && poSent.length === 0) {
           alerts.push({
             priority: 2,

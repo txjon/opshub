@@ -140,10 +140,19 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
     const doSave = async () => {
       delete pendingSaves.current[key];
-      const dbVal = field === "blanks_order_cost" ? (parseFloat(String(value).replace(/[^0-9.\-]/g, "")) || null) : (value || null);
+      // Empty input → null (not ordered). An explicit "0" → 0 (ordered, free —
+      // e.g. client-supplied or already-owned blanks). null vs 0 is the
+      // ordered/not-ordered signal everywhere; never coerce 0 to null.
+      const parseCost = (value) => {
+        const s = String(value).replace(/[^0-9.\-]/g, "");
+        if (s === "") return null;
+        const n = parseFloat(s);
+        return isNaN(n) ? null : n;
+      };
+      const dbVal = field === "blanks_order_cost" ? parseCost(value) : (value || null);
       await supabase.from("items").update({ [field]: dbVal }).eq("id", itemId);
       if (onUpdateItem) onUpdateItem(itemId, { [field]: dbVal });
-      if (field === "blanks_order_cost" && dbVal && dbVal > 0) {
+      if (field === "blanks_order_cost" && dbVal != null) {
         const item = items.find(it => it.id === itemId);
         if (item) {
           const supplier = item.blank_vendor || "blank vendor";
@@ -180,7 +189,9 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
   // entry on the parent job so the order is traceable.
   async function applyBulkOrder() {
     const total = parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, ""));
-    if (!total || total <= 0) return;
+    // Allow exactly 0 (mark free/zero-cost blanks as ordered); reject only
+    // empty/invalid/negative input.
+    if (bulkTotal === "" || isNaN(total) || total < 0) return;
     const targets = items.filter(it => selectedIds.has(it.id));
     if (targets.length === 0) return;
 
@@ -504,16 +515,22 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                   onKeyDown={e => { if (e.key === "Enter") applyBulkOrder(); }}
                   style={{ width: 100, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 700, textAlign: "right", padding: 0 }} />
               </div>
-              <button onClick={applyBulkOrder}
-                disabled={!bulkTotal || parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, "")) <= 0}
-                style={{
-                  background: T.green, color: "#fff", border: "none", borderRadius: 5,
-                  padding: "6px 14px", fontSize: 12, fontWeight: 700, fontFamily: font,
-                  cursor: "pointer",
-                  opacity: !bulkTotal || parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, "")) <= 0 ? 0.5 : 1,
-                }}>
-                Apply
-              </button>
+              {(() => {
+                // Valid when a number ≥ 0 is entered (0 marks free blanks ordered).
+                const n = parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, ""));
+                const invalid = bulkTotal === "" || isNaN(n) || n < 0;
+                return (
+                  <button onClick={applyBulkOrder} disabled={invalid}
+                    style={{
+                      background: T.green, color: "#fff", border: "none", borderRadius: 5,
+                      padding: "6px 14px", fontSize: 12, fontWeight: 700, fontFamily: font,
+                      cursor: invalid ? "not-allowed" : "pointer",
+                      opacity: invalid ? 0.5 : 1,
+                    }}>
+                    Apply
+                  </button>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -553,9 +570,12 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           const effectiveOrderCost = (f.blanks_order_cost != null && f.blanks_order_cost !== "")
             ? f.blanks_order_cost
             : (item.blanks_order_cost != null ? item.blanks_order_cost : "");
-          const actualCost = effectiveOrderCost ? parseFloat(String(effectiveOrderCost).replace(/[^0-9.\-]/g, "")) : null;
+          // An order is "entered" when the field has any value — including 0
+          // (free blanks). Empty = not ordered. 0 must not read as null here.
+          const orderEntered = effectiveOrderCost !== "" && effectiveOrderCost != null;
+          const actualCost = orderEntered ? (parseFloat(String(effectiveOrderCost).replace(/[^0-9.\-]/g, "")) || 0) : null;
           const costDiff = calcCost !== null && actualCost !== null ? actualCost - calcCost : null;
-          const hasOrder = (actualCost ?? 0) > 0;
+          const hasOrder = orderEntered;
           const itemLetter = letterByItemId[item.id] || String.fromCharCode(65 + i);
           // QB invoice # is the primary reference for ordering. Format
           // matches the PO PDF naming: invoice number + item letter.
@@ -705,9 +725,9 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
       {/* Summary — counts items where the order total has been entered. */}
       <div style={{ fontSize: 11, color: T.muted, textAlign: "center" }}>
         {items.filter(it => {
-          const v = localFields[it.id]?.blanks_order_cost;
-          const n = v ? parseFloat(String(v).replace(/[^0-9.\-]/g, "")) : 0;
-          return n > 0;
+          const lv = localFields[it.id]?.blanks_order_cost;
+          const v = lv !== undefined ? lv : it.blanks_order_cost;
+          return v !== "" && v != null; // ordered if a total was entered, incl. 0
         }).length}/{items.length} items ordered
       </div>
     </div>

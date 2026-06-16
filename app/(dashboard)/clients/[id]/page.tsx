@@ -426,7 +426,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
         archivedAt: it.archived_at || null,
         completedAt: it.completed_at || null,
         receivedAtHpd: !!it.received_at_hpd,
-        blanksOrderCost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : 0,
+        blanksOrderCost: it.blanks_order_cost != null ? Number(it.blanks_order_cost) : null, // null = not ordered (0 = free, still ordered)
         decoratorName,
         poSent,
         totalQty: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (l.qty_ordered || 0), 0),

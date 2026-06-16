@@ -1,0 +1,23 @@
+{
+  "note": "Pre-copy backup of destination contact+address fields before mirroring Teeland - Embroidery.",
+  "decorator_id": "8bf64fd1-c309-46ae-9114-2f43983eb60f",
+  "name": "Teeland - Screen Printing",
+  "short_code": "TEELAND SCREEN",
+  "company_id": "4f9db6bd-bdd0-44cc-aa5c-5d67cd0b37bd",
+  "backed_up_at": "2026-05-26T17:43:53.743Z",
+  "previous_values": {
+    "contacts_list": [],
+    "contact_name": null,
+    "contact_email": null,
+    "contact_phone": null,
+    "phone": null,
+    "address": null,
+    "city": null,
+    "state": null,
+    "zip": null,
+    "ship_from_address": null,
+    "ship_from_city": null,
+    "ship_from_state": null,
+    "ship_from_zip": null
+  }
+}
