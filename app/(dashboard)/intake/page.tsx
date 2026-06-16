@@ -374,31 +374,7 @@ function DetailModal({
         )}
 
         {/* Files */}
-        {sub.files.length > 0 && (
-          <Section title={`Files (${sub.files.length})`}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {sub.files.map((f, i) => (
-                <a
-                  key={i}
-                  href={f.url || "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    fontSize: 12, color: T.text, textDecoration: "none",
-                    padding: "8px 12px", background: T.surface, borderRadius: 6,
-                    border: `1px solid ${T.border}`,
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                  }}
-                >
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.filename}</span>
-                  <span style={{ fontSize: 10, color: T.faint, marginLeft: 12 }}>
-                    {f.size ? `${Math.round(f.size / 1024)} KB` : ""}{f.url && " · open ↗"}
-                  </span>
-                </a>
-              ))}
-            </div>
-          </Section>
-        )}
+        {sub.files.length > 0 && <FilesSection files={sub.files} />}
 
         {/* Notes (legacy field, only if present) */}
         {sub.notes && (
@@ -594,6 +570,90 @@ function ConvertModal({
 }
 
 // ─── small components ──────────────────────────────────────────
+
+const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
+
+// Renders intake files as a preview grid. Image files show a thumbnail;
+// everything else shows a labeled tile. Fresh signed URLs are fetched
+// from the durable storage `path` on open (the bucket is private and
+// stored URLs can expire on cold leads), so previews never go stale.
+function FilesSection({ files }: { files: FileRef[] }) {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const paths = files.map(f => f.path).filter(Boolean) as string[];
+    if (!paths.length) { setLoading(false); return; }
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/intake/sign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paths }),
+        });
+        const data = await res.json();
+        if (alive && data?.urls) setUrls(data.urls);
+      } catch {
+        /* fall back to any stored url below */
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [files]);
+
+  return (
+    <Section title={`Files (${files.length})`}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 10 }}>
+        {files.map((f, i) => {
+          const url = (f.path && urls[f.path]) || f.url || null;
+          const isImage = IMAGE_RE.test(f.filename || "");
+          return (
+            <a
+              key={i}
+              href={url || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                textDecoration: "none", color: T.text,
+                background: T.surface, border: `1px solid ${T.border}`,
+                borderRadius: 8, overflow: "hidden", display: "block",
+              }}
+            >
+              <div style={{
+                height: 100, background: T.bg || T.surface,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                overflow: "hidden",
+              }}>
+                {isImage && url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={url}
+                    alt={f.filename || "art file"}
+                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                  />
+                ) : (
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: T.faint, textTransform: "uppercase" }}>
+                    {loading && isImage ? "Loading…" : (f.filename?.split(".").pop() || "file").toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <div style={{ padding: "8px 10px" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {f.filename || "file"}
+                </div>
+                <div style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>
+                  {f.size ? `${Math.round(f.size / 1024)} KB` : ""}{url ? " · open ↗" : ""}
+                </div>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

@@ -112,13 +112,30 @@ export async function POST(req: NextRequest) {
       ),
     })).filter(it => it.name || Object.keys(it.sizes).length > 0);
 
-    // Files — keep just what's meaningful for review later.
-    const files = (body.files || []).map(f => ({
-      filename: f.filename || null,
-      url: f.url || null,
-      size: typeof f.size === "number" ? f.size : null,
-      path: f.path || null,
-    })).filter(f => f.filename);
+    // Files — sign a fresh download URL from each storage path. By submit
+    // time the blob is already in the bucket, so signing succeeds here (it
+    // can't at upload-init time, before the PUT lands — that was the bug
+    // that silently dropped every intake file). `path` is the durable
+    // source of truth; the URL is a 30-day convenience link for the alert
+    // email + project notes, and /intake re-signs from path on view.
+    const FILE_URL_TTL = 60 * 60 * 24 * 30; // 30 days
+    const rawFiles = (body.files || [])
+      .map(f => ({
+        filename: f.filename || null,
+        size: typeof f.size === "number" ? f.size : null,
+        path: f.path || null,
+      }))
+      .filter(f => f.filename && f.path);
+    const files = await Promise.all(rawFiles.map(async (f) => {
+      let url: string | null = null;
+      if (f.path) {
+        const { data: signed } = await sb.storage
+          .from("intake-uploads")
+          .createSignedUrl(f.path, FILE_URL_TTL);
+        url = signed?.signedUrl || null;
+      }
+      return { filename: f.filename, url, size: f.size, path: f.path };
+    }));
 
     const insert = {
       status: "new" as const,
