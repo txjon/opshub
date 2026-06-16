@@ -28,9 +28,20 @@ export const SIZE_ORDER = [
   "YXS","YS","YM","YL","YXL",
 ];
 
+// Canonical display form for a size label: uppercases ONLY recognized simple
+// size tokens (s→S, 2xl→2XL) so Shopify's lowercase imports read cleanly.
+// Multi-dimensional / unknown labels (pants "Relaxed / 32 / 34", "One Size",
+// numeric waists) pass through untouched.
+export const canonicalSize = (s: string): string => {
+  const up = String(s).trim().toUpperCase();
+  return SIZE_ORDER.includes(up) ? up : s;
+};
+
 export const sortSizes = (sizes: string[]) =>
   [...sizes].sort((a, b) => {
-    const ai = SIZE_ORDER.indexOf(a), bi = SIZE_ORDER.indexOf(b);
+    // Case-insensitive: Shopify gives lowercase sizes ("s","m","2xl"); SIZE_ORDER
+    // is uppercase. Without this they miss the order and alpha-sort to a scramble.
+    const ai = SIZE_ORDER.indexOf(String(a).toUpperCase()), bi = SIZE_ORDER.indexOf(String(b).toUpperCase());
     if (ai === -1 && bi === -1) return a.localeCompare(b);
     if (ai === -1) return 1;
     if (bi === -1) return -1;
